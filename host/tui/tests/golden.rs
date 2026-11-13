@@ -33,6 +33,7 @@ fn quad(rect: Rect, fill: impl Into<Color>) -> Paint {
         border: None,
         shadow: None,
         clip: world(),
+        exact: None,
     })
 }
 
@@ -418,8 +419,9 @@ fn a_line_on_a_box_is_not_cut_by_the_words_the_box_was_laid_over() {
 
 #[test]
 fn what_is_laid_over_a_picture_is_laid_where_the_terminal_draws_that_part_of_it() {
-    // A picture whose edge is not a cell's: the terminal draws it over the cells it is nearest to, so its
-    // top is a little above where the page has it, and the part laid over it moves with it.
+    // A picture whose edge is not a cell's: the terminal draws it where the page has it, to the pixel
+    // (over the cells it touches, which are made over to hold it), so the part laid over it is where
+    // the page has it too.
     let faint = Color::from(Role::Accent).faded(0.3);
     let list = DrawList {
         items: vec![
@@ -433,12 +435,12 @@ fn what_is_laid_over_a_picture_is_laid_where_the_terminal_draws_that_part_of_it(
         .iter()
         .find(|placed| placed.z == -1)
         .expect("a picture over the picture");
-    // Where the page has it, a point of the picture 1.0 down it is at 1.6 of the grid, which is 19
-    // pixels down (12 a unit); the terminal draws that point at 1.176 of it, which is 14.
+    // A point of the picture 1.0 down it is at 1.6 of the grid, which is 19 pixels down (12 a unit):
+    // the terminal draws that point there.
     let (top, bottom) = inked_rows(mark).expect("it has colour");
     let first = u32::from(mark.row) * 24 + top;
-    assert_eq!(first, 14, "its top, in the terminal's pixels");
-    assert_eq!(u32::from(mark.row) * 24 + bottom, 42, "its bottom");
+    assert_eq!(first, 19, "its top, in the terminal's pixels");
+    assert_eq!(u32::from(mark.row) * 24 + bottom, 43, "its bottom");
 }
 
 #[test]
@@ -573,6 +575,7 @@ fn a_gradient_is_one_colour_to_a_pixel() {
             border: None,
             shadow: None,
             clip: world(),
+            exact: None,
         })],
     };
     let frame = render(&list, 4, 1, &dark(), &NoPictures, &Options::default());
@@ -601,6 +604,7 @@ fn a_border_is_a_pixel_wide_inside_the_box() {
             }),
             shadow: None,
             clip: world(),
+            exact: None,
         })],
     };
     let frame = render(&list, 6, 2, &dark(), &NoPictures, &Options::default());
@@ -652,6 +656,7 @@ fn bordered(
         }),
         shadow: None,
         clip: world(),
+        exact: None,
     })
 }
 
@@ -739,6 +744,7 @@ fn framed(
         }),
         shadow: None,
         clip: world(),
+        exact: None,
     })
 }
 
@@ -971,6 +977,101 @@ fn a_picture_is_placed_in_the_cells_of_its_box_and_the_cells_are_the_terminals()
     assert_eq!(bg(&frame, 1, 1), Bg::Rgb(dark().background));
     assert_eq!(bg(&frame, 10, 1), Bg::Rgb(dark().background));
     assert!(!frame.waiting);
+}
+
+/// What the pixels of a placement say about where its red is: how many rows and columns have some.
+fn red_across(placed: &pencere_tui::Placement) -> (u32, u32) {
+    let (width, height) = (placed.width as usize, placed.height as usize);
+    let pixels = placed.rgba();
+    let is_red = |x: usize, y: usize| {
+        pixels.get((y * width + x) * 4..(y * width + x) * 4 + 4) == Some(&[255, 0, 0, 255][..])
+    };
+    let rows = (0..height)
+        .filter(|&y| (0..width).any(|x| is_red(x, y)))
+        .count();
+    let columns = (0..width)
+        .filter(|&x| (0..height).any(|y| is_red(x, y)))
+        .count();
+    (columns as u32, rows as u32)
+}
+
+#[test]
+fn a_square_picture_is_a_square_on_the_pixels_of_a_terminal_whose_cell_is_not_one_to_two() {
+    // The page is laid out in a cell of one by two; this terminal's is nine pixels by twenty, so the
+    // box of twelve by twelve (twelve columns, six rows) is 108 by 120 of its pixels.
+    let options = Options {
+        pixels: (9, 20),
+        ..Options::default()
+    };
+    let list = DrawList {
+        items: vec![picture(Rect::new(0.0, 0.0, 12.0, 12.0), None)],
+    };
+    let frame = render(&list, 12, 6, &dark(), &One(red(4, 4)), &options);
+    let [placed] = &frame.placements[..] else {
+        panic!("one picture: {:?}", frame.placements.len());
+    };
+    assert_eq!((placed.cols, placed.rows), (12, 6));
+    assert_eq!((placed.width, placed.height), (108, 120));
+    // The picture is 108 across and 108 down, in the middle of the 120 of its cells; the rest of them is
+    // their ground, which the picture covers.
+    assert_eq!(red_across(placed), (108, 108));
+    // A picture that fills its box (cut at its sides) fills all of it, and is stretched to its cells.
+    let mut cover = picture(Rect::new(0.0, 0.0, 12.0, 12.0), None);
+    if let Paint::Image(picture) = &mut cover {
+        picture.crop = Rect::new(0.0, 0.25, 1.0, 0.5);
+        picture.shown = picture.crop;
+    }
+    let list = DrawList { items: vec![cover] };
+    let frame = render(&list, 12, 6, &dark(), &One(red(4, 4)), &options);
+    let [placed] = &frame.placements[..] else {
+        panic!("one picture");
+    };
+    assert_eq!(
+        (placed.col, placed.row, placed.cols, placed.rows),
+        (0, 0, 12, 6)
+    );
+    assert!(
+        placed
+            .rgba()
+            .chunks(4)
+            .all(|pixel| pixel == [255, 0, 0, 255]),
+        "it covers its cells and leaves none of them bare"
+    );
+}
+
+#[test]
+fn an_icon_is_stretched_over_the_cells_it_is_nearest_and_a_picture_on_the_cells_is_sent_as_it_is() {
+    // A terminal with the page's own proportions and a picture that is on its cells: nothing is made
+    // over, the picture's pixels go as they are.
+    let options = Options {
+        pixels: (10, 20),
+        ..Options::default()
+    };
+    let list = DrawList {
+        items: vec![picture(Rect::new(2.0, 2.0, 8.0, 6.0), None)],
+    };
+    let frame = render(&list, COLS, 5, &dark(), &One(red(4, 4)), &options);
+    let [placed] = &frame.placements[..] else {
+        panic!("one picture");
+    };
+    assert_eq!((placed.width, placed.height), (4, 4));
+    // An icon is not moved to a place that its pixels would say: its cells are the nearest to its box,
+    // and it fills them.
+    let list = DrawList {
+        items: vec![picture(
+            Rect::new(1.0, 0.0, 1.5, 1.6),
+            Some(Role::Accent.solid()),
+        )],
+    };
+    let frame = render(&list, 4, 1, &dark(), &One(red(16, 16)), &options);
+    let [placed] = &frame.placements[..] else {
+        panic!("one icon");
+    };
+    assert_eq!(
+        (placed.col, placed.row, placed.cols, placed.rows),
+        (1, 0, 2, 1)
+    );
+    assert_eq!((placed.width, placed.height), (16, 16));
 }
 
 #[test]

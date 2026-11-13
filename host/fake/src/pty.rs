@@ -123,6 +123,17 @@ impl Pty {
             .split_first()
             .ok_or_else(|| io::Error::other("no program to run"))?;
         let mut command = Command::new(name);
+        // The program's terminal is this one, whatever the terminal this runs in is: what tmux and
+        // screen set for their panes is not the program's (a program that sees them draws its own screen
+        // and offers itself to no host).
+        for name in ["TMUX", "STY", "TERM_PROGRAM"] {
+            command.env_remove(name);
+        }
+        if std::env::var("TERM")
+            .is_ok_and(|term| term.starts_with("screen") || term.starts_with("tmux"))
+        {
+            command.env("TERM", "xterm-256color");
+        }
         command.envs(env.iter().map(|(name, value)| (name, value)));
         if let Some(cwd) = cwd {
             command.current_dir(cwd);

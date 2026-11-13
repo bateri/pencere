@@ -1,9 +1,13 @@
 //! What the terminal can do, asked of it.
 //!
-//! The questions go out together and the terminal answers the ones it knows, in order; the last
-//! question is the one every terminal answers (the device attributes), so that its answer says no
-//! more is coming and a terminal that knows none of the others is not waited for. A terminal that
-//! never answers is waited for [`PATIENCE`] at the most.
+//! The questions go out in two rounds, each ending with the one every terminal answers (the device
+//! attributes), so that its answer says no more is coming and a terminal that knows none of the others
+//! is not waited for. The first asks the colours, the keyboard and what the terminal is; the second,
+//! the one whether it draws pictures, goes out only to a terminal that is not a multiplexer: tmux and
+//! screen keep what they are sent in a string of that kind (the Kitty graphics query) for the title of
+//! the pane, and do not draw the pictures of the terminal behind them. A terminal that never answers is
+//! waited for [`PATIENCE`] at the most, once: the second round is not sent to one that did not answer
+//! the first.
 
 use std::time::{Duration, Instant};
 
@@ -13,18 +17,26 @@ use crate::input::{Decoder, Event, Reply, Slot};
 use crate::output::Depth;
 use crate::theme::Theme;
 
-/// The longest the answers are waited for.
+/// The longest the answers of a round are waited for.
 const PATIENCE: Duration = Duration::from_millis(1000);
 
-/// The colours, the text colour and ground and the sixteen of the palette; whether the keyboard has
-/// the Kitty protocol; whether the Kitty graphics protocol takes a picture; the device attributes.
+/// The first round: the colours, the text colour and ground and the sixteen of the palette; whether the
+/// keyboard has the Kitty protocol; what the terminal is, by its version and by its kind; the device
+/// attributes.
 pub(crate) fn questions() -> Vec<u8> {
     let mut out = String::from("\x1b]10;?\x1b\\\x1b]11;?\x1b\\");
     for index in 0..16 {
         out.push_str(&format!("\x1b]4;{index};?\x1b\\"));
     }
     out.push_str("\x1b[?u");
-    out.push_str("\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\");
+    out.push_str("\x1b[>q\x1b[>c");
+    out.push_str("\x1b[c");
+    out.into_bytes()
+}
+
+/// The second round: whether the Kitty graphics protocol takes a picture; the device attributes.
+pub(crate) fn graphics_question() -> Vec<u8> {
+    let mut out = String::from("\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\");
     out.push_str("\x1b[c");
     out.into_bytes()
 }
@@ -41,6 +53,9 @@ pub(crate) struct Found {
     pub graphics: bool,
     /// The Kitty keyboard protocol is there.
     pub keyboard: bool,
+    /// The terminal is tmux or screen: by what the environment says or by what the terminal said it
+    /// is. It is not asked about pictures, and draws none.
+    pub multiplexer: bool,
     /// The terminal answered to the last question (the device attributes), so that nothing more was
     /// waited for.
     pub fenced: bool,
@@ -51,11 +66,14 @@ pub(crate) struct Found {
 pub(crate) struct Guess {
     pub theme: Theme,
     pub depth: Depth,
+    /// The environment says the program runs in tmux or screen.
+    pub multiplexer: bool,
 }
 
 impl Guess {
-    /// From the environment: `PENCERE_TUI_THEME` (`light` or `dark`) and `COLORTERM` (`truecolor`
-    /// or `24bit` is true colour, anything else the 256 of the palette).
+    /// From the environment: `PENCERE_TUI_THEME` (`light` or `dark`), `COLORTERM` (`truecolor`
+    /// or `24bit` is true colour, anything else the 256 of the palette), and whether it is tmux or
+    /// screen's ([`pencere::in_multiplexer`]).
     pub(crate) fn from_environment() -> Self {
         let theme = match std::env::var("PENCERE_TUI_THEME").as_deref() {
             Ok("light") => Theme::light(),
@@ -65,8 +83,18 @@ impl Guess {
             Ok("truecolor" | "24bit") => Depth::True,
             _ => Depth::Indexed,
         };
-        Self { theme, depth }
+        Self {
+            theme,
+            depth,
+            multiplexer: pencere::in_multiplexer(),
+        }
     }
+}
+
+/// Whether a terminal that names itself so (`tmux 3.7c`, `screen`) is a multiplexer.
+fn multiplexer_named(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.starts_with("tmux") || name.starts_with("screen")
 }
 
 /// What the terminal answered, put together: the colours it gave over the guess's.
@@ -75,6 +103,7 @@ fn found(guess: &Guess, replies: &[Reply], fenced: bool) -> Found {
     let mut colors = false;
     let mut graphics = false;
     let mut keyboard = false;
+    let mut multiplexer = guess.multiplexer;
     // The ground first: it says whether the palette that fills the rest is a light one's or a
     // dark one's.
     if let Some(background) = replies.iter().find_map(|reply| match reply {
@@ -104,6 +133,7 @@ fn found(guess: &Guess, replies: &[Reply], fenced: bool) -> Found {
             }
             Reply::Graphics { ok } => graphics |= *ok,
             Reply::KeyboardFlags(_) => keyboard = true,
+            Reply::Name(name) => multiplexer |= multiplexer_named(name),
             Reply::Attributes(_) | Reply::Cursor { .. } => {}
         }
     }
@@ -111,8 +141,10 @@ fn found(guess: &Guess, replies: &[Reply], fenced: bool) -> Found {
         theme,
         colors,
         depth: guess.depth,
-        graphics,
+        // A multiplexer does not draw the pictures of the terminal behind it, whatever answered.
+        graphics: graphics && !multiplexer,
         keyboard,
+        multiplexer,
         fenced,
     }
 }
@@ -125,11 +157,32 @@ pub(crate) fn ask(
     early: &mut Vec<Event>,
     guess: &Guess,
 ) -> Result<Found, i32> {
-    if tty.write_all(&questions()).is_err() {
-        return Ok(found(guess, &[], false));
+    let mut replies = Vec::new();
+    let fenced = round(tty, decoder, early, &questions(), &mut replies)?;
+    let said = found(guess, &replies, fenced);
+    // The second round goes to a terminal that answered the first (one that is mute is not waited for
+    // again) and is not a multiplexer (which would keep the question for its title).
+    if !fenced || said.multiplexer {
+        return Ok(said);
+    }
+    let fenced = round(tty, decoder, early, &graphics_question(), &mut replies)?;
+    Ok(found(guess, &replies, fenced))
+}
+
+/// Writes `questions` and reads the replies into `replies` until the device attributes come, or the
+/// terminal has been waited for [`PATIENCE`]: whether they came. `Err` is the signal that ended the
+/// wait.
+fn round(
+    tty: &Tty<'_>,
+    decoder: &mut Decoder,
+    early: &mut Vec<Event>,
+    questions: &[u8],
+    replies: &mut Vec<Reply>,
+) -> Result<bool, i32> {
+    if tty.write_all(questions).is_err() {
+        return Ok(false);
     }
     let deadline = Instant::now() + PATIENCE;
-    let mut replies = Vec::new();
     let mut buffer = [0_u8; 4096];
     let mut done = false;
     while !done {
@@ -165,7 +218,7 @@ pub(crate) fn ask(
             break;
         }
     }
-    Ok(found(guess, &replies, done))
+    Ok(done)
 }
 
 #[cfg(test)]
@@ -177,6 +230,7 @@ mod tests {
         Guess {
             theme: Theme::dark(),
             depth: Depth::Indexed,
+            multiplexer: false,
         }
     }
 
@@ -213,5 +267,36 @@ mod tests {
         let questions = questions();
         assert!(questions.ends_with(b"\x1b[c"));
         assert!(questions.starts_with(b"\x1b]10;?"));
+        assert!(graphics_question().ends_with(b"\x1b[c"));
+    }
+
+    #[test]
+    fn the_question_of_pictures_is_not_in_the_first_round() {
+        let has = |bytes: &[u8]| bytes.windows(4).any(|window| window == b"a=q,");
+        assert!(!has(&questions()));
+        assert!(has(&graphics_question()));
+    }
+
+    #[test]
+    fn a_terminal_that_says_it_is_tmux_draws_no_pictures_whatever_answers() {
+        let replies = [
+            Reply::Name("tmux 3.7c".to_owned()),
+            Reply::Graphics { ok: true },
+        ];
+        let found = found(&guess(), &replies, true);
+        assert!(found.multiplexer && !found.graphics);
+        let ghostty = [
+            Reply::Name("ghostty 1.2".to_owned()),
+            Reply::Graphics { ok: true },
+        ];
+        let found = super::found(&guess(), &ghostty, true);
+        assert!(!found.multiplexer && found.graphics);
+        // And what the environment says is enough.
+        let by_environment = Guess {
+            multiplexer: true,
+            ..guess()
+        };
+        let found = super::found(&by_environment, &[Reply::Graphics { ok: true }], true);
+        assert!(found.multiplexer && !found.graphics);
     }
 }

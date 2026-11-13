@@ -156,6 +156,28 @@ pub(crate) struct Node {
     /// It is put where the page says (laid over the rest, or an overlay), not where the box it is
     /// in has room for it.
     pub placed: bool,
+    /// On a grid, where the box stands and how large it is with no grid to round it: the size the
+    /// page wrote for it, in the middle of the cells that came of it; and for a box laid over the
+    /// rest (`absolute`) inside one that has such a place, the place the page wrote for it on that
+    /// one's. `None` where the page wrote no such size, where the box is not what rounding made
+    /// of it (it was made smaller or larger than the grid's rounding), and on every page that has
+    /// no grid. Its place is from the corner of `rect` (which goes where the box is scrolled to):
+    /// [`Node::exact_rect`] is where it stands on the page.
+    exact: Option<Rect>,
+}
+
+impl Node {
+    /// Where the box stands with no grid to round it, on the page ([`Node::exact`]).
+    pub(crate) fn exact_rect(&self) -> Option<Rect> {
+        self.exact.map(|exact| {
+            Rect::new(
+                self.rect.x + exact.x,
+                self.rect.y + exact.y,
+                exact.w,
+                exact.h,
+            )
+        })
+    }
 }
 
 /// A page laid out: every element's box, in the order they are painted.
@@ -237,6 +259,11 @@ struct Pending {
     absolute: bool,
     anchor: Option<Anchor>,
     thin: (f32, f32),
+    /// On a grid, the width and the height the page wrote for it, where it wrote both, pixels.
+    written: Option<(f32, f32)>,
+    /// Where the page wrote the box's sides to be inside the one it is laid over (top, right, bottom,
+    /// left), pixels.
+    sides: [Option<f32>; 4],
     /// It centres what is in it down the box (a row, or a grid, whose items are centred).
     centres_down: bool,
 }
@@ -444,6 +471,9 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
     let mut inside: Vec<[f32; 4]> = Vec::with_capacity(pending.len());
     // Whether each box centres what is in it down the box.
     let mut centres: Vec<bool> = Vec::with_capacity(pending.len());
+    // Where each box stands with no grid to round it ([`Node::exact`]), and how far what it scrolls
+    // moves its children.
+    let mut exacts: Vec<Option<(Rect, (f32, f32))>> = Vec::with_capacity(pending.len());
     for entry in pending {
         let Ok(laid) = tree.layout(entry.id) else {
             // A node Taffy does not know: nothing of it (cannot happen — its own ids).
@@ -452,6 +482,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             reach.push((0.0, 0.0));
             inside.push([0.0; 4]);
             centres.push(false);
+            exacts.push(None);
             continue;
         };
         let (ox, oy, outer_clip, outer_hidden) = entry
@@ -473,6 +504,15 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             laid.size.width * unit.x,
             laid.size.height * unit.y,
         );
+        let exact = exact_of(
+            &entry,
+            rect,
+            entry
+                .parent
+                .and_then(|parent| exacts.get(parent).copied().flatten()),
+            unit,
+        );
+        exacts.push(exact.map(|exact| (exact, (-entry.scroll.0, -entry.scroll.1))));
         let hidden = outer_hidden || entry.hidden;
         let own_clip = if entry.overflow == Overflow::Visible {
             outer_clip
@@ -555,6 +595,8 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
                 laid.padding.bottom * unit.y,
             ],
             placed: entry.overlay || entry.absolute,
+            exact: exact
+                .map(|exact| Rect::new(exact.x - rect.x, exact.y - rect.y, exact.w, exact.h)),
         });
     }
     // `nodes`, `reach` and `inside` get one entry for every element: they are the same length.
@@ -910,6 +952,46 @@ fn natural_size(said: Option<Size>, scale: f32) -> Option<Size> {
     (fits(said.w) && fits(said.h)).then(|| Size::new(said.w * scale, said.h * scale))
 }
 
+/// Where a box stands with no grid to round it, on a grid: `rect` is the box the grid made, `held` the
+/// place and the scroll of the box that holds it where it has one of its own. A box the page wrote
+/// both sides of is the written size in the middle of `rect`, where `rect` is what rounding to the
+/// cells made of it (no more than a cell off on each side); one laid over the rest of what holds it
+/// is where the page wrote it to be on the written place of that.
+fn exact_of(
+    entry: &Pending,
+    rect: Rect,
+    held: Option<(Rect, (f32, f32))>,
+    unit: Units,
+) -> Option<Rect> {
+    if !unit.grid || entry.overlay {
+        return None;
+    }
+    let (width, height) = entry.written?;
+    if entry.absolute {
+        let (holder, (across, down)) = held?;
+        let [top, right, bottom, left] = entry.sides;
+        let x = match (left, right) {
+            (Some(left), _) => holder.x + left,
+            (None, Some(right)) => holder.x + holder.w - right - width,
+            (None, None) => return None,
+        };
+        let y = match (top, bottom) {
+            (Some(top), _) => holder.y + top,
+            (None, Some(bottom)) => holder.y + holder.h - bottom - height,
+            (None, None) => return None,
+        };
+        return Some(Rect::new(x + across, y + down, width, height));
+    }
+    ((rect.w - width).abs() <= unit.x && (rect.h - height).abs() <= unit.y).then(|| {
+        Rect::new(
+            rect.x + (rect.w - width) / 2.0,
+            rect.y + (rect.h - height) / 2.0,
+            width,
+            height,
+        )
+    })
+}
+
 fn empty(page: Rect) -> Node {
     Node {
         rect: Rect::default(),
@@ -935,6 +1017,7 @@ fn empty(page: Rect) -> Node {
         thin_down: 0.0,
         pad: [0.0; 4],
         placed: false,
+        exact: None,
     }
 }
 
@@ -1049,6 +1132,13 @@ fn build(
             unit.thin(style.width, scale, unit.x),
             unit.thin(style.height, scale, unit.y),
         ),
+        written: match (style.width, style.height) {
+            (Length::Px(width), Length::Px(height)) if unit.grid && width > 0.0 && height > 0.0 => {
+                Some((width * scale, height * scale))
+            }
+            _ => None,
+        },
+        sides: style.inset.map(|side| side.map(|points| points * scale)),
         centres_down: style.items == Some(Items::Center)
             && match style.display {
                 Display::Flex => style.direction == Direction::Row,

@@ -23,6 +23,11 @@ pub struct Quad {
     pub border: Option<Border>,
     pub shadow: Option<Shadow>,
     pub clip: Rect,
+    /// Where the box stands and how large it is where no grid rounds it to cells: what the page
+    /// wrote, as [`Node::exact`](crate::layout::Node) says, in the page's own pixels. `None` where
+    /// the page has no grid or wrote no such place for the box. A host that draws a box more
+    /// finely than its cells (a mark on a word of a picture) draws it here and not on `rect`.
+    pub exact: Option<Rect>,
 }
 
 /// One line of text: `origin` is the top-left of its line box. Already cut to fit its box
@@ -102,6 +107,19 @@ pub struct Picture {
 }
 
 impl Picture {
+    /// The same picture drawn as `rect` and `crop` say: for a host that draws it somewhere other than
+    /// where the page put it (on the terminal's pixels, where its box is cells), with what of it is
+    /// seen worked out again.
+    #[must_use]
+    pub fn refit(&self, rect: Rect, crop: Rect) -> Self {
+        Self {
+            rect,
+            crop,
+            shown: shown_of(rect, crop, self.clip, self.turn),
+            ..self.clone()
+        }
+    }
+
     /// The size in pixels the **whole** image comes to when it is drawn as `rect` and `crop` say
     /// (for `cover`, more than `rect`): what a host rasterises a vector image at, and rounds up
     /// to whole pixels. The image is never smaller than a pixel.
@@ -235,6 +253,7 @@ impl Laid {
                         ..shadow
                     }),
                     clip: node.clip,
+                    exact: node.exact_rect().filter(|_| node.thin == (0.0, 0.0)),
                 }));
             }
             match &node.content {
@@ -384,6 +403,7 @@ fn paint_rich(list: &mut DrawList, node: &Node, rich: &Rich, grounds: &[Color]) 
                 border: None,
                 shadow: None,
                 clip,
+                exact: None,
             }));
             under.insert(0, background);
         }
@@ -443,11 +463,19 @@ fn shown_of(rect: Rect, crop: Rect, clip: Rect, turn: f32) -> Rect {
 fn place_image(node: &Node, image: &Placed) -> Option<Picture> {
     let natural = image.natural?;
     let [top, right, bottom, left] = image.inset;
+    // Where the page wrote the image's box to be, in the middle of the cells that are its box on a
+    // grid, where it did: the image keeps its proportions to the pixel and is not stretched to the
+    // cells (a host that draws more finely than they do draws it there). A tinted image is an icon,
+    // which fills its cells as a character does, and stays where the grid put it.
+    let held = match image.tint {
+        Some(_) => node.rect,
+        None => node.exact_rect().unwrap_or(node.rect),
+    };
     let room = Rect::new(
-        node.rect.x + left,
-        node.rect.y + top,
-        node.rect.w - left - right,
-        node.rect.h - top - bottom,
+        held.x + left,
+        held.y + top,
+        held.w - left - right,
+        held.h - top - bottom,
     );
     if room.w <= 0.0 || room.h <= 0.0 {
         return None;
@@ -657,6 +685,7 @@ fn paint_spark(
             border: None,
             shadow: None,
             clip,
+            exact: None,
         })
     };
     let area = Color {

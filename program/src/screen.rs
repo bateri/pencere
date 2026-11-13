@@ -18,6 +18,61 @@ use crate::session::PanicHook;
 use crate::terminal::{self, ENTER_ALTERNATE, Modes, Pipe, TakeError, Taken, Terminal};
 use crate::{Error, Lent, foreground};
 
+/// Whether the environment says the program runs in tmux or screen: the variables they set for what runs
+/// in them, and the terminal's name, which an `ssh` carries over to the machine on the other side (where
+/// their variables are not) and which both give their windows (`screen`, `screen-256color`,
+/// `tmux-256color`). Neither passes what a host is asked in a string of its own (tmux and screen keep it
+/// for the title of the window) or draws the pictures of the terminal behind it, so that the program
+/// draws its own screen without asking.
+#[must_use]
+pub fn in_multiplexer() -> bool {
+    multiplexed(|name| std::env::var(name).ok())
+}
+
+fn multiplexed(var: impl Fn(&str) -> Option<String>) -> bool {
+    let set = |name: &str| var(name).is_some_and(|value| !value.is_empty());
+    let named = |name: &str| {
+        var(name).is_some_and(|value| {
+            let value = value.to_ascii_lowercase();
+            value.starts_with("screen") || value.starts_with("tmux")
+        })
+    };
+    set("TMUX") || set("STY") || named("TERM") || var("TERM_PROGRAM").as_deref() == Some("tmux")
+}
+
+#[cfg(test)]
+mod multiplexer_tests {
+    use super::multiplexed;
+
+    fn said(pairs: &'static [(&'static str, &'static str)]) -> bool {
+        multiplexed(move |name| {
+            pairs
+                .iter()
+                .find(|(have, _)| *have == name)
+                .map(|(_, value)| (*value).to_owned())
+        })
+    }
+
+    #[test]
+    fn the_environment_of_tmux_and_screen_says_so() {
+        assert!(said(&[("TMUX", "/tmp/tmux-501/default,1,0")]));
+        assert!(said(&[("STY", "123.pts-0.host")]));
+        assert!(said(&[("TERM", "screen-256color")]));
+        assert!(said(&[("TERM", "tmux-256color")]));
+        assert!(said(&[
+            ("TERM", "xterm-256color"),
+            ("TERM_PROGRAM", "tmux")
+        ]));
+        assert!(!said(&[("TERM", "xterm-256color")]));
+        assert!(!said(&[
+            ("TERM", "xterm-ghostty"),
+            ("TMUX", ""),
+            ("STY", "")
+        ]));
+        assert!(!said(&[]));
+    }
+}
+
 /// How large the terminal's window is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Size {

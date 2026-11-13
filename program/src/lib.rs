@@ -70,7 +70,9 @@
 //! characters of the terminal ([`Options::screen`]): the program's options and the terminal, as a
 //! [`Tty`], are handed to it, and `serve` returns how the view closed as any view's. The
 //! environment variable [`SCREEN_VARIABLE`] forces it (`1`, even where a terminal hosts views) or
-//! keeps it from running (`0`).
+//! keeps it from running (`0`). In tmux and screen ([`in_multiplexer`]) the terminal is not asked
+//! first either: neither passes the question to a host, and both keep what they are sent in such a
+//! string for the title of the window.
 
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
@@ -120,7 +122,7 @@ pub use files::{
 };
 pub use handlers::{Answer, Call, Subscription, ViewError};
 pub use log::{LogLevel, RESERVED_PREFIX};
-pub use screen::{Ready, Size, Tty, Waker};
+pub use screen::{Ready, Size, Tty, Waker, in_multiplexer};
 pub use terminal::Terminal;
 pub use view::{Access, Icon, IconTheme, Kind, Permission, View, WEB_VERSION};
 
@@ -757,8 +759,9 @@ pub fn serve(mut options: Options) -> Result<Outcome, Error> {
     let screen = options.screen.take();
     let wish = std::env::var(SCREEN_VARIABLE).ok();
     let screen = screen.filter(|_| wish.as_deref() != Some("0"));
-    let outcome = if screen.is_some() && wish.as_deref() == Some("1") {
-        // No terminal is asked: the person wants the program's own screen.
+    let outcome = if screen.is_some() && (wish.as_deref() == Some("1") || in_multiplexer()) {
+        // No terminal is asked: the person wants the program's own screen, or the terminal is one
+        // that has no host to answer (and would show the question as the title of its window).
         Ok(Outcome::NoView(NoView {
             reason: if terminal.is_tty() {
                 NoViewReason::NoHost

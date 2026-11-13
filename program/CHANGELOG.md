@@ -36,6 +36,9 @@ All notable changes to the `pencere` crate are recorded here. The format follows
   be received, so that a reader that waits on the terminal need not look for it.
 - **`View::kind`, `View::versions`, `View::bundle(version)` and `Bundle::get(path)`:** what a host
   that shows the view itself reads of a view and its files. `Options::views` lists the views.
+- **`in_multiplexer()` says whether the program runs inside tmux or screen.** Where it does and draws
+  its own screen, the program does not offer itself to a host that is not there: the offer would be the
+  pane's title.
 
 ## [0.4.1] - 2026-11-05
 

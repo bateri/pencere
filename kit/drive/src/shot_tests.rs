@@ -30,6 +30,7 @@ fn quad(rect: Rect, role: Role) -> Paint {
         border: None,
         shadow: None,
         clip: Rect::new(0.0, 0.0, 120.0, 60.0),
+        exact: None,
     })
 }
 
@@ -131,6 +132,7 @@ fn a_rounded_box_cut_by_its_clip_is_cut_straight_and_keeps_its_own_corners() {
             border: None,
             shadow: None,
             clip: Rect::new(0.0, 0.0, 40.0, 20.0),
+            exact: None,
         })],
     };
     let drawn = png(&list, (40, 40), &Fonts::none(), None, Palette::Dark).expect("a picture");

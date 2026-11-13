@@ -1108,6 +1108,7 @@ impl View {
                 border: None,
                 shadow: None,
                 clip,
+                exact: None,
             })
         };
         let in_view = |row: &&Row| {
@@ -1300,6 +1301,7 @@ impl View {
                         }),
                         shadow: None,
                         clip: text_clip,
+                        exact: None,
                     }));
                 }
             }
@@ -1453,6 +1455,7 @@ impl View {
             border,
             shadow: glow,
             clip,
+            exact: None,
         })
     }
 
@@ -1599,6 +1602,7 @@ impl View {
                         border: None,
                         shadow: None,
                         clip,
+                        exact: None,
                     }));
                 }
             }
@@ -1656,6 +1660,7 @@ impl View {
                     border: None,
                     shadow: None,
                     clip,
+                    exact: None,
                 }));
             }
             if let Some(color) = colors.folds.or(Role::Dim.solid()) {
@@ -1780,6 +1785,7 @@ impl View {
             border: None,
             shadow: None,
             clip,
+            exact: None,
         })
     }
 
@@ -1802,6 +1808,7 @@ impl View {
             border: None,
             shadow: None,
             clip,
+            exact: None,
         })
     }
 
@@ -1865,6 +1872,7 @@ impl View {
             }),
             shadow: None,
             clip,
+            exact: None,
         })
     }
 
@@ -1990,6 +1998,7 @@ impl View {
                 border: None,
                 shadow: None,
                 clip,
+                exact: None,
             })),
             Underline::Wavy(color) => {
                 // A figure is drawn in points of its box: up and down every two points.
@@ -2046,6 +2055,7 @@ impl View {
                 border: None,
                 shadow: None,
                 clip,
+                exact: None,
             }));
         }
         // The main caret's line where the page draws it in the gutter too, `y` its top.
@@ -2058,6 +2068,7 @@ impl View {
                 border: None,
                 shadow: None,
                 clip,
+                exact: None,
             }));
         }
         let grounds = ground.map_or_else(|| slot.grounds.clone(), |ground| vec![ground]);
@@ -2404,6 +2415,7 @@ impl View {
                 border: None,
                 shadow: None,
                 clip,
+                exact: None,
             })
         };
         match shape {
@@ -2554,6 +2566,7 @@ impl View {
                 border: None,
                 shadow: None,
                 clip: slot.clip.intersect(room),
+                exact: None,
             }));
         }
     }

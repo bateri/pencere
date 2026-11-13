@@ -946,3 +946,158 @@ fn a_hairline_put_against_the_top_of_a_box_is_not_moved_to_the_middle_by_the_row
         );
     assert_eq!(quads_of(tab, true), [(0.0, 2.0)]);
 }
+
+// --- Where a box stands with no grid to round it -------------------------------------------------------
+
+/// A grid of eight by eighteen points that knows one image, a square of 240.
+struct Pictured;
+
+impl Measure for Pictured {
+    fn measure(&mut self, font: &Font, text: &str) -> Metrics {
+        Cells.measure(font, text)
+    }
+
+    fn grid(&self) -> Option<Grid> {
+        Cells.grid()
+    }
+
+    fn image(&mut self, _src: &str, _page: u32) -> Option<Size> {
+        Some(Size::new(240.0, 240.0))
+    }
+}
+
+/// The box `holder` is, on a page of the grid, and what is drawn for it.
+fn drawn(holder: Element) -> (Rect, Vec<crate::Paint>) {
+    let root = div()
+        .row()
+        .items_start()
+        .w(400.0)
+        .h(600.0)
+        .child(holder.id(BOX));
+    let laid = layout(root, Size::new(400.0, 600.0), 1.0, &mut Pictured);
+    let list = laid.paint(&mut Pictured);
+    (laid.bounds(BOX).expect("the box"), list.items)
+}
+
+fn pictures_of(items: &[crate::Paint]) -> Vec<crate::Picture> {
+    items
+        .iter()
+        .filter_map(|item| match item {
+            crate::Paint::Image(picture) => Some(picture.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn an_image_written_both_sides_is_those_sides_in_the_middle_of_its_cells() {
+    use crate::Fit;
+    // A hundred points is not a number of cells: the box is the cells nearest it, and the image is a
+    // square of the hundred, in the middle of them, as a host that draws more finely than the cells
+    // draws it.
+    let (cells, items) = drawn(crate::image("a.png", Fit::Contain).w(100.0).h(100.0));
+    assert!(
+        cells.w != 100.0 || cells.h != 100.0,
+        "the cells are not the written sides"
+    );
+    let [picture] = pictures_of(&items).try_into().expect("one picture");
+    assert_eq!((picture.rect.w, picture.rect.h), (100.0, 100.0));
+    let middle = |rect: Rect| (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
+    assert_eq!(middle(picture.rect), middle(cells));
+}
+
+#[test]
+fn an_image_that_fills_its_box_fills_the_written_sides_and_not_the_cells() {
+    use crate::Fit;
+    let (cells, items) = drawn(crate::image("a.png", Fit::Cover).w(100.0).h(60.0));
+    let [picture] = pictures_of(&items).try_into().expect("one picture");
+    assert_eq!((picture.rect.w, picture.rect.h), (100.0, 60.0));
+    // What of the square it shows is the share the written box has of it, not the cells'.
+    assert!(
+        (picture.crop.h - 0.6).abs() < 1e-4,
+        "{:?} in {cells:?}",
+        picture.crop
+    );
+}
+
+#[test]
+fn a_tinted_image_is_an_icon_and_stays_on_the_cells() {
+    use crate::{Fit, Role};
+    let (cells, items) = drawn(
+        crate::image("a.svg", Fit::Contain)
+            .tint(Role::Accent)
+            .w(16.0)
+            .h(16.0),
+    );
+    let [picture] = pictures_of(&items).try_into().expect("one picture");
+    let held = (cells.w.min(cells.h), cells.w.min(cells.h));
+    assert_eq!(
+        (picture.rect.w, picture.rect.h),
+        held,
+        "the icon is as large as its cells let it be"
+    );
+}
+
+#[test]
+fn a_box_laid_over_an_image_is_where_the_page_wrote_it_on_the_written_image() {
+    use crate::{Fit, Paint, Role};
+    // A mark of a found word over the page it is on: it stands where it was written on the page's
+    // own pixels, not on the cells that the page's box came to.
+    let page = div()
+        .w(100.0)
+        .h(100.0)
+        .no_shrink()
+        .child(crate::image("a.png", Fit::Contain).w(100.0).h(100.0))
+        .child(
+            div()
+                .absolute()
+                .inset(Some(10.0), None, None, Some(20.0))
+                .w(30.0)
+                .h(14.0)
+                .bg(Role::Accent),
+        );
+    let (cells, items) = drawn(page);
+    let [picture] = pictures_of(&items).try_into().expect("one picture");
+    let mark = items
+        .iter()
+        .find_map(|item| match item {
+            Paint::Quad(quad) if quad.exact.is_some() => quad.exact,
+            _ => None,
+        })
+        .expect("the mark has the place it was written");
+    assert_eq!(
+        mark,
+        Rect::new(picture.rect.x + 20.0, picture.rect.y + 10.0, 30.0, 14.0)
+    );
+    assert!(cells.w != 100.0 || cells.h != 100.0);
+}
+
+#[test]
+fn off_a_grid_nothing_is_said_of_where_a_box_stands_with_no_grid() {
+    use crate::{Fit, Paint, Role};
+    let page = div()
+        .w(100.0)
+        .h(100.0)
+        .no_shrink()
+        .child(crate::image("a.png", Fit::Contain).w(100.0).h(100.0))
+        .child(
+            div()
+                .absolute()
+                .inset(Some(10.0), None, None, Some(20.0))
+                .w(30.0)
+                .h(14.0)
+                .bg(Role::Accent),
+        );
+    let root = div()
+        .row()
+        .items_start()
+        .w(400.0)
+        .h(600.0)
+        .child(page.id(BOX));
+    let laid = layout(root, Size::new(400.0, 600.0), 1.0, &mut Points);
+    let list = laid.paint(&mut Points);
+    assert!(list.items.iter().all(|item| match item {
+        Paint::Quad(quad) => quad.exact.is_none(),
+        _ => true,
+    }));
+}

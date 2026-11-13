@@ -88,6 +88,10 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
 - **`Picture::shown`**: what of the whole image is inside the picture's clip, as shares of it like
   `crop`. A host that rasterises a large SVG or page draws that part and not all of it
   (`pencere-sandbox`'s `Images::picture`).
+- **A box on a grid is also where the page wrote it, to the pixel.** `Quad::exact` is that place for a
+  box laid over another that was written a size in pixels, and an image is drawn in the box the page
+  wrote for it, in the middle of the cells it came to; an icon (a tinted image) and a page with no
+  grid are as they were.
 
 ### Changed
 

@@ -281,6 +281,7 @@ struct Terminal {
     answered_attributes: usize,
     answered_graphics: usize,
     answered_keyboard: usize,
+    answered_names: usize,
     /// What the terminal answers besides the device attributes.
     knows: Knows,
 }
@@ -290,6 +291,8 @@ struct Terminal {
 struct Knows {
     kitty_graphics: bool,
     kitty_keyboard: bool,
+    /// What it answers to `CSI > q`: its name and version.
+    name: Option<&'static str>,
 }
 
 fn count(haystack: &[u8], needle: &[u8]) -> usize {
@@ -339,6 +342,7 @@ impl Terminal {
             answered_attributes: 0,
             answered_graphics: 0,
             answered_keyboard: 0,
+            answered_names: 0,
             knows,
         }
     }
@@ -355,7 +359,13 @@ impl Terminal {
         let attributes = count(&self.raw, b"\x1b[c");
         let graphics = count(&self.raw, b"\x1b_Gi=31,");
         let keyboard = count(&self.raw, b"\x1b[?u");
+        let names = count(&self.raw, b"\x1b[>q");
         let mut answer = Vec::new();
+        for _ in self.answered_names..names {
+            if let Some(name) = self.knows.name {
+                answer.extend_from_slice(format!("\x1bP>|{name}\x1b\\").as_bytes());
+            }
+        }
         for _ in self.answered_graphics..graphics {
             if self.knows.kitty_graphics {
                 answer.extend_from_slice(b"\x1b_Gi=31;OK\x1b\\");
@@ -374,7 +384,8 @@ impl Terminal {
             self.answered_attributes,
             self.answered_graphics,
             self.answered_keyboard,
-        ) = (attributes, graphics, keyboard);
+            self.answered_names,
+        ) = (attributes, graphics, keyboard, names);
         if !answer.is_empty() {
             self.type_bytes(&answer);
         }
@@ -595,6 +606,7 @@ fn a_terminal_that_has_the_kitty_protocols_gets_them_and_gives_them_back() {
     let knows = Knows {
         kitty_graphics: true,
         kitty_keyboard: true,
+        name: None,
     };
     let mut terminal = Terminal::start(100, 30, &[], knows);
     up(&mut terminal);
@@ -1024,6 +1036,7 @@ fn what_is_selected_in_an_editor_is_copied_to_the_terminals_pasteboard_by_the_pe
     let knows = Knows {
         kitty_graphics: false,
         kitty_keyboard: true,
+        name: None,
     };
     let mut terminal = start_page("overlays.lua", 100, 30, knows);
     terminal.click_on("type here");
@@ -1061,6 +1074,7 @@ fn the_terminal_is_lent_to_a_command_the_program_runs_and_the_view_is_drawn_anew
     let knows = Knows {
         kitty_graphics: false,
         kitty_keyboard: true,
+        name: None,
     };
     let mut terminal = Terminal::start_with(
         &["--hand-off", "--script", &page("handoff.lua")],
@@ -1119,10 +1133,75 @@ fn wheel(terminal: &Terminal, col: usize, row: usize, down: bool) {
 
 #[test]
 #[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn a_terminal_that_says_it_is_tmux_is_not_asked_about_pictures_and_has_none_drawn() {
+    // tmux answers what it is, and would answer the graphics question with nothing and keep it for the
+    // title of the pane; the terminal behind it may draw pictures, which tmux does not pass.
+    let knows = Knows {
+        kitty_graphics: true,
+        kitty_keyboard: false,
+        name: Some("tmux 3.7c"),
+    };
+    let mut terminal =
+        Terminal::start_with(&["--bundle", &bundle("pictures")], 100, 30, &[], knows);
+    terminal.until("line 1");
+    terminal.settle(300);
+    assert_eq!(
+        count(&terminal.raw, b"a=q"),
+        0,
+        "the question of pictures is not sent"
+    );
+    assert_eq!(count(&terminal.raw, b"\x1b_Ga=t,"), 0, "and no picture is");
+    terminal.type_bytes(b"\x03");
+    assert_eq!(terminal.ended().code(), Some(130));
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn a_terminal_that_says_what_it_is_and_is_not_tmux_is_asked_about_pictures() {
+    let knows = Knows {
+        kitty_graphics: true,
+        kitty_keyboard: false,
+        name: Some("ghostty 1.2.0"),
+    };
+    let mut terminal =
+        Terminal::start_with(&["--bundle", &bundle("pictures")], 100, 30, &[], knows);
+    terminal.until("line 1");
+    terminal.until_written(b"\x1b_Ga=t,", 1);
+    assert_eq!(count(&terminal.raw, b"a=q"), 1, "asked once");
+    terminal.type_bytes(b"\x03");
+    assert_eq!(terminal.ended().code(), Some(130));
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn tmux_in_the_environment_is_enough_to_leave_the_question_of_pictures_unasked() {
+    let knows = Knows {
+        kitty_graphics: true,
+        kitty_keyboard: false,
+        name: None,
+    };
+    let mut terminal = Terminal::start_with(
+        &["--bundle", &bundle("pictures")],
+        100,
+        30,
+        &[("TMUX", "/tmp/tmux-501/default,1,0")],
+        knows,
+    );
+    terminal.until("line 1");
+    terminal.settle(300);
+    assert_eq!(count(&terminal.raw, b"a=q"), 0);
+    assert_eq!(count(&terminal.raw, b"\x1b_Ga=t,"), 0);
+    terminal.type_bytes(b"\x03");
+    assert_eq!(terminal.ended().code(), Some(130));
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
 fn a_picture_is_sent_to_the_terminal_once_and_scrolling_only_moves_where_it_is_placed() {
     let knows = Knows {
         kitty_graphics: true,
         kitty_keyboard: false,
+        name: None,
     };
     let mut terminal =
         Terminal::start_with(&["--bundle", &bundle("pictures")], 100, 30, &[], knows);

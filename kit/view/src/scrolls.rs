@@ -959,5 +959,6 @@ fn bar_quad(rect: Rect, radii: [f32; 4], alpha: f32, clip: Rect) -> Quad {
         border: None,
         shadow: None,
         clip,
+        exact: None,
     }
 }

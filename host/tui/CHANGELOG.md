@@ -115,6 +115,9 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
   `Module` does that for keys that follow one another), where each key waited for a page of its
   own and a held key fell behind. A key the page binds to a command (`Page::binds`) still waits for
   its answer.
+- **tmux and screen are not asked for pictures.** The probe knows them by what they answer to the
+  terminal's name (`CSI > q`, `CSI > c`) and by `TMUX`, `STY` and `TERM`, and sends no Kitty graphics
+  query, which they keep as the pane's title; the page is drawn without pictures there.
 
 ### Changed
 
@@ -125,3 +128,7 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
   words in the room (a palette's scope beside its query).
 - `Placement` is a part of some `Pixels` (`pixels`, `x`, `y`, `width`, `height`) and not the bytes of
   the part: `Placement::rgba` makes them. `Raster` has an `id`.
+- **A picture is where the page put it and as wide as it is high.** A picture whose box was written
+  in pixels keeps its proportions on the terminal's own pixels (240 by 240 is a square) and stands in
+  the middle of its cells, and what is laid over it (the marks of a found word in a PDF) stands on
+  what it marks, to the pixel. Icons are as they were: they fill their cells.

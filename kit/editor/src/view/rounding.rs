@@ -51,6 +51,7 @@ impl View {
                         border: None,
                         shadow: None,
                         clip,
+                        exact: None,
                     }),
                     Part::Fillet { rect, corner, .. } => self.fillet(rect, corner, ground, clip),
                 });

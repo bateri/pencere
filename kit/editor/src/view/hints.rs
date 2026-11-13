@@ -372,6 +372,7 @@ impl View {
                     border: None,
                     shadow: None,
                     clip,
+                    exact: None,
                 }));
             }
             let text_y =
@@ -410,6 +411,7 @@ impl View {
                         border: None,
                         shadow: None,
                         clip,
+                        exact: None,
                     }));
                 }
                 out.push(Paint::Text(Run {

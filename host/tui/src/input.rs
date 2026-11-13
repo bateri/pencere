@@ -71,6 +71,9 @@ pub enum Reply {
     Graphics { ok: bool },
     /// Where the cursor is (`CSI r;c R`), from 1.
     Cursor { row: u16, col: u16 },
+    /// What the terminal says it is: its name and version (`CSI > q`: `tmux 3.7c`), or, from a
+    /// terminal that does not answer that, what its secondary attributes (`CSI > c`) say it is.
+    Name(String),
 }
 
 /// One thing the terminal said.
@@ -441,6 +444,8 @@ fn string(data: &[u8], osc: bool) -> Found {
                     osc_reply(body, at + 2)
                 } else if data.get(1) == Some(&b'_') {
                     graphics_reply(body, at + 2)
+                } else if data.get(1) == Some(&b'P') {
+                    name_reply(body, at + 2)
                 } else {
                     Found::Skip(at + 2)
                 };
@@ -450,6 +455,17 @@ fn string(data: &[u8], osc: bool) -> Found {
         }
     }
     Found::More
+}
+
+/// The answer to `CSI > q`: `DCS > | name version ST`.
+fn name_reply(body: &[u8], used: usize) -> Found {
+    match body.strip_prefix(b">|") {
+        Some(name) => Found::Event(
+            Event::Reply(Reply::Name(String::from_utf8_lossy(name).into_owned())),
+            used,
+        ),
+        None => Found::Skip(used),
+    }
 }
 
 fn graphics_reply(body: &[u8], used: usize) -> Found {
@@ -548,6 +564,13 @@ fn csi(data: &[u8]) -> Found {
         b'I' if body.is_empty() => Some(Event::Focus(true)),
         b'O' if body.is_empty() => Some(Event::Focus(false)),
         b'u' => kitty_key(body),
+        // The secondary attributes: the first number is the terminal's kind. Two terminals that
+        // draw nothing of their own are known by it, tmux (84, `T`) and screen (83, `S`).
+        b'c' if body.starts_with('>') => match numbers(body.get(1..).unwrap_or("")).first() {
+            Some(84) => Some(Event::Reply(Reply::Name("tmux".to_owned()))),
+            Some(83) => Some(Event::Reply(Reply::Name("screen".to_owned()))),
+            _ => None,
+        },
         b'c' if body.starts_with('?') => Some(Event::Reply(Reply::Attributes(
             body.get(1..)
                 .unwrap_or("")
@@ -936,6 +959,22 @@ mod tests {
                 Event::Reply(Reply::KeyboardFlags(0)),
                 Event::Focus(true),
                 Event::Reply(Reply::Graphics { ok: true }),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_terminal_says_what_it_is_by_its_version_or_its_kind() {
+        let events = decode_all(
+            b"\x1bP>|tmux 3.7c\x1b\\\x1b[>84;0;0c\x1b[>83;40003;0c\x1b[>41;388;0c\x1b[?1;2c",
+        );
+        assert_eq!(
+            events,
+            [
+                Event::Reply(Reply::Name("tmux 3.7c".to_owned())),
+                Event::Reply(Reply::Name("tmux".to_owned())),
+                Event::Reply(Reply::Name("screen".to_owned())),
+                Event::Reply(Reply::Attributes(vec![1, 2])),
             ]
         );
     }
