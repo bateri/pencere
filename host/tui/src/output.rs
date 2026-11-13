@@ -221,6 +221,9 @@ impl Placement {
 pub(crate) const GROUND: i32 = -1_073_741_825;
 /// The layer of a picture that does not: it is over the grounds, under the text.
 pub(crate) const BEHIND_TEXT: i32 = -1;
+/// Over the text: for a picture that is a line the characters of a cell cannot draw without the
+/// words of the cell breaking it.
+pub(crate) const OVER_TEXT: i32 = 1_000_000;
 
 /// The most base64 text one escape sequence of a picture carries.
 const CHUNK: usize = 4096;

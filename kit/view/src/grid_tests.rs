@@ -865,3 +865,84 @@ fn what_a_box_that_scrolls_holds_and_what_is_laid_over_a_box_are_not_said_to_sta
     );
     assert_eq!(page(over, true).spills(), []);
 }
+
+/// Where the quads of `bar`'s page are drawn down the page: the top of each, and how thick.
+fn quads_of(bar: Element, on: bool) -> Vec<(f32, f32)> {
+    use crate::Paint;
+    let list = if on {
+        page(bar, true).paint(&mut Cells)
+    } else {
+        page(bar, false).paint(&mut Points)
+    };
+    list.items
+        .iter()
+        .filter_map(|item| match item {
+            Paint::Quad(quad) => Some((quad.rect.y, quad.rect.h)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_bar_thinner_than_half_a_cell_stands_in_the_middle_of_a_row_that_centres_it_and_at_the_top_of_one_that_does_not()
+ {
+    use crate::Role;
+    // A gauge: a name, and a bar six points thick in a row twenty points tall that centres its items,
+    // with a fill in it that is as thick. On the grid the row is a row of cells and the bar a line
+    // through the middle of it, where it stood beside the name; the fill is where the bar is.
+    let gauge = |items_centre: bool| {
+        let row = div().row().w(300.0).h(20.0).no_shrink();
+        let row = if items_centre {
+            row.items_center()
+        } else {
+            row.items_start()
+        };
+        row.child(text("CPU").no_shrink()).child(
+            div()
+                .w(160.0)
+                .h(6.0)
+                .no_shrink()
+                .bg(Role::Border)
+                .child(div().w(80.0).h(6.0).no_shrink().bg(Role::Accent)),
+        )
+    };
+    assert_eq!(
+        quads_of(gauge(true), true),
+        [(6.0, 6.0), (6.0, 6.0)],
+        "the track and its fill are six points thick, through the middle of their row of eighteen"
+    );
+    assert_eq!(
+        quads_of(gauge(false), true),
+        [(0.0, 6.0), (0.0, 6.0)],
+        "a row that packs its items at the start leaves the bar at the top of its cell"
+    );
+    // Off the grid nothing changes: the bar stands where the written sizes put it.
+    assert_eq!(
+        quads_of(gauge(true), false),
+        [(7.0, 6.0), (7.0, 6.0)],
+        "in points the bar is centred in the twenty of its row"
+    );
+}
+
+#[test]
+fn a_hairline_put_against_the_top_of_a_box_is_not_moved_to_the_middle_by_the_row_it_is_in() {
+    use crate::Role;
+    // The line over the open tab of an editor: a row that centres its items, a label in it, and a line
+    // two points thick laid against its top edge. It stays at the top; only an item the row places
+    // itself is centred.
+    let tab = div()
+        .row()
+        .w(200.0)
+        .h(20.0)
+        .no_shrink()
+        .items_center()
+        .child(text("main.rs").no_shrink())
+        .child(
+            div()
+                .absolute()
+                .inset(Some(0.0), Some(0.0), None, Some(0.0))
+                .h(2.0)
+                .bg(Role::Accent),
+        );
+    assert_eq!(quads_of(tab, true), [(0.0, 2.0)]);
+}

@@ -201,7 +201,11 @@ impl Laid {
                 // A hairline on a grid takes its cell and fills as thick as it was written.
                 let rect = Rect::new(
                     node.rect.x,
-                    node.rect.y,
+                    if node.thin.1 > 0.0 {
+                        node.rect.y + node.thin_down
+                    } else {
+                        node.rect.y
+                    },
                     if node.thin.0 > 0.0 {
                         node.thin.0.min(node.rect.w)
                     } else {

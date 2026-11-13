@@ -74,6 +74,9 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
   fills the box, none of it is cut off at the box's edge and none of the box is left bare. A host
   that does not say (the default) is laid out as ever, pixel for pixel.
 
+- **A bar thinner than half a cell stands in the middle of its cell** when the row that holds it
+  centres its items, as a gauge stands beside its label; in a row that does not, and for a box put
+  against an edge of its parent, it stays at the top.
 - **`Laid::spills` and `Spill`**: the boxes of a page laid out that stand past the inside of the
   box they are in (that box less its padding) by more than half a pixel: each with its box, that
   inside, how far it stands past it on each side, the names of the two and the first words in each.

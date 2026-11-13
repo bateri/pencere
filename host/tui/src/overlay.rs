@@ -152,6 +152,14 @@ impl Area {
             && row < self.row.saturating_add(self.rows)
     }
 
+    /// Takes off `placements` the pictures that would be drawn over this: those of the layers that
+    /// are over the grounds of the cells (under the text, or over it), which a host's menu or bar over
+    /// the page would be under; a picture under the grounds is covered by the cells as they are.
+    pub(crate) fn hides(&self, placements: &mut Vec<crate::Placement>) {
+        placements
+            .retain(|p| p.z <= crate::output::GROUND || !self.meets(p.col, p.row, p.cols, p.rows));
+    }
+
     /// Whether the cells `col`..`col + cols` and `row`..`row + rows` share any with this.
     pub fn meets(&self, col: u16, row: u16, cols: u16, rows: u16) -> bool {
         col < self.col.saturating_add(self.cols)
@@ -975,6 +983,58 @@ fn random_handle() -> String {
 mod tests {
     use super::*;
     use pencere_view::{Point, Shortcut};
+
+    /// A picture of `cols` by `rows` cells at (`col`, `row`) in the layer `z`.
+    fn picture(col: u16, row: u16, z: i32) -> crate::Placement {
+        let raster = Arc::new(crate::Raster {
+            id: None,
+            width: 1,
+            height: 1,
+            pixels: vec![255; 4],
+            crop: pencere_view::Rect::new(0.0, 0.0, 1.0, 1.0),
+        });
+        crate::Placement {
+            col,
+            row,
+            cols: 2,
+            rows: 1,
+            pixels: crate::output::Pixels::of(raster, None, 1.0),
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+            z,
+        }
+    }
+
+    #[test]
+    fn what_is_over_the_page_hides_the_pictures_over_the_grounds_under_it_and_not_those_under_the_grounds()
+     {
+        let area = Area {
+            col: 4,
+            row: 0,
+            cols: 6,
+            rows: 3,
+        };
+        let mut placements = vec![
+            picture(5, 1, crate::output::GROUND),
+            picture(5, 1, crate::output::BEHIND_TEXT),
+            picture(5, 1, crate::output::OVER_TEXT),
+            // Beside it, and under it: not under the area.
+            picture(0, 1, crate::output::OVER_TEXT),
+            picture(5, 3, crate::output::BEHIND_TEXT),
+        ];
+        area.hides(&mut placements);
+        let kept: Vec<(u16, u16, i32)> = placements.iter().map(|p| (p.col, p.row, p.z)).collect();
+        assert_eq!(
+            kept,
+            [
+                (5, 1, crate::output::GROUND),
+                (0, 1, crate::output::OVER_TEXT),
+                (5, 3, crate::output::BEHIND_TEXT),
+            ]
+        );
+    }
 
     fn item(title: &str, keys: Option<&str>, enabled: bool) -> MenuEntry {
         MenuEntry::Item {

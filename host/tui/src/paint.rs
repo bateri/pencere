@@ -16,7 +16,7 @@ use pencere_view::{DrawList, Figure, Paint, Picture, Quad, Rect, Run};
 use crate::color::Rgb;
 use crate::grid::{Attrs, Bg, Cell, Grid};
 use crate::measure::char_width;
-use crate::output::{self, BEHIND_TEXT, GROUND, Pixels, Placement};
+use crate::output::{self, BEHIND_TEXT, GROUND, OVER_TEXT, Pixels, Placement};
 use crate::pictures::{Pictures, Raster};
 use crate::theme::Theme;
 
@@ -139,6 +139,8 @@ pub fn render(
         texts: vec![0; usize::from(cols) * usize::from(rows)],
         placements: Vec::new(),
         placed_at: Vec::new(),
+        shown: Vec::new(),
+        lines: Vec::new(),
         waiting: false,
         overlaps: 0,
     };
@@ -219,6 +221,14 @@ enum Slot {
     Tail,
 }
 
+/// How far down a cell a line lying across it has its middle, to be a line through the middle and
+/// not at the cell's top or bottom: from this far down, to this.
+const MIDDLE: (f32, f32) = (0.35, 0.65);
+
+/// The most pixels a picture the painter makes of a rectangle (a mark, a line) may have: a rectangle
+/// that would take more is drawn on the cells.
+const SLIVER_PIXELS: usize = 1 << 16;
+
 /// Where in a cell a line stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Edge {
@@ -226,6 +236,10 @@ enum Edge {
     Right,
     Top,
     Bottom,
+    /// The middle of the cell, lying: a bar that stands beside a label on the label's row.
+    Middle,
+    /// The same, as thick as an eighth of the cell or more.
+    MiddleHeavy,
 }
 
 impl Edge {
@@ -235,6 +249,8 @@ impl Edge {
             Self::Right => '\u{2595}',
             Self::Top => '\u{2594}',
             Self::Bottom => '\u{2581}',
+            Self::Middle => '\u{2500}',
+            Self::MiddleHeavy => '\u{2501}',
         }
     }
 
@@ -431,6 +447,19 @@ impl Canvas {
     }
 }
 
+/// A line lying along cells that have words in them, to be drawn when the list is done.
+struct Line {
+    /// The line (pixels of the page), cut by its clip.
+    rect: Rect,
+    row: i32,
+    /// The columns it passes over, and the edge of its cell it is nearest to.
+    cols: Vec<i32>,
+    edge: Edge,
+    color: (Rgb, f32),
+    /// The count of the item it was drawn by.
+    at: u32,
+}
+
 struct Painter<'a> {
     theme: &'a Theme,
     pictures: &'a dyn Pictures,
@@ -444,6 +473,12 @@ struct Painter<'a> {
     placements: Vec<Placement>,
     /// The count of the item each of `placements` was made by.
     placed_at: Vec<u32>,
+    /// The pictures the terminal draws over the cells they cover, each as the box the page has it in
+    /// and as the cells it is stretched over (a cell is not the picture's edge).
+    shown: Vec<(Rect, Rect)>,
+    /// The lines along cells that have words in them, which are drawn once the whole list has been:
+    /// whether the words cut a line is what the cells that nothing is laid over say.
+    lines: Vec<Line>,
     waiting: bool,
     overlaps: usize,
 }
@@ -694,6 +729,182 @@ impl Painter<'_> {
         col >= clip.x0 && col < clip.x1 && row * 2 >= clip.y0 && row * 2 + 2 <= clip.y1
     }
 
+    /// `rect` (pixels of the page) as a picture of the terminal's own, made at the pixels of its
+    /// cells: the cells that hold the rectangle, with the rectangle in them at the pixel it begins
+    /// and ends at, filled with `fill` and with a border of `border` (the colour and the thickness)
+    /// along its edges, the rest of the picture clear. A picture is as sharp as the terminal's
+    /// pixels where the characters it is drawn over are a cell. It is not made (nothing is drawn, and
+    /// this says so) where the terminal has no pictures, and for a rectangle that would take more
+    /// pixels than a mark or a line has any need of.
+    fn sliver(
+        &mut self,
+        rect: Rect,
+        fill: Option<(Rgb, f32)>,
+        border: Option<(Rgb, f32, f32)>,
+        z: i32,
+    ) -> bool {
+        if self.options.images != ImageMode::Kitty {
+            return false;
+        }
+        let (cols, rows) = (self.canvas.cols, self.canvas.rows);
+        let page = Rect::new(0.0, 0.0, cols as f32 * self.cw, rows as f32 * self.rh);
+        let rect = intersect(&rect, &page);
+        if rect.w <= 0.0 || rect.h <= 0.0 {
+            return false;
+        }
+        let (c0, r0) = (
+            (rect.x / self.cw).floor() as i32,
+            (rect.y / self.rh).floor() as i32,
+        );
+        let c1 = (((rect.x + rect.w) / self.cw).ceil() as i32).clamp(c0 + 1, cols);
+        let r1 = (((rect.y + rect.h) / self.rh).ceil() as i32).clamp(r0 + 1, rows);
+        let (cell_w, cell_h) = (self.options.pixels.0.max(1), self.options.pixels.1.max(1));
+        let (width, height) = ((c1 - c0) as u32 * cell_w, (r1 - r0) as u32 * cell_h);
+        if width as usize * height as usize > SLIVER_PIXELS {
+            return false;
+        }
+        // The rectangle in the pixels of the picture, each side to the pixel it is nearest, and at
+        // least a pixel across.
+        let along = |at: f32, origin: i32, side: f32, pixels: u32| -> f32 {
+            (at - origin as f32 * side) / side * pixels as f32
+        };
+        let x0 = along(rect.x, c0, self.cw, cell_w).round().max(0.0) as u32;
+        let x1 = (along(rect.x + rect.w, c0, self.cw, cell_w).round().max(0.0) as u32)
+            .clamp(x0 + 1, width);
+        let y0 = along(rect.y, r0, self.rh, cell_h).round().max(0.0) as u32;
+        let y1 = (along(rect.y + rect.h, r0, self.rh, cell_h).round().max(0.0) as u32)
+            .clamp(y0 + 1, height);
+        let premultiplied = |(rgb, alpha): (Rgb, f32)| -> [u8; 4] {
+            let a = alpha.clamp(0.0, 1.0);
+            let scaled = |c: u8| (f32::from(c) * a).round().clamp(0.0, 255.0) as u8;
+            [
+                scaled(rgb.r),
+                scaled(rgb.g),
+                scaled(rgb.b),
+                (a * 255.0).round() as u8,
+            ]
+        };
+        let mut pixels = vec![0_u8; width as usize * height as usize * 4];
+        let edge = border.map_or(0, |(_, _, line)| {
+            ((line / self.cw * cell_w as f32).round() as u32).max(1)
+        });
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let on_border = border.is_some()
+                    && (x < x0 + edge || x + edge >= x1 || y < y0 + edge || y + edge >= y1);
+                let color = if on_border {
+                    border.map(|(rgb, alpha, _)| premultiplied((rgb, alpha)))
+                } else {
+                    fill.map(premultiplied)
+                };
+                if let Some(color) = color {
+                    let at = (y as usize * width as usize + x as usize) * 4;
+                    if let Some(pixel) = pixels.get_mut(at..at + 4) {
+                        pixel.copy_from_slice(&color);
+                    }
+                }
+            }
+        }
+        let raster = Raster {
+            id: None,
+            width,
+            height,
+            pixels,
+            crop: Rect::new(0.0, 0.0, 1.0, 1.0),
+        };
+        self.placed_at.push(self.canvas.tick);
+        self.placements.push(Placement {
+            col: c0 as u16,
+            row: r0 as u16,
+            cols: (c1 - c0) as u16,
+            rows: (r1 - r0) as u16,
+            pixels: Pixels::of(Arc::new(raster), None, 1.0),
+            x: 0,
+            y: 0,
+            width,
+            height,
+            z,
+        });
+        true
+    }
+
+    /// Where `rect`, a place on a picture the terminal draws, is on what it draws: the picture is
+    /// stretched over whole cells, so a place in it is moved and scaled as the picture is (a word of a
+    /// page stands up to a cell from where the page has it).
+    fn as_drawn(&self, rect: Rect) -> Rect {
+        let centre = (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
+        let Some((whole, part)) = self.shown.iter().rev().find(|(whole, _)| {
+            centre.0 >= whole.x
+                && centre.0 <= whole.x + whole.w
+                && centre.1 >= whole.y
+                && centre.1 <= whole.y + whole.h
+        }) else {
+            return rect;
+        };
+        let along = |from: f32, to: f32, w0: f32, size: f32, p0: f32, length: f32| {
+            let size = size.max(f32::EPSILON);
+            let (a, b) = (
+                ((p0 - w0) / size).clamp(0.0, 1.0),
+                ((p0 + length - w0) / size).clamp(0.0, 1.0),
+            );
+            let span = (b - a).max(f32::EPSILON);
+            let map = |at: f32| p0 + ((at - w0) / size - a) / span * length;
+            (map(from), map(to))
+        };
+        let (x0, x1) = along(rect.x, rect.x + rect.w, whole.x, whole.w, part.x, part.w);
+        let (y0, y1) = along(rect.y, rect.y + rect.h, whole.y, whole.h, part.y, part.h);
+        Rect::new(x0, y0, x1 - x0, y1 - y0)
+    }
+
+    /// A box that is not opaque, over cells a picture of the terminal's shows through all of
+    /// (a mark on the word of a page of a PDF): it is a picture of its own over that one, as large
+    /// as the box and standing where it does, and not the cells it touches. Says whether it was
+    /// drawn so; one that is not (a box over other cells too, a terminal with no pictures) is drawn
+    /// on the cells.
+    fn tinted_picture(&mut self, quad: &Quad) -> bool {
+        let Some(fill) = quad.fill else {
+            return false;
+        };
+        if self.options.images != ImageMode::Kitty
+            || quad.gradient.is_some()
+            || quad.shadow.is_some()
+        {
+            return false;
+        }
+        let (rgb, alpha) = self.theme.resolve(&fill);
+        if alpha >= 0.98 {
+            return false;
+        }
+        let border = match quad.border {
+            None => None,
+            Some(border) if border.width < self.cw / 2.0 && border.width < self.rh / 2.0 => {
+                let (color, strength) = self.theme.resolve(&border.color);
+                Some((color, strength, border.width))
+            }
+            Some(_) => return false,
+        };
+        let seen = intersect(&quad.rect, &quad.clip);
+        if seen.w <= 0.0 || seen.h <= 0.0 {
+            return false;
+        }
+        let seen = self.as_drawn(seen);
+        let (c0, r0) = (
+            (seen.x / self.cw).floor() as i32,
+            (seen.y / self.rh).floor() as i32,
+        );
+        let c1 = ((seen.x + seen.w) / self.cw).ceil() as i32;
+        let r1 = ((seen.y + seen.h) / self.rh).ceil() as i32;
+        let through = (r0..r1).all(|row| {
+            (c0..c1).all(|col| {
+                self.canvas
+                    .cell(col, row)
+                    .and_then(|cell| self.canvas.hole.get(cell).copied())
+                    .unwrap_or(false)
+            })
+        });
+        through && self.sliver(seen, Some((rgb, alpha)), border, BEHIND_TEXT)
+    }
+
     /// A fill thinner than half a cell on one axis only is a line: it is drawn with the eighth of a
     /// cell that is nearest to where it stands, over the ground it is on, and what it passes over
     /// keeps its character.
@@ -728,16 +939,40 @@ impl Painter<'_> {
         } else {
             let centre = (rect.y + rect.h / 2.0) / self.rh;
             let row = centre.floor() as i32;
-            let edge = if centre - centre.floor() < 0.5 {
-                Edge::Top
-            } else {
-                Edge::Bottom
+            // At an edge of its cell, the line of that edge; about the middle of it (a bar the
+            // page put beside a label, centred in its row), a line through the middle.
+            let edge = match centre - centre.floor() {
+                above if above < MIDDLE.0 => Edge::Top,
+                above if above >= MIDDLE.1 => Edge::Bottom,
+                _ if rect.h >= self.rh / 8.0 => Edge::MiddleHeavy,
+                _ => Edge::Middle,
             };
             let (c0, c1) = (self.col(rect.x), self.col(rect.x + rect.w));
-            for col in c0..c1.max(c0 + 1) {
-                if Self::within(clip, col, row) {
-                    self.mark(col, row, edge, color);
-                }
+            let cells: Vec<i32> = (c0..c1.max(c0 + 1))
+                .filter(|col| Self::within(clip, *col, row))
+                .collect();
+            // A line along cells that have words in them is left until the list is done: if the words
+            // are in cells that something is laid over, it is the characters of the cells that are
+            // free; else where the terminal has pictures it is a picture of its own over the words,
+            // and where it has none it is not drawn (a line with gaps in it is nowhere to be seen). A
+            // line over the cells of one that is left is left too, to be drawn after it, as it is
+            // over it in the list (a gauge's fill over its track).
+            let behind = self.lines.iter().any(|earlier| {
+                earlier.row == row && earlier.cols.iter().any(|col| cells.contains(col))
+            });
+            if behind || cells.iter().any(|col| self.has_text(*col, row)) {
+                self.lines.push(Line {
+                    rect: intersect(&quad.rect, &quad.clip),
+                    row,
+                    cols: cells,
+                    edge,
+                    color,
+                    at: self.canvas.tick,
+                });
+                return true;
+            }
+            for col in cells {
+                self.mark(col, row, edge, color);
             }
         }
         true
@@ -857,7 +1092,7 @@ impl Painter<'_> {
     }
 
     fn quad(&mut self, quad: &Quad) {
-        if self.hairline(quad) {
+        if self.hairline(quad) || self.tinted_picture(quad) {
             return;
         }
         let Some(rect) = self.solid(&quad.rect) else {
@@ -1081,6 +1316,10 @@ impl Painter<'_> {
                         y1: r1 * 2,
                     };
                     self.mosaic(region, &raster, source, 1.0);
+                    self.shown.push((
+                        picture.rect,
+                        Rect::new(part.0, part.1, part.2 - part.0, part.3 - part.1),
+                    ));
                     for row in r0..r1 {
                         for col in c0..c1 {
                             self.canvas.open(col, row);
@@ -1385,8 +1624,52 @@ impl Painter<'_> {
         }
     }
 
+    /// The lines that lie along words, drawn: only the cells that no box laid over them later hides are
+    /// the line's. Where none of those has words in it, the line is the characters of them, as a line
+    /// along no words is; where one has, it is a picture over the words for each run of them where the
+    /// terminal has pictures, and nothing where it has none.
+    fn resolve_lines(&mut self) {
+        for line in std::mem::take(&mut self.lines) {
+            let free: Vec<i32> = line
+                .cols
+                .iter()
+                .copied()
+                .filter(|col| !self.canvas.hidden_after((*col, line.row, 1, 1), line.at))
+                .collect();
+            let cut = free.iter().any(|col| self.has_text(*col, line.row));
+            if cut && self.options.images != ImageMode::Kitty {
+                continue;
+            }
+            let mut runs: Vec<(i32, i32)> = Vec::new();
+            for col in free {
+                match runs.last_mut() {
+                    Some((_, end)) if *end == col => *end = col + 1,
+                    _ => runs.push((col, col + 1)),
+                }
+            }
+            for (from, to) in runs {
+                let x0 = (from as f32 * self.cw).max(line.rect.x);
+                let x1 = (to as f32 * self.cw).min(line.rect.x + line.rect.w);
+                let drawn = cut
+                    && x1 > x0
+                    && self.sliver(
+                        Rect::new(x0, line.rect.y, x1 - x0, line.rect.h),
+                        Some(line.color),
+                        None,
+                        OVER_TEXT,
+                    );
+                if !drawn {
+                    for col in from..to {
+                        self.mark(col, line.row, line.edge, line.color);
+                    }
+                }
+            }
+        }
+    }
+
     /// The planes put together.
-    fn finish(self) -> Frame {
+    fn finish(mut self) -> Frame {
+        self.resolve_lines();
         let Self {
             theme,
             canvas,

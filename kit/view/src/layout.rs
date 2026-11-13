@@ -146,6 +146,11 @@ pub(crate) struct Node {
     /// a cell (a hairline): the box takes a cell, and what it is filled with is as thick as it was
     /// written; `0` where the box is not thin, and on every page that has no grid.
     pub thin: (f32, f32),
+    /// Where a hairline across (`thin.1` above `0`) stands in its cell, pixels below the cell's top:
+    /// in the middle where the row that holds it centres its items (as the written size would stand
+    /// beside a label in a row that is taller than it), and where a hairline is held by another
+    /// hairline, where that one is. `0`, the top of the cell, otherwise.
+    pub thin_down: f32,
     /// The room inside the box around what is in it, pixels: left, above, right, below.
     pub pad: [f32; 4],
     /// It is put where the page says (laid over the rest, or an overlay), not where the box it is
@@ -232,6 +237,8 @@ struct Pending {
     absolute: bool,
     anchor: Option<Anchor>,
     thin: (f32, f32),
+    /// It centres what is in it down the box (a row, or a grid, whose items are centred).
+    centres_down: bool,
 }
 
 /// An overlay met on the walk down, laid out after the rest as a child of the page: the element,
@@ -435,6 +442,8 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
     // What each box scrolls its children by (across, down), and the room it keeps to the right
     // of and below them, pixels.
     let mut inside: Vec<[f32; 4]> = Vec::with_capacity(pending.len());
+    // Whether each box centres what is in it down the box.
+    let mut centres: Vec<bool> = Vec::with_capacity(pending.len());
     for entry in pending {
         let Ok(laid) = tree.layout(entry.id) else {
             // A node Taffy does not know: nothing of it (cannot happen — its own ids).
@@ -442,6 +451,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             origins.push((0.0, 0.0, page, true));
             reach.push((0.0, 0.0));
             inside.push([0.0; 4]);
+            centres.push(false);
             continue;
         };
         let (ox, oy, outer_clip, outer_hidden) = entry
@@ -493,6 +503,25 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             .parent
             .and_then(|parent| nodes.get(parent))
             .map_or(1.0, |parent| parent.opacity);
+        // Where a hairline across stands in its cell.
+        // (A box put where the page says is not centred by the row it is in.)
+        let thin_down = if entry.thin.1 > 0.0 && !entry.absolute && !entry.overlay {
+            let slack = (rect.h - entry.thin.1).max(0.0);
+            match entry.parent.and_then(|parent| nodes.get(parent)) {
+                Some(parent) if parent.thin.1 > 0.0 => parent.thin_down.min(slack),
+                Some(_)
+                    if entry
+                        .parent
+                        .is_some_and(|parent| centres.get(parent) == Some(&true)) =>
+                {
+                    slack / 2.0
+                }
+                _ => 0.0,
+            }
+        } else {
+            0.0
+        };
+        centres.push(entry.centres_down);
         if let Some(anchor) = entry.anchor.filter(|_| entry.overlay) {
             anchors.push((nodes.len(), anchor));
         }
@@ -518,6 +547,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             clips: entry.overflow != Overflow::Visible,
             turn: 0.0,
             thin: entry.thin,
+            thin_down,
             pad: [
                 laid.padding.left * unit.x,
                 laid.padding.top * unit.y,
@@ -902,6 +932,7 @@ fn empty(page: Rect) -> Node {
         clips: false,
         turn: 0.0,
         thin: (0.0, 0.0),
+        thin_down: 0.0,
         pad: [0.0; 4],
         placed: false,
     }
@@ -1018,6 +1049,12 @@ fn build(
             unit.thin(style.width, scale, unit.x),
             unit.thin(style.height, scale, unit.y),
         ),
+        centres_down: style.items == Some(Items::Center)
+            && match style.display {
+                Display::Flex => style.direction == Direction::Row,
+                Display::Grid => true,
+                Display::None => false,
+            },
     });
 
     let mut taffy_style = convert(

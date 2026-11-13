@@ -57,6 +57,11 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
   true-colour escapes with Kitty graphics (`Frame::ansi`) or as plain text (`Frame::text`).
 - Lines thinner than half a cell as eighth blocks at the edge of their cell, a thin upright line over
   a letter as a reversed cell, and a translucent box over a picture as a tint drawn over it.
+- A line along the middle of a cell is `─` (`━` from an eighth of a cell thick). A line the letters of
+  its cells would break is one picture over them where the terminal draws pictures, and is left out
+  where it does not. A mark laid on a picture the terminal draws, as the mark of a word found in a
+  PDF, is where the terminal draws that part of the picture, in a picture of its own at the pixel it
+  begins at.
 - A box with a thin border on every side, and no text in the cells of its edge, is drawn with a ring
   of line characters (`╭─╮│╰╯`, `┌┐└┘` where its corners are square) in the colour of the border, so
   that its frame closes; a border that cannot be seen (fully faded) is not drawn. A box with no room

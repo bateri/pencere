@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use pencere::{
     Bundle, Closed, Conversation, EndedBy, Kind, Lent, Options, Said, Shown, Size, Tty, View, Waker,
 };
-use pencere_drive::{FrameAt, Host, Page, Route, Setup};
+use pencere_drive::{CarryOut, FrameAt, Host, Page, Route, Setup};
 use pencere_sandbox::{Assets, Fault, Program, Script};
 use pencere_view::{
     Button, Cursor, Drawing, FieldKind, FileSource, Fill, Id, Input, Key, KeyConvention, Keyboard,
@@ -318,6 +318,13 @@ impl Host for Effects {
     fn diagnostic(&mut self, words: String) {
         self.notes.push(words);
     }
+
+    // A terminal has no text size to enlarge (its cells are the size they are) and no system drag
+    // to start: the page is laid out at the scale of 1 and is not told `carried`, as a page is not
+    // by a host that never `set_carry`s.
+    fn text_size(&mut self, _points: i32) {}
+
+    fn carry(&mut self, _carry: CarryOut) {}
 
     fn ended(&mut self, why: Fault) {
         self.ended = Some(why);
@@ -1587,9 +1594,7 @@ impl Live<'_> {
             };
             // A picture that is drawn over the grounds would cover what is over the page.
             if let Some(area) = area {
-                frame.placements.retain(|p| {
-                    p.z != crate::output::BEHIND_TEXT || !area.meets(p.col, p.row, p.cols, p.rows)
-                });
+                area.hides(&mut frame.placements);
             }
         }
         let bytes = self.screen.draw(&frame, cursor);

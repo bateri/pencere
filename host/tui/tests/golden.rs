@@ -145,7 +145,7 @@ fn an_edge_goes_to_the_nearest_line_and_a_box_that_has_a_size_keeps_a_pixel() {
             quad(Rect::new(1.5, 0.0, 2.0, 2.0), Role::Raised(1)),
             // A hairline an eighth of a pixel tall is a line, an eighth of a cell, at the edge it is
             // nearest.
-            quad(Rect::new(0.0, 3.0, 10.0, 0.125), Role::Raised(1)),
+            quad(Rect::new(0.0, 3.5, 10.0, 0.125), Role::Raised(1)),
         ],
         10,
         3,
@@ -155,6 +155,25 @@ fn an_edge_goes_to_the_nearest_line_and_a_box_that_has_a_size_keeps_a_pixel() {
         "..##......\n\
          ▁▁▁▁▁▁▁▁▁▁\n\
          ..........\n"
+    );
+}
+
+#[test]
+fn a_line_across_the_middle_of_a_cell_is_a_line_through_it_and_a_thick_one_a_heavy_line() {
+    let frame = draw(
+        vec![
+            // A cell is 1 across and 2 down. The middle of the first row: a line an eighth of a pixel
+            // thick, and the second row's, three tenths of a cell thick (more than an eighth of it).
+            quad(Rect::new(0.0, 0.9, 10.0, 0.125), Role::Raised(1)),
+            quad(Rect::new(0.0, 2.7, 10.0, 0.6), Role::Raised(1)),
+        ],
+        10,
+        2,
+    );
+    assert_eq!(
+        sketch(&frame, &[(BOX, '#')]),
+        "──────────\n\
+         ━━━━━━━━━━\n"
     );
 }
 
@@ -187,6 +206,239 @@ fn a_line_thinner_than_half_a_cell_is_an_eighth_of_one_and_leaves_the_character(
     assert_eq!((edge.ch, edge.fg), ('\u{2595}', accent));
     assert_eq!(cell(0, 1).ch, '\u{2594}');
     assert_eq!(cell(1, 1).ch, '\u{2594}');
+}
+
+/// The rows of pixels of `placed` that have some colour in them (opacity above nothing), from the top
+/// of its first cell, as `(first, one past the last)`.
+fn inked_rows(placed: &pencere_tui::Placement) -> Option<(u32, u32)> {
+    let rgba = placed.rgba();
+    let across = placed.width as usize * 4;
+    let rows: Vec<u32> = rgba
+        .chunks_exact(across)
+        .enumerate()
+        .filter(|(_, row)| row.iter().skip(3).step_by(4).any(|alpha| *alpha > 0))
+        .map(|(y, _)| y as u32)
+        .collect();
+    Some((*rows.first()?, rows.last()? + 1))
+}
+
+#[test]
+fn a_line_along_words_is_one_picture_over_them_where_the_terminal_draws_pictures() {
+    let list = DrawList {
+        items: vec![
+            words(0.0, 0.0, "ab", Role::Foreground),
+            // Along the top of the first row, over the two letters and the two empty cells after them.
+            quad(Rect::new(0.0, 0.0, 4.0, 0.25), Role::Accent),
+        ],
+    };
+    let frame = render(&list, 4, 2, &dark(), &NoPictures, &Options::default());
+    let over: Vec<_> = frame.placements.iter().filter(|p| p.z > 0).collect();
+    assert_eq!(over.len(), 1, "one picture for the line");
+    let line = over[0];
+    assert_eq!((line.col, line.row, line.cols, line.rows), (0, 0, 4, 1));
+    // Whole across the four cells (48 pixels), and its quarter of a row thick (3 of 24), not a cell.
+    let rgba = line.rgba();
+    let across = line.width as usize;
+    assert_eq!(across, 48);
+    for x in 0..across {
+        assert!(rgba[x * 4 + 3] > 0, "the line is there at pixel {x}");
+    }
+    assert_eq!(inked_rows(line), Some((0, 3)));
+    // The letters are the letters, and no character of a line is in their row.
+    assert_eq!(frame.text(), "ab\n\n");
+}
+
+#[test]
+fn a_line_along_words_is_not_drawn_where_the_terminal_has_no_pictures() {
+    let list = DrawList {
+        items: vec![
+            words(0.0, 0.0, "ab", Role::Foreground),
+            quad(Rect::new(0.0, 0.0, 4.0, 0.25), Role::Accent),
+            // A line that no word is in the way of is the characters of the edge, as ever.
+            quad(Rect::new(0.0, 2.0, 4.0, 0.25), Role::Accent),
+        ],
+    };
+    let options = Options {
+        images: ImageMode::Blocks,
+        ..Options::default()
+    };
+    let frame = render(&list, 4, 2, &dark(), &NoPictures, &options);
+    assert!(frame.placements.is_empty());
+    assert_eq!(frame.text(), "ab\n\u{2594}\u{2594}\u{2594}\u{2594}\n");
+}
+
+#[test]
+fn a_line_along_words_is_hidden_where_a_box_is_laid_over_it_and_only_there() {
+    let line = |over: Paint| {
+        let list = DrawList {
+            items: vec![
+                words(0.0, 0.0, "ab", Role::Foreground),
+                quad(Rect::new(0.0, 0.0, 4.0, 0.25), Role::Accent),
+                over,
+            ],
+        };
+        render(&list, 4, 2, &dark(), &NoPictures, &Options::default())
+    };
+    // A box that is solid and covers the cells (a palette, a dialog over the page) takes the line with
+    // the words under it: nothing of it is left over the box.
+    let covered = line(quad(Rect::new(0.0, 0.0, 4.0, 2.0), Role::Raised(1)));
+    assert!(
+        covered.placements.iter().all(|p| p.z <= 0),
+        "a picture of the line is still over the box: {:?}",
+        covered.placements.iter().map(|p| p.z).collect::<Vec<_>>()
+    );
+    // One over the right half of it leaves the left half: the part of the picture that is over the
+    // two cells that are free.
+    let half = line(quad(Rect::new(2.0, 0.0, 2.0, 2.0), Role::Raised(1)));
+    let left: Vec<_> = half.placements.iter().filter(|p| p.z > 0).collect();
+    assert_eq!(left.len(), 1);
+    assert_eq!(
+        (left[0].col, left[0].cols, left[0].x, left[0].width),
+        (0, 2, 0, 24)
+    );
+    // One beside it leaves the line as it is.
+    let beside = line(quad(Rect::new(0.0, 2.0, 4.0, 2.0), Role::Raised(1)));
+    assert_eq!(beside.placements.iter().filter(|p| p.z > 0).count(), 1);
+}
+
+#[test]
+fn a_line_is_cut_by_the_words_that_stay_over_its_cells_and_not_by_those_a_box_hides() {
+    // The words of the right half are under a box that is laid over them and the line, and the box has
+    // words of its own: of the line only the left half is left, and no word is in its cells.
+    let list = DrawList {
+        items: vec![
+            words(2.0, 0.0, "cd", Role::Foreground),
+            quad(Rect::new(0.0, 0.0, 4.0, 0.25), Role::Accent),
+            quad(Rect::new(2.0, 0.0, 2.0, 2.0), Role::Raised(1)),
+            words(2.0, 0.0, "ef", Role::Foreground),
+        ],
+    };
+    for images in [ImageMode::Kitty, ImageMode::Blocks] {
+        let options = Options {
+            images,
+            ..Options::default()
+        };
+        let frame = render(&list, 4, 2, &dark(), &NoPictures, &options);
+        assert_eq!(
+            frame.text(),
+            "\u{2594}\u{2594}ef\n\n",
+            "the line is the characters of its two free cells ({images:?})"
+        );
+        assert!(
+            frame.placements.iter().all(|p| p.z <= 0),
+            "no picture of the line ({images:?})"
+        );
+    }
+    // The words that are in the free cells are the line's to run over, as ever: one picture where the
+    // terminal has them, nothing where it has none.
+    let list = DrawList {
+        items: vec![
+            words(0.0, 0.0, "ab", Role::Foreground),
+            quad(Rect::new(0.0, 0.0, 4.0, 0.25), Role::Accent),
+            quad(Rect::new(2.0, 0.0, 2.0, 2.0), Role::Raised(1)),
+            words(2.0, 0.0, "ef", Role::Foreground),
+        ],
+    };
+    let frame = render(&list, 4, 2, &dark(), &NoPictures, &Options::default());
+    let over: Vec<_> = frame.placements.iter().filter(|p| p.z > 0).collect();
+    assert_eq!(over.len(), 1);
+    assert_eq!((over[0].col, over[0].cols), (0, 2));
+    assert_eq!(frame.text(), "abef\n\n");
+    let blocks = Options {
+        images: ImageMode::Blocks,
+        ..Options::default()
+    };
+    let frame = render(&list, 4, 2, &dark(), &NoPictures, &blocks);
+    assert!(frame.placements.is_empty());
+    assert_eq!(frame.text(), "abef\n\n");
+}
+
+#[test]
+fn a_line_drawn_over_another_is_over_it_whether_the_words_cut_the_first_or_not() {
+    // A gauge: a track across four cells, and a fill over the first of them in another colour. The track
+    // has words in its cells (the right half, under a box that is laid over them later), the fill has
+    // none; the fill is the later, so it is the one to be seen where they meet.
+    let list = DrawList {
+        items: vec![
+            words(2.0, 0.0, "cd", Role::Foreground),
+            quad(Rect::new(0.0, 0.0, 4.0, 0.25), Role::Accent),
+            quad(Rect::new(2.0, 0.0, 2.0, 2.0), Role::Raised(1)),
+            words(2.0, 0.0, "ef", Role::Foreground),
+            quad(Rect::new(0.0, 0.0, 1.0, 0.25), Role::Foreground),
+        ],
+    };
+    for images in [ImageMode::Kitty, ImageMode::Blocks] {
+        let options = Options {
+            images,
+            ..Options::default()
+        };
+        let frame = render(&list, 4, 2, &dark(), &NoPictures, &options);
+        let cell = |col: u16| *frame.grid.cell(col, 0).expect("a cell");
+        assert_eq!(
+            (cell(0).ch, cell(0).fg),
+            ('\u{2594}', dark().role(Role::Foreground)),
+            "the fill is where it was put ({images:?})"
+        );
+        assert_eq!(
+            (cell(1).ch, cell(1).fg),
+            ('\u{2594}', dark().role(Role::Accent)),
+            "the track is the rest of the line ({images:?})"
+        );
+    }
+}
+
+#[test]
+fn a_line_on_a_box_is_not_cut_by_the_words_the_box_was_laid_over() {
+    // Words, a box over them (a palette over the page), and a rule on the box: the words are under it,
+    // and the rule is the characters of the edge, with or without pictures.
+    let list = DrawList {
+        items: vec![
+            words(0.0, 0.0, "abcd", Role::Foreground),
+            quad(Rect::new(0.0, 0.0, 4.0, 2.0), Role::Raised(1)),
+            quad(Rect::new(0.0, 0.0, 4.0, 0.25), Role::Accent),
+        ],
+    };
+    for images in [ImageMode::Kitty, ImageMode::Blocks] {
+        let options = Options {
+            images,
+            ..Options::default()
+        };
+        let frame = render(&list, 4, 2, &dark(), &NoPictures, &options);
+        assert_eq!(
+            frame.text(),
+            "\u{2594}\u{2594}\u{2594}\u{2594}\n\n",
+            "the rule on the box ({images:?})"
+        );
+        assert!(
+            frame.placements.iter().all(|p| p.z <= 0),
+            "no picture of the rule ({images:?})"
+        );
+    }
+}
+
+#[test]
+fn what_is_laid_over_a_picture_is_laid_where_the_terminal_draws_that_part_of_it() {
+    // A picture whose edge is not a cell's: the terminal draws it over the cells it is nearest to, so its
+    // top is a little above where the page has it, and the part laid over it moves with it.
+    let faint = Color::from(Role::Accent).faded(0.3);
+    let list = DrawList {
+        items: vec![
+            picture(Rect::new(0.0, 0.6, 4.0, 4.0), None),
+            quad(Rect::new(1.0, 1.6, 2.0, 2.0), faint),
+        ],
+    };
+    let frame = render(&list, 4, 3, &dark(), &One(red(1, 1)), &Options::default());
+    let mark = frame
+        .placements
+        .iter()
+        .find(|placed| placed.z == -1)
+        .expect("a picture over the picture");
+    // Where the page has it, a point of the picture 1.0 down it is at 1.6 of the grid, which is 19
+    // pixels down (12 a unit); the terminal draws that point at 1.176 of it, which is 14.
+    let (top, bottom) = inked_rows(mark).expect("it has colour");
+    let first = u32::from(mark.row) * 24 + top;
+    assert_eq!(first, 14, "its top, in the terminal's pixels");
+    assert_eq!(u32::from(mark.row) * 24 + bottom, 42, "its bottom");
 }
 
 #[test]
