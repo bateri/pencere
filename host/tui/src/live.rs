@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 use std::io;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use pencere::{
@@ -114,17 +114,79 @@ fn pointer_name(cursor: Cursor) -> &'static str {
     }
 }
 
-/// The files of the view's bundle, as the page reads them, and the files the person gave it: those
-/// by the handle the page was given with the file (`file:` and the handle), never by a path.
+/// The files the program attached to the view (specification §8.8), by the name the page draws them
+/// by (`sha256:` and the digest): the screen holds them, within the limits a bundle has, for as long as
+/// the program says (they are kept when the view is shown again, as a program's files are kept when
+/// it opens its view again: the page asks for them by name, and the program names them again).
+#[derive(Default)]
+struct Attached {
+    files: Mutex<HashMap<String, Arc<[u8]>>>,
+}
+
+impl Attached {
+    /// Holds `files`, all or none: not when one is larger than a file may be, or when they are more
+    /// than the view may have (the ones already held, one that is held again not counted twice).
+    fn hold(&self, files: &[(String, Arc<[u8]>)]) -> bool {
+        let mut held = self.files.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut count = held.len();
+        let mut total: u64 = held.values().map(|bytes| bytes.len() as u64).sum();
+        let mut new: Vec<&str> = Vec::new();
+        for (name, bytes) in files {
+            let size = bytes.len() as u64;
+            if size > pencere::MAX_ATTACHED_FILE {
+                return false;
+            }
+            if held.contains_key(name) || new.contains(&name.as_str()) {
+                continue;
+            }
+            count += 1;
+            total += size;
+            if count > pencere::MAX_ATTACHED_FILES || total > pencere::MAX_ATTACHED_TOTAL {
+                return false;
+            }
+            new.push(name);
+        }
+        for (name, bytes) in files {
+            held.insert(name.clone(), Arc::clone(bytes));
+        }
+        true
+    }
+
+    fn get(&self, name: &str) -> Option<Arc<[u8]>> {
+        self.files
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(name)
+            .cloned()
+    }
+
+    /// Lets `names` go; the ones that were held.
+    fn forget(&self, names: &[String]) -> Vec<String> {
+        let mut held = self.files.lock().unwrap_or_else(PoisonError::into_inner);
+        names
+            .iter()
+            .filter(|name| held.remove(name.as_str()).is_some())
+            .cloned()
+            .collect()
+    }
+}
+
+/// The files of the view's bundle, as the page reads them, the files the program attached to it
+/// (`sha256:` and the digest), and the files the person gave it: those by the handle the page was
+/// given with the file (`file:` and the handle), never by a path.
 struct Files {
     bundle: Bundle,
     handles: Arc<Handles>,
+    attached: Arc<Attached>,
 }
 
 impl Assets for Files {
     fn read(&self, path: &str) -> Option<Arc<[u8]>> {
         if let Some(handle) = path.strip_prefix("file:") {
             return self.handles.read(handle).map(Arc::from);
+        }
+        if path.starts_with("sha256:") {
+            return self.attached.get(path);
         }
         self.bundle.get(path).map(|(_, data)| Arc::from(data))
     }
@@ -135,6 +197,10 @@ impl Assets for Files {
                 .handles
                 .path_of(handle)
                 .map(|path| overlay::media_type_of(&path));
+        }
+        // An attached file is read for what it is by its bytes: it has no type of its own.
+        if path.starts_with("sha256:") {
+            return None;
         }
         self.bundle
             .get(path)
@@ -516,6 +582,9 @@ struct Live<'t> {
     press_taken: bool,
     /// The files the person gave the page.
     handles: Arc<Handles>,
+    /// The files the program attached to the view: kept when the page is opened again (the view
+    /// shown again, the terminal given back), let go when the program says so.
+    attached: Arc<Attached>,
     /// What came before the loop (typed while the terminal was asked what it is).
     early: Vec<Event>,
     /// A frame is due whatever the page says: the host changed something it shows.
@@ -561,7 +630,8 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
     // The page is started before the terminal is asked what it is: its interpreter is made on a
     // thread of its own, while the answers come.
     let handles = Handles::new();
-    let page = open_page(&bundle, &clock, &waker, &handles)?;
+    let attached = Arc::new(Attached::default());
+    let page = open_page(&bundle, &clock, &waker, &handles, &attached)?;
     trace.mark(|| "the page started".to_owned());
     let mut decoder = Decoder::new();
     let mut early = Vec::new();
@@ -611,6 +681,7 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
         overlay: None,
         press_taken: false,
         handles,
+        attached,
         early,
         dirty: true,
         waiting: false,
@@ -660,10 +731,12 @@ fn open_page(
     clock: &Arc<Clock>,
     waker: &Waker,
     handles: &Arc<Handles>,
+    attached: &Arc<Attached>,
 ) -> io::Result<Page> {
     let files: Arc<dyn Assets> = Arc::new(Files {
         bundle: bundle.clone(),
         handles: Arc::clone(handles),
+        attached: Arc::clone(attached),
     });
     let entry = bundle.entry();
     let (_, source) = bundle
@@ -1439,6 +1512,22 @@ impl Live<'_> {
                     self.lent_back = false;
                     self.reopen(views.as_deref())?;
                 }
+                // The files are held before what names them is heard: the program waits for this.
+                Said::Attached(attached) => {
+                    if self.attached.hold(attached.files()) {
+                        attached.held();
+                    } else {
+                        attached.refused("limit");
+                    }
+                }
+                Said::Detached(names) => {
+                    let gone = self.attached.forget(&names);
+                    if !gone.is_empty()
+                        && let Some(images) = self.page.images()
+                    {
+                        images.forget(&gone);
+                    }
+                }
                 Said::HandedOff(lent) => {
                     self.lend(lent)?;
                     // The view is shown again when the command is done, as the program's session
@@ -1490,14 +1579,18 @@ impl Live<'_> {
             self.shown = shown;
             self.bundle = bundle;
         }
-        let page =
-            open_page(&self.bundle, &self.clock, &self.waker, &self.handles).map_err(|error| {
-                Stop {
-                    by: EndedBy::Error,
-                    code: Some("view".to_owned()),
-                    message: Some(error.to_string()),
-                }
-            })?;
+        let page = open_page(
+            &self.bundle,
+            &self.clock,
+            &self.waker,
+            &self.handles,
+            &self.attached,
+        )
+        .map_err(|error| Stop {
+            by: EndedBy::Error,
+            code: Some("view".to_owned()),
+            message: Some(error.to_string()),
+        })?;
         self.page = page;
         self.fields.clear();
         self.focus = None;
@@ -1723,5 +1816,49 @@ mod tests {
         std::thread::sleep(Duration::from_millis(50));
         clock.found(true);
         assert_eq!(asking.join().ok(), Some(vec![Drawing::Cells]));
+    }
+
+    fn file(name: &str, bytes: Arc<[u8]>) -> (String, Arc<[u8]>) {
+        (name.to_owned(), bytes)
+    }
+
+    #[test]
+    fn files_the_program_attaches_are_held_to_the_limits_of_a_bundle_and_let_go_by_name() {
+        let held = Attached::default();
+        let small: Arc<[u8]> = Arc::from(vec![7_u8; 10]);
+        assert!(held.hold(&[file("sha256:a", Arc::clone(&small))]));
+        assert_eq!(held.get("sha256:a").as_deref(), Some(&small[..]));
+        // The same file again is the one held, and counts once.
+        assert!(held.hold(&[file("sha256:a", Arc::clone(&small))]));
+        // A file larger than a file may be is not held, nor anything that came with it.
+        let most = usize::try_from(pencere::MAX_ATTACHED_FILE).expect("a size");
+        let largest: Arc<[u8]> = Arc::from(vec![0_u8; most]);
+        let too_large: Arc<[u8]> = Arc::from(vec![0_u8; most + 1]);
+        assert!(!held.hold(&[
+            file("sha256:b", Arc::clone(&small)),
+            file("sha256:c", too_large)
+        ]));
+        assert!(held.get("sha256:b").is_none() && held.get("sha256:c").is_none());
+        // The bytes of all of them are held to a limit too: seven of the largest are held, an eighth is
+        // not (the little one counts), and what is let go makes room.
+        let names: Vec<String> = (0..7).map(|at| format!("sha256:big{at}")).collect();
+        for name in &names {
+            assert!(held.hold(&[file(name, Arc::clone(&largest))]), "{name}");
+        }
+        assert!(!held.hold(&[file("sha256:big7", Arc::clone(&largest))]));
+        assert_eq!(held.forget(&names[..2]), names[..2].to_vec());
+        assert!(held.hold(&[file("sha256:big7", Arc::clone(&largest))]));
+        // A name that was not held is not said to be let go.
+        assert_eq!(
+            held.forget(&["sha256:none".to_owned()]),
+            Vec::<String>::new()
+        );
+        // And there are not more of them than a bundle has files.
+        let many = Attached::default();
+        let one: Arc<[u8]> = Arc::from(vec![1_u8]);
+        for at in 0..pencere::MAX_ATTACHED_FILES {
+            assert!(many.hold(&[file(&format!("sha256:{at}"), Arc::clone(&one))]));
+        }
+        assert!(!many.hold(&[file("sha256:more", one)]));
     }
 }

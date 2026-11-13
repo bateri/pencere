@@ -39,6 +39,14 @@ pub const MAX_PIECE: usize = 1 << 20;
 /// How many reads a receiving keeps out at once: the most the terminal answers (§8.9).
 const READS_OUT: usize = 2;
 
+/// The most files a view may have attached at once, the most bytes of one and of all of them
+/// (specification §8.8, the limits of a bundle): what a holder of the files holds to.
+pub const MAX_ATTACHED_FILES: usize = pencere_wire::bundle::MAX_FILES;
+/// See [`MAX_ATTACHED_FILES`].
+pub const MAX_ATTACHED_FILE: u64 = pencere_wire::bundle::MAX_FILE_SIZE;
+/// See [`MAX_ATTACHED_FILES`].
+pub const MAX_ATTACHED_TOTAL: u64 = pencere_wire::bundle::MAX_TOTAL_SIZE;
+
 /// The scheme of the name a view draws an attached file by (§9.8).
 const ATTACHED: &str = "sha256:";
 
@@ -96,7 +104,7 @@ pub(crate) fn has_files(kind: Kind) -> bool {
 }
 
 /// The name a view draws an attached file by: `sha256:` and its digest (§9.8).
-fn name_of(digest: &Digest) -> String {
+pub(crate) fn name_of(digest: &Digest) -> String {
     format!("{ATTACHED}{digest}")
 }
 

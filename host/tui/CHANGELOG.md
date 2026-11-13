@@ -8,6 +8,9 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
 
 ### Added
 
+- **The screen holds the files the program attaches to its view.** A program that attached a PDF or a
+  picture for its page to draw (as textpen does) now has it drawn; the files are kept when the view
+  is shown again, and let go when the program says so.
 - **Features `compiler` and `pdf`, both on by default, and `precompile`, off,** which are those of
   `pencere-sandbox`. A program that takes the crate with `default-features = false` and
   `features = ["precompile"]` has an executable with no code generator for the interpreter (it is

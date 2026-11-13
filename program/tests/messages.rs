@@ -14,8 +14,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use pencere::{
-    CloseResult, Conversation, Error, HandOffResult, Kind, LogLevel, Options, ReopenResult, Said,
-    View, ViewControl, ViewError,
+    CloseResult, Conversation, Error, FileError, HandOffResult, Kind, LogLevel, Options,
+    ReopenResult, Said, View, ViewControl, ViewError,
 };
 use serde_json::{Value, json};
 
@@ -436,6 +436,95 @@ fn the_programs_closing_and_reopening_are_said_and_answered_at_once() {
     assert!(!conversation.send(&call(2, "ping", &json!(null)).to_string()));
     assert!(conversation.receive(Duration::from_millis(100)).is_none());
     assert_eq!(control.close(), CloseResult::Unavailable);
+}
+
+/// A conversation whose handler `attach` attaches the bytes it is given and answers with how that went:
+/// the name of the file, or the error.
+fn attaching(control: &ViewControl) -> Conversation {
+    let attaching = control.clone();
+    Conversation::new(Options::new().control(control.clone()).call(
+        "attach",
+        move |params, _call| {
+            let bytes = params["bytes"].as_str().unwrap_or("").as_bytes().to_vec();
+            Ok(json!(match attaching.attach(bytes) {
+                Ok(name) => name,
+                Err(why) => format!("error: {why:?}"),
+            }))
+        },
+    ))
+}
+
+#[test]
+fn a_file_the_program_attaches_is_said_before_the_message_that_names_it_and_is_the_holders_to_hold()
+{
+    let control = ViewControl::new();
+    let mut conversation = attaching(&control);
+    assert!(conversation.send(&call(1, "attach", &json!({ "bytes": "hello" })).to_string()));
+    // The program waits for the holder: what names the file is not said before it holds it.
+    let Some(Said::Attached(attached)) = conversation.receive(WITHIN) else {
+        panic!("the file said first");
+    };
+    let [(name, bytes)] = attached.files() else {
+        panic!("one file: {:?}", attached.files());
+    };
+    assert!(
+        name.starts_with("sha256:") && name.len() == "sha256:".len() + 64,
+        "{name}"
+    );
+    assert_eq!(&bytes[..], b"hello");
+    let name = name.clone();
+    assert!(conversation.receive(Duration::from_millis(100)).is_none());
+    attached.held();
+    let Some(Said::Message(answer)) = conversation.receive(WITHIN) else {
+        panic!("the answer that names the file");
+    };
+    assert!(answer.contains(&name), "{answer}");
+    // Letting it go is said by its name.
+    control.detach(&name);
+    match conversation.receive(WITHIN) {
+        Some(Said::Detached(names)) => assert_eq!(names, vec![name]),
+        other => panic!("the file let go: {other:?}"),
+    }
+}
+
+#[test]
+fn a_file_that_is_not_held_is_a_refusal_to_the_program_or_none_that_has_files() {
+    let control = ViewControl::new();
+    let mut conversation = attaching(&control);
+    // The holder refuses it, by a code.
+    conversation.send(&call(1, "attach", &json!({ "bytes": "big" })).to_string());
+    let Some(Said::Attached(attached)) = conversation.receive(WITHIN) else {
+        panic!("the file said first");
+    };
+    attached.refused("limit");
+    let Some(Said::Message(answer)) = conversation.receive(WITHIN) else {
+        panic!("an answer");
+    };
+    assert!(
+        answer.contains("Refused") && answer.contains("limit"),
+        "{answer}"
+    );
+    // One that does not answer at all (a reader that holds no files) is no view that has them.
+    conversation.send(&call(2, "attach", &json!({ "bytes": "x" })).to_string());
+    let Some(Said::Attached(attached)) = conversation.receive(WITHIN) else {
+        panic!("the file said first");
+    };
+    drop(attached);
+    let Some(Said::Message(answer)) = conversation.receive(WITHIN) else {
+        panic!("an answer");
+    };
+    assert!(answer.contains("Unsupported"), "{answer}");
+    // And with no view up, the program is told so at once.
+    let closer = {
+        let control = control.clone();
+        asking(move || control.close())
+    };
+    assert!(matches!(conversation.receive(WITHIN), Some(Said::Closed)));
+    assert_eq!(joined(closer), CloseResult::Closed);
+    assert!(matches!(
+        control.attach(b"late".to_vec()),
+        Err(FileError::Unsupported)
+    ));
 }
 
 #[test]

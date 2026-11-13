@@ -36,7 +36,7 @@ use std::time::{Duration, Instant};
 
 use crate::control::{self, Bound, OnReturn, Request};
 use crate::exchange::{Exchange, Toward, WORK_ROOM, WRITE_ROOM};
-use crate::files::FileError;
+use crate::files::{FileError, name_of};
 use crate::handlers::{Outbox, Work};
 use crate::{CloseResult, HandOffResult, Options, ReopenResult, View};
 
@@ -62,6 +62,57 @@ pub enum Said {
     /// `serve`: when it brings other kinds of view, they are said ([`Said::Reopened`]) as the view
     /// comes back.
     HandedOff(Lent),
+    /// The program attached files to the view (§8.8, [`crate::ViewControl::attach`]), which the
+    /// program waits to hear held. Said in the order the program said it, so a file is held before
+    /// the message that names it is heard.
+    Attached(Attached),
+    /// The program let go of the attached files of these names (`sha256:` and the digest): the
+    /// holder forgets them.
+    Detached(Vec<String>),
+}
+
+/// The files the program attached to the view in a [`Conversation`], each by the name the view draws
+/// it by (`sha256:` and its digest), and the way to say whether they are held. A conversation holds
+/// no files: whoever draws the page does, as a terminal does; and says so, within the limits
+/// of §8.8 ([`crate::MAX_ATTACHED_FILES`], [`crate::MAX_ATTACHED_FILE`] and
+/// [`crate::MAX_ATTACHED_TOTAL`]), with [`Attached::held`], or [`Attached::refused`] with the
+/// code (`limit`). Dropped without either, the program is told that no view holds files
+/// ([`FileError::Unsupported`]).
+#[derive(Debug)]
+pub struct Attached {
+    files: Vec<(String, Arc<[u8]>)>,
+    reply: Option<SyncSender<Result<(), FileError>>>,
+}
+
+impl Attached {
+    /// The files: the name of each and its bytes.
+    #[must_use]
+    pub fn files(&self) -> &[(String, Arc<[u8]>)] {
+        &self.files
+    }
+
+    /// Says the files are held: the program's attach returns, and the view may draw them.
+    pub fn held(mut self) {
+        self.answer(Ok(()));
+    }
+
+    /// Says the files are not held, by the code of the refusal (`limit` when they are more than
+    /// the view may have).
+    pub fn refused(mut self, code: &str) {
+        self.answer(Err(FileError::Refused(code.to_owned())));
+    }
+
+    fn answer(&mut self, result: Result<(), FileError>) {
+        if let Some(reply) = self.reply.take() {
+            let _ = reply.send(result);
+        }
+    }
+}
+
+impl Drop for Attached {
+    fn drop(&mut self) {
+        self.answer(Err(FileError::Unsupported));
+    }
 }
 
 /// The terminal a program lent to a command in a [`Conversation`], where no command runs: the
@@ -344,7 +395,19 @@ impl Conversation {
             Request::Reopen { reply, .. } if !self.up() => {
                 let _ = reply.send(ReopenResult::Unavailable);
             }
-            // A conversation has no terminal to hold files.
+            // The files go to whoever draws the page, in the order the program said them: it holds
+            // them or does not. A view that is not up has none.
+            Request::Attach { files, reply } if self.up() => {
+                let files = files
+                    .into_iter()
+                    .map(|(digest, bytes)| (name_of(&digest), bytes))
+                    .collect();
+                self.said.push_back(Said::Attached(Attached {
+                    files,
+                    reply: Some(reply),
+                }));
+            }
+            // A conversation has no terminal to give the person's files to or to take them from.
             Request::Attach { reply, .. } | Request::Write { reply, .. } => {
                 let _ = reply.send(Err(FileError::Unsupported));
             }
@@ -356,7 +419,12 @@ impl Conversation {
             }
             // Nothing is asked of a folder that nobody offered.
             Request::Stage { .. } | Request::Fetch { .. } | Request::Unstage { .. } => {}
-            Request::Detach { .. } => {}
+            Request::Detach { digests } => {
+                if self.open && !digests.is_empty() {
+                    let names = digests.iter().map(name_of).collect();
+                    self.said.push_back(Said::Detached(names));
+                }
+            }
             Request::Reopen { views, reply } => {
                 self.exchange.end_view();
                 let _ = reply.send(ReopenResult::Reopened);

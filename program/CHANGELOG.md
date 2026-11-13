@@ -8,6 +8,11 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Added
 
+- **A conversation passes on the files the program attaches (`Said::Attached`, `Said::Detached`).**
+  Whoever draws the page holds them and says so with `Attached::held`, or refuses them with a code
+  (`limit`); the program's `attach` waits for that, and a reader that holds no files leaves the answer
+  as it was, `FileError::Unsupported`. The limits are `MAX_ATTACHED_FILES`, `MAX_ATTACHED_FILE` and
+  `MAX_ATTACHED_TOTAL`.
 - **`Tty::lend`: the terminal lent to a command from a screen the program draws itself.** Given the
   program's `Lent` (what `Said::HandedOff` carries) and the bytes that switch the screen's modes on, it
   writes the modes back, leaves the alternate screen, gives the terminal back as it was found, runs
