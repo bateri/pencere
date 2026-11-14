@@ -1,148 +1,27 @@
 //! Pictures of a page, for the eye: a frame's draw list drawn into a PNG in the fonts the caller
 //! gives and a theme of the kit's roles — the boxes, the words, the colours, the pictures and the
 //! editors where the kit put them, which is what an eye checks (what is aligned, what overlaps, what
-//! is cut). Not a terminal's drawing: no shaping, one face of each family, and a soft shadow made as
-//! three passes of a box blur (a good Gaussian), which is what the eye needs of one.
+//! is cut). Not a terminal's drawing: no shaping, and a soft shadow made as three passes of a box
+//! blur (a good Gaussian), which is what the eye needs of one.
 //!
 //! **The fonts are the caller's.** Where it gives none, each character is drawn as a box a character
 //! wide ([`Fonts::none`]): a picture made on any machine, with no font of its system, is the same
-//! picture, byte for byte. Where it gives faces, the page is to be laid out with the same
-//! [`Fonts`] (they are a [`Measure`]), so that its words fill the boxes they were measured for.
+//! picture, byte for byte. Where it gives faces ([`Fonts::installed`]: the machine's, with a face
+//! for a character one lacks; [`Fonts::carried`]: the ones the program carries), the page is to be
+//! laid out with the same [`Fonts`] (they are a `Measure`), so that its words fill the boxes they were
+//! measured for.
 
-use fontdue::{Font as Face, FontSettings};
 use pencere_sandbox::{Images, draw_figure};
-use pencere_view::{Color, DrawList, Family, Font, Measure, Metrics, Paint, Rect, Role, Source};
+use pencere_view::{Color, DrawList, Paint, Rect, Role, Source};
 use tiny_skia::{
     FillRule, Mask, Paint as Ink, PathBuilder, Pixmap, PixmapPaint, PixmapRef, Stroke, Transform,
 };
 
-use crate::headless::Fixed;
+mod find;
+mod fonts;
 
-/// The faces a picture's words are drawn in, and what measures them: the terminal's family
-/// (regular, bold, italic) and the system's. A family with no face falls back on the other; with no
-/// face at all, every character is a box the [`Fixed`] measure's width.
-#[derive(Clone)]
-pub struct Fonts {
-    terminal: Option<Face>,
-    bold: Option<Face>,
-    italic: Option<Face>,
-    system: Option<Face>,
-    fixed: Fixed,
-}
-
-/// A font the caller gave that is not one: why.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FontError(pub String);
-
-impl std::fmt::Display for FontError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "the font is not one: {}", self.0)
-    }
-}
-
-impl std::error::Error for FontError {}
-
-/// The face of the font file in `bytes` (the first of a collection).
-fn face(bytes: &[u8]) -> Result<Face, FontError> {
-    Face::from_bytes(bytes, FontSettings::default()).map_err(|why| FontError(why.to_owned()))
-}
-
-impl Fonts {
-    /// No faces: every character a box as wide as [`Fixed`]'s default (what the host with no screen
-    /// measures with unless told).
-    pub fn none() -> Self {
-        Self::boxes(Fixed::default())
-    }
-
-    /// No faces: every character a box as wide as `fixed` measures it.
-    pub fn boxes(fixed: Fixed) -> Self {
-        Self {
-            terminal: None,
-            bold: None,
-            italic: None,
-            system: None,
-            fixed,
-        }
-    }
-
-    /// The terminal's face, regular: the file's bytes.
-    ///
-    /// # Errors
-    ///
-    /// The bytes are not a font.
-    pub fn terminal(mut self, bytes: &[u8]) -> Result<Self, FontError> {
-        self.terminal = Some(face(bytes)?);
-        Ok(self)
-    }
-
-    /// The terminal's face, bold.
-    ///
-    /// # Errors
-    ///
-    /// The bytes are not a font.
-    pub fn bold(mut self, bytes: &[u8]) -> Result<Self, FontError> {
-        self.bold = Some(face(bytes)?);
-        Ok(self)
-    }
-
-    /// The terminal's face, italic.
-    ///
-    /// # Errors
-    ///
-    /// The bytes are not a font.
-    pub fn italic(mut self, bytes: &[u8]) -> Result<Self, FontError> {
-        self.italic = Some(face(bytes)?);
-        Ok(self)
-    }
-
-    /// The system's face.
-    ///
-    /// # Errors
-    ///
-    /// The bytes are not a font.
-    pub fn system(mut self, bytes: &[u8]) -> Result<Self, FontError> {
-        self.system = Some(face(bytes)?);
-        Ok(self)
-    }
-
-    /// The face `font` is drawn in, if there is one.
-    fn face(&self, font: &Font) -> Option<&Face> {
-        let regular = || self.terminal.as_ref().or(self.system.as_ref());
-        match font.family {
-            Family::Terminal if font.weight >= 600 => self.bold.as_ref().or_else(regular),
-            Family::Terminal if font.italic => self.italic.as_ref().or_else(regular),
-            Family::Terminal => regular(),
-            Family::System => self.system.as_ref().or(self.terminal.as_ref()),
-        }
-    }
-
-    /// Where a line of `font` has its baseline, below its top, and how high it is, pixels.
-    fn line(&self, font: &Font) -> (f32, f32) {
-        match self.face(font) {
-            Some(face) => face
-                .horizontal_line_metrics(font.size)
-                .map_or((font.size * 0.8, font.size * 1.25), |line| {
-                    (line.ascent, line.ascent - line.descent + line.line_gap)
-                }),
-            None => (self.fixed.line * 0.8, self.fixed.line),
-        }
-    }
-}
-
-impl Measure for Fonts {
-    fn measure(&mut self, font: &Font, text: &str) -> Metrics {
-        match self.face(font) {
-            Some(face) => Metrics {
-                width: text
-                    .chars()
-                    .map(|c| face.metrics(c, font.size).advance_width)
-                    .sum(),
-                height: self.line(font).1,
-            },
-            None => self.fixed.measure(font, text),
-        }
-    }
-}
+use fonts::Shape;
+pub use fonts::{FontError, Fonts};
 
 /// The colours a picture gives the kit's roles: a theme of a terminal's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -258,11 +137,73 @@ impl std::error::Error for Error {}
 /// A picture of no pixels, or one that could not be written.
 pub fn png(
     list: &DrawList,
-    (width, height): (u32, u32),
+    size: (u32, u32),
     fonts: &Fonts,
     images: Option<&Images>,
     palette: Palette,
 ) -> Result<Vec<u8>, Error> {
+    raster(list, size, fonts, images, palette)?.png()
+}
+
+/// A picture's pixels, drawn and not yet written as a file: opaque RGBA, a row after a row.
+pub struct Raster {
+    pixmap: Pixmap,
+}
+
+impl Raster {
+    /// How many pixels across.
+    pub fn width(&self) -> u32 {
+        self.pixmap.width()
+    }
+
+    /// How many pixels down.
+    pub fn height(&self) -> u32 {
+        self.pixmap.height()
+    }
+
+    /// The pixels, four bytes each, red first (every one opaque, so straight and premultiplied are
+    /// the same).
+    pub fn rgba(&self) -> &[u8] {
+        self.pixmap.data()
+    }
+
+    /// A picture of the opaque RGBA `bytes` of `width` × `height` pixels (a measurement's).
+    pub fn from_rgba(width: u32, height: u32, bytes: Vec<u8>) -> Option<Raster> {
+        Pixmap::from_vec(bytes, tiny_skia::IntSize::from_wh(width, height)?)
+            .map(|pixmap| Raster { pixmap })
+    }
+
+    /// The `rows` rows from row `top`, as a picture of their own.
+    pub fn strip(&self, top: u32, rows: u32) -> Option<Raster> {
+        let rect = tiny_skia::IntRect::from_xywh(0, i32::try_from(top).ok()?, self.width(), rows)?;
+        self.pixmap.clone_rect(rect).map(|pixmap| Raster { pixmap })
+    }
+
+    /// The pixels as a PNG.
+    ///
+    /// # Errors
+    ///
+    /// The PNG could not be written.
+    pub fn png(&self) -> Result<Vec<u8>, Error> {
+        self.pixmap
+            .encode_png()
+            .map_err(|why| Error::Encode(why.to_string()))
+    }
+}
+
+/// The draw list `list` of a view of `width` × `height` pixels drawn into pixels: as [`png`] draws
+/// them, before they are written as a file.
+///
+/// # Errors
+///
+/// A picture of no pixels.
+pub fn raster(
+    list: &DrawList,
+    (width, height): (u32, u32),
+    fonts: &Fonts,
+    images: Option<&Images>,
+    palette: Palette,
+) -> Result<Raster, Error> {
     let mut pixmap = Pixmap::new(width, height).ok_or(Error::Size(width, height))?;
     let [r, g, b, _] = palette.role(Role::Background);
     if let Some(ground) = tiny_skia::Color::from_rgba(r, g, b, 1.0) {
@@ -305,9 +246,7 @@ pub fn png(
             Paint::Editor(_) => {}
         }
     }
-    pixmap
-        .encode_png()
-        .map_err(|why| Error::Encode(why.to_string()))
+    Ok(Raster { pixmap })
 }
 
 /// What a picture is drawn on, and with.
@@ -587,28 +526,29 @@ impl Canvas<'_> {
         let (ascent, line) = self.fonts.line(&run.font);
         let baseline = run.origin.y + ascent;
         let mut pen = run.origin.x;
-        match self.fonts.face(&run.font) {
-            Some(face) => {
-                for c in run.text.chars() {
-                    let (metrics, coverage) = face.rasterize(c, run.font.size);
-                    #[allow(clippy::cast_precision_loss)]
-                    let (xmin, top) = (
-                        metrics.xmin as f32,
-                        metrics.height as f32 + metrics.ymin as f32,
-                    );
-                    self.blit(
-                        &coverage,
-                        metrics.width,
-                        (pen + xmin, baseline - top),
-                        color,
-                        run.clip,
-                    );
-                    pen += metrics.advance_width;
+        match self.fonts.set_down(&run.font, &run.text) {
+            Some(set) => {
+                for mark in &set.marks {
+                    let x = run.origin.x + mark.at;
+                    match &mark.shape {
+                        Shape::Nothing => {}
+                        Shape::Glyph(glyph) => {
+                            #[allow(clippy::cast_precision_loss)]
+                            let at = (x + glyph.left as f32, baseline - glyph.top as f32);
+                            if glyph.colour {
+                                self.blit_colour(glyph, at, color[3], run.clip);
+                            } else {
+                                self.blit(&glyph.data, glyph.width as usize, at, color, run.clip);
+                            }
+                        }
+                        Shape::Box => self.hollow_box(x, baseline, mark.advance, run, color),
+                    }
                 }
+                pen += set.width;
             }
             None => {
                 // A box for each character that is not a space, a character's width apart.
-                let advance = self.fonts.fixed.advance;
+                let advance = self.fonts.box_advance();
                 for c in run.text.chars() {
                     if !c.is_whitespace() {
                         let cell = Rect::new(
@@ -636,6 +576,82 @@ impl Canvas<'_> {
                 1.0,
             );
             self.fill(rule, run.clip, color);
+        }
+    }
+
+    /// What a character no face has is: the outline of a box on the baseline, the height of a capital,
+    /// a little narrower than the room the character takes.
+    fn hollow_box(
+        &mut self,
+        x: f32,
+        baseline: f32,
+        advance: f32,
+        run: &pencere_view::Run,
+        color: [f32; 4],
+    ) {
+        let (left, width) = (
+            (x + advance * 0.1).round(),
+            (advance * 0.8).round().max(3.0),
+        );
+        let height = (run.font.size * 0.72).round().max(3.0);
+        let top = (baseline - height).round();
+        let line = (run.font.size / 16.0).round().max(1.0);
+        for rect in [
+            Rect::new(left, top, width, line),
+            Rect::new(left, top + height - line, width, line),
+            Rect::new(left, top, line, height),
+            Rect::new(left + width - line, top, line, height),
+        ] {
+            self.fill(rect, run.clip, color);
+        }
+    }
+
+    /// A colour glyph's own pixels (straight RGBA) at `at`, `opacity` of them showing, cut at `clip`.
+    fn blit_colour(&mut self, glyph: &fonts::Glyph, at: (f32, f32), opacity: f32, clip: Rect) {
+        #[allow(clippy::cast_possible_truncation)]
+        let (x, y) = (at.0.round() as i64, at.1.round() as i64);
+        let (w, h) = (
+            i64::from(self.pixmap.width()),
+            i64::from(self.pixmap.height()),
+        );
+        let width = glyph.width as usize;
+        let pixels = self.pixmap.data_mut();
+        for (row, line) in glyph.data.chunks(width.max(1) * 4).enumerate() {
+            let py = y + i64::try_from(row).unwrap_or(i64::MAX);
+            #[allow(clippy::cast_precision_loss)]
+            if py < 0 || py >= h || (py as f32) < clip.y || (py as f32) >= clip.y + clip.h {
+                continue;
+            }
+            for (column, pixel) in line.chunks(4).enumerate() {
+                let px = x + i64::try_from(column).unwrap_or(i64::MAX);
+                #[allow(clippy::cast_precision_loss)]
+                if px < 0 || px >= w || (px as f32) < clip.x || (px as f32) >= clip.x + clip.w {
+                    continue;
+                }
+                let &[red, green, blue, alpha] = pixel else {
+                    continue;
+                };
+                let alpha = f32::from(alpha) / 255.0 * opacity;
+                if alpha <= 0.0 {
+                    continue;
+                }
+                let Ok(to) = usize::try_from((py * w + px) * 4) else {
+                    continue;
+                };
+                let Some(under) = pixels.get_mut(to..to + 4) else {
+                    continue;
+                };
+                for (channel, over) in under.iter_mut().zip([red, green, blue]) {
+                    let mixed =
+                        f32::from(*channel) + (f32::from(over) - f32::from(*channel)) * alpha;
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let mixed = mixed.round().clamp(0.0, 255.0) as u8;
+                    *channel = mixed;
+                }
+                if let Some(opaque) = under.get_mut(3) {
+                    *opaque = 255;
+                }
+            }
         }
     }
 

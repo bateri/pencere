@@ -12,7 +12,7 @@ categories = ["gui", "development-tools::testing"]
 # The tests of `src/` read the example pages of the repository, which a crate does not carry.
 include = [
     "src/**", "!src/*_tests.rs", "!src/fixtures/**",
-    "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE",
+    "Cargo.toml", "build.rs", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE", "fonts/**",
 ]
 
 [dependencies]
@@ -34,19 +34,30 @@ serde_json = "1"
 # which a terminal that drives pages has no use for and does not link (`make check`).
 pencere = { path = "../../program", version = "0.4.1", optional = true }
 tiny-skia = { version = "0.12", optional = true }
-fontdue = { version = "0.9", optional = true, default-features = false, features = ["std", "simd"] }
+swash = { version = "0.2", optional = true }
+memmap2 = { version = "0.9", optional = true }
+# The faces the picture carries are packed (zlib) when the crate is built and unpacked, once, where
+# a machine has no face of its own (miniz_oxide, MIT or Zlib or Apache-2.0; already in the graph by
+# the PNG encoder). The build script packs them with the same crate, and does nothing without `shot`.
+miniz_oxide = { version = "0.8", optional = true }
+
+[build-dependencies]
+miniz_oxide = "0.8"
 
 # Pictures of a page for the eye (`shot`), off unless asked: the draw list rasterised by tiny-skia
 # (BSD-3-Clause; the SVG renderer's own, already in the graph by the sandbox, with its PNG encoder)
-# and the caller's fonts read by fontdue (MIT, Apache-2.0 or Zlib, with ttf-parser, MIT or
-# Apache-2.0). A terminal that drives pages has no use for either and links neither (`make check`).
+# and the faces of the machine drawn by swash (Apache-2.0 or MIT, with zeno and yazi, the same; it
+# reads the weight axis of a variable face, the colour glyphs of Apple Color Emoji and Noto Color
+# Emoji, and sits on skrifa, which the PDF reader already has) out of files memory-mapped
+# (memmap2, Apache-2.0 or MIT: Apple Color Emoji is 190 MB, and a picture of a page with no emoji
+# reads none of it). A terminal that drives pages has no use for any and links none (`make check`).
 [features]
 default = ["compiler", "pdf"]
 # What the sandbox is built with (its features of the same names).
 compiler = ["pencere-sandbox/compiler"]
 precompile = ["pencere-sandbox/precompile"]
 pdf = ["pencere-sandbox/pdf"]
-shot = ["dep:tiny-skia", "dep:fontdue"]
+shot = ["dep:tiny-skia", "dep:swash", "dep:memmap2", "dep:miniz_oxide"]
 program = ["dep:pencere"]
 
 [lints]

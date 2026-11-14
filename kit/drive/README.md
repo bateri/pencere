@@ -225,20 +225,27 @@ With the feature `shot`, `Headless::shot(&fonts)` draws the last frame into a PN
 (what is aligned, what overlaps, what is cut). It is not a terminal's drawing: no shaping, no
 shadows, no blur.
 
-The fonts are the caller's: `shot::Fonts::none().terminal(&bytes)?.system(&bytes)?`, which measure
-as they draw (open the page with `.measure(fonts.clone())`, so that its words fill the boxes they
-were measured for). With no font each character is a box a character wide, and the picture is the
+The fonts are the caller's. `shot::Fonts::installed()` draws in the machine's own (on a Mac SF Mono and
+SF, as bateri does, in their bold and italic; a character a face lacks is drawn in the first face of
+the machine that has it: a colour emoji, an ideograph, a symbol; one no face has is a hollow box),
+`Fonts::carried()` in the faces the program carries (JetBrains Mono for the terminal's family and
+Inter for the system's, both SIL OFL 1.1, packed with zlib: what a machine with none is drawn in),
+and `Fonts::none().terminal(&bytes)?.system(&bytes)?` in faces of a file's bytes. They measure as
+they draw (open the page with `.measure(fonts.clone())`, so that its words fill the boxes they were
+measured for). A face with an optical size axis (SF, Inter) is set to the size of the text in
+points: say how many pixels a point of the page is with `fonts.scaled(2.0)` (the page's own
+`.scale`; the default is one). With no font each character is a box a character wide, and the picture is the
 same bytes on every machine: a test can hold a picture to one checked in, and `make check` needs no
 font of its system.
 
 ```rust
-let fonts = Fonts::none().terminal(&std::fs::read("/System/Library/Fonts/Menlo.ttc")?)?;
+let fonts = Fonts::installed().scaled(2.0);
 let page = Headless::app("examples/editor-lua").measure(fonts.clone()).scale(2.0).open()?;
 std::fs::write("target/editor.png", page.shot(&fonts)?)?;
 ```
 
-The pictures are drawn with tiny-skia and the fonts read with fontdue; a terminal that drives pages
-links neither.
+The pictures are drawn with tiny-skia and the faces read and drawn with swash (out of memory-mapped
+files); a terminal that drives pages links none of them.
 
 ## License
 

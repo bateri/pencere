@@ -8,6 +8,12 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Added
 
+- **`shot::Fonts::installed()` and `Fonts::carried()`**: a picture is drawn in the machine's own
+  faces (SF Mono and SF on a Mac) in their bold and italic, a character a face lacks in the first
+  face that has it (a colour emoji, an ideograph) and a hollow box where none does; where the machine
+  has no face the crate's own are drawn: JetBrains Mono and Inter (SIL OFL 1.1), packed with zlib. A
+  face with an optical size (SF, Inter) is set to the size of the text in points (`Fonts::scaled`).
+  The faces measure as they draw.
 - **A drag out of the view, and the view's text size**: a host that says it carries
   (`Page::set_carry(true)`) is given, in the `input` that moved the pointer, the system's drag of
   what an element says it carries: pressed on it with the main button and moved `DRAG_START` points

@@ -32,6 +32,8 @@ pub use page::{FrameAt, NoText, Page, PageEditors, Painted, Setup, carriable};
 pub use pencere_editor::Route;
 pub use scrolling::Scrolling;
 
+#[cfg(all(test, feature = "shot"))]
+mod fonts_tests;
 #[cfg(test)]
 mod glide_tests;
 #[cfg(test)]
