@@ -941,6 +941,7 @@ fn picture(rect: Rect, tint: Option<Color>) -> Paint {
         radii: [0.0; 4],
         clip: world(),
         turn: 0.0,
+        exact: None,
     })
 }
 
@@ -1110,6 +1111,57 @@ fn an_icon_is_stretched_over_the_cells_it_is_nearest_and_a_picture_on_the_cells_
         (1, 0, 2, 1)
     );
     assert_eq!((placed.width, placed.height), (16, 16));
+}
+
+#[test]
+fn an_icon_the_page_wrote_a_place_for_is_drawn_there_on_the_pixels_of_the_terminal_and_not_stretched()
+ {
+    // The cells of the icon are two columns and a row (16 by 18 pixels of the terminal's 10 by 20 on the
+    // page's 1 by 2), and the page wrote it 1.5 by 1.5 in the middle of them: it is 15 by 15 pixels of
+    // the terminal, at the pixel the layout has it at, and not 20 by 20 over the cells.
+    let options = Options {
+        pixels: (10, 20),
+        ..Options::default()
+    };
+    let Paint::Image(mut icon) = picture(Rect::new(1.0, 0.0, 2.0, 2.0), Some(Role::Accent.solid()))
+    else {
+        panic!("a picture");
+    };
+    icon.exact = Some(Rect::new(1.25, 0.25, 1.5, 1.5));
+    let list = DrawList {
+        items: vec![Paint::Image(icon)],
+    };
+    let frame = render(&list, 4, 1, &dark(), &One(red(16, 16)), &options);
+    let [placed] = &frame.placements[..] else {
+        panic!("one icon: {:?}", frame.placements);
+    };
+    assert_eq!((placed.width, placed.height), (15, 15), "{placed:?}");
+    assert_eq!(
+        (placed.col, placed.row, placed.cols, placed.rows),
+        (1, 0, 2, 1),
+        "{placed:?}"
+    );
+    // At the pixel the page put it: 12.5 across and 2.5 down.
+    let (x, y) = placed.offset.expect("a pixel of its first cell");
+    assert!(
+        (2..=3).contains(&x) && (2..=3).contains(&y),
+        "the offset is {:?}",
+        placed.offset
+    );
+    // A cell that is not the page's to a hundredth: the icon keeps its proportions in the middle of the
+    // place that was written (it is square).
+    let tall = Options {
+        pixels: (10, 30),
+        ..Options::default()
+    };
+    let frame = render(&list, 4, 1, &dark(), &One(red(16, 16)), &tall);
+    let [placed] = &frame.placements[..] else {
+        panic!("one icon");
+    };
+    assert_eq!(
+        placed.width, placed.height,
+        "a square written is a square drawn: {placed:?}"
+    );
 }
 
 /// The pictures of a stream written to a terminal: how many sent pixels (`a=t`, `a=T`) and how many

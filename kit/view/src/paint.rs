@@ -108,6 +108,14 @@ pub struct Picture {
     /// turned so (a spinner's, [`crate::Motion::spin`]), cut at `clip` as it is. 0 for one that is
     /// not.
     pub turn: f32,
+    /// Where the page wrote the image to be, in the middle of the cells that are its box, for an image
+    /// `rect` holds to those cells: a tinted one (an icon), which on a grid fills its cells as a
+    /// character does. The same as `rect` is for an image that is not tinted, where there is no grid
+    /// to round the box it is in: a host that draws more finely than the cells (a terminal that draws
+    /// pictures on its own pixels) draws the icon here, the size the page wrote, and not the size of
+    /// the cells. `None` for an image that is not tinted, and where the page has no grid or wrote no
+    /// such place.
+    pub exact: Option<Rect>,
 }
 
 impl Picture {
@@ -120,6 +128,7 @@ impl Picture {
             rect,
             crop,
             shown: shown_of(rect, crop, self.clip, self.turn),
+            exact: None,
             ..self.clone()
         }
     }
@@ -222,7 +231,11 @@ impl Laid {
             {
                 // A hairline on a grid takes its cell and fills as thick as it was written.
                 let rect = Rect::new(
-                    node.rect.x,
+                    if node.thin.0 > 0.0 {
+                        node.rect.x + node.thin_across
+                    } else {
+                        node.rect.x
+                    },
                     if node.thin.1 > 0.0 {
                         node.rect.y + node.thin_down
                     } else {
@@ -467,51 +480,61 @@ fn shown_of(rect: Rect, crop: Rect, clip: Rect, turn: f32) -> Rect {
 fn place_image(node: &Node, image: &Placed) -> Option<Picture> {
     let natural = image.natural?;
     let [top, right, bottom, left] = image.inset;
+    // Where the image stands in `held`, and what of it shows.
+    let place = |held: Rect| -> Option<(Rect, Rect)> {
+        let room = Rect::new(
+            held.x + left,
+            held.y + top,
+            held.w - left - right,
+            held.h - top - bottom,
+        );
+        if room.w <= 0.0 || room.h <= 0.0 {
+            return None;
+        }
+        Some(match image.fit {
+            Fit::Contain => {
+                let along = (room.w / natural.w).min(room.h / natural.h);
+                let (w, h) = (natural.w * along, natural.h * along);
+                (
+                    Rect::new(
+                        room.x + (room.w - w) / 2.0,
+                        room.y + (room.h - h) / 2.0,
+                        w,
+                        h,
+                    ),
+                    Rect::new(0.0, 0.0, 1.0, 1.0),
+                )
+            }
+            Fit::Cover => {
+                let along = (room.w / natural.w).max(room.h / natural.h);
+                let (shown_w, shown_h) =
+                    (room.w / (natural.w * along), room.h / (natural.h * along));
+                (
+                    room,
+                    Rect::new(
+                        (1.0 - shown_w) / 2.0,
+                        (1.0 - shown_h) / 2.0,
+                        shown_w,
+                        shown_h,
+                    ),
+                )
+            }
+        })
+    };
     // Where the page wrote the image's box to be, in the middle of the cells that are its box on a
     // grid, where it did: the image keeps its proportions to the pixel and is not stretched to the
     // cells (a host that draws more finely than they do draws it there). A tinted image is an icon,
-    // which fills its cells as a character does, and stays where the grid put it.
-    let held = match image.tint {
-        Some(_) => node.rect,
-        None => node.exact_rect().unwrap_or(node.rect),
+    // which fills its cells as a character does, and stays where the grid put it; where the page wrote
+    // it a place, that is said besides (`Picture::exact`), for a host that draws it so.
+    let (rect, crop) = match image.tint {
+        Some(_) => place(node.rect)?,
+        None => place(node.exact_rect().unwrap_or(node.rect))?,
     };
-    let room = Rect::new(
-        held.x + left,
-        held.y + top,
-        held.w - left - right,
-        held.h - top - bottom,
-    );
-    if room.w <= 0.0 || room.h <= 0.0 {
-        return None;
-    }
-    let (rect, crop) = match image.fit {
-        Fit::Contain => {
-            let along = (room.w / natural.w).min(room.h / natural.h);
-            let (w, h) = (natural.w * along, natural.h * along);
-            (
-                Rect::new(
-                    room.x + (room.w - w) / 2.0,
-                    room.y + (room.h - h) / 2.0,
-                    w,
-                    h,
-                ),
-                Rect::new(0.0, 0.0, 1.0, 1.0),
-            )
-        }
-        Fit::Cover => {
-            let along = (room.w / natural.w).max(room.h / natural.h);
-            let (shown_w, shown_h) = (room.w / (natural.w * along), room.h / (natural.h * along));
-            (
-                room,
-                Rect::new(
-                    (1.0 - shown_w) / 2.0,
-                    (1.0 - shown_h) / 2.0,
-                    shown_w,
-                    shown_h,
-                ),
-            )
-        }
-    };
+    let exact = image
+        .tint
+        .and(node.exact_rect())
+        .and_then(place)
+        .map(|(rect, _)| rect);
     let most = rect.w.min(rect.h) / 2.0;
     let shown = shown_of(rect, crop, node.clip, node.turn);
     Some(Picture {
@@ -526,6 +549,7 @@ fn place_image(node: &Node, image: &Placed) -> Option<Picture> {
         radii: node.radii.map(|radius| radius.clamp(0.0, most)),
         clip: node.clip,
         turn: node.turn,
+        exact,
     })
 }
 

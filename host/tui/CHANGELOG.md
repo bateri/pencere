@@ -152,4 +152,15 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
 - **A picture is where the page put it and as wide as it is high.** A picture whose box was written
   in pixels keeps its proportions on the terminal's own pixels (240 by 240 is a square) and stands in
   the middle of its cells, and what is laid over it (the marks of a found word in a PDF) stands on
-  what it marks, to the pixel. Icons are as they were: they fill their cells.
+  what it marks, to the pixel. An icon the page wrote no place for fills its cells.
+- **An icon is the size the page wrote, in the middle of its cells,** where the terminal draws
+  pictures on its own pixels: it was stretched over them (a close mark of 13 points filled two
+  columns by a row). It is tinted as before.
+- **A space the page marks in a selection is the character `·`,** with pictures and without, where it
+  was a block of a half cell.
+- **A line along the right or the bottom of a box is at that edge of it,** and so are the ground and the
+  tone of the box: the right line of a tab stood a cell inside its ground. The six edge characters
+  (`▏ ▕ ▔ ▁ ─ ━`) are drawn by `compose` as pixels.
+- **A run of pointer moves or drags that one read has is handed to the page as the last of them,**
+  where a page that was slow was handed every one and went on after the button was let go. Presses,
+  releases, keys and the wheel keep their places.

@@ -11,6 +11,7 @@ use std::collections::HashMap;
 
 use crate::color::Rgb;
 use crate::grid::Bg;
+use crate::output::OVER_TEXT;
 use crate::paint::Frame;
 
 /// The layer from which a picture is over the grounds of the cells.
@@ -363,10 +364,50 @@ impl Terminal {
                 }
             }
         }
-        for put in order.iter().filter(|put| put.z >= OVER_GROUNDS) {
+        // The characters that are a line along the edge of their cell (what the painter draws a line
+        // thinner than a cell with) are drawn as the terminal draws them: by the pixels of the edge,
+        // over the pictures that are under the text, under the ones over it. No other character is.
+        for put in order
+            .iter()
+            .filter(|put| (OVER_GROUNDS..OVER_TEXT).contains(&put.z))
+        {
+            self.blit(&mut image, put);
+        }
+        self.edges(&mut image, frame);
+        for put in order.iter().filter(|put| put.z >= OVER_TEXT) {
             self.blit(&mut image, put);
         }
         image
+    }
+
+    /// The characters of `frame` that are a line along an edge of the cell (`▏ ▕ ▔ ▁ ─ ━`), as pixels:
+    /// an eighth of the cell thick (at least a pixel), the middle ones a pixel or two thick, on the
+    /// ground the cell has.
+    fn edges(&self, image: &mut Image, frame: &Frame) {
+        let (cw, ch) = self.cell;
+        let (thick_x, thick_y) = ((cw / 8).max(1), (ch / 8).max(1));
+        for row in 0..u32::from(frame.grid.rows()) {
+            for col in 0..u32::from(frame.grid.cols()) {
+                let Some(cell) = frame.grid.cell(col as u16, row as u16) else {
+                    continue;
+                };
+                // Across and down, from and to, inside the cell.
+                let (x, y) = match cell.ch {
+                    '\u{258f}' => ((0, thick_x), (0, ch)),
+                    '\u{2595}' => ((cw - thick_x, cw), (0, ch)),
+                    '\u{2594}' => ((0, cw), (0, thick_y)),
+                    '\u{2581}' => ((0, cw), (ch - thick_y, ch)),
+                    '\u{2500}' => ((0, cw), (ch / 2, ch / 2 + 1)),
+                    '\u{2501}' => ((0, cw), (ch / 2 - 1, ch / 2 + 1)),
+                    _ => continue,
+                };
+                for dy in y.0..y.1 {
+                    for dx in x.0..x.1 {
+                        image.set(col * cw + dx, row * ch + dy, cell.fg);
+                    }
+                }
+            }
+        }
     }
 
     fn blit(&self, image: &mut Image, put: &Put) {

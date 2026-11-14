@@ -65,6 +65,7 @@ fn picture(rect: Rect, cells: Rect, clip: Rect) -> Paint {
         radii: [0.0; 4],
         clip,
         turn: 0.0,
+        exact: None,
     })
 }
 

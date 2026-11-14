@@ -947,6 +947,97 @@ fn a_hairline_put_against_the_top_of_a_box_is_not_moved_to_the_middle_by_the_row
     assert_eq!(quads_of(tab, true), [(0.0, 2.0)]);
 }
 
+/// Where the quads of `bar`'s page are drawn: each one's box.
+fn rects_of(bar: Element, on: bool) -> Vec<Rect> {
+    use crate::Paint;
+    let list = if on {
+        page(bar, true).paint(&mut Cells)
+    } else {
+        page(bar, false).paint(&mut Points)
+    };
+    list.items
+        .iter()
+        .filter_map(|item| match item {
+            Paint::Quad(quad) => Some(quad.rect),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_hairline_put_against_the_right_or_the_bottom_of_a_box_stands_at_that_edge_of_its_cell() {
+    use crate::Role;
+    // A tab: a label, a rule a point across laid against its right edge (as a tab's line to the next),
+    // and a rule a point down laid against its bottom edge. Each takes a cell of its own on the grid;
+    // the line stands at the edge of the cell the box was put against: the last point of the tab's
+    // width, and the last point of its height, as they stand where the page wrote them.
+    let tab = || {
+        div()
+            .row()
+            .w(200.0)
+            .h(18.0)
+            .no_shrink()
+            .items_center()
+            .child(text("main.rs").no_shrink())
+            .child(
+                div()
+                    .absolute()
+                    .inset(Some(0.0), Some(0.0), None, None)
+                    .w(1.0)
+                    .h(18.0)
+                    .bg(Role::Border),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .inset(None, Some(0.0), Some(0.0), Some(0.0))
+                    .h(1.0)
+                    .bg(Role::Accent),
+            )
+    };
+    let on = rects_of(tab(), true);
+    let off = rects_of(tab(), false);
+    assert_eq!(off.len(), 2, "{off:?}");
+    // The rule down the right: the box is the column at the tab's right, the line its last point.
+    assert_eq!((on[0].x, on[0].w), (199.0, 1.0), "{on:?}");
+    assert_eq!((on[0].x, on[0].w), (off[0].x, off[0].w), "{on:?} {off:?}");
+    // The rule across the bottom: the box is the row at its foot, the line its last point.
+    assert_eq!((on[1].y, on[1].h), (17.0, 1.0), "{on:?}");
+    assert_eq!((on[1].y, on[1].h), (off[1].y, off[1].h), "{on:?} {off:?}");
+}
+
+#[test]
+fn a_hairline_that_names_nothing_does_not_lie_over_what_is_under_it() {
+    use crate::{Point, Role};
+    // A strip of tabs with the line under it laid over the whole of its row: on the grid the line takes
+    // a cell as wide as the strip and as high as its row, and draws a point of it. A pointer over a tab
+    // is over the tab: the named elements there are the tab's and what holds it, as they are with no
+    // line.
+    let strip = |line: bool| {
+        let strip = div()
+            .row()
+            .w(200.0)
+            .h(18.0)
+            .no_shrink()
+            .child(text("main.rs").no_shrink().id(LINE));
+        if line {
+            strip.child(
+                div()
+                    .absolute()
+                    .inset(None, Some(0.0), Some(0.0), Some(0.0))
+                    .h(1.0)
+                    .bg(Role::Border),
+            )
+        } else {
+            strip
+        }
+    };
+    let over = Point::new(20.0, 9.0);
+    let without = page(strip(false), true).ids_at(over);
+    assert_eq!(without, [LINE, BOX], "the tab and its strip");
+    assert_eq!(page(strip(true), true).ids_at(over), without);
+}
+
 // --- Where a box stands with no grid to round it -------------------------------------------------------
 
 /// A grid of eight by eighteen points that knows one image, a square of 240.
@@ -1036,6 +1127,29 @@ fn a_tinted_image_is_an_icon_and_stays_on_the_cells() {
         held,
         "the icon is as large as its cells let it be"
     );
+}
+
+#[test]
+fn a_tinted_image_says_where_the_page_wrote_it_for_a_host_that_draws_finely() {
+    use crate::{Fit, Role};
+    // The icon stays on the cells (above), and is told besides at the size written, in the middle of
+    // them: sixteen points across is two columns, and the page wrote fourteen.
+    let (cells, items) = drawn(
+        crate::image("a.svg", Fit::Contain)
+            .tint(Role::Accent)
+            .w(14.0)
+            .h(14.0),
+    );
+    let [picture] = pictures_of(&items).try_into().expect("one picture");
+    let exact = picture.exact.expect("the place the page wrote");
+    assert_eq!((exact.w, exact.h), (14.0, 14.0));
+    let middle = |rect: Rect| (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
+    assert_eq!(middle(exact), middle(cells));
+    // An image that is not tinted is drawn where the page wrote it, in `rect`: nothing is said besides.
+    let (_, items) = drawn(crate::image("a.png", Fit::Contain).w(14.0).h(14.0));
+    let [picture] = pictures_of(&items).try_into().expect("one picture");
+    assert_eq!(picture.exact, None);
+    assert_eq!((picture.rect.w, picture.rect.h), (14.0, 14.0));
 }
 
 #[test]

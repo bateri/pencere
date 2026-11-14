@@ -144,6 +144,7 @@ pub fn render(
         shown: Vec::new(),
         behind: None,
         lines: Vec::new(),
+        bullets: Vec::new(),
         waiting: false,
         overlaps: 0,
     };
@@ -157,7 +158,14 @@ pub fn render(
         match item {
             Paint::Quad(quad) => painter.quad(quad),
             Paint::Text(run) => painter.text(run),
-            Paint::Image(picture) => painter.picture(picture),
+            // An icon on a terminal that draws pictures on its own pixels is the size the page wrote, in the
+            // middle of its cells, and is not stretched to them.
+            Paint::Image(picture) => match picture.exact {
+                Some(exact) if options.images == ImageMode::Kitty => {
+                    painter.picture(&picture.refit(exact, picture.crop), true);
+                }
+                _ => painter.picture(picture, false),
+            },
             Paint::Figure(figure) => painter.figure(figure),
             // The drive puts what an editor draws into the list; the place of one that was not
             // filled shows the room's own ground.
@@ -522,6 +530,16 @@ struct Line {
     at: u32,
 }
 
+/// A dot the page drew (a small round fill: the mark of a space in the selection), to be put in its
+/// cell as a character (`·`) once the whole list has been, where the cell holds nothing but a space.
+struct Bullet {
+    col: i32,
+    row: i32,
+    color: (Rgb, f32),
+    /// The count of the item it was drawn by.
+    at: u32,
+}
+
 /// The ground that was under the last box given a solid fill, as it was before the fill.
 struct Behind {
     /// The box (pixels of the page) and the count of the item that filled it.
@@ -583,6 +601,8 @@ struct Painter<'a> {
     /// The lines along cells that have words in them, which are drawn once the whole list has been:
     /// whether the words cut a line is what the cells that nothing is laid over say.
     lines: Vec<Line>,
+    /// The dots the page drew, which are put in their cells once the whole list has been.
+    bullets: Vec<Bullet>,
     waiting: bool,
     overlaps: usize,
 }
@@ -1250,8 +1270,45 @@ impl Painter<'_> {
         true
     }
 
+    /// A small round fill (thinner than half a cell across and down, and round) is a dot: the mark an
+    /// editor puts on a space it shows. It is the character `·` in the cell of its middle, where the cell
+    /// holds a space, and not a block of the half cell a fill of any size is drawn with.
+    fn bullet(&mut self, quad: &Quad) -> bool {
+        let (Some(fill), rect) = (quad.fill, quad.rect) else {
+            return false;
+        };
+        let sized = |length: f32| length.is_finite() && length > 0.0;
+        let round = quad
+            .radii
+            .iter()
+            .all(|radius| *radius >= rect.w.min(rect.h) / 2.0 - 0.01);
+        if !(sized(rect.w) && sized(rect.h))
+            || rect.w >= self.cw / 2.0
+            || rect.h >= self.rh / 2.0
+            || !round
+            || quad.gradient.is_some()
+            || quad.border.is_some()
+            || quad.shadow.is_some()
+        {
+            return false;
+        }
+        let (col, row) = (
+            ((rect.x + rect.w / 2.0) / self.cw).floor() as i32,
+            ((rect.y + rect.h / 2.0) / self.rh).floor() as i32,
+        );
+        if Self::within(self.span(&quad.clip), col, row) {
+            self.bullets.push(Bullet {
+                col,
+                row,
+                color: self.theme.resolve(&fill),
+                at: self.canvas.tick,
+            });
+        }
+        true
+    }
+
     fn quad(&mut self, quad: &Quad) {
-        if self.hairline(quad) || self.tinted_picture(quad) {
+        if self.bullet(quad) || self.hairline(quad) || self.tinted_picture(quad) {
             return;
         }
         let Some(rect) = self.solid(&quad.rect) else {
@@ -1398,7 +1455,10 @@ impl Painter<'_> {
         }
     }
 
-    fn picture(&mut self, picture: &Picture) {
+    /// `written`: the picture is an icon at the place the page wrote it (`Picture::exact`), which is drawn
+    /// at the pixels of the terminal as any picture is; an icon the page wrote no place for fills the
+    /// cells nearest its box, as a character does.
+    fn picture(&mut self, picture: &Picture, written: bool) {
         let mode = self.options.images;
         if mode == ImageMode::Off {
             return;
@@ -1416,7 +1476,7 @@ impl Painter<'_> {
         // kept on the terminal's pixels, which are not the page's (a cell is not a 1 to 2 of them, and
         // the picture is not stretched to the cells it touches).
         let (drawn, crop) = if mode == ImageMode::Kitty {
-            self.fitted(picture)
+            self.fitted(picture, written)
         } else {
             (picture.rect, picture.crop)
         };
@@ -1425,11 +1485,13 @@ impl Painter<'_> {
         } else {
             picture.clone()
         };
-        // A picture that is not an icon is drawn at its pixels, where they are: it is asked for as the
+        // A picture is drawn at its pixels, where they are, and an icon the page wrote a place for is no other
+        // (it is the size the page wrote, in the middle of its cells, and is not stretched to them): it is asked for as the
         // whole of the picture where that is not more than a screen holds (and not for the part that
         // is seen, which is another picture at each step of a scroll), so that what the terminal is
-        // sent is the same pixels for every frame of it.
-        let in_pixels = mode == ImageMode::Kitty && picture.tint.is_none() && picture.turn == 0.0;
+        // sent is the same pixels for every frame of it. One that turns (a spinner) is put over cells.
+        let in_pixels =
+            mode == ImageMode::Kitty && picture.turn == 0.0 && (picture.tint.is_none() || written);
         let mut request = self.request(&asked);
         // Where it is more than that, it is asked for in the pieces of a grid that is over it (what is
         // seen, rounded out to them), which are the same pixels for each frame of a scroll.
@@ -1577,7 +1639,7 @@ impl Painter<'_> {
         ))
     }
 
-    /// A picture that is not an icon, at the pixels of the terminal: the pixels of the raster made as
+    /// A picture, an icon too, at the pixels of the terminal: the pixels of the raster made as
     /// large as the picture is drawn (named by what they are of and that size, and never by where they
     /// stand), and put at the pixel the layout has the picture at, where it is seen (in its clip and on
     /// the screen: the cells of its box are not what it is cut at); a picture that is moved is only put
@@ -1654,14 +1716,15 @@ impl Painter<'_> {
         };
         let (col, row, cols, rows, offset) = self.in_cells((px0, py0, px1, py1));
         let opacity = picture.opacity.clamp(0.0, 1.0);
-        let covers = opacity >= 0.999 && raster.is_opaque();
+        let tint = picture.tint.map(|tint| self.theme.resolve(&tint));
+        let covers = tint.is_none() && opacity >= 0.999 && raster.is_opaque();
         let shown = Placement {
             col,
             row,
             cols,
             rows,
             offset: Some(offset),
-            pixels: Pixels::scaled(Arc::clone(raster), size, None, opacity),
+            pixels: Pixels::scaled(Arc::clone(raster), size, tint, opacity),
             x: (x0 - origin.0) as u32,
             y: (y0 - origin.1) as u32,
             width: (x1 - x0) as u32,
@@ -2137,8 +2200,9 @@ impl Painter<'_> {
     /// wrote and not of the cells it is in: the cells are what the grid made of the box, and what the
     /// layout gave a picture is where it is, so that two pictures of one size are one size however
     /// their boxes fall on the cells. An icon (a tinted picture) fills its cells as a character does
-    /// and is left as the page's grid put it.
-    fn fitted(&self, picture: &Picture) -> (Rect, Rect) {
+    /// and is left as the page's grid put it, unless the page wrote it a place (`written`: it is the
+    /// picture of that place, which is fitted as any is).
+    fn fitted(&self, picture: &Picture, written: bool) -> (Rect, Rect) {
         let (rect, crop) = (picture.rect, picture.crop);
         let (across, down) = (
             self.options.pixels.0.max(1) as f32 / self.cw,
@@ -2146,7 +2210,7 @@ impl Painter<'_> {
         );
         let sound = |length: f32| length.is_finite() && length > 0.0;
         if picture.turn != 0.0
-            || picture.tint.is_some()
+            || (picture.tint.is_some() && !written)
             || !(sound(rect.w) && sound(rect.h) && sound(crop.w) && sound(crop.h))
             || !(sound(across) && sound(down))
             || (across / down - 1.0).abs() <= PROPORTION_SLACK
@@ -2517,8 +2581,38 @@ impl Painter<'_> {
         }
     }
 
+    /// The dots of the page put in the cells that are spaces and that nothing opaque was laid over
+    /// after them.
+    fn resolve_bullets(&mut self) {
+        for bullet in std::mem::take(&mut self.bullets) {
+            let Bullet {
+                col,
+                row,
+                color: (rgb, alpha),
+                at,
+            } = bullet;
+            if self.canvas.hidden_after((col, row, 1, 1), at) {
+                continue;
+            }
+            let Some(cell) = self.canvas.cell(col, row) else {
+                continue;
+            };
+            let free = match self.canvas.slots.get(cell) {
+                Some(Slot::Empty | Slot::Line { .. }) => true,
+                Some(Slot::Glyph { ch, wide, .. }) => *ch == ' ' && !*wide,
+                _ => false,
+            };
+            if free {
+                let ink = self.canvas.under(col, row).mix(rgb, alpha);
+                self.canvas
+                    .put(col, row, ('\u{b7}', ink, Attrs::NONE), false);
+            }
+        }
+    }
+
     /// The planes put together.
     fn finish(mut self) -> Frame {
+        self.resolve_bullets();
         self.resolve_lines();
         let Self {
             theme,

@@ -149,8 +149,15 @@ pub(crate) struct Node {
     /// Where a hairline across (`thin.1` above `0`) stands in its cell, pixels below the cell's top:
     /// in the middle where the row that holds it centres its items (as the written size would stand
     /// beside a label in a row that is taller than it), and where a hairline is held by another
-    /// hairline, where that one is. `0`, the top of the cell, otherwise.
+    /// hairline, where that one is; at the bottom of its cell where it is put against the bottom edge of
+    /// the box that holds it (laid over it, bottom given and top not). `0`, the top of the cell,
+    /// otherwise.
     pub thin_down: f32,
+    /// Where a hairline down (`thin.0` above `0`) stands in its cell, pixels from the cell's left: at the
+    /// right of its cell where it is put against the right edge of the box that holds it (laid over
+    /// it, right given and left not), so that the line is the last of that box and not a cell's width
+    /// short of it. `0`, the left of the cell, otherwise.
+    pub thin_across: f32,
     /// The room inside the box around what is in it, pixels: left, above, right, below.
     pub pad: [f32; 4],
     /// It is put where the page says (laid over the rest, or an overlay), not where the box it is
@@ -545,7 +552,20 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             .map_or(1.0, |parent| parent.opacity);
         // Where a hairline across stands in its cell.
         // (A box put where the page says is not centred by the row it is in.)
-        let thin_down = if entry.thin.1 > 0.0 && !entry.absolute && !entry.overlay {
+        // A hairline laid over the box that holds it, against the box's bottom (or right) edge, stands
+        // at that edge of the cell it takes: the box's edge is where its ground ends, and a line a
+        // cell short of it is inside the ground and not on it.
+        let [side_top, side_right, side_bottom, side_left] = entry.sides;
+        let against_bottom = entry.absolute && side_top.is_none() && side_bottom.is_some();
+        let against_right = entry.absolute && side_left.is_none() && side_right.is_some();
+        let thin_across = if entry.thin.0 > 0.0 && against_right && !entry.overlay {
+            (rect.w - entry.thin.0).max(0.0)
+        } else {
+            0.0
+        };
+        let thin_down = if entry.thin.1 > 0.0 && against_bottom && !entry.overlay {
+            (rect.h - entry.thin.1).max(0.0)
+        } else if entry.thin.1 > 0.0 && !entry.absolute && !entry.overlay {
             let slack = (rect.h - entry.thin.1).max(0.0);
             match entry.parent.and_then(|parent| nodes.get(parent)) {
                 Some(parent) if parent.thin.1 > 0.0 => parent.thin_down.min(slack),
@@ -588,6 +608,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             turn: 0.0,
             thin: entry.thin,
             thin_down,
+            thin_across,
             pad: [
                 laid.padding.left * unit.x,
                 laid.padding.top * unit.y,
@@ -1015,6 +1036,7 @@ fn empty(page: Rect) -> Node {
         turn: 0.0,
         thin: (0.0, 0.0),
         thin_down: 0.0,
+        thin_across: 0.0,
         pad: [0.0; 4],
         placed: false,
         exact: None,
@@ -1754,7 +1776,11 @@ impl Laid {
     pub fn ids_at(&self, at: Point) -> Vec<Id> {
         let (x, y) = (at.x * self.scale, at.y * self.scale);
         let under = |node: &Node| !node.hidden && Self::shown(node).contains(x, y);
-        let mut held = self.nodes.iter().rposition(under);
+        // A hairline that names nothing is a line and not a box laid over what is under it: on a grid it
+        // takes a cell, as wide as what it runs along and as high as its row, and draws a point of it.
+        let lies_over =
+            |node: &Node| under(node) && !(node.thin != (0.0, 0.0) && node.meta.id.is_none());
+        let mut held = self.nodes.iter().rposition(lies_over);
         let mut ids = Vec::new();
         while let Some(node) = held.and_then(|index| self.nodes.get(index)) {
             if let Some(id) = node.meta.id.filter(|_| under(node)) {

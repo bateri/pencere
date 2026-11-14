@@ -547,6 +547,28 @@ fn held(page: &Page, event: &Event, next: Option<&Event>) -> bool {
         && !page.binds(key.key, key.mods)
 }
 
+/// The events of one read of the terminal's bytes with each run of pointer movements cut to its last:
+/// `Move`s one after another, or `Drag`s of the same button and modifiers one after another. A person's
+/// hand makes hundreds of them in a second, and on a machine that is busy the page is behind them: each
+/// one told to it is a caret placed and a frame asked for, and the page goes on after the person has
+/// let go. Where the pointer is is the last of them; what the ones before it passed over is nothing
+/// the page needs. A press, a release, a key, the wheel and a paste end a run and are kept, in their
+/// places.
+fn latest_pointer(events: Vec<Event>) -> Vec<Event> {
+    let mut kept: Vec<Event> = Vec::with_capacity(events.len());
+    for event in events {
+        if let (Event::Mouse(now), Some(Event::Mouse(before))) = (&event, kept.last())
+            && matches!(now.kind, MouseKind::Move | MouseKind::Drag(_))
+            && now.kind == before.kind
+            && now.mods == before.mods
+        {
+            kept.pop();
+        }
+        kept.push(event);
+    }
+    kept
+}
+
 /// What is shown over the page.
 enum Overlay {
     Menu(MenuBox),
@@ -876,7 +898,7 @@ impl Live<'_> {
             self.decoder
                 .feed(buffer.get(..got).unwrap_or_default(), &mut events);
             self.escape_at = self.decoder.lone_escape().then(|| self.now() + ESCAPE_WAIT);
-            let mut next = events.into_iter().peekable();
+            let mut next = latest_pointer(events).into_iter().peekable();
             while let Some(event) = next.next() {
                 let held = held(&self.page, &event, next.peek());
                 self.dispatch(event, held)?;
@@ -1890,5 +1912,74 @@ mod tests {
             assert!(many.hold(&[file(&format!("sha256:{at}"), Arc::clone(&one))]));
         }
         assert!(!many.hold(&[file("sha256:more", one)]));
+    }
+
+    fn mouse(kind: MouseKind, col: u16, row: u16) -> Event {
+        Event::Mouse(Mouse {
+            kind,
+            col,
+            row,
+            mods: Mods::default(),
+        })
+    }
+
+    #[test]
+    fn twenty_drags_in_one_read_reach_the_page_as_one_and_what_is_pressed_and_let_go_keeps_its_place()
+     {
+        let left = Button::Left;
+        let mut read = vec![mouse(MouseKind::Press(left), 3, 4)];
+        read.extend((0..20).map(|at| mouse(MouseKind::Drag(left), 4 + at, 4)));
+        read.push(mouse(MouseKind::Release(left), 23, 4));
+        read.extend((0..5).map(|at| mouse(MouseKind::Move, 30 + at, 9)));
+        assert_eq!(
+            latest_pointer(read),
+            [
+                mouse(MouseKind::Press(left), 3, 4),
+                mouse(MouseKind::Drag(left), 23, 4),
+                mouse(MouseKind::Release(left), 23, 4),
+                mouse(MouseKind::Move, 34, 9),
+            ],
+            "a run is its last; the press and the release stay, with the run between them"
+        );
+    }
+
+    #[test]
+    fn a_run_of_pointer_moves_is_cut_at_what_is_not_its_kind() {
+        let (left, right) = (Button::Left, Button::Right);
+        let shifted = Mods {
+            shift: true,
+            ..Mods::default()
+        };
+        let key = Event::Key(KeyEvent {
+            key: Key::Down,
+            mods: Mods::default(),
+            text: None,
+            down: true,
+        });
+        let read = vec![
+            mouse(MouseKind::Drag(left), 1, 1),
+            mouse(MouseKind::Drag(left), 2, 1),
+            // Another button, then the same again: neither is the run of the one before.
+            mouse(MouseKind::Drag(right), 3, 1),
+            mouse(MouseKind::Drag(left), 4, 1),
+            // A key between two of the same kind: both are kept.
+            key.clone(),
+            mouse(MouseKind::Move, 5, 1),
+            key.clone(),
+            mouse(MouseKind::Move, 6, 1),
+            // Other modifiers: not the same run.
+            Event::Mouse(Mouse {
+                kind: MouseKind::Move,
+                col: 7,
+                row: 1,
+                mods: shifted,
+            }),
+            mouse(MouseKind::Wheel { dx: 0, dy: 1 }, 7, 1),
+            mouse(MouseKind::Wheel { dx: 0, dy: 1 }, 7, 1),
+        ];
+        let kept = latest_pointer(read.clone());
+        assert_eq!(kept.len(), read.len() - 1, "{kept:?}");
+        assert_eq!(kept[0], mouse(MouseKind::Drag(left), 2, 1));
+        assert_eq!(&kept[1..], &read[2..]);
     }
 }

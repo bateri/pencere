@@ -2513,6 +2513,7 @@ impl View {
                     radii: [0.0; 4],
                     clip: clip.intersect(rect),
                     turn: 0.0,
+                    exact: None,
                 }));
                 if let Some(veil) = veil {
                     out.push(Paint::Image(Picture {
@@ -2527,6 +2528,7 @@ impl View {
                         radii: [0.0; 4],
                         clip: clip.intersect(rect),
                         turn: 0.0,
+                        exact: None,
                     }));
                 }
             }

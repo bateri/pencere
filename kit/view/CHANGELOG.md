@@ -90,8 +90,11 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
   (`pencere-sandbox`'s `Images::picture`).
 - **A box on a grid is also where the page wrote it, to the pixel.** `Quad::exact` is that place for a
   box laid over another that was written a size in pixels, and an image is drawn in the box the page
-  wrote for it, in the middle of the cells it came to; an icon (a tinted image) and a page with no
-  grid are as they were.
+  wrote for it, in the middle of the cells it came to; a page with no grid is as it was, and an icon
+  (a tinted image) stays on its cells (its written place is `Picture::exact`).
+- **An icon says where the page wrote it.** `Picture::exact` is the box the page wrote for an icon,
+  in the middle of its cells, for a host that draws more finely than the cells does; `rect` is
+  its cells, as before, and `None` where the page wrote it no place.
 
 ### Changed
 
@@ -100,6 +103,8 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
   draw outside them.
 - **Breaking:** `Picture` has `shown`, so a host that builds one with a struct literal names it
   (`crop` where it knows no better: `(0, 0, 1, 1)` is all of the image).
+- **Breaking:** `Picture` has `exact`, so a host that builds one with a struct literal names it
+  (`None` where it knows no better).
 - **Breaking: an element that is no editor holds no room for an editor's options**
   (`wire::Meta::editor` is `Option<Box<EditorOptions>>`; `Element::editor` takes the options as
   before). The options are 928 bytes and were held in every element, of 1728: an element is now
@@ -111,6 +116,12 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
 
 ### Fixed
 
+- **A line put against the right or the bottom of a box is at that edge of the box.** A thin box with
+  `absolute` and `inset(0, 0, 0, nil)` is a cell wide on a grid; its fill stood at the near edge of
+  that cell, so the right line of a tab was a cell inside the tab's ground. It is at the edge of
+  the cell it is against, the one the ground ends at.
+- **A line that names nothing is no box laid over what is under it.** On a grid it takes the whole
+  cell, and the pointer could not reach the tab beneath it.
 - **A long list is built for the window it has, not for the page's.** `Built` keeps how tall the
   window was that its rows were built for, and `stale` is true where the window is less than three
   quarters of that. A list is first built before its box is laid out, for a window as tall as the
