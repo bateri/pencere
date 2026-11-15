@@ -66,8 +66,8 @@
 //! The same handlers are served with no terminal by a [`Conversation`]: for the program's tests,
 //! and for a host that runs the view in the same process.
 //!
-//! Where the terminal hosts no view, a program may carry a host of its own that draws the view with the
-//! characters of the terminal ([`Options::screen`]): the program's options and the terminal, as a
+//! Where the terminal hosts no view, a program may carry a host of its own that draws the view in the
+//! terminal itself, as pictures where the terminal shows them ([`Options::screen`]): the program's options and the terminal, as a
 //! [`Tty`], are handed to it, and `serve` returns how the view closed as any view's. The
 //! environment variable [`SCREEN_VARIABLE`] forces it (`1`, even where a terminal hosts views) or
 //! keeps it from running (`0`). In tmux and screen ([`in_multiplexer`]) the terminal is not asked
@@ -412,11 +412,13 @@ impl Options {
         self
     }
 
-    /// What shows the program's view with the characters of the terminal, where no terminal hosts
+    /// What shows the program's view in the terminal itself, where no terminal hosts
     /// it (the reasons for which [`serve`] runs the fallback, but that there is no terminal at all
     /// or a signal ended the wait): given these options, without the fallback and the screen, and the
     /// terminal as a [`Tty`] taken for it, it shows the view, and returns how it closed. Where it
-    /// returns an error the terminal is given back and the fallback runs.
+    /// returns an error the terminal is given back and the fallback runs; an error of the kind
+    /// [`io::ErrorKind::Unsupported`] is the screen saying the terminal cannot show it, and nothing
+    /// is said of it, any other is told on the standard error first.
     #[must_use]
     pub fn screen(
         mut self,
@@ -790,6 +792,9 @@ pub fn serve(mut options: Options) -> Result<Outcome, Error> {
             match Tty::take(&terminal) {
                 Ok(tty) => match show(options, tty) {
                     Ok(closed) => return Ok(Outcome::Closed(closed)),
+                    // A terminal that cannot show the screen is no fault to tell of: the person
+                    // gets what the fallback gives, as if the program carried no screen.
+                    Err(why) if why.kind() == io::ErrorKind::Unsupported => {}
                     Err(why) => eprintln!("pencere: the view could not be drawn here: {why}"),
                 },
                 Err(Error::Busy) => return Err(Error::Busy),

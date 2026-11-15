@@ -8,6 +8,9 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Added
 
+- **`shot::raster_rows` and `shot::reach`**: the rows of a picture that changed are drawn again and
+  the rest are kept, and `reach` says how far an item draws beyond its own box (a shadow, a glow), so
+  that a row is not left out that one of them touches.
 - **`shot::Fonts::installed()` and `Fonts::carried()`**: a picture is drawn in the machine's own
   faces (SF Mono and SF on a Mac) in their bold and italic, a character a face lacks in the first
   face that has it (a colour emoji, an ideograph) and a hollow box where none does; where the machine

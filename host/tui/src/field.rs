@@ -34,6 +34,14 @@ pub struct Edited {
     pub copy: Option<(String, bool)>,
 }
 
+/// What of a field is in its room: see [`TextField::slice`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Slice {
+    pub text: String,
+    pub selected: Option<std::ops::Range<usize>>,
+    pub caret: usize,
+}
+
 /// One field.
 #[derive(Clone, Debug)]
 pub struct TextField {
@@ -332,6 +340,40 @@ impl TextField {
         if !extend {
             self.anchor = at;
         }
+    }
+
+    /// What of the field is in a room `cols` cells across, as it is drawn there in pixels: the
+    /// characters that are in it (a secret as dots), the cells the selection covers and the cell the
+    /// caret is in, counted from the start of the room.
+    pub(crate) fn slice(&self, cols: u16) -> Slice {
+        let secret = matches!(self.kind, FieldKind::Secret);
+        let line: &str = self.text.lines().next().unwrap_or("");
+        let (from, to) = (self.anchor.min(self.head), self.anchor.max(self.head));
+        let skip = self.scrolled(cols);
+        let room = usize::from(cols);
+        let mut slice = Slice::default();
+        let mut x = 0_usize;
+        for (index, c) in line.char_indices() {
+            let shown = if secret { '\u{2022}' } else { c };
+            let w = UnicodeWidthChar::width(shown).unwrap_or(0);
+            if w == 0 {
+                continue;
+            }
+            if x >= skip && x - skip + w <= room {
+                slice.text.push(shown);
+                if index >= from && index < to {
+                    let cells = x - skip..x - skip + w;
+                    slice.selected = Some(match slice.selected.take() {
+                        Some(chosen) => chosen.start..cells.end,
+                        None => cells,
+                    });
+                }
+            }
+            x += w;
+        }
+        let caret = self.caret_cells();
+        slice.caret = (caret - skip.min(caret)).min(room.saturating_sub(1));
+        slice
     }
 
     /// Draws the field over the cells `cols` by `rows` from `at`: its text, or `hint` dimmed while

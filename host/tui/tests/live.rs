@@ -1,6 +1,6 @@
-//! A program whose terminal hosts no view, on a real pty: it draws the view it carries in the cells
-//! of the terminal, takes the keys and the mouse, follows the window's size, and gives the terminal
-//! back as it was.
+//! A program whose terminal hosts no view, on a real pty: where the terminal draws pictures it draws
+//! the view it carries as a picture of the window, takes the keys and the mouse, follows the window's
+//! size, and gives the terminal back as it was; where it does not, the program has its fallback.
 //!
 //! The program is the example written against the Rust library (`examples/containers-rust`, which
 //! `make check-heavy` builds first), and the app `pencere build` makes of `examples/containers-lua`
@@ -26,6 +26,10 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use pencere_fake_host::pty::{Output, Pty, Size, wait};
+
+#[path = "common/window.rs"]
+mod window;
+use window::Window;
 
 /// A program built beside the tests (in the directory of the target the tests are in).
 fn built(name: &str, how: &str) -> PathBuf {
@@ -296,6 +300,10 @@ struct Terminal {
     answered_secondary: usize,
     answered_cells: usize,
     answered_packed: usize,
+    answered_window: usize,
+    answered_pointer: usize,
+    answered_edits: usize,
+    answered_copies: usize,
     /// What the terminal answers besides the device attributes.
     knows: Knows,
 }
@@ -313,6 +321,14 @@ struct Knows {
     cell: Option<(u32, u32)>,
     /// Whether it takes pixels that are packed (the question with `o=z`).
     packed: bool,
+    /// How many pixels its window is, across and down, as it answers to `CSI 14 t`.
+    window: Option<(u32, u32)>,
+    /// Whether it knows the pointer in pixels (the answer to the question of mode 1016).
+    pixel_mouse: bool,
+    /// Whether it changes a part of a picture in place (the edit of a frame, which is asked once).
+    edits: bool,
+    /// Whether it copies a part of a picture onto another part of it (asked once, like the edit).
+    copies: bool,
 }
 
 fn count(haystack: &[u8], needle: &[u8]) -> usize {
@@ -366,6 +382,10 @@ impl Terminal {
             answered_secondary: 0,
             answered_cells: 0,
             answered_packed: 0,
+            answered_window: 0,
+            answered_pointer: 0,
+            answered_edits: 0,
+            answered_copies: 0,
             knows,
         }
     }
@@ -386,6 +406,10 @@ impl Terminal {
         let secondary = count(&self.raw, b"\x1b[>c");
         let cells = count(&self.raw, b"\x1b[16t");
         let packed = count(&self.raw, b"\x1b_Gi=32,");
+        let window = count(&self.raw, b"\x1b[14t");
+        let pointer = count(&self.raw, b"\x1b[?1016$p");
+        let edits = count(&self.raw, b"\x1b_Ga=f,i=33,");
+        let copies = count(&self.raw, b"\x1b_Ga=c,i=34,");
         let mut answer = Vec::new();
         for _ in self.answered_names..names {
             if let Some(name) = self.knows.name {
@@ -405,6 +429,28 @@ impl Terminal {
         for _ in self.answered_packed..packed {
             if self.knows.packed {
                 answer.extend_from_slice(b"\x1b_Gi=32;OK\x1b\\");
+            }
+        }
+        for _ in self.answered_window..window {
+            if let Some((width, height)) = self.knows.window {
+                answer.extend_from_slice(format!("\x1b[4;{height};{width}t").as_bytes());
+            }
+        }
+        for _ in self.answered_pointer..pointer {
+            answer.extend_from_slice(if self.knows.pixel_mouse {
+                b"\x1b[?1016;2$y"
+            } else {
+                b"\x1b[?1016;0$y"
+            });
+        }
+        for _ in self.answered_edits..edits {
+            if self.knows.edits {
+                answer.extend_from_slice(b"\x1b_Gi=33;OK\x1b\\");
+            }
+        }
+        for _ in self.answered_copies..copies {
+            if self.knows.copies {
+                answer.extend_from_slice(b"\x1b_Gi=34;OK\x1b\\");
             }
         }
         for _ in self.answered_graphics..graphics {
@@ -429,6 +475,12 @@ impl Terminal {
             self.answered_secondary,
         ) = (attributes, graphics, keyboard, names, secondary);
         (self.answered_cells, self.answered_packed) = (cells, packed);
+        (
+            self.answered_window,
+            self.answered_pointer,
+            self.answered_edits,
+            self.answered_copies,
+        ) = (window, pointer, edits, copies);
         if !answer.is_empty() {
             self.type_bytes(&answer);
         }
@@ -515,26 +567,6 @@ impl Terminal {
         self.screen.resize(usize::from(cols), usize::from(rows));
     }
 
-    /// The person presses the left button over `needle` and lets go (the mouse in the long form).
-    fn click_on(&mut self, needle: &str) {
-        let (row, col) = self
-            .screen
-            .find(needle)
-            .unwrap_or_else(|| panic!("no {needle:?} to click:\n{}", self.screen.text()));
-        let (col, row) = (col + 2, row + 1);
-        self.type_bytes(format!("\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m").as_bytes());
-    }
-
-    /// The person moves the pointer over `needle`, with no button down.
-    fn move_over(&mut self, needle: &str) {
-        let (row, col) = self
-            .screen
-            .find(needle)
-            .unwrap_or_else(|| panic!("no {needle:?} to move over:\n{}", self.screen.text()));
-        let (col, row) = (col + 2, row + 1);
-        self.type_bytes(format!("\x1b[<35;{col};{row}M").as_bytes());
-    }
-
     /// Waits until the program has written `bytes`, `times` times in all.
     fn until_written(&mut self, bytes: &[u8], times: usize) {
         let what = format!("{:?} written {times} times", String::from_utf8_lossy(bytes));
@@ -554,44 +586,125 @@ impl Terminal {
     }
 }
 
-/// The page is up: its list of containers is drawn.
-fn up(terminal: &mut Terminal) {
-    terminal.until("Containers");
-    terminal.until("worker");
+// --- A terminal that keeps its window as pictures -------------------------------------------
+
+/// The cells of the terminals that draw pictures here (`pictures()`), in pixels.
+const CELL: (u32, u32) = (10, 20);
+
+/// What sets the terminal's own ground to the page's (the kit's dark ground, which a terminal that
+/// says nothing of its colours is drawn in).
+const GROUND: &[u8] = b"\x1b]11;rgb:0d/11/17\x1b\\";
+
+impl Terminal {
+    /// Waits until the window has been sent, and the program has said all it is going to say (the
+    /// page is made while the first picture is the window of the ground alone).
+    fn until_picture(&mut self) {
+        self.until_written(b"\x1b_Ga=T,", 1);
+        self.quiet_for(2500);
+    }
+
+    /// Waits until the program has written nothing for a second: what a key or a press made of the
+    /// window is drawn by then.
+    fn quiet(&mut self) {
+        self.quiet_for(1000);
+    }
+
+    fn quiet_for(&mut self, millis: u64) {
+        let began = Instant::now();
+        let mut last = Instant::now();
+        loop {
+            if self.pump() {
+                last = Instant::now();
+            }
+            if last.elapsed() > Duration::from_millis(millis) {
+                return;
+            }
+            assert!(
+                began.elapsed() < Duration::from_secs(40),
+                "the program never went quiet"
+            );
+            wait(&self.pty, false, false, 20);
+        }
+    }
+
+    /// The window as a terminal that follows the stream has it now: its pixels, across and down.
+    fn pixels(&self, cols: u16, rows: u16) -> Vec<u8> {
+        let mut window = Window::default();
+        let end = complete(&self.raw);
+        window.feed(&self.raw[..end]);
+        window.shows((u32::from(cols) * CELL.0, u32::from(rows) * CELL.1), CELL)
+    }
+
+    /// The person presses the left button at the pixel `x`, `y` and lets go (the mouse in pixels).
+    fn click_at(&mut self, x: u32, y: u32) {
+        self.type_bytes(format!("\x1b[<0;{x};{y}M\x1b[<0;{x};{y}m").as_bytes());
+    }
+}
+
+/// How much of `raw` is whole sequences of pictures: what is cut off at the end is not read yet.
+fn complete(raw: &[u8]) -> usize {
+    let open = raw
+        .windows(3)
+        .rposition(|w| w == b"\x1b_G")
+        .filter(|at| !raw[*at..].windows(2).any(|w| w == b"\x1b\\"));
+    open.unwrap_or(raw.len())
+}
+
+/// The smallest box of pixels (left, top, right, bottom, past the last) in which `a` and `b`, two
+/// windows `width` across, differ; `None` where they are the same.
+fn differing(a: &[u8], b: &[u8], width: u32) -> Option<(u32, u32, u32, u32)> {
+    let mut found: Option<(u32, u32, u32, u32)> = None;
+    for (n, (x, y)) in a.chunks(4).zip(b.chunks(4)).enumerate() {
+        if x != y {
+            let n = u32::try_from(n).expect("a pixel");
+            let (px, py) = (n % width, n / width);
+            found = Some(match found {
+                None => (px, py, px + 1, py + 1),
+                Some((l, t, r, bo)) => (l.min(px), t.min(py), r.max(px + 1), bo.max(py + 1)),
+            });
+        }
+    }
+    found
 }
 
 #[test]
 #[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn a_terminal_that_hosts_no_view_gets_the_view_drawn_in_its_cells() {
-    let mut terminal = Terminal::start(100, 30, &[], Knows::default());
-    up(&mut terminal);
-    // The screen is the alternate one, with no cursor, the mouse and the pastes switched on, and
-    // the colours the 256 of the palette: the terminal said nothing of true colour.
-    assert!(terminal.screen.alternate);
-    assert!(!terminal.screen.cursor_shown);
-    for mode in [1002, 1003, 1006, 2004] {
-        assert!(
-            terminal.screen.modes.contains(&mode),
-            "mode {mode} is on: {:?}",
-            terminal.screen.modes
-        );
-    }
-    assert!(terminal.screen.palette && !terminal.screen.true_color);
-    // The list and the page's own chrome, in cells.
-    // What an empty field says: its hint, though nobody has touched the field (it comes with the
-    // frame after the one that brings the field).
-    terminal.until("Filter by name");
-    // A frame is read as it comes, from the top: the bar at the foot is the last of it.
-    terminal.until("commands");
-    for word in ["Running", "Stopped", "api", "mailer", "commands"] {
-        assert!(
-            terminal.screen.find(word).is_some(),
-            "{word:?} is drawn:\n{}",
-            terminal.screen.text()
-        );
-    }
-    // This terminal never said it has the Kitty graphics protocol: no picture command is sent it.
-    assert_eq!(count(&terminal.raw, b"\x1b_Ga=T"), 0);
+fn a_field_that_is_pressed_and_typed_in_is_drawn_in_its_room_and_a_key_is_an_edit_of_the_picture() {
+    let mut terminal =
+        Terminal::start_with(&["--script", &page("field.lua")], 100, 30, &[], pictures());
+    terminal.until_picture();
+    let width = 100 * CELL.0;
+    let resting = terminal.pixels(100, 30);
+    // A press on the room of the field, at a pixel, gives it the keyboard: its caret is drawn.
+    terminal.click_at(60, 30);
+    terminal.quiet();
+    let focused = terminal.pixels(100, 30);
+    let (left, top, right, bottom) =
+        differing(&resting, &focused, width).expect("the caret of the field is drawn");
+    assert!(
+        right - left < 12 && bottom - top < 60,
+        "a caret: {left} {top} {right} {bottom}"
+    );
+    // A letter typed is in the room, and is an edit of the picture, not a new one.
+    let (windows, edits) = (
+        count(&terminal.raw, b"\x1b_Ga=T"),
+        count(&terminal.raw, b"\x1b_Ga=f,i=100,"),
+    );
+    terminal.type_bytes(b"hello");
+    terminal.until_written(b"\x1b_Ga=f,i=100,", edits + 1);
+    terminal.quiet();
+    assert_eq!(count(&terminal.raw, b"\x1b_Ga=T"), windows, "no new window");
+    let typed = terminal.pixels(100, 30);
+    let (left, top, right, bottom) =
+        differing(&focused, &typed, width).expect("the words are drawn");
+    assert!(
+        right > left + 20 && bottom < 120 && top < 80,
+        "the words are in the room at the top left: {left} {top} {right} {bottom}"
+    );
+    assert!(
+        u64::from(right - left) * u64::from(bottom - top) * 8 < u64::from(width) * 600,
+        "a few words are a small part of the window"
+    );
     terminal.type_bytes(b"\x03");
     let status = terminal.ended();
     assert_eq!(status.code(), Some(130), "{status:?}");
@@ -599,50 +712,342 @@ fn a_terminal_that_hosts_no_view_gets_the_view_drawn_in_its_cells() {
 
 #[test]
 #[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn the_keys_and_the_mouse_reach_the_page_and_nothing_stops_the_program() {
-    let mut terminal = Terminal::start(100, 30, &[], Knows::default());
-    up(&mut terminal);
-    // A press on a filter chip: the list is the stopped containers.
-    terminal.click_on("Stopped");
-    terminal.until_with("only the stopped containers", |screen| {
-        screen.find("mailer").is_some() && screen.find("worker").is_none()
-    });
-    terminal.click_on("All");
-    terminal.until("worker");
-    // ⌃Z and ⌃S are keys for the page, not the tty's suspend and stop: the program goes on and
-    // what is typed after them is read.
-    terminal.type_bytes(b"\x1a\x13");
-    terminal.type_bytes(b"/web");
-    terminal.until_with("the filter", |screen| {
-        screen.find("web").is_some() && screen.find("worker").is_none()
-    });
-    assert!(terminal.pty.finished().is_none());
-    // The wheel over the list, in the old encoding of the mouse as well as the long one.
-    let (row, col) = terminal.screen.find("web").expect("web is drawn");
-    terminal.type_bytes(format!("\x1b[<65;{};{}M", col + 1, row + 1).as_bytes());
-    terminal.type_bytes(&[0x1b, b'[', b'M', 32 + 64, 33 + col as u8, 33 + row as u8]);
-    terminal.settle(300);
-    assert!(terminal.pty.finished().is_none());
+fn a_menu_a_link_and_a_panel_are_drawn_over_the_picture_and_the_picture_is_as_it_was_when_they_go()
+{
+    let mut terminal = Terminal::start_with(
+        &["--script", &page("overlays.lua")],
+        100,
+        30,
+        &[],
+        pictures(),
+    );
+    terminal.until_picture();
+    let width = 100 * CELL.0;
+    let foot = 29 * CELL.1;
+    let resting = terminal.pixels(100, 30);
+    // The menu is a card at the cells the page asked for, and takes no more of the window.
+    terminal.type_bytes(F1);
+    terminal.quiet();
+    let menu = terminal.pixels(100, 30);
+    let (left, top, right, bottom) = differing(&resting, &menu, width).expect("a menu is drawn");
+    assert!(
+        left >= 60 && top >= 40 && right - left < 500 && bottom - top < 400,
+        "a card near where the page asked: {left} {top} {right} {bottom}"
+    );
+    terminal.type_bytes(ESCAPE);
+    terminal.quiet();
+    assert_eq!(
+        terminal.pixels(100, 30),
+        resting,
+        "the window is as it was when the menu is turned away"
+    );
+    // A link is a row at the foot of the window.
+    terminal.type_bytes(F2);
+    terminal.quiet();
+    let link = terminal.pixels(100, 30);
+    let (left, top, right, bottom) = differing(&resting, &link, width).expect("a bar is drawn");
+    assert!(
+        top >= foot && bottom <= 30 * CELL.1 && left == 0 && right == width,
+        "a row at the foot: {left} {top} {right} {bottom}"
+    );
+    terminal.type_bytes(ESCAPE);
+    terminal.quiet();
+    assert_eq!(terminal.pixels(100, 30), resting, "and it goes");
+    // The line of a panel is a row at the foot too, with the caret of its line; what is pasted into
+    // it is drawn.
+    terminal.type_bytes(F4);
+    terminal.quiet();
+    let panel = terminal.pixels(100, 30);
+    let (left, top, right, bottom) = differing(&resting, &panel, width).expect("a panel is drawn");
+    assert!(
+        top >= foot && bottom <= 30 * CELL.1 && left == 0 && right == width,
+        "a row at the foot: {left} {top} {right} {bottom}"
+    );
+    terminal.type_bytes(b"/tmp");
+    terminal.quiet();
+    let typed = terminal.pixels(100, 30);
+    let (left, top, _, bottom) = differing(&panel, &typed, width).expect("the path is drawn");
+    assert!(
+        top >= foot && bottom <= 30 * CELL.1 && left > 0,
+        "{left} {top} {bottom}"
+    );
+    terminal.type_bytes(ESCAPE);
+    terminal.quiet();
+    // It goes, and the page says what became of it (in its words at the top), so that the window
+    // is not what it was above the foot, and is what it was at the foot.
+    let after = terminal.pixels(100, 30);
+    assert!(
+        differing(&resting, &after, width).is_none_or(|(_, _, _, bottom)| bottom <= foot),
+        "nothing of the panel is left at the foot"
+    );
     terminal.type_bytes(b"\x03");
+    let status = terminal.ended();
+    assert_eq!(status.code(), Some(130), "{status:?}");
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn the_terminal_lent_to_a_command_is_given_back_and_the_picture_is_sent_anew_as_it_was() {
+    let mut terminal = Terminal::start_with(
+        &["--hand-off", "--script", &page("field.lua")],
+        100,
+        30,
+        &[],
+        Knows {
+            kitty_keyboard: true,
+            ..pictures()
+        },
+    );
+    terminal.until_picture();
+    let resting = terminal.pixels(100, 30);
+    let before = terminal.raw.len();
+    terminal.type_bytes(F1);
+    // The screen is entered again when the command has ended: twice in all.
+    terminal.until_written(b"\x1b[?1049h", 2);
+    terminal.until_written(b"\x1b_Ga=T,", 2);
+    terminal.quiet();
+    let raw = terminal.raw.clone();
+    let left = position_of(&raw, b"\x1b[?1049l", before).expect("the screen is left for it");
+    let said = position_of(&raw, b"HANDED-OVER", before).expect("the command wrote its word");
+    let back = position_of(&raw, b"\x1b[?1049h", left).expect("the screen is entered again");
+    assert!(left < said && said < back, "{left} < {said} < {back}");
+    // The pictures are given up and the modes put back before the screen is left, and the pointer is
+    // told in pixels again after.
+    let freed = position_of(&raw, b"\x1b_Ga=d,d=A", before).expect("the pictures are given up");
+    let pixels_off =
+        position_of(&raw, b"\x1b[?1016l", before).expect("the pointer's mode is given back");
+    assert!(
+        freed < left && pixels_off < left,
+        "{freed} {pixels_off} < {left}"
+    );
+    assert!(
+        position_of(&raw, b"\x1b[?1016h", back).is_some(),
+        "the pointer in pixels again"
+    );
+    // The terminal's own ground is its own for the command, and the page's again after it.
+    let ground_off = position_of(&raw, b"\x1b]111\x1b\\", before)
+        .expect("the ground is given back for the command");
+    let ground_on = position_of(&raw, GROUND, left).expect("the ground is set again");
+    assert!(
+        ground_off < left && back < ground_on,
+        "{ground_off} < {left} < {back} < {ground_on}"
+    );
+    // The whole window is sent anew, in the same pixels, in a picture of a new number.
+    assert_eq!(count(&raw, b"\x1b_Ga=T,"), 2, "the window is sent anew");
+    assert_eq!(
+        terminal.pixels(100, 30),
+        resting,
+        "and it is the picture it was"
+    );
+    terminal.type_bytes(b"\x1b[99;5u");
     assert_eq!(terminal.ended().code(), Some(130));
 }
 
 #[test]
 #[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn the_page_follows_the_size_of_the_window_and_waits_for_it_before_it_draws() {
-    // A window that opens small and grows, as one does: the first frame is drawn for the size the
-    // terminal says, and a bigger one comes with the signal.
-    let mut terminal = Terminal::start(60, 20, &[], Knows::default());
-    terminal.until("Containers");
-    terminal.resize(120, 40);
-    terminal.until_with(
-        "the page at its new size",
-        |screen| matches!(screen.find("commands"), Some((row, _)) if row >= 36),
+fn the_terminals_ground_is_given_back_when_a_signal_ends_the_program() {
+    for signal in [libc::SIGTERM, libc::SIGHUP] {
+        let mut terminal = Terminal::start(100, 30, &[], pictures());
+        terminal.until_written(b"\x1b_Ga=T,", 1);
+        terminal.settle(600);
+        assert_eq!(count(&terminal.raw, GROUND), 1);
+        // The program's own child (the pty's): the signal ends the view the way the person's
+        // closing of the window would.
+        let pid = i32::try_from(terminal.pty.id()).expect("a process id");
+        unsafe { libc::kill(pid, signal) };
+        terminal.ended();
+        let given = terminal
+            .raw
+            .windows(b"\x1b]111\x1b\\".len())
+            .rposition(|w| w == b"\x1b]111\x1b\\")
+            .unwrap_or_else(|| panic!("signal {signal}: the ground is given back"));
+        let left = terminal
+            .raw
+            .windows(8)
+            .rposition(|w| w == b"\x1b[?1049l")
+            .expect("the alternate screen is left");
+        assert!(given < left, "signal {signal}: {given} < {left}");
+    }
+}
+
+/// A terminal that draws pictures and has the Kitty keyboard: the keys of ⌃⇧ and a letter reach the
+/// program as keys of their own.
+fn with_chords() -> Knows {
+    Knows {
+        kitty_keyboard: true,
+        ..pictures()
+    }
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn what_is_selected_in_an_editor_is_copied_and_cut_to_the_pasteboard_by_control_shift_c_and_x() {
+    let mut terminal = Terminal::start_with(
+        &["--script", &page("chords.lua")],
+        100,
+        30,
+        &[],
+        with_chords(),
     );
-    // The screen is cleared for the new size and the page is drawn again, for 70 by 24.
-    terminal.resize(70, 24);
-    terminal.until("Containers");
-    terminal.type_bytes(b"\x03");
+    terminal.until_picture();
+    terminal.click_at(60, 50);
+    terminal.type_bytes(b"copy me");
+    terminal.quiet();
+    // Shift+Left twice selects "me". ⌃⇧C copies it, and does not stop the program as ⌃C does.
+    terminal.type_bytes(b"\x1b[1;2D\x1b[1;2D");
+    terminal.type_bytes(b"\x1b[99;6u");
+    terminal.until_written(&pasteboard("bWU="), 1);
+    terminal.quiet();
+    assert_eq!(count(&terminal.raw, &pasteboard("bWU=")), 1);
+    // ⌃⇧X cuts it: it is on the pasteboard, and out of the text, so that the two characters before
+    // the caret are now "y " and not "me" again.
+    terminal.type_bytes(b"\x1b[120;6u");
+    terminal.until_written(&pasteboard("bWU="), 2);
+    terminal.quiet();
+    terminal.type_bytes(b"\x1b[1;2D\x1b[1;2D");
+    terminal.type_bytes(b"\x1b[99;6u");
+    terminal.until_written(&pasteboard("eSA="), 1);
+    terminal.type_bytes(b"\x1b[99;5u");
+    assert_eq!(terminal.ended().code(), Some(130));
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn a_command_the_page_binds_to_a_command_key_is_done_by_control_shift_and_the_pages_own_binding_of_that_wins()
+ {
+    let mut terminal = Terminal::start_with(
+        &["--script", &page("chords.lua")],
+        100,
+        30,
+        &[],
+        with_chords(),
+    );
+    terminal.until_picture();
+    // The page binds ⌘J: ⌃⇧J does it.
+    terminal.type_bytes(b"\x1b[106;6u");
+    terminal.quiet();
+    terminal.type_bytes(DOWN);
+    terminal.type_bytes(ENTER);
+    terminal.until_written(&pasteboard("amF5"), 1);
+    terminal.quiet();
+    // The page binds ⌘K and ⌃⇧K both: ⌃⇧K is the page's own, and ⌘K is not what it does.
+    terminal.type_bytes(b"\x1b[107;6u");
+    terminal.quiet();
+    terminal.type_bytes(DOWN);
+    terminal.type_bytes(ENTER);
+    terminal.until_written(&pasteboard("a2F5X293bg=="), 1);
+    terminal.quiet();
+    assert_eq!(count(&terminal.raw, &pasteboard("a2F5")), 0);
+    // A ⌘ key a terminal reports is the page's as it was.
+    terminal.type_bytes(b"\x1b[107;9u");
+    terminal.quiet();
+    terminal.type_bytes(DOWN);
+    terminal.type_bytes(ENTER);
+    terminal.until_written(&pasteboard("a2F5"), 1);
+    terminal.type_bytes(b"\x1b[99;5u");
+    assert_eq!(terminal.ended().code(), Some(130));
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn control_and_the_slash_of_the_kitty_keyboard_reaches_the_page_as_it_is_and_with_shift_as_the_command_key()
+ {
+    let mut terminal = Terminal::start_with(
+        &["--script", &page("slash.lua")],
+        100,
+        30,
+        &[],
+        with_chords(),
+    );
+    terminal.until_picture();
+    // Ctrl and the slash (the comment of an editor on a keyboard with no ⌘) is the key it is.
+    terminal.type_bytes(b"\x1b[47;5u");
+    terminal.quiet();
+    terminal.type_bytes(DOWN);
+    terminal.type_bytes(ENTER);
+    terminal.until_written(&pasteboard("Y3RybC1zbGFzaA=="), 1);
+    terminal.quiet();
+    // With Shift the page, which binds neither, is told the ⌘ key of the chord, as for any character.
+    terminal.type_bytes(b"\x1b[47;6u");
+    terminal.quiet();
+    terminal.type_bytes(DOWN);
+    terminal.type_bytes(ENTER);
+    terminal.until_written(&pasteboard("Y21kLXNsYXNo"), 1);
+    terminal.type_bytes(b"\x1b[99;5u");
+    assert_eq!(terminal.ended().code(), Some(130));
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn a_menu_the_page_wrote_for_a_mac_shows_the_keys_a_terminal_sends_and_none_it_does_not() {
+    let mut terminal = Terminal::start_with(
+        &["--script", &page("chords.lua")],
+        100,
+        30,
+        &[],
+        with_chords(),
+    );
+    terminal.until_picture();
+    let resting = terminal.pixels(100, 30);
+    // Written for a Mac: ⌘X, ⌘C, ⌘/ (and ⌘K, which the page's own ⌃⇧K took, and ⌘ with an arrow).
+    terminal.type_bytes(F1);
+    terminal.quiet();
+    let for_a_mac = terminal.pixels(100, 30);
+    assert!(
+        differing(&resting, &for_a_mac, 1000).is_some(),
+        "a menu is drawn"
+    );
+    terminal.type_bytes(ESCAPE);
+    terminal.quiet();
+    assert_eq!(terminal.pixels(100, 30), resting, "and it goes");
+    // Written as the terminal sends them, and with no key on the lines that have none: the same menu,
+    // to the pixel (the keys are not `Super`, which would be wider, and the lines with none say none).
+    terminal.type_bytes(F3);
+    terminal.quiet();
+    let as_sent = terminal.pixels(100, 30);
+    assert_eq!(
+        differing(&for_a_mac, &as_sent, 1000),
+        None,
+        "the keys of a Mac are the chords of a terminal"
+    );
+    terminal.type_bytes(b"\x1b[99;5u");
+    assert_eq!(terminal.ended().code(), Some(130));
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn a_wheel_turned_after_a_chord_scrolls_for_the_command_key_is_not_held_after_it() {
+    let mut terminal = Terminal::start_with(
+        &["--script", &page("chords.lua")],
+        100,
+        30,
+        &[],
+        with_chords(),
+    );
+    terminal.until_picture();
+    // ⌃⇧Q is the page's ⌘Q, which it has no use for. The wheel turns over the box that zooms with
+    // the command key, with no move of the pointer first: it scrolls, as it does with none held.
+    let resting = terminal.pixels(100, 30);
+    terminal.type_bytes(b"\x1b[113;6u");
+    terminal.quiet();
+    terminal.type_bytes(b"\x1b[<65;200;220M");
+    terminal.quiet();
+    assert!(
+        differing(&resting, &terminal.pixels(100, 30), 1000).is_some(),
+        "the box moved"
+    );
+    terminal.type_bytes(F2);
+    terminal.quiet();
+    terminal.type_bytes(DOWN);
+    terminal.type_bytes(ENTER);
+    terminal.until_written(&pasteboard("c2Nyb2xsZWQ="), 1);
+    terminal.quiet();
+    assert_eq!(
+        count(&terminal.raw, &pasteboard("em9vbWVk")),
+        0,
+        "it is no zoom"
+    );
+    terminal.type_bytes(b"\x1b[99;5u");
     assert_eq!(terminal.ended().code(), Some(130));
 }
 
@@ -650,14 +1055,12 @@ fn the_page_follows_the_size_of_the_window_and_waits_for_it_before_it_draws() {
 #[ignore = "heavy: starts a page, which compiles the interpreter"]
 fn a_terminal_that_has_the_kitty_protocols_gets_them_and_gives_them_back() {
     let knows = Knows {
-        kitty_graphics: true,
         kitty_keyboard: true,
-        name: None,
-        ..Knows::default()
+        ..pictures()
     };
     let mut terminal = Terminal::start(100, 30, &[], knows);
-    up(&mut terminal);
-    terminal.settle(300);
+    terminal.until_written(b"\x1b_Ga=T,", 1);
+    terminal.settle(1500);
     let pushed = terminal
         .raw
         .windows(5)
@@ -684,9 +1087,10 @@ fn a_terminal_that_has_the_kitty_protocols_gets_them_and_gives_them_back() {
 #[test]
 #[ignore = "heavy: starts a page, which compiles the interpreter"]
 fn the_terminal_is_given_back_as_it_was() {
-    let mut terminal = Terminal::start(100, 30, &[], Knows::default());
+    let mut terminal = Terminal::start(100, 30, &[], pictures());
     let before = terminal.pty.modes().expect("the tty's modes");
-    up(&mut terminal);
+    terminal.until_written(b"\x1b_Ga=T,", 1);
+    terminal.settle(2000);
     let during = terminal.pty.modes().expect("the tty's modes");
     // The screen has the keys itself: no line editing, no echo.
     assert!(!during.canonical && !during.echo);
@@ -697,7 +1101,7 @@ fn the_terminal_is_given_back_as_it_was() {
     // off, and the wrap back on.
     let screen = &terminal.screen;
     assert!(!screen.alternate && screen.cursor_shown);
-    for mode in [1002, 1003, 1004, 1006, 2004] {
+    for mode in [1002, 1003, 1004, 1006, 1016, 2004] {
         assert!(
             !screen.modes.contains(&mode),
             "mode {mode} is off: {:?}; the tail of what was written: {:?}",
@@ -713,103 +1117,11 @@ fn the_terminal_is_given_back_as_it_was() {
     );
 }
 
-#[test]
-#[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn the_pointer_takes_the_shape_the_page_asks_for_and_gives_it_back() {
-    let mut terminal = Terminal::start(100, 30, &[], Knows::default());
-    up(&mut terminal);
-    terminal.until("Filter by name");
-    // Nothing has asked for a shape yet: the terminal's own is as it was.
-    assert_eq!(count(&terminal.raw, b"\x1b]22;"), 0);
-    // Over something that answers a click: a hand. Over the page's title: the arrow again. Written
-    // once for each change, not for each move.
-    terminal.move_over("Stopped");
-    terminal.until_written(b"\x1b]22;pointer\x1b\\", 1);
-    terminal.move_over("Stopped");
-    terminal.move_over("Containers");
-    terminal.until_written(b"\x1b]22;default\x1b\\", 1);
-    terminal.settle(200);
-    assert_eq!(count(&terminal.raw, b"\x1b]22;pointer\x1b\\"), 1);
-    assert_eq!(count(&terminal.raw, b"\x1b]22;default\x1b\\"), 1);
-    // Over the room of a field of the host's, which the page does not draw: the I-beam.
-    terminal.move_over("Filter by name");
-    terminal.until_written(b"\x1b]22;text\x1b\\", 1);
-    terminal.type_bytes(b"\x03");
-    let status = terminal.ended();
-    assert_eq!(status.code(), Some(130), "{status:?}");
-    // The terminal's own shape is given back (an empty request), before the screen is left.
-    let reset = terminal
-        .raw
-        .windows(6)
-        .rposition(|window| window == b"\x1b]22;\x1b")
-        .expect("the pointer is given back");
-    let left = terminal
-        .raw
-        .windows(8)
-        .rposition(|window| window == b"\x1b[?1049l")
-        .expect("the alternate screen is left");
-    assert!(reset < left);
-}
-
-/// What the list of the page shows, without the panel at its left that moves with the time.
-fn list_of(screen: &Emulator) -> Vec<String> {
-    screen
-        .text()
-        .lines()
-        .map(|line| line.chars().skip(24).take(30).collect::<String>())
-        .collect()
-}
-
-#[test]
-#[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn keys_of_movement_sent_at_once_end_where_the_same_keys_one_by_one_would() {
-    // A window with room for a few rows of the list only, so that the keys scroll it.
-    let mut terminal = Terminal::start(100, 14, &[], Knows::default());
-    terminal.until("Containers");
-    terminal.until("NAME");
-    terminal.settle(500);
-    let top = list_of(&terminal.screen);
-    // The end, by the one key that goes there: where the cursor of the list is last.
-    terminal.type_bytes(b"\x1b[F");
-    terminal.settle(1500);
-    let end = list_of(&terminal.screen);
-    assert_ne!(
-        end,
-        top,
-        "the end is not the top:\n{}",
-        terminal.screen.text()
-    );
-    // Each of the keys of movement, forty of them in one write (a key held down, a test, a paste
-    // with no brackets): every one is told the page, and the page after the last is where they
-    // lead, as it is for the last of forty one by one.
-    for (what, key) in [("down", &b"\x1b[B"[..]), ("page down", &b"\x1b[6~"[..])] {
-        terminal.type_bytes(b"\x1b[H");
-        terminal.settle(1500);
-        assert_eq!(list_of(&terminal.screen), top, "home, before {what}");
-        terminal.type_bytes(&key.repeat(40));
-        terminal.settle(2500);
-        assert_eq!(
-            list_of(&terminal.screen),
-            end,
-            "forty of {what} in one write:\n{}",
-            terminal.screen.text()
-        );
-    }
-    terminal.type_bytes(b"\x03");
-    assert_eq!(terminal.ended().code(), Some(130));
-}
-
 // --- What is shown over the page ------------------------------------------------------------
 
 /// A page of the tests (`tests/pages`), run by the example program in place of its own.
 fn page(name: &str) -> String {
     format!("{}/tests/pages/{name}", env!("CARGO_MANIFEST_DIR"))
-}
-
-fn start_page(name: &str, cols: u16, rows: u16, knows: Knows) -> Terminal {
-    let mut terminal = Terminal::start_with(&["--script", &page(name)], cols, rows, &[], knows);
-    terminal.until("note: ready");
-    terminal
 }
 
 const F1: &[u8] = b"\x1bOP";
@@ -826,74 +1138,211 @@ fn pasteboard(base64: &str) -> Vec<u8> {
     format!("\x1b]52;c;{base64}\x1b\\").into_bytes()
 }
 
-#[test]
-#[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn a_menu_the_page_asks_for_is_drawn_over_it_and_a_pick_is_told_the_page() {
-    let mut terminal = start_page("overlays.lua", 100, 30, Knows::default());
-    terminal.type_bytes(F1);
-    terminal.until("Open file");
-    // The lines, the key of one as this terminal writes it, the line that is not to be picked, and
-    // the frame round all.
-    for word in ["Ctrl+O", "Not now", "Copy name", "Leave it", "╭", "╯"] {
-        assert!(
-            terminal.screen.find(word).is_some(),
-            "{word:?} is drawn:\n{}",
-            terminal.screen.text()
-        );
+// --- What a page is told, and what it can ask of the terminal ------------------------------
+
+const F6: &[u8] = b"\x1b[17~";
+const F7: &[u8] = b"\x1b[18~";
+
+/// The page of `events.lua` in a terminal that draws pictures: a box that is a hand at the top left, a field
+/// of the host's under it, an editor under that, and a log of what the page was told.
+fn start_events() -> Terminal {
+    let mut terminal =
+        Terminal::start_with(&["--script", &page("events.lua")], 100, 30, &[], pictures());
+    terminal.until_picture();
+    terminal
+}
+
+/// What `text` is, written in base 64.
+fn unbase64(text: &str) -> String {
+    let mut out = Vec::new();
+    let (mut bits, mut have) = (0_u32, 0_u32);
+    for c in text.bytes() {
+        let value = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => continue,
+        };
+        bits = bits << 6 | u32::from(value);
+        have += 6;
+        if have >= 8 {
+            have -= 8;
+            out.push(u8::try_from(bits >> have).unwrap_or(0));
+            bits &= (1 << have) - 1;
+        }
     }
-    // The arrows go from line to line that can be picked (past the one that cannot, and the line
-    // between), Enter picks: the page is told, the menu goes, and a line that copies is the person's
-    // word for the terminal's pasteboard.
-    terminal.type_bytes(DOWN);
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// What the page of `events.lua` was told, in order, and the text of its editor: the page says it by the
+/// terminal's pasteboard (F6 opens a menu of one line, and picking it is the person's own word).
+fn told(terminal: &mut Terminal) -> (Vec<String>, String) {
+    let had = count(&terminal.raw, b"\x1b]52;c;");
+    terminal.type_bytes(F6);
+    terminal.quiet();
     terminal.type_bytes(DOWN);
     terminal.type_bytes(ENTER);
-    terminal.until("note: picked Copy name");
-    assert!(terminal.screen.find("Leave it").is_none(), "the menu went");
-    terminal.until_written(&pasteboard("ZnJvbSB0aGUgbWVudQ=="), 1);
-    // A key that is the page's own word is not the person's: nothing is written for it.
-    terminal.type_bytes(F3);
-    terminal.settle(300);
-    assert_eq!(
-        count(&terminal.raw, &pasteboard("dGhlIHBhZ2UncyBvd24gd29yZA==")),
-        0
-    );
+    terminal.until_written(b"\x1b]52;c;", had + 1);
+    terminal.quiet();
+    let at = terminal
+        .raw
+        .windows(7)
+        .rposition(|window| window == b"\x1b]52;c;")
+        .expect("the report");
+    let end = position_of(&terminal.raw, b"\x1b\\", at).expect("the end of the report");
+    let said = unbase64(&String::from_utf8_lossy(&terminal.raw[at + 7..end]));
+    let (log, text) = said.split_once('|').expect("a log and a text");
+    let log = if log.is_empty() {
+        Vec::new()
+    } else {
+        log.split(';').map(str::to_owned).collect()
+    };
+    (log, text.to_owned())
+}
+
+/// The pointer moves to the pixel `x`, `y`, no button held.
+fn move_to(terminal: &mut Terminal, x: u32, y: u32) {
+    terminal.type_bytes(format!("\x1b[<35;{x};{y}M").as_bytes());
+}
+
+/// Ctrl+C, and the program ended as a signal ends it.
+fn end(terminal: &mut Terminal) {
     terminal.type_bytes(b"\x03");
     assert_eq!(terminal.ended().code(), Some(130));
+}
+
+/// The press and the release of the left button at the pixel `x`, `y`, and the program quiet again.
+fn press_at(terminal: &mut Terminal, x: u32, y: u32) {
+    terminal.click_at(x, y);
+    terminal.quiet();
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn the_keys_and_the_pointer_reach_the_page_and_nothing_stops_the_program() {
+    let mut terminal = start_events();
+    // A press at a pixel is the page's, in the box or outside it; the wheel at a pixel too.
+    press_at(&mut terminal, 100, 50);
+    press_at(&mut terminal, 700, 450);
+    terminal.type_bytes(b"\x1b[<65;100;50M");
+    // Ctrl+Z and Ctrl+S are keys for the page, not the tty's suspend and stop: the program goes on, and
+    // what is typed after them is read.
+    terminal.type_bytes(b"\x1a\x13");
+    terminal.type_bytes(b"/web");
+    terminal.quiet();
+    assert!(terminal.pty.finished().is_none());
+    let (log, text) = told(&mut terminal);
+    assert_eq!(
+        log,
+        [
+            "press hand",
+            "press away",
+            "wheel",
+            "key z ctrl",
+            "key s ctrl",
+            "key /",
+            "key w",
+            "key e",
+            "key b",
+        ]
+    );
+    assert_eq!(text, "");
+    end(&mut terminal);
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn keys_of_movement_sent_at_once_are_each_told_the_page_in_order() {
+    let mut terminal = start_events();
+    // Each of the keys of movement, forty of them in one write (a key held down, a test, a paste with no
+    // brackets): every one is told the page, and the end and the home after them.
+    terminal.type_bytes(&b"\x1b[B".repeat(40));
+    terminal.type_bytes(&b"\x1b[6~".repeat(40));
+    terminal.type_bytes(b"\x1b[F\x1b[H");
+    terminal.quiet();
+    let (log, _) = told(&mut terminal);
+    let mut wanted = vec!["key down"; 40];
+    wanted.extend(vec!["key page_down"; 40]);
+    wanted.extend(["key end", "key home"]);
+    assert_eq!(log, wanted);
+    end(&mut terminal);
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn the_pointer_takes_the_shape_the_page_asks_for_and_gives_it_back() {
+    let mut terminal = start_events();
+    // Nothing has asked for a shape yet: the terminal's own is as it was.
+    assert_eq!(count(&terminal.raw, b"\x1b]22;"), 0);
+    // Over the box that answers: a hand. Away from it: the arrow again. Written once for each change, not
+    // for each move.
+    move_to(&mut terminal, 100, 50);
+    terminal.until_written(b"\x1b]22;pointer\x1b\\", 1);
+    move_to(&mut terminal, 110, 55);
+    move_to(&mut terminal, 700, 450);
+    terminal.until_written(b"\x1b]22;default\x1b\\", 1);
+    terminal.settle(200);
+    assert_eq!(count(&terminal.raw, b"\x1b]22;pointer\x1b\\"), 1);
+    assert_eq!(count(&terminal.raw, b"\x1b]22;default\x1b\\"), 1);
+    // Over the room of a field of the host's, which the page does not draw: the I-beam.
+    move_to(&mut terminal, 200, 120);
+    terminal.until_written(b"\x1b]22;text\x1b\\", 1);
+    end(&mut terminal);
+    // The terminal's own shape is given back (an empty request), before the screen is left.
+    let reset = terminal
+        .raw
+        .windows(6)
+        .rposition(|window| window == b"\x1b]22;\x1b")
+        .expect("the pointer is given back");
+    let left = terminal
+        .raw
+        .windows(8)
+        .rposition(|window| window == b"\x1b[?1049l")
+        .expect("the alternate screen is left");
+    assert!(reset < left);
 }
 
 #[test]
 #[ignore = "heavy: starts a page, which compiles the interpreter"]
 fn a_menu_is_picked_from_with_the_pointer_and_turned_away_with_escape_or_a_press_outside() {
-    let mut terminal = start_page("overlays.lua", 100, 30, Knows::default());
-    terminal.type_bytes(F1);
-    terminal.until("Leave it");
-    terminal.click_on("Leave it");
-    terminal.until("note: picked Leave it");
-    assert!(terminal.screen.find("Not now").is_none(), "the menu went");
+    let mut terminal = start_events();
+    let width = 100 * CELL.0;
+    let resting = terminal.pixels(100, 30);
+    terminal.type_bytes(F7);
+    terminal.quiet();
+    // The menu is a card over the picture: a press in the middle of it picks its one line.
+    let (left, top, right, bottom) =
+        differing(&resting, &terminal.pixels(100, 30), width).expect("a menu is drawn");
+    press_at(&mut terminal, (left + right) / 2, (top + bottom) / 2);
+    assert_eq!(terminal.pixels(100, 30), resting, "the menu went");
     // Escape turns it away, and the page is not told.
-    terminal.type_bytes(F1);
-    terminal.until("Not now");
+    terminal.type_bytes(F7);
+    terminal.quiet();
     terminal.type_bytes(ESCAPE);
-    terminal.until_with("the menu gone", |screen| screen.find("Not now").is_none());
+    terminal.quiet();
+    assert_eq!(terminal.pixels(100, 30), resting, "the menu went");
     // A press outside does the same, and the release of it reaches nothing.
-    terminal.type_bytes(F1);
-    terminal.until("Not now");
-    terminal.type_bytes(b"\x1b[<0;3;3M\x1b[<0;3;3m");
-    terminal.until_with("the menu gone", |screen| screen.find("Not now").is_none());
-    assert!(
-        terminal.screen.find("note: picked Leave it").is_some(),
-        "the page was told nothing:\n{}",
-        terminal.screen.text()
-    );
+    terminal.type_bytes(F7);
+    terminal.quiet();
+    press_at(&mut terminal, 700, 450);
+    assert_eq!(terminal.pixels(100, 30), resting, "the menu went");
     // While a menu is up the keys are its own: what is typed reaches neither page nor editor.
-    terminal.type_bytes(F1);
-    terminal.until("Not now");
+    terminal.type_bytes(F7);
+    terminal.quiet();
     terminal.type_bytes(b"xyz");
     terminal.type_bytes(ESCAPE);
-    terminal.until_with("the menu gone", |screen| screen.find("Not now").is_none());
-    assert!(terminal.screen.find("xyz").is_none());
-    terminal.type_bytes(b"\x03");
-    assert_eq!(terminal.ended().code(), Some(130));
+    terminal.quiet();
+    assert_eq!(terminal.pixels(100, 30), resting, "the menu went");
+    let (log, text) = told(&mut terminal);
+    assert_eq!(
+        log,
+        ["picked leave"],
+        "the page was told the pick, and only it"
+    );
+    assert_eq!(text, "");
+    end(&mut terminal);
 }
 
 #[test]
@@ -903,207 +1352,90 @@ fn a_panel_is_a_line_for_a_path_and_what_the_person_gives_is_told_the_page() {
     std::fs::create_dir_all(&dir).expect("a folder of our own");
     let file = dir.join("note.txt");
     std::fs::write(&file, b"hello").expect("a file");
-    let mut terminal = start_page("overlays.lua", 100, 30, Knows::default());
+    let mut terminal = start_events();
     // Turned away: the page is told that too.
     terminal.type_bytes(F4);
-    terminal.until("Open:");
-    // What the keys do is said at the right of the line, and the caret in it is a bar.
-    terminal.until("Enter opens  Esc cancels");
-    terminal.until_written(b"\x1b[5 q", 1);
+    terminal.quiet();
     terminal.type_bytes(ESCAPE);
-    terminal.until("given: turned away");
-    // A path that is not there is said so, and the line stays.
+    terminal.quiet();
+    // A path that is not there is refused, and the line stays: what is typed next is the line's.
     terminal.type_bytes(F4);
-    terminal.until("Open:");
+    terminal.quiet();
     terminal.type_bytes(format!("{}/gone.txt\r", dir.display()).as_bytes());
-    terminal.until("There is no such file.");
+    terminal.quiet();
     // A file that is: its name, its size, and where it is (the program reads the person's files).
-    // ⌃A selects the line, and what is typed replaces it.
+    // Ctrl+A selects the line, and what is typed replaces it.
     terminal.type_bytes(&[0x01]);
     terminal.type_bytes(format!("{}\r", file.display()).as_bytes());
-    terminal.until("given: note.txt 5 path");
+    terminal.quiet();
     // The place to save to: the page's name is proposed, a folder is given that name.
     terminal.type_bytes(F5);
-    terminal.until("Save as:");
-    terminal.until("out.txt");
-    terminal.until("Enter saves  Esc cancels");
+    terminal.quiet();
     terminal.type_bytes(format!("{}\r", dir.display()).as_bytes());
-    terminal.until("given: saving out.txt");
-    terminal.type_bytes(b"\x03");
-    assert_eq!(terminal.ended().code(), Some(130));
+    terminal.quiet();
+    let (log, text) = told(&mut terminal);
+    assert_eq!(
+        log,
+        [
+            "given: turned away",
+            "given: note.txt 5 path",
+            "given: saving out.txt"
+        ]
+    );
+    assert_eq!(text, "", "what was typed in the panel is not the editor's");
+    end(&mut terminal);
     std::fs::remove_dir_all(&dir).expect("our folder goes");
 }
 
-#[test]
-#[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn a_link_is_shown_as_one_the_terminal_can_open_and_no_browser_is_started() {
-    let mut terminal = start_page("overlays.lua", 100, 30, Knows::default());
-    terminal.type_bytes(F2);
-    terminal.until("https://example.org/pencere?x=1");
-    let open = b"\x1b]8;;https://example.org/pencere?x=1\x1b\\";
-    assert_eq!(
-        count(&terminal.raw, open),
-        1,
-        "the address is one link (OSC 8)"
-    );
-    assert!(
-        count(&terminal.raw, b"\x1b]8;;\x1b\\") >= 1,
-        "and it is closed"
-    );
-    // A key turns the line away, and is not the page's.
-    terminal.type_bytes(b"a");
-    terminal.until_with("the line gone", |screen| {
-        screen.find("https://example.org").is_none()
-    });
-    assert!(terminal.screen.find("note: ready").is_some());
-    terminal.type_bytes(b"\x03");
-    assert_eq!(terminal.ended().code(), Some(130));
-}
-
-// --- The editor --------------------------------------------------------------------------------
-
-/// Waits until the terminal's cursor is shown at `at` (row, column).
-fn until_cursor(terminal: &mut Terminal, at: (usize, usize)) {
-    terminal.until_with(&format!("the cursor at {at:?}"), |screen| {
-        screen.cursor_shown && (screen.row, screen.col) == at
-    });
+/// A press in the room of the editor of `events.lua`: it has the keyboard.
+fn into_the_editor(terminal: &mut Terminal) {
+    press_at(terminal, 200, 200);
 }
 
 #[test]
 #[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn an_editor_takes_typing_a_selection_and_a_paste_and_the_terminals_cursor_stands_at_its_caret() {
-    let mut terminal = start_page("overlays.lua", 100, 30, Knows::default());
-    // No editor has the keyboard yet: the terminal's cursor is not shown.
-    assert!(!terminal.screen.cursor_shown);
-    terminal.click_on("type here");
+fn an_editor_takes_typing_a_selection_and_a_paste() {
+    let mut terminal = start_events();
+    into_the_editor(&mut terminal);
     terminal.type_bytes(b"hello");
-    terminal.until("hello");
-    let (row, col) = terminal.screen.find("hello").expect("the text is drawn");
-    until_cursor(&mut terminal, (row, col + 5));
-    // The caret is a bar, said once and not again as it moves; a block would cover the character
-    // it is before.
-    assert_eq!(count(&terminal.raw, b"\x1b[5 q"), 1);
-    assert_eq!(count(&terminal.raw, b"\x1b[0 q"), 0);
-    // The page's own caret is not drawn: the terminal's is the only one.
-    assert!(
-        terminal.screen.find("\u{2502}").is_none(),
-        "no bar of the page's own:\n{}",
-        terminal.screen.text()
-    );
     // Shift+Left twice selects "lo", and typing replaces them.
     terminal.type_bytes(b"\x1b[1;2D\x1b[1;2D");
     terminal.type_bytes(b"p");
-    terminal.until("help");
-    until_cursor(&mut terminal, (row, col + 4));
-    // A paste (the person's own terminal's) goes in at the caret.
+    // A paste (the person's own terminal's) goes in at the caret, and lines go on past the editor's room.
     terminal.type_bytes(b"\x1b[200~ there\x1b[201~");
-    terminal.until("help there");
-    until_cursor(&mut terminal, (row, col + 10));
-    // Lines past the editor's room scroll line by line, and the cursor goes where the caret is.
     terminal.type_bytes(b"\rtwo\rthree\rfour\rfive\rsix\rseven");
-    terminal.until("seven");
-    let (row, col) = terminal
-        .screen
-        .find("seven")
-        .expect("the last line is drawn");
-    until_cursor(&mut terminal, (row, col + 5));
+    terminal.quiet();
+    let (log, text) = told(&mut terminal);
+    assert_eq!(text, "help there\ntwo\nthree\nfour\nfive\nsix\nseven");
     assert!(
-        terminal.screen.find("help there").is_none(),
-        "the first line scrolled away:\n{}",
-        terminal.screen.text()
+        log.iter().all(|entry| !entry.starts_with("key")),
+        "the editor's keys are the editor's, and the page is told none: {log:?}"
     );
-    terminal.type_bytes(b"\x03");
-    assert_eq!(terminal.ended().code(), Some(130));
-    // The terminal's own shape is given back with the modes, before the cursor is shown again.
-    let own = position_of(&terminal.raw, b"\x1b[0 q", 0).expect("the cursor's shape is given back");
-    let shown = position_of(&terminal.raw, b"\x1b[?25h", own).expect("the cursor is shown again");
-    assert!(own < shown);
-}
-
-#[test]
-#[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn the_cursor_is_a_bar_while_a_caret_is_shown_and_the_terminals_own_where_there_is_none() {
-    let mut terminal = start_page("overlays.lua", 100, 30, Knows::default());
-    terminal.click_on("type here");
-    terminal.type_bytes(b"ab");
-    terminal.until("ab");
-    terminal.until_written(b"\x1b[5 q", 1);
-    // A menu over the page takes the caret away: the shape is given back with it.
-    terminal.type_bytes(F1);
-    terminal.until("Open file");
-    terminal.until_written(b"\x1b[0 q", 1);
-    // And when it is turned away the caret is back, a bar again.
-    terminal.type_bytes(ESCAPE);
-    terminal.until_with("the menu gone", |screen| screen.find("Open file").is_none());
-    terminal.until_written(b"\x1b[5 q", 2);
-    // The path line of a panel has a caret of its own, a bar too: from the editor's to it and back
-    // the shape is not said again.
-    terminal.type_bytes(F4);
-    terminal.until("Open:");
-    terminal.type_bytes(ESCAPE);
-    terminal.until("given: turned away");
-    terminal.settle(200);
-    assert_eq!(count(&terminal.raw, b"\x1b[5 q"), 2);
-    assert_eq!(count(&terminal.raw, b"\x1b[0 q"), 1);
-    terminal.type_bytes(b"\x03");
-    assert_eq!(terminal.ended().code(), Some(130));
+    end(&mut terminal);
 }
 
 #[test]
 #[ignore = "heavy: starts a page, which compiles the interpreter"]
 fn an_editor_has_the_keys_of_a_system_with_no_command_key() {
-    let mut terminal = start_page("overlays.lua", 100, 30, Knows::default());
-    terminal.click_on("type here");
+    let mut terminal = start_events();
+    into_the_editor(&mut terminal);
     terminal.type_bytes(b"one two");
-    terminal.until("one two");
+    assert_eq!(told(&mut terminal).1, "one two");
     // Ctrl+A selects all, and typing replaces it; Ctrl+Z undoes that and Ctrl+Y does it again.
     terminal.type_bytes(b"\x01x");
-    terminal.until_with("only the x", |screen| {
-        screen.find("one two").is_none() && screen.find("x").is_some()
-    });
+    assert_eq!(told(&mut terminal).1, "x");
     terminal.type_bytes(b"\x1a");
-    terminal.until("one two");
+    assert_eq!(told(&mut terminal).1, "one two");
     terminal.type_bytes(b"\x19");
-    terminal.until_with("only the x again", |screen| {
-        screen.find("one two").is_none()
-    });
-    // Ctrl+Left goes back a word, and Ctrl+Shift+Home selects from there to the start of the
-    // document: typing replaces "one ".
+    assert_eq!(told(&mut terminal).1, "x");
+    // Ctrl+Left goes back a word, and Ctrl+Shift+Home selects from there to the start of the document:
+    // typing replaces "one ".
     terminal.type_bytes(b"\x1a");
-    terminal.until("one two");
+    assert_eq!(told(&mut terminal).1, "one two");
     terminal.type_bytes(b"\x1b[1;5D\x1b[1;6H");
     terminal.type_bytes(b"z");
-    terminal.until("ztwo");
-    terminal.type_bytes(b"\x03");
-    assert_eq!(terminal.ended().code(), Some(130));
-}
-
-#[test]
-#[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn what_is_selected_in_an_editor_is_copied_to_the_terminals_pasteboard_by_the_person_alone() {
-    let knows = Knows {
-        kitty_graphics: false,
-        kitty_keyboard: true,
-        name: None,
-        ..Knows::default()
-    };
-    let mut terminal = start_page("overlays.lua", 100, 30, knows);
-    terminal.click_on("type here");
-    terminal.type_bytes(b"copy me");
-    terminal.until("copy me");
-    terminal.type_bytes(b"\x1b[1;2D\x1b[1;2D");
-    // ⌃⇧C: a key of its own where the keyboard is the Kitty protocol's. It copies the two characters
-    // selected, and does not stop the program as ⌃C does.
-    terminal.type_bytes(b"\x1b[99;6u");
-    terminal.until_written(&pasteboard("bWU="), 1);
-    terminal.settle(300);
-    assert!(
-        terminal.screen.find("copy me").is_some(),
-        "the program goes on"
-    );
-    assert_eq!(count(&terminal.raw, &pasteboard("bWU=")), 1);
-    terminal.type_bytes(b"\x1b[99;5u");
-    assert_eq!(terminal.ended().code(), Some(130));
+    assert_eq!(told(&mut terminal).1, "ztwo");
+    end(&mut terminal);
 }
 
 // --- The hand-off --------------------------------------------------------------------------
@@ -1117,185 +1449,7 @@ fn position_of(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
         .map(|at| at + from)
 }
 
-#[test]
-#[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn the_terminal_is_lent_to_a_command_the_program_runs_and_the_view_is_drawn_anew_when_it_ends() {
-    let knows = Knows {
-        kitty_graphics: false,
-        kitty_keyboard: true,
-        name: None,
-        ..Knows::default()
-    };
-    let mut terminal = Terminal::start_with(
-        &["--hand-off", "--script", &page("handoff.lua")],
-        100,
-        30,
-        &[],
-        knows,
-    );
-    terminal.until("note: ready");
-    // The caret of an editor with the keyboard is a bar, which the command must not find.
-    terminal.click_on("type here");
-    terminal.until_written(b"\x1b[5 q", 1);
-    terminal.settle(300);
-    let before = terminal.raw.len();
-    terminal.type_bytes(F1);
-    // The screen is entered again when the command has ended: twice in all.
-    terminal.until_written(b"\x1b[?1049h", 2);
-    terminal.settle(300);
-    let raw = terminal.raw.clone();
-    let left = position_of(&raw, b"\x1b[?1049l", before).expect("the screen is left for it");
-    let said = position_of(&raw, b"HANDED-OVER", before).expect("the command wrote its word");
-    let back = position_of(&raw, b"\x1b[?1049h", left).expect("the screen is entered again");
-    assert!(left < said && said < back, "{left} < {said} < {back}");
-    // The modes are put back before the screen is left, and the keyboard's protocol too.
-    let off = position_of(&raw, b"\x1b[<u", before).expect("the keyboard's flags are taken back");
-    let mouse = position_of(&raw, b"\x1b[?1003l", before).expect("the mouse is switched off");
-    assert!(off < left && mouse < left);
-    let own = position_of(&raw, b"\x1b[0 q", before).expect("the cursor's own shape is given back");
-    assert!(own < left, "{own} < {left}");
-    // And switched on again after, with the whole of the view written once more.
-    let keys = position_of(&raw, b"\x1b[>1u", back).expect("the keyboard's protocol again");
-    let mouse = position_of(&raw, b"\x1b[?1003h", back).expect("the mouse is switched on again");
-    let title = position_of(&raw, b"Hand-off", back).expect("the view is drawn anew");
-    assert!(keys > back && mouse > back && title > back);
-    // The page was made anew, and its editor has no keyboard: no caret, so no bar either.
-    assert!(position_of(&raw, b"\x1b[5 q", back).is_none());
-    // The view takes keys, so the terminal's modes are the protocol's again.
-    terminal.type_bytes(F2);
-    terminal.until("note: a key after");
-    terminal.type_bytes(b"\x1b[99;5u");
-    assert_eq!(terminal.ended().code(), Some(130));
-}
-
 // --- Pictures ------------------------------------------------------------------------------
-
-/// A directory of the tests' pages, run by the example program as the view's bundle.
-fn bundle(name: &str) -> String {
-    format!("{}/tests/pages/{name}", env!("CARGO_MANIFEST_DIR"))
-}
-
-/// The person turns the wheel over the cell (`col`, `row`), from 1: `down` or up.
-fn wheel(terminal: &Terminal, col: usize, row: usize, down: bool) {
-    let button = if down { 65 } else { 64 };
-    terminal.type_bytes(format!("\x1b[<{button};{col};{row}M").as_bytes());
-}
-
-#[test]
-#[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn a_terminal_that_says_it_is_tmux_is_not_asked_about_pictures_and_has_none_drawn() {
-    // tmux answers what it is, and would answer the graphics question with nothing and keep it for the
-    // title of the pane; the terminal behind it may draw pictures, which tmux does not pass.
-    let knows = Knows {
-        kitty_graphics: true,
-        kitty_keyboard: false,
-        name: Some("tmux 3.7c"),
-        ..Knows::default()
-    };
-    let mut terminal =
-        Terminal::start_with(&["--bundle", &bundle("pictures")], 100, 30, &[], knows);
-    terminal.until("line 1");
-    terminal.settle(300);
-    assert_eq!(
-        count(&terminal.raw, b"a=q"),
-        0,
-        "the question of pictures is not sent"
-    );
-    assert_eq!(count(&terminal.raw, b"\x1b_Ga=t,"), 0, "and no picture is");
-    terminal.type_bytes(b"\x03");
-    assert_eq!(terminal.ended().code(), Some(130));
-}
-
-#[test]
-#[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn a_terminal_that_says_what_it_is_and_is_not_tmux_is_asked_about_pictures() {
-    let knows = Knows {
-        kitty_graphics: true,
-        kitty_keyboard: false,
-        name: Some("ghostty 1.2.0"),
-        ..Knows::default()
-    };
-    let mut terminal =
-        Terminal::start_with(&["--bundle", &bundle("pictures")], 100, 30, &[], knows);
-    terminal.until("line 1");
-    terminal.until_written(b"\x1b_Ga=t,", 1);
-    // The plain question and the one with packed pixels, each once.
-    assert_eq!(count(&terminal.raw, b"a=q"), 2, "asked once each");
-    assert_eq!(
-        count(&terminal.raw, b"\x1b[16t"),
-        1,
-        "the size of a cell asked once"
-    );
-    terminal.type_bytes(b"\x03");
-    assert_eq!(terminal.ended().code(), Some(130));
-}
-
-#[test]
-#[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn a_terminal_that_takes_packed_pixels_is_sent_them_so_and_one_that_does_not_is_not() {
-    let run = |packed: bool| {
-        let knows = Knows {
-            kitty_graphics: true,
-            cell: Some((13, 29)),
-            packed,
-            ..Knows::default()
-        };
-        let mut terminal =
-            Terminal::start_with(&["--bundle", &bundle("pictures")], 100, 30, &[], knows);
-        terminal.until("line 1");
-        terminal.until_written(b"\x1b_Ga=t,", 1);
-        terminal.settle(300);
-        let stored = (
-            count(&terminal.raw, b"\x1b_Ga=t,"),
-            count(&terminal.raw, b",o=z,q=2"),
-        );
-        let bytes = terminal.raw.len();
-        terminal.type_bytes(b"\x03");
-        assert_eq!(terminal.ended().code(), Some(130));
-        (stored, bytes)
-    };
-    let ((stored, packed_ones), small) = run(true);
-    assert_eq!(stored, 1, "one picture");
-    assert_eq!(
-        packed_ones, 1,
-        "sent packed to a terminal that said it takes them"
-    );
-    let ((stored, packed_ones), large) = run(false);
-    assert_eq!(stored, 1);
-    assert_eq!(packed_ones, 0, "and not to one that did not");
-    assert!(small < large, "{small} bytes packed, {large} not");
-}
-
-#[test]
-#[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn the_name_tmux_gives_a_terminal_is_enough_to_leave_the_question_of_pictures_unasked() {
-    // Its `TERM` says so (and tmux's own variable is not there): it is as sure as the terminal's own
-    // answer, and nothing is asked before the view is drawn in the cells.
-    let knows = Knows {
-        kitty_graphics: true,
-        kitty_keyboard: false,
-        name: None,
-        ..Knows::default()
-    };
-    let mut terminal = Terminal::start_with(
-        &["--bundle", &bundle("pictures")],
-        100,
-        30,
-        &[("TERM", "tmux-256color")],
-        knows,
-    );
-    terminal.until("line 1");
-    terminal.settle(300);
-    assert_eq!(count(&terminal.raw, b"a=q"), 0);
-    assert_eq!(count(&terminal.raw, b"\x1b_Ga=t,"), 0);
-    assert_eq!(
-        count(&terminal.raw, b"\x1b_pencere;hello"),
-        0,
-        "no host is asked"
-    );
-    terminal.type_bytes(b"\x03");
-    assert_eq!(terminal.ended().code(), Some(130));
-}
 
 /// What a bateri pane or a Ghostty window started from a tmux shell has: the variable tmux gave the
 /// shell, and the name of the terminal that is bateri's.
@@ -1306,111 +1460,116 @@ const LEAKED: &[(&str, &str)] = &[
 
 #[test]
 #[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn a_tmux_variable_that_leaked_into_a_terminal_that_is_not_tmux_does_not_keep_the_host_from_being_asked()
- {
-    // Only the terminal can say: it is asked what it is before the view is, and it is not tmux.
-    let knows = Knows {
-        kitty_graphics: true,
-        kitty_keyboard: false,
-        name: Some("bateri 0.9"),
-        secondary: Some("1;4000;29"),
-        ..Knows::default()
+fn a_multiplexer_is_not_asked_about_pictures_and_a_terminal_that_is_not_one_is() {
+    // tmux answers what it is (and would keep the question of pictures for the title of the pane),
+    // and the terminal behind it may draw pictures, which tmux does not pass. What the terminal says
+    // of itself, or the variables the multiplexer sets, are what is known; a variable that leaked into
+    // a terminal that says it is another is not enough to keep it from being asked.
+    let name = |name| Knows {
+        name: Some(name),
+        ..pictures()
     };
-    let mut terminal =
-        Terminal::start_with(&["--bundle", &bundle("pictures")], 100, 30, LEAKED, knows);
-    terminal.until("line 1");
-    terminal.settle(300);
-    assert_eq!(
-        count(&terminal.raw, b"\x1b_pencere;hello"),
-        1,
-        "a terminal that is not tmux is asked for a host"
-    );
-    terminal.type_bytes(b"\x03");
-    assert_eq!(terminal.ended().code(), Some(130));
-}
-
-#[test]
-#[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn a_tmux_variable_in_a_terminal_that_says_it_is_tmux_keeps_the_host_from_being_asked() {
-    let knows = Knows {
-        kitty_graphics: true,
-        kitty_keyboard: false,
-        name: None,
-        secondary: Some("84;0;0"),
-        ..Knows::default()
-    };
-    let mut terminal =
-        Terminal::start_with(&["--bundle", &bundle("pictures")], 100, 30, LEAKED, knows);
-    terminal.until("line 1");
-    terminal.settle(300);
-    assert_eq!(
-        count(&terminal.raw, b"\x1b_pencere;hello"),
-        0,
-        "tmux would keep it as its title"
-    );
-    assert_eq!(
-        count(&terminal.raw, b"a=q"),
-        0,
-        "and so the question of pictures"
-    );
-    terminal.type_bytes(b"\x03");
-    assert_eq!(terminal.ended().code(), Some(130));
-}
-
-#[test]
-#[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn a_picture_is_sent_to_the_terminal_once_and_scrolling_only_moves_where_it_is_placed() {
-    let knows = Knows {
-        kitty_graphics: true,
-        kitty_keyboard: false,
-        name: None,
-        ..Knows::default()
-    };
-    let mut terminal =
-        Terminal::start_with(&["--bundle", &bundle("pictures")], 100, 30, &[], knows);
-    terminal.until("line 1");
-    terminal.until_written(b"\x1b_Ga=t,", 1);
-    terminal.settle(300);
-    let sent = |terminal: &Terminal| {
+    // What each case is called, what its terminal says, the variables it has, and whether it is asked.
+    type Case<'a> = (&'a str, Knows, &'a [(&'a str, &'a str)], bool);
+    let cases: [Case; 4] = [
+        ("tmux by its name", name("tmux 3.7c"), &[], false),
         (
-            count(&terminal.raw, b"\x1b_Ga=t,"),
-            count(&terminal.raw, b"\x1b_Gm="),
-        )
-    };
-    let placed = |terminal: &Terminal| count(&terminal.raw, b"\x1b_Ga=p,");
-    let (first, chunks) = sent(&terminal);
-    let before = placed(&terminal);
-    assert_eq!(first, 1, "one picture, sent once");
-    assert!(before >= 1, "and placed");
-    // Three turns of the wheel carry the picture up the screen, a row at a time.
-    let bytes = terminal.raw.len();
-    for _ in 0..3 {
-        wheel(&terminal, 20, 10, true);
-        terminal.settle(300);
+            "tmux by its name and its variable",
+            name("tmux 3.7c"),
+            LEAKED,
+            false,
+        ),
+        (
+            "a terminal that says what it is",
+            name("ghostty 1.2.0"),
+            &[],
+            true,
+        ),
+        (
+            "a variable that leaked into it",
+            name("ghostty 1.2.0"),
+            LEAKED,
+            true,
+        ),
+    ];
+    for (what, knows, env, asked) in cases {
+        let mut terminal = Terminal::start(100, 30, env, knows);
+        if asked {
+            terminal.until_written(b"\x1b_Ga=T,", 1);
+            // The plain question and the one with packed pixels, each once, and the size of a cell
+            // asked once.
+            assert_eq!(
+                count(&terminal.raw, b"i=31,"),
+                1,
+                "{what}: the question of pictures"
+            );
+            assert_eq!(
+                count(&terminal.raw, b"i=32,"),
+                1,
+                "{what}: and of packed pixels"
+            );
+            assert_eq!(
+                count(&terminal.raw, b"\x1b[16t"),
+                1,
+                "{what}: a cell's size"
+            );
+            terminal.type_bytes(b"\x03");
+            assert_eq!(terminal.ended().code(), Some(130), "{what}");
+        } else {
+            let status = terminal.ended();
+            assert_eq!(status.code(), Some(0), "{what}: {status:?}");
+            assert_eq!(
+                count(&terminal.raw, b"a=q"),
+                0,
+                "{what}: no question of pictures"
+            );
+            assert_eq!(
+                count(&terminal.raw, b"\x1b_Ga=T"),
+                0,
+                "{what}: and no picture"
+            );
+            assert_eq!(
+                count(&terminal.raw, b"\x1b[?1049h"),
+                0,
+                "{what}: no alternate screen"
+            );
+            assert!(
+                terminal.screen.text().contains("worker"),
+                "{what}: the fallback's list"
+            );
+        }
     }
-    terminal.until("line 9");
-    assert_eq!(sent(&terminal), (first, chunks), "scrolling sent no pixels");
-    assert!(
-        placed(&terminal) > before,
-        "it was placed where it moved to"
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn a_menu_the_page_asks_for_is_drawn_over_the_picture_and_a_pick_is_told_the_page() {
+    let mut terminal = Terminal::start_with(
+        &["--script", &page("overlays.lua")],
+        100,
+        30,
+        &[],
+        pictures(),
     );
-    assert_eq!(count(&terminal.raw, b"d=I"), 0, "and not given up");
-    // What it cost in bytes is the text and the placements, not a picture.
-    let cost = terminal.raw.len() - bytes;
-    assert!(cost < 4000, "{cost} bytes for three turns of the wheel");
-    // And back: the same picture is placed again, not sent again.
-    for _ in 0..3 {
-        wheel(&terminal, 20, 10, false);
-        terminal.settle(300);
-    }
-    assert_eq!(sent(&terminal), (first, chunks));
-    // The pixels the terminal keeps are given up before the screen is left.
+    terminal.until_picture();
+    terminal.type_bytes(F1);
+    terminal.quiet();
+    // The arrows go from line to line that can be picked (past the one that cannot, and the line
+    // between), Enter picks: the page is told, the menu goes, and a line that copies is the person's
+    // word for the terminal's pasteboard.
+    terminal.type_bytes(DOWN);
+    terminal.type_bytes(DOWN);
+    terminal.type_bytes(ENTER);
+    terminal.until_written(&pasteboard("ZnJvbSB0aGUgbWVudQ=="), 1);
+    // A key that is the page's own word is not the person's: nothing is written for it.
+    terminal.type_bytes(F3);
+    terminal.settle(600);
+    assert_eq!(
+        count(&terminal.raw, &pasteboard("dGhlIHBhZ2UncyBvd24gd29yZA==")),
+        0
+    );
     terminal.type_bytes(b"\x03");
     assert_eq!(terminal.ended().code(), Some(130));
-    let freed =
-        position_of(&terminal.raw, b"\x1b_Ga=d,d=A,", 0).expect("the pictures are given up");
-    let left = position_of(&terminal.raw, b"\x1b[?1049l", 0).expect("the screen is left");
-    assert!(freed < left);
 }
 
 // --- An app `pencere build` makes -------------------------------------------------------------
@@ -1473,9 +1632,10 @@ fn containers_lua() -> String {
     )
 }
 
+/// The page is up: its list of containers is drawn.
 #[test]
 #[ignore = "heavy: starts a page, which loads the interpreter"]
-fn an_app_with_a_terminal_in_it_draws_its_page_in_a_terminal_that_hosts_no_view() {
+fn an_app_with_a_terminal_in_it_draws_its_page_in_a_terminal_that_draws_pictures() {
     let dir = scratch("terminal");
     let app = app_of(&command(true), &dir, "with", &containers_lua(), &[]);
     let mut terminal = Terminal::start_command(
@@ -1483,19 +1643,23 @@ fn an_app_with_a_terminal_in_it_draws_its_page_in_a_terminal_that_hosts_no_view(
         100,
         30,
         &[],
-        Knows::default(),
+        pictures(),
     );
-    // The list is the app's own handler's answer (Lua, on the loop of the app, to a call the page
-    // made), and the readings are the topic it feeds: both are on the screen.
-    up(&mut terminal);
-    terminal.until_with("a reading beside a container", |screen| {
-        screen
-            .text()
-            .lines()
-            .any(|line| line.contains("web") && line.contains('%'))
-    });
+    // The window is one picture, and no text is written to the cells: the picture is the screen.
+    terminal.until_written(b"\x1b_Ga=T,f=32,s=1010,v=620,", 1);
     assert!(terminal.screen.alternate);
     assert!(!terminal.screen.cursor_shown);
+    assert!(terminal.screen.find("Containers").is_none());
+    // The list is the app's own handler's answer (Lua, on the loop of the app, to a call the page
+    // made), and the readings are the topic it feeds: the picture is edited in place as they come,
+    // with no key pressed.
+    let edits = count(&terminal.raw, b"\x1b_Ga=f,i=");
+    terminal.until_written(b"\x1b_Ga=f,i=", edits + 2);
+    assert_eq!(
+        count(&terminal.raw, b"\x1b_Ga=T"),
+        1,
+        "what the topic feeds is no new window"
+    );
     terminal.type_bytes(b"\x03");
     let status = terminal.ended();
     assert_eq!(status.code(), Some(130), "{status:?}");
@@ -1648,9 +1812,9 @@ fn an_app_that_closes_its_view_or_ends_while_its_page_is_drawn_gives_the_termina
         100,
         30,
         &[],
-        Knows::default(),
+        pictures(),
     );
-    terminal.until("drawn");
+    terminal.until_written(b"\x1b_Ga=T,f=32,", 1);
     terminal.until("served: true program");
     let status = terminal.ended();
     assert_eq!(status.code(), Some(0), "{status:?}");
@@ -1682,11 +1846,175 @@ fn an_app_that_closes_its_view_or_ends_while_its_page_is_drawn_gives_the_termina
         100,
         30,
         &[],
-        Knows::default(),
+        pictures(),
     );
-    terminal.until("drawn");
+    terminal.until_written(b"\x1b_Ga=T,f=32,", 1);
     let status = terminal.ended();
     assert_eq!(status.code(), Some(3), "{status:?}");
     assert!(!terminal.screen.alternate && terminal.screen.cursor_shown);
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A terminal that draws pictures, with cells of 10 x 20 pixels, that takes its pixels packed, edits
+/// a part of a picture and tells the pointer in pixels.
+fn pictures() -> Knows {
+    Knows {
+        kitty_graphics: true,
+        packed: true,
+        edits: true,
+        copies: true,
+        pixel_mouse: true,
+        cell: Some((10, 20)),
+        window: Some((1000, 600)),
+        ..Knows::default()
+    }
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn a_terminal_that_draws_pictures_is_sent_the_window_as_one_picture_and_what_a_key_changes_as_an_edit_of_it()
+ {
+    let mut terminal = Terminal::start(100, 30, &[], pictures());
+    // The whole window, in its pixels, packed and quiet: one picture.
+    terminal.until_written(b"\x1b_Ga=T,f=32,s=1010,v=620,", 1);
+    terminal.settle(600);
+    assert_eq!(
+        count(&terminal.raw, b"\x1b_Ga=T"),
+        1,
+        "the window is sent once"
+    );
+    assert!(
+        terminal.screen.modes.contains(&1016),
+        "the pointer is told in pixels: {:?}",
+        terminal.screen.modes
+    );
+    // No text is written to the cells: the picture is the screen.
+    assert!(terminal.screen.find("Containers").is_none());
+    let edits = count(&terminal.raw, b"\x1b_Ga=f,i=100,");
+    // A key moves the selection: some rows of the picture change, and are edited into it where it
+    // stands.
+    terminal.type_bytes(b"\x1b[B");
+    terminal.until_written(b"\x1b_Ga=f,i=100,", edits + 1);
+    assert_eq!(
+        count(&terminal.raw, b"\x1b_Ga=T"),
+        1,
+        "a key is no new window"
+    );
+    // A press at a pixel is a press of the page.
+    let edits = count(&terminal.raw, b"\x1b_Ga=f,i=100,");
+    terminal.type_bytes(b"\x1b[<0;120;190M\x1b[<0;120;190m");
+    terminal.until_written(b"\x1b_Ga=f,i=100,", edits + 1);
+    // The window gets smaller: the terminal is asked what its cells are, and the page is one
+    // picture again, in the pixels of the window it has now.
+    terminal.resize(80, 24);
+    terminal.until_written(b"\x1b_Ga=T,f=32,s=810,v=500,", 1);
+    // The old window is given up when the new one has been sent, which is the last of that frame.
+    terminal.until_written(b"\x1b_Ga=d,d=I,i=100", 1);
+    assert_eq!(
+        count(&terminal.raw, b"\x1b_Ga=d,d=I,i=100"),
+        1,
+        "the old window is given up"
+    );
+    terminal.type_bytes(b"\x03");
+    let status = terminal.ended();
+    assert_eq!(status.code(), Some(130), "{status:?}");
+    // The pictures are given up, and the modes given back, before the screen is left.
+    let freed = terminal
+        .raw
+        .windows(b"\x1b_Ga=d,d=A".len())
+        .rposition(|window| window == b"\x1b_Ga=d,d=A")
+        .expect("the pictures are given up");
+    let left = terminal
+        .raw
+        .windows(8)
+        .rposition(|window| window == b"\x1b[?1049l")
+        .expect("the alternate screen is left");
+    assert!(freed < left);
+    assert!(count(&terminal.raw, b"\x1b[?1016l") >= 1);
+    // The terminal's own ground is the page's while the page is up (the pixels that are not the
+    // picture's, left and above it, are that colour), and the terminal's again before it is left.
+    let entered = position_of(&terminal.raw, b"\x1b[?1049h", 0).expect("the screen is entered");
+    let set = position_of(&terminal.raw, GROUND, 0).expect("the ground is set");
+    let given =
+        position_of(&terminal.raw, b"\x1b]111\x1b\\", set).expect("the ground is given back");
+    assert!(
+        entered < set && set < given && given < left,
+        "{entered} {set} {given} {left}"
+    );
+    assert_eq!(count(&terminal.raw, GROUND), 1, "set once");
+    assert!(
+        terminal
+            .screen
+            .modes
+            .iter()
+            .all(|mode| matches!(mode, 7 | 25))
+            && !terminal.screen.alternate
+    );
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn a_terminal_that_answers_nothing_of_pictures_is_left_as_it_is_with_the_fallback_the_screen_off_gets()
+ {
+    // The screen is forced, as it is where a terminal hosts no view; the terminal says nothing of
+    // pictures. The program takes its fallback, and the terminal is left as it is left with the
+    // screen off.
+    let mut off = Terminal::start(100, 30, &[("PENCERE_TUI", "0")], Knows::default());
+    let status = off.ended();
+    assert_eq!(status.code(), Some(0), "{status:?}");
+    let mut forced = Terminal::start(100, 30, &[("PENCERE_TUI", "1")], Knows::default());
+    let status = forced.ended();
+    assert_eq!(status.code(), Some(0), "{status:?}");
+    assert_eq!(
+        forced.screen.text(),
+        off.screen.text(),
+        "the same words are written"
+    );
+    assert!(
+        off.screen.text().contains("worker"),
+        "the list as text:\n{}",
+        off.screen.text()
+    );
+    for terminal in [&off, &forced] {
+        // The modes that are on are the ones a terminal starts with (wrap, and the cursor).
+        assert!(
+            terminal
+                .screen
+                .modes
+                .iter()
+                .all(|mode| matches!(mode, 7 | 25)),
+            "{:?}",
+            terminal.screen.modes
+        );
+        assert!(!terminal.screen.alternate && terminal.screen.cursor_shown);
+    }
+    // No picture is sent, and nothing is said of what the terminal could not do.
+    assert_eq!(count(&forced.raw, b"\x1b_Ga=T"), 0);
+    // The terminal never left its screen for ours: the questions are all it was given.
+    assert_eq!(
+        count(&forced.raw, b"\x1b[?1049h"),
+        0,
+        "no alternate screen of a terminal that draws no pictures"
+    );
+    assert!(!String::from_utf8_lossy(&forced.raw).contains("could not be drawn"));
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn a_terminal_that_draws_pictures_but_does_not_say_how_large_its_cells_are_takes_the_fallback() {
+    let knows = Knows {
+        cell: None,
+        window: None,
+        ..pictures()
+    };
+    let mut terminal = Terminal::start(100, 30, &[("PENCERE_TUI", "1")], knows);
+    let status = terminal.ended();
+    assert_eq!(status.code(), Some(0), "{status:?}");
+    assert!(terminal.screen.text().contains("worker"));
+    assert_eq!(count(&terminal.raw, b"\x1b_Ga=T"), 0);
+    assert_eq!(
+        count(&terminal.raw, b"\x1b[?1049h"),
+        0,
+        "no alternate screen of a terminal that cannot be drawn on"
+    );
 }

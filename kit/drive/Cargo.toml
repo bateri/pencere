@@ -50,7 +50,8 @@ miniz_oxide = "0.8"
 # reads the weight axis of a variable face, the colour glyphs of Apple Color Emoji and Noto Color
 # Emoji, and sits on skrifa, which the PDF reader already has) out of files memory-mapped
 # (memmap2, Apache-2.0 or MIT: Apple Color Emoji is 190 MB, and a picture of a page with no emoji
-# reads none of it). A terminal that drives pages has no use for any and links none (`make check`).
+# reads none of it). The session crate that drives pages has no use for any and links none; the terminal
+# side that sends a page to a terminal as a picture (`pencere-tui`) links them (`make audit`).
 [features]
 default = ["compiler", "pdf"]
 # What the sandbox is built with (its features of the same names).

@@ -199,22 +199,182 @@ impl Raster {
 /// A picture of no pixels.
 pub fn raster(
     list: &DrawList,
-    (width, height): (u32, u32),
+    size: (u32, u32),
     fonts: &Fonts,
     images: Option<&Images>,
     palette: Palette,
 ) -> Result<Raster, Error> {
+    let (width, height) = size;
     let mut pixmap = Pixmap::new(width, height).ok_or(Error::Size(width, height))?;
-    let [r, g, b, _] = palette.role(Role::Background);
-    if let Some(ground) = tiny_skia::Color::from_rgba(r, g, b, 1.0) {
-        pixmap.fill(ground);
+    ground(&mut pixmap, palette);
+    draw(&mut pixmap, list.items.iter(), fonts, images, palette);
+    Ok(Raster { pixmap })
+}
+
+/// The `rows` rows of the picture that [`raster`] draws, from row `top`, drawn alone: the same pixels,
+/// to the byte, and only what reaches those rows ([`reach`]) is drawn, on a picture of those rows
+/// (and the rows a soft shadow that reaches them is blurred over, which are drawn and not kept). What
+/// a frame is made of whose other rows did not change.
+///
+/// # Errors
+///
+/// A picture of no pixels, or rows that are none of it.
+pub fn raster_rows(
+    list: &DrawList,
+    size: (u32, u32),
+    fonts: &Fonts,
+    images: Option<&Images>,
+    palette: Palette,
+    (top, rows): (u32, u32),
+) -> Result<Raster, Error> {
+    let (width, height) = size;
+    let bottom = top.saturating_add(rows).min(height);
+    if bottom <= top {
+        return Err(Error::Size(width, rows));
     }
+    #[allow(clippy::cast_precision_loss)]
+    let (above, below) = (top as f32, bottom as f32);
+    let reaching: Vec<(&Paint, (f32, f32))> = list
+        .items
+        .iter()
+        .filter_map(|item| reach(item, fonts).map(|rows| (item, rows)))
+        .filter(|(_, (first, last))| *first < below && *last > above)
+        .collect();
+    // A shadow is blurred over the rows it reaches, cut at its clip, as a grid of them: the picture
+    // has them all, so that it is blurred over the same grid as in the whole picture.
+    let (mut from, mut to) = (top, bottom);
+    for (item, (first, last)) in &reaching {
+        if matches!(item, Paint::Quad(quad) if quad.shadow.is_some()) {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            {
+                from = from.min(first.floor().max(0.0) as u32);
+                to = to.max((last.ceil().max(0.0) as u32).min(height));
+            }
+        }
+    }
+    let mut pixmap = Pixmap::new(width, to - from).ok_or(Error::Size(width, to - from))?;
+    ground(&mut pixmap, palette);
+    #[allow(clippy::cast_precision_loss)]
+    let moved: Vec<Paint> = reaching
+        .iter()
+        .map(|(item, _)| shifted(item, -(from as f32)))
+        .collect();
+    draw(&mut pixmap, moved.iter(), fonts, images, palette);
+    let rect = tiny_skia::IntRect::from_xywh(
+        0,
+        i32::try_from(top - from).unwrap_or(0),
+        width,
+        bottom - top,
+    )
+    .ok_or(Error::Size(width, rows))?;
+    pixmap
+        .clone_rect(rect)
+        .map(|pixmap| Raster { pixmap })
+        .ok_or(Error::Size(width, rows))
+}
+
+/// The ground of `palette` under a picture.
+fn ground(pixmap: &mut Pixmap, palette: Palette) {
+    let [r, g, b, _] = palette.role(Role::Background);
+    if let Some(color) = tiny_skia::Color::from_rgba(r, g, b, 1.0) {
+        pixmap.fill(color);
+    }
+}
+
+/// Where the rows of a picture are that `item` can change: from its top to its bottom, pixels, and
+/// `None` where it draws nothing. What a row of the picture is is what the items that reach it draw
+/// on it, in order; so a row whose items are the same as before is the same, and a row that none
+/// reaches is the ground. The bounds are wide where a drawing reaches past its box (a shadow's
+/// blur, a letter's accent or tail, a turned picture's corners) and cut at the item's clip.
+pub fn reach(item: &Paint, fonts: &Fonts) -> Option<(f32, f32)> {
+    let (top, bottom, clip) = match item {
+        Paint::Quad(quad) => {
+            let (mut top, mut bottom) = (quad.rect.y, quad.rect.bottom());
+            if let Some(shadow) = quad.shadow {
+                // As `Canvas::shadow` works out the rows it is blurred over.
+                let sigma = (shadow.blur * 0.5).max(0.5);
+                let blur = (sigma * 3.0).ceil() + 1.0;
+                top = top.min(quad.rect.y + shadow.dy - blur);
+                bottom = bottom.max(quad.rect.bottom() + shadow.dy + blur);
+            }
+            (top - 1.0, bottom + 1.0, quad.clip)
+        }
+        Paint::Text(run) => {
+            let (_, line) = fonts.line(&run.font);
+            let line = line.max(run.font.size);
+            (
+                run.origin.y - line * 0.25 - 1.0,
+                run.origin.y + line * 1.25 + 1.0,
+                run.clip,
+            )
+        }
+        Paint::Image(picture) => {
+            let rect = picture.rect;
+            if picture.turn == 0.0 {
+                (rect.y - 1.0, rect.bottom() + 1.0, picture.clip)
+            } else {
+                // Turned about its middle: as far as its corners go.
+                let half = rect.w.hypot(rect.h) / 2.0;
+                let middle = rect.y + rect.h / 2.0;
+                (middle - half - 1.0, middle + half + 1.0, picture.clip)
+            }
+        }
+        Paint::Figure(figure) => (figure.rect.y - 1.0, figure.rect.bottom() + 1.0, figure.clip),
+        Paint::Editor(_) => return None,
+    };
+    let (top, bottom) = (top.max(clip.y), bottom.min(clip.bottom()));
+    (bottom > top).then_some((top, bottom))
+}
+
+/// `item` moved down by `dy` pixels.
+fn shifted(item: &Paint, dy: f32) -> Paint {
+    let down = |r: Rect| Rect::new(r.x, r.y + dy, r.w, r.h);
+    match item {
+        Paint::Quad(quad) => {
+            let mut quad = quad.clone();
+            quad.rect = down(quad.rect);
+            quad.clip = down(quad.clip);
+            quad.exact = quad.exact.map(down);
+            Paint::Quad(quad)
+        }
+        Paint::Text(run) => {
+            let mut run = run.clone();
+            run.origin.y += dy;
+            run.clip = down(run.clip);
+            Paint::Text(run)
+        }
+        Paint::Image(picture) => {
+            let mut picture = picture.clone();
+            picture.rect = down(picture.rect);
+            picture.cells = down(picture.cells);
+            picture.clip = down(picture.clip);
+            picture.exact = picture.exact.map(down);
+            Paint::Image(picture)
+        }
+        Paint::Figure(figure) => {
+            let mut figure = figure.clone();
+            figure.rect = down(figure.rect);
+            figure.clip = down(figure.clip);
+            Paint::Figure(figure)
+        }
+        Paint::Editor(slot) => Paint::Editor(slot.clone()),
+    }
+}
+
+/// `items` drawn into `pixmap`, in order.
+fn draw<'a>(
+    pixmap: &mut Pixmap,
+    items: impl Iterator<Item = &'a Paint>,
+    fonts: &Fonts,
+    images: Option<&Images>,
+    palette: Palette,
+) {
     let mut canvas = Canvas {
-        pixmap: &mut pixmap,
+        pixmap,
         fonts,
         palette,
     };
-    for item in &list.items {
+    for item in items {
         match item {
             Paint::Quad(quad) => canvas.quad(quad),
             Paint::Text(run) => canvas.text(run),
@@ -246,7 +406,6 @@ pub fn raster(
             Paint::Editor(_) => {}
         }
     }
-    Ok(Raster { pixmap })
 }
 
 /// What a picture is drawn on, and with.

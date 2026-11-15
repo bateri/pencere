@@ -8,6 +8,12 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
 
 ### Added
 
+- **The page is drawn as pictures in a terminal that speaks Kitty graphics.** It looks as it does in
+  a window of a host: its own faces, shadows, rounded corners, carets and icons, at the pixels of the
+  terminal. A frame is one picture of the window, and only the rows that changed are sent again. The
+  keys are the page's own: a ⌘ key is `Ctrl+Shift` and its letter (the menus say so), and `Ctrl+/` is
+  the page's, where a terminal sends it. A terminal with no Kitty graphics, one that does not say how
+  large its cells are, and a multiplexer get the program's own fallback.
 - **The screen holds the files the program attaches to its view.** A program that attached a PDF or a
   picture for its page to draw (as textpen does) now has it drawn; the files are kept when the view
   is shown again, and let go when the program says so.

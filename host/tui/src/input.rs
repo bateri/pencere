@@ -72,6 +72,11 @@ pub enum Reply {
     Graphics { id: u32, ok: bool },
     /// How many pixels a cell of the terminal is (`CSI 16 t`), across and down.
     CellSize { width: u32, height: u32 },
+    /// How many pixels the terminal's window is (`CSI 14 t`), across and down.
+    WindowSize { width: u32, height: u32 },
+    /// What the terminal says of a mode (`CSI ? mode $ p`): `0` it knows no such mode, `1` it is
+    /// set, `2` it is not, `3` and `4` it is so for good.
+    Mode { mode: u32, state: u32 },
     /// Where the cursor is (`CSI r;c R`), from 1.
     Cursor { row: u16, col: u16 },
     /// What the terminal says it is: its name and version (`CSI > q`: `tmux 3.7c`), or, from a
@@ -582,6 +587,21 @@ fn csi(data: &[u8]) -> Found {
             }
             _ => None,
         },
+        // The size of the window: `CSI 4 ; height ; width t`.
+        b't' if body.starts_with("4;") => match numbers(body).as_slice() {
+            &[_, height, width] if height > 0 && width > 0 => {
+                Some(Event::Reply(Reply::WindowSize { width, height }))
+            }
+            _ => None,
+        },
+        // What the terminal makes of a mode: `CSI ? mode ; state $ y`.
+        b'y' if body.starts_with('?') && body.ends_with('$') => {
+            let inside = body.get(1..body.len() - 1).unwrap_or("");
+            match numbers(inside).as_slice() {
+                &[mode, state] => Some(Event::Reply(Reply::Mode { mode, state })),
+                _ => None,
+            }
+        }
         // The secondary attributes: the first number is the terminal's kind. Two terminals that
         // draw nothing of their own are known by it, tmux (84, `T`) and screen (83, `S`).
         b'c' if body.starts_with('>') => match numbers(body.get(1..).unwrap_or("")).first() {
@@ -987,6 +1007,34 @@ mod tests {
     }
 
     #[test]
+    fn the_terminal_says_how_large_its_window_is_and_what_it_makes_of_a_mode() {
+        let events =
+            decode_all(b"\x1b[4;1360;2400t\x1b[?1016;2$y\x1b[?1016;0$y\x1b[?2004;1$y\x1b[4;0;0t");
+        assert_eq!(
+            events,
+            [
+                Event::Reply(Reply::WindowSize {
+                    width: 2400,
+                    height: 1360
+                }),
+                Event::Reply(Reply::Mode {
+                    mode: 1016,
+                    state: 2
+                }),
+                Event::Reply(Reply::Mode {
+                    mode: 1016,
+                    state: 0
+                }),
+                Event::Reply(Reply::Mode {
+                    mode: 2004,
+                    state: 1
+                }),
+            ],
+            "a window of no pixels is no answer"
+        );
+    }
+
+    #[test]
     fn a_terminal_says_what_it_is_by_its_version_or_its_kind() {
         let events = decode_all(
             b"\x1bP>|tmux 3.7c\x1b\\\x1b[>84;0;0c\x1b[>83;40003;0c\x1b[>41;388;0c\x1b[?1;2c",
@@ -1015,6 +1063,26 @@ mod tests {
             (Key::Character('A'), Some("A"))
         );
         assert_eq!(only_key(b"\x1b[13u").key, Key::Enter);
+    }
+
+    #[test]
+    fn control_and_the_slash_is_the_slash_with_control_whether_the_terminal_has_the_kitty_keyboard_or_not()
+     {
+        // With the protocol: the key is the slash, with Ctrl and nothing else; no text.
+        let with = only_key(b"\x1b[47;5u");
+        assert_eq!(with.key, Key::Character('/'));
+        assert_eq!(
+            with.mods,
+            Mods {
+                control: true,
+                ..Mods::default()
+            }
+        );
+        assert!(with.text.is_none());
+        // Without it a terminal sends the byte 0x1f, which is Ctrl and the underscore.
+        let without = only_key(b"\x1f");
+        assert_eq!(without.key, Key::Character('_'));
+        assert!(without.mods.control && !without.mods.shift);
     }
 
     #[test]

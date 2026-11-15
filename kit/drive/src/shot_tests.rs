@@ -900,3 +900,189 @@ fn the_files_example_is_pictured_with_the_picture_it_attached_and_a_file_it_rece
     }
     Ok(())
 }
+
+// --- Rows ---------------------------------------------------------------------------------------
+
+/// Items that draw past their boxes in every way the drawing has: a soft shadow, a stroke, a corner
+/// cut by a clip, words with accents above and tails below, a large size, a line under and through
+/// them, and the characters a face has no glyph for (a colour emoji, an ideograph, a box).
+fn items_that_reach() -> Vec<Paint> {
+    let world = Rect::new(0.0, 0.0, 400.0, 300.0);
+    let words = |y: f32, size: f32, text: &str, underline: bool, strike: bool| {
+        Paint::Text(Run {
+            origin: Point::new(12.0, y),
+            text: text.to_owned(),
+            font: Font {
+                family: Family::Terminal,
+                size,
+                weight: 400,
+                italic: false,
+            },
+            color: Role::Foreground.solid(),
+            opacity: 1.0,
+            grounds: Vec::new(),
+            clip: world,
+            underline,
+            strike,
+        })
+    };
+    let boxed = |rect: Rect, shadow: Option<pencere_view::Shadow>, clip: Rect| {
+        Paint::Quad(Quad {
+            rect,
+            radii: [8.0; 4],
+            fill: Some(Role::Raised(3).solid()),
+            gradient: None,
+            border: Some(pencere_view::Border {
+                width: 2.0,
+                color: Role::Accent.solid(),
+            }),
+            shadow,
+            clip,
+            exact: None,
+        })
+    };
+    let shadow = |dy: f32, blur: f32| {
+        Some(pencere_view::Shadow {
+            dx: 0.0,
+            dy,
+            blur,
+            color: Role::Shadow.alpha(0.6),
+        })
+    };
+    vec![
+        boxed(
+            Rect::new(40.0, 100.0, 120.0, 60.0),
+            shadow(6.0, 16.0),
+            world,
+        ),
+        boxed(
+            Rect::new(40.0, 100.0, 120.0, 60.0),
+            shadow(-9.0, 30.0),
+            world,
+        ),
+        boxed(
+            Rect::new(40.0, 100.0, 120.0, 60.0),
+            None,
+            Rect::new(60.0, 110.0, 50.0, 30.0),
+        ),
+        boxed(
+            Rect::new(40.0, 100.0, 120.0, 60.0),
+            shadow(4.0, 12.0),
+            Rect::new(0.0, 90.0, 400.0, 50.0),
+        ),
+        words(100.0, 16.0, "ĞÜŞİÖÇ ğüşıöç Ǻ ÁÉÍÓÚ gjpqy", false, false),
+        words(100.0, 16.0, "underline and strike", true, true),
+        words(100.0, 64.0, "Hgj Ç", false, false),
+        words(100.0, 12.5, "→ ✓ ⌘ • …", false, false),
+        words(100.0, 16.0, "😀 🎉 👍🏽 漢字 かな 한", false, false),
+        words(100.0, 16.0, "\u{10FFFD} \u{E000} ꙮ", false, false),
+        words(100.0, 100.0, "😀", false, false),
+    ]
+}
+
+/// The rows of a picture that are not the ground, the first and the last.
+fn inked_rows(drawn: &crate::shot::Raster) -> Option<(u32, u32)> {
+    let ground = Palette::Dark
+        .role(Role::Background)
+        .map(|c| (c * 255.0).round() as u8);
+    let width = drawn.width() as usize;
+    let mut rows = drawn
+        .rgba()
+        .chunks(width * 4)
+        .enumerate()
+        .filter(|(_, row)| row.chunks(4).any(|px| px.get(..3) != ground.get(..3)))
+        .map(|(y, _)| y as u32);
+    let first = rows.next()?;
+    Some((first, rows.next_back().unwrap_or(first)))
+}
+
+/// Nothing an item draws is drawn outside the rows `reach` says: a row that no item reaches is the
+/// ground, and a row whose reaching items are the same is the same.
+#[test]
+fn what_an_item_draws_is_in_the_rows_it_reaches() {
+    for (which, fonts) in [
+        ("carried", Fonts::carried()),
+        ("installed", Fonts::installed()),
+    ] {
+        for (n, item) in items_that_reach().into_iter().enumerate() {
+            let list = DrawList {
+                items: vec![item.clone()],
+            };
+            let drawn = crate::shot::raster(&list, (400, 300), &fonts, None, Palette::Dark)
+                .expect("a picture");
+            let Some((first, last)) = inked_rows(&drawn) else {
+                continue;
+            };
+            let (top, bottom) = crate::shot::reach(&item, &fonts).unwrap_or_else(|| {
+                panic!("{which} item {n} draws rows {first}..={last} and reaches none")
+            });
+            assert!(
+                f64::from(top) <= f64::from(first) && f64::from(bottom) >= f64::from(last) + 1.0,
+                "{which} item {n}: draws rows {first}..={last}, reaches {top}..{bottom}: {item:?}"
+            );
+        }
+    }
+}
+
+/// The rows of a picture drawn alone are the rows of the picture drawn whole: the same pixels, to
+/// the byte, wherever the band falls (across a shadow, a stroke, a clip, or a line of words).
+#[test]
+fn rows_drawn_alone_are_the_rows_of_the_picture_drawn_whole() {
+    let mut items = vec![Paint::Quad(Quad {
+        rect: Rect::new(0.0, 0.0, 400.0, 300.0),
+        radii: [0.0; 4],
+        fill: Some(Role::Background.solid()),
+        gradient: None,
+        border: None,
+        shadow: None,
+        clip: Rect::new(0.0, 0.0, 400.0, 300.0),
+        exact: None,
+    })];
+    items.extend(items_that_reach());
+    let list = DrawList { items };
+    for (which, fonts) in [
+        ("carried", Fonts::carried()),
+        ("installed", Fonts::installed()),
+    ] {
+        let whole =
+            crate::shot::raster(&list, (400, 300), &fonts, None, Palette::Dark).expect("a picture");
+        for (top, rows) in [
+            (0, 20),
+            (80, 20),
+            (90, 13),
+            (100, 34),
+            (118, 34),
+            (151, 17),
+            (160, 40),
+            (190, 110),
+            (0, 300),
+            (299, 1),
+        ] {
+            let band = crate::shot::raster_rows(
+                &list,
+                (400, 300),
+                &fonts,
+                None,
+                Palette::Dark,
+                (top, rows),
+            )
+            .expect("a band");
+            let want = whole.strip(top, rows).expect("rows");
+            let wrong = band
+                .rgba()
+                .chunks(4)
+                .zip(want.rgba().chunks(4))
+                .filter(|(a, b)| a != b)
+                .count();
+            assert_eq!(
+                (band.width(), band.height()),
+                (400, rows),
+                "{which}: the band's size"
+            );
+            assert_eq!(
+                wrong, 0,
+                "{which}: rows {top}+{rows} differ from the whole in {wrong} pixels"
+            );
+        }
+    }
+}

@@ -13,10 +13,12 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use pencere_view::{
-    FieldKind, FileEntry, Fill, Key, Menu, MenuEntry, Mods, Panel, Role, Saving, Shortcut,
+    Border, Color, FieldKind, FileEntry, Fill, Key, Menu, MenuEntry, Mods, Paint, Panel, Quad,
+    Rect, Role, Run, Saving, Shadow, Shortcut,
 };
 use unicode_width::UnicodeWidthChar;
 
+use crate::chrome::Paper;
 use crate::field::{Look, TextField};
 use crate::grid::{Attrs, Bg, Grid};
 use crate::theme::Theme;
@@ -409,6 +411,87 @@ impl MenuBox {
             .collect()
     }
 
+    /// The menu as items of the page's draw list: a card on the cells the box has (half a cell
+    /// in from their edge, so that the lines are in whole rows), the line the pointer or the arrows
+    /// are on on a ground of its own, a hairline where there is a separator, each line's words and
+    /// its shortcut at the right, dim.
+    pub(crate) fn paint(&self, paper: &Paper<'_>) -> Vec<Paint> {
+        let Area {
+            col,
+            row,
+            cols,
+            rows,
+        } = self.area;
+        if cols < 3 || rows < 2 {
+            return Vec::new();
+        }
+        let whole = paper.cells(col, row, cols, rows);
+        let (cw, ch) = paper.cell;
+        let card = Rect::new(
+            whole.x + cw / 2.0,
+            whole.y + ch / 2.0,
+            whole.w - cw,
+            whole.h - ch,
+        );
+        let hair = paper.hairline();
+        let mut items = vec![Paint::Quad(Quad {
+            rect: card,
+            radii: [cw * 0.5; 4],
+            fill: Some(Color::from(Role::Raised(1))),
+            gradient: None,
+            border: Some(Border {
+                width: hair,
+                color: Color::from(Role::Border),
+            }),
+            shadow: Some(Shadow {
+                dx: 0.0,
+                dy: ch * 0.2,
+                blur: ch * 0.8,
+                color: Color::from(Role::Shadow).faded(0.5),
+            }),
+            clip: paper.window,
+            exact: None,
+        })];
+        let font = paper.face(false);
+        let inner = paper.cells(col + 1, row + 1, cols - 2, rows - 2);
+        for (index, line) in self.lines.iter().enumerate() {
+            let at = row + 1 + u16::try_from(index).unwrap_or(0);
+            if at + 1 >= row + rows {
+                break;
+            }
+            let band = paper.cells(col + 1, at, cols - 2, 1);
+            match line {
+                Line::Separator => {
+                    let rule = Rect::new(band.x, band.y + (ch - hair) / 2.0, band.w, hair);
+                    items.push(paper.quad(rule, Role::Border, inner));
+                }
+                Line::Item {
+                    title,
+                    keys,
+                    enabled,
+                } => {
+                    if self.selected == Some(index) {
+                        items.push(paper.quad(band, Role::Selection, inner));
+                    }
+                    let top = paper.centred(&font, band.y, ch);
+                    let color = if *enabled {
+                        Role::Foreground
+                    } else {
+                        Role::Dim
+                    };
+                    items.push(paper.text((band.x + cw, top), title, font, color, inner));
+                    if !keys.is_empty() {
+                        #[allow(clippy::cast_precision_loss)]
+                        let width = width_of(keys) as f32 * cw;
+                        let x = (band.right() - cw - width).max(band.x + cw);
+                        items.push(paper.text((x, top), keys, font, Role::Dim, inner));
+                    }
+                }
+            }
+        }
+        items
+    }
+
     pub fn draw(&self, grid: &mut Grid, theme: &Theme) {
         let Area {
             col,
@@ -502,6 +585,46 @@ pub(crate) struct LinkBar {
 impl LinkBar {
     pub fn new(url: String) -> Self {
         Self { url }
+    }
+
+    /// The bar as items of the page's draw list: the row at the foot of the window, on the ground of
+    /// a bar, the address of the link underlined as a link is, and what closes the bar at the right.
+    pub(crate) fn paint(&self, paper: &Paper<'_>, screen: (u16, u16)) -> Vec<Paint> {
+        let (cols, rows) = screen;
+        if cols < 8 || rows == 0 {
+            return Vec::new();
+        }
+        let area = self.area(screen);
+        let bar = paper.cells(area.col, area.row, area.cols, 1);
+        let font = paper.face(false);
+        let bold = paper.face(true);
+        let top = paper.centred(&font, bar.y, bar.h);
+        let cw = paper.cell.0;
+        let label = " Link ";
+        let note = " Esc closes ";
+        let after = width_of(label);
+        let note_width = width_of(note);
+        let room = usize::from(cols).saturating_sub(after + note_width + 1);
+        let shown = shorten(&self.url, room);
+        #[allow(clippy::cast_precision_loss)]
+        let (url_x, end) = (
+            bar.x + after as f32 * cw,
+            bar.x + (after + width_of(&shown)) as f32 * cw,
+        );
+        let mut items = vec![paper.quad(bar, Role::Raised(3), bar)];
+        items.push(paper.text((bar.x, top), label, bold, Role::Foreground, bar));
+        if let Paint::Text(run) = paper.text((url_x, top), &shown, font, Role::Accent, bar) {
+            items.push(Paint::Text(Run {
+                underline: true,
+                ..run
+            }));
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let note_x = bar.right() - note_width as f32 * cw;
+        if note_x > end {
+            items.push(paper.text((note_x, top), note, font, Role::Dim, bar));
+        }
+        items
     }
 
     pub fn area(&self, screen: (u16, u16)) -> Area {
@@ -781,6 +904,67 @@ impl PanelBar {
                 .collect();
             self.note = Some(list.join("  "));
         }
+    }
+
+    /// The line as items of the page's draw list: the row at the foot of the window (and the one above
+    /// it that says why the path was not taken), on the ground of a bar, what the line is for, the
+    /// path with its selection and its caret, and what the keys do at the right where there is room.
+    pub(crate) fn paint(&self, paper: &Paper<'_>, screen: (u16, u16)) -> Vec<Paint> {
+        let (cols, rows) = screen;
+        if cols < 12 || rows == 0 {
+            return Vec::new();
+        }
+        let area = self.area(screen);
+        let (cw, ch) = paper.cell;
+        let bar = paper.cells(0, rows - 1, cols, 1);
+        let font = paper.face(false);
+        let top = paper.centred(&font, bar.y, ch);
+        let mut items = Vec::new();
+        if let Some(note) = &self.note
+            && area.rows > 1
+        {
+            let above = paper.cells(0, rows - 2, cols, 1);
+            items.push(paper.quad(above, Role::Raised(3), above));
+            let at = paper.centred(&font, above.y, ch);
+            items.push(paper.text((above.x + cw, at), note, font, Role::Dim, above));
+        }
+        items.push(paper.quad(bar, Role::Raised(3), bar));
+        let label = format!(" {}: ", self.word());
+        let after = u16::try_from(width_of(&label)).unwrap_or(u16::MAX);
+        items.push(paper.text((bar.x, top), &label, paper.face(true), Role::Accent, bar));
+        let keys = self.keys();
+        let keys_width = u16::try_from(width_of(keys)).unwrap_or(u16::MAX);
+        let told = cols.saturating_sub(after + keys_width) >= PATH_ROOM;
+        let room = if told {
+            cols - after - keys_width
+        } else {
+            cols - after
+        };
+        let hint = match (&self.panel, told) {
+            (Panel::Pick { .. }, true) => "a path (Tab completes)",
+            (Panel::Save { .. }, true) => "where to (Tab completes)",
+            (Panel::Pick { .. }, false) => {
+                "a path \u{2014} Tab completes, Enter takes, Esc turns away"
+            }
+            (Panel::Save { .. }, false) => {
+                "where to \u{2014} Tab completes, Enter takes, Esc turns away"
+            }
+        };
+        let text = paper.cells(after, rows - 1, room, 1);
+        crate::chrome::line(
+            paper,
+            &mut items,
+            &self.field,
+            Some(hint),
+            text,
+            true,
+            Role::Foreground,
+        );
+        if told {
+            let x = bar.right() - f32::from(keys_width) * cw;
+            items.push(paper.text((x, top), keys, font, Role::Dim, bar));
+        }
+        items
     }
 
     pub fn area(&self, screen: (u16, u16)) -> Area {

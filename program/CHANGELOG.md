@@ -8,6 +8,9 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Added
 
+- **`Options::screen` may draw the view as pictures.** A screen that returns an error of the kind
+  `io::ErrorKind::Unsupported` says the terminal cannot show it: nothing is said, and the fallback
+  runs as if the program carried no screen.
 - **A conversation passes on the files the program attaches (`Said::Attached`, `Said::Detached`).**
   Whoever draws the page holds them and says so with `Attached::held`, or refuses them with a code
   (`limit`); the program's `attach` waits for that, and a reader that holds no files leaves the answer

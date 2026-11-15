@@ -18,13 +18,16 @@ use std::time::{Duration, Instant};
 use pencere::{
     Bundle, Closed, Conversation, EndedBy, Kind, Lent, Options, Said, Shown, Size, Tty, View, Waker,
 };
+use pencere_drive::shot::Fonts;
 use pencere_drive::{CarryOut, FrameAt, Host, Page, Route, Setup};
 use pencere_sandbox::{Assets, Fault, Program, Script};
 use pencere_view::{
     Button, Cursor, Drawing, FieldKind, FileSource, Fill, Id, Input, Key, KeyConvention, Keyboard,
-    Menu, Mods, Panel, Phase, Point, copy_key,
+    Menu, Mods, Panel, Phase, Point, Rect, copy_key,
 };
 
+use crate::chord;
+use crate::chrome::{self, Paper};
 use crate::field::{TextField, draw_fields};
 use crate::input::{Decoder, Event, KeyEvent, Mouse, MouseKind, Reply};
 use crate::measure::Cells;
@@ -32,6 +35,7 @@ use crate::memory;
 use crate::output::base64;
 use crate::overlay::{self, Answered, Chose, Handles, LinkBar, MenuBox, PanelBar};
 use crate::paint::{CanvasMode, ImageMode, Options as Paint, render};
+use crate::pixel::{self, Pixel};
 use crate::probe::{self, Found, Guess};
 use crate::screen::Screen;
 use crate::theme::Theme;
@@ -67,9 +71,29 @@ const DOUBLE: Duration = Duration::from_millis(400);
 /// The modes the screen is put in: no wrap at the edge, no cursor until a field has one, the mouse
 /// (buttons, drags and motion, in the long form), pastes in brackets, and the focus.
 const ON: &[u8] = b"\x1b[?7l\x1b[?25l\x1b[?1002h\x1b[?1003h\x1b[?1006h\x1b[?2004h\x1b[?1004h";
-/// What puts them back.
-const OFF: &[u8] =
-    b"\x1b[?1004l\x1b[?2004l\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?25h\x1b[?7h\x1b[0m";
+/// What puts them back, and gives the terminal its own ground back (`OSC 111`: the terminal's
+/// default is what it was before the page's was set, wherever the screen was left).
+const OFF: &[u8] = b"\x1b[?1016l\x1b[?1004l\x1b[?2004l\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?25h\x1b[?7h\x1b[0m\x1b]111\x1b\\";
+
+/// The modes the screen is put in ([`ON`]), and the terminal's ground set to the page's (`OSC 11`):
+/// what the window shows past the picture, left and above it and where the terminal's window is not
+/// whole cells, is that colour and not the terminal's own. [`OFF`] gives it back, and is what is
+/// written whenever the terminal is given back (at the end, on a signal, in a panic, and before the
+/// terminal is lent to a command, which this is written after).
+fn on(ground: [u8; 3]) -> Vec<u8> {
+    let mut bytes = ON.to_vec();
+    bytes.extend_from_slice(
+        format!(
+            "\x1b]11;rgb:{:02x}/{:02x}/{:02x}\x1b\\",
+            ground[0], ground[1], ground[2]
+        )
+        .as_bytes(),
+    );
+    bytes
+}
+/// The pointer told in the pixels of the window and not its cells, where the terminal says it does
+/// (switched on once it has).
+const PIXEL_MOUSE: &[u8] = b"\x1b[?1016h";
 /// The Kitty keyboard protocol's flags taken back, which comes before the rest where it was asked for.
 const KEYS_OFF: &[u8] = b"\x1b[<u";
 /// The pointer's shape given back to the terminal's own (an empty `OSC 22`), before the screen is
@@ -272,11 +296,11 @@ impl Program for Clock {
         KeyConvention::Linux
     }
 
-    /// A screen draws in the cells of a terminal, and a terminal that draws no pictures draws the
-    /// ones a page has in half blocks.
+    /// A terminal that draws pictures is sent the page as pixels, shadows and all; one that draws
+    /// none draws the page in its cells, and the ones a page has in half blocks.
     fn draws(&self) -> Vec<Drawing> {
         if self.pictures() {
-            vec![Drawing::Cells]
+            vec![Drawing::Shadow]
         } else {
             vec![Drawing::Cells, Drawing::CoarseImages]
         }
@@ -625,6 +649,9 @@ struct Live<'t> {
     notes: Vec<String>,
     /// The Kitty keyboard protocol was switched on, and is taken back.
     keys: bool,
+    /// What the screen is put in whenever it is taken again (after a command it was lent to): the
+    /// modes and the page's ground.
+    on: Vec<u8>,
     /// The shape the pointer was last given by `OSC 22`; none while the terminal's own is as it
     /// was.
     pointer: Option<Cursor>,
@@ -637,30 +664,48 @@ struct Live<'t> {
     /// The shape the page last asked for, and where the pointer last was (in the page's points).
     told: Cursor,
     pointer_at: Option<Point>,
+    /// The window as pixels, where the terminal draws pictures: the page is laid out in them, and
+    /// what it draws is sent as a picture.
+    pixel: Option<Pixel>,
+    /// The terminal tells the pointer in pixels (the SGR pixel mode), not in cells.
+    pixel_mouse: bool,
     trace: Trace,
 }
 
 /// Shows the view the options carry on `tty`, until it ends.
 ///
+/// The view is drawn as pictures: the terminal is sent the page as pixels (Kitty's graphics
+/// protocol), the faces of its own machine drawing the text.
+///
 /// # Errors
 ///
-/// When there is no view this screen draws, or the page cannot be started.
+/// When there is no view this screen draws, or the page cannot be started. An error of the kind
+/// [`io::ErrorKind::Unsupported`] is a terminal that cannot show the pictures: one that says it
+/// draws none, or does not say how large its cells are, or a multiplexer. Nothing has been written
+/// to it by then that [`Tty`] does not give back.
 pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
     let mut trace = Trace::new();
     let (shown, bundle) = choose(options.views())?;
-    tty.enter(ON, OFF)?;
-    trace.mark(|| "the alternate screen entered".to_owned());
+    let guess = Guess::from_environment();
+    if guess.multiplexer {
+        // Neither tmux nor screen draws the pictures of the terminal behind it.
+        return Err(not_shown(
+            "the terminal is a multiplexer, which draws no pictures",
+        ));
+    }
     let clock = Arc::new(Clock::new());
     let waker = tty.waker();
+    // The faces of the machine are looked for while the terminal answers: they measure the page
+    // and draw it.
+    let looking = std::thread::spawn(Fonts::installed);
     // The page is started before the terminal is asked what it is: its interpreter is made on a
     // thread of its own, while the answers come.
     let handles = Handles::new();
     let attached = Arc::new(Attached::default());
-    let page = open_page(&bundle, &clock, &waker, &handles, &attached)?;
+    let mut page = open_page(&bundle, &clock, &waker, &handles, &attached)?;
     trace.mark(|| "the page started".to_owned());
     let mut decoder = Decoder::new();
     let mut early = Vec::new();
-    let guess = Guess::from_environment();
     let found = match probe::ask(&tty, &mut decoder, &mut early, &guess) {
         Ok(found) => found,
         Err(signal) => {
@@ -668,7 +713,6 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
             return Ok(closed(shown, &Stop::by(EndedBy::Signal(signal))));
         }
     };
-    clock.found(found.graphics);
     trace.mark(|| {
         let how = if found.fenced {
             "answered to the end"
@@ -676,16 +720,37 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
             "did not answer to the end"
         };
         format!(
-            "the terminal {how} (colours {}, Kitty graphics {}, Kitty keyboard {})",
-            found.colors, found.graphics, found.keyboard
+            "the terminal {how} (colours {}, Kitty graphics {}, edits {}, Kitty keyboard {})",
+            found.colors, found.graphics, found.frames, found.keyboard
         )
     });
+    let size = tty.size();
+    let cell = found.cell_in(&size);
+    let Some(cell) = cell.filter(|_| found.graphics && !found.multiplexer) else {
+        clock.found(false);
+        return Err(not_shown(if found.graphics {
+            "the terminal does not say how many pixels its cells are"
+        } else {
+            "the terminal draws no pictures"
+        }));
+    };
+    clock.found(true);
+    // The terminal draws the pictures: only now does it leave its screen for ours. One that does
+    // not is given nothing but the questions, and the program takes its fallback on the screen the
+    // person has.
+    let on = on(pixel::ground_of(pixel::palette_of(&found)));
+    tty.enter(&on, OFF)?;
+    trace.mark(|| "the alternate screen entered".to_owned());
+    let fonts = looking.join().unwrap_or_else(|_| Fonts::carried());
+    trace.mark(|| "the faces of the machine were found".to_owned());
+    let pixel = Pixel::new(fonts, &found, cell, (size.cols, size.rows));
+    dress(&mut page, &pixel);
+    let pixel_mouse = found.pixel_mouse && tty.write_all(PIXEL_MOUSE).is_ok();
     let keys = found.keyboard && tty.write_all(b"\x1b[>1u").is_ok();
     if keys {
         tty.leaving(&off(true, false, false, false));
     }
     let conversation = Conversation::waking(options, &waker);
-    let size = tty.size();
     let mut screen = Screen::new(found.depth);
     screen.compress_pixels(found.compression);
     let mut live = Live {
@@ -721,13 +786,29 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
         bar: false,
         notes: Vec::new(),
         keys,
+        on,
         pointer: None,
         told: Cursor::Arrow,
         pointer_at: None,
+        pixel: Some(pixel),
+        pixel_mouse,
         trace,
     };
     let stop = live.lead();
     Ok(live.end(&stop))
+}
+
+/// Why this screen is not shown: the terminal cannot show it, which is for the program to take its
+/// fallback for and no fault to tell of.
+fn not_shown(why: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::Unsupported, why.to_owned())
+}
+
+/// The page laid out and drawn as pixels: measured in the faces that draw it, and with no cursor
+/// of the terminal's for its caret (the caret is a part of the picture).
+fn dress(page: &mut Page, pixel: &Pixel) {
+    page.set_measure(pixel.measure());
+    page.set_host_caret(false);
 }
 
 /// The view this screen draws among the program's: the first of the kind, in the version it runs.
@@ -737,7 +818,7 @@ fn choose(views: &[View]) -> io::Result<(Shown, Bundle)> {
         .find(|view| view.kind() == Kind::Lua && view.versions().iter().any(|v| v == KIT_VERSION))
         .ok_or_else(|| {
             io::Error::new(
-                io::ErrorKind::Unsupported,
+                io::ErrorKind::NotFound,
                 "the program carries no `lua` view for this terminal to draw",
             )
         })?;
@@ -843,6 +924,7 @@ impl Live<'_> {
             self.size = self.tty.size();
             self.ask_cell();
             self.screen.forget();
+            self.refit();
             self.dirty = true;
             let size = self.size;
             self.trace
@@ -955,6 +1037,22 @@ impl Live<'_> {
                     self.cell = Some((width, height));
                     self.dirty = true;
                 }
+                let cells = (self.size.cols, self.size.rows);
+                if let Some(pixel) = &mut self.pixel {
+                    if pixel.fit((width, height), cells) {
+                        self.page.set_measure(pixel.measure());
+                    }
+                    self.dirty = true;
+                }
+                false
+            }
+            // The answer to an edit of the picture that is the window: a refusal is not made again.
+            Event::Reply(Reply::Graphics { id, ok }) => {
+                if let Some(pixel) = &mut self.pixel
+                    && pixel.answered(id, ok)
+                {
+                    self.dirty = true;
+                }
                 false
             }
             // The answer to a question that was not waited for.
@@ -1003,6 +1101,22 @@ impl Live<'_> {
             }
             return Ok(());
         }
+        // The keys the page writes for ⌘ are ⌃⇧ and the character here (`chord`). The page is told
+        // the key as ⌘'s, and what is held after it as it is: the terminal says no more of the
+        // modifiers (no key is let go), and a ⌘ the page kept from the key would be the one a
+        // wheel turn is a zoom with.
+        let held = mods;
+        let mods = self.chord_of(key, mods);
+        let flow = self.key_to_page(key, mods, text, down);
+        if mods != held {
+            self.page.input(Input::Mods(held));
+        }
+        flow
+    }
+
+    /// A key (as the page is to have it) that is no overlay's: the page's, or the field's that has
+    /// the keyboard.
+    fn key_to_page(&mut self, key: Key, mods: Mods, text: Option<String>, down: bool) -> Flow {
         if !down {
             self.page.key_up(key, mods);
             return Ok(());
@@ -1010,18 +1124,6 @@ impl Live<'_> {
         if let Some(id) = self.focused_field() {
             self.field_key(id, key, mods, text.as_deref());
             return Ok(());
-        }
-        // ⌃⇧C copies what is selected where a terminal tells it from ⌃C, which is the interrupt
-        // (one that reports no modifiers of a letter's key sends the same byte for both, and the
-        // interrupt wins). Not in the editor's own table, for it is the person's terminal's.
-        if mods.control
-            && mods.shift
-            && !mods.alt
-            && !mods.command
-            && matches!(key, Key::Character(c) if c.eq_ignore_ascii_case(&'c'))
-            && let Some(selected) = self.selected_text()
-        {
-            return self.copy(selected, true);
         }
         match self.page.key(key, mods) {
             Route::Type => {
@@ -1044,11 +1146,14 @@ impl Live<'_> {
         Ok(())
     }
 
-    /// What is selected in the editor that has the keyboard, if anything is.
-    fn selected_text(&mut self) -> Option<String> {
-        let editors = self.page.editors();
-        let (start, len) = editors.selected().filter(|(_, len)| *len > 0)?;
-        editors.text(start, len)
+    /// What the key is to the page: where the terminal tells ⌃⇧ from ⌃ (the Kitty keyboard), ⌃⇧ and
+    /// a character is the page's ⌘ and that character, so that ⌃⇧C copies, ⌃⇧X cuts and ⌃⇧/ comments
+    /// where the page wrote ⌘C, ⌘X and ⌘/; the page's own binding of the chord wins.
+    fn chord_of(&self, key: Key, mods: Mods) -> Mods {
+        if !self.keys {
+            return mods;
+        }
+        chord::pressed(key, mods, |key, mods| self.page.binds(key, mods))
     }
 
     /// The field that has the keyboard, if the page still has it.
@@ -1141,15 +1246,36 @@ impl Live<'_> {
 
     // --- The pointer --------------------------------------------------------------------------
 
-    fn point(mouse: &Mouse) -> Point {
+    /// How many points of the page a cell of the terminal is, across and down.
+    fn cell_points(&self) -> (f32, f32) {
+        match &self.pixel {
+            Some(pixel) => {
+                #[allow(clippy::cast_precision_loss)]
+                let (width, height) = (pixel.cell().0 as f32, pixel.cell().1 as f32);
+                (width / pixel.scale(), height / pixel.scale())
+            }
+            None => (COLUMN, ROW),
+        }
+    }
+
+    /// Where the page is pointed at: the middle of the cell the terminal says, or the pixel (in
+    /// pixels, a terminal that was asked to say so, over the pixels to a point).
+    fn point(&self, mouse: &Mouse) -> Point {
+        if let (Some(pixel), true) = (&self.pixel, self.pixel_mouse) {
+            return Point::new(
+                (f32::from(mouse.col) + 0.5) / pixel.scale(),
+                (f32::from(mouse.row) + 0.5) / pixel.scale(),
+            );
+        }
+        let (column, row) = self.cell_points();
         Point::new(
-            (f32::from(mouse.col) + 0.5) * COLUMN,
-            (f32::from(mouse.row) + 0.5) * ROW,
+            (f32::from(mouse.col) + 0.5) * column,
+            (f32::from(mouse.row) + 0.5) * row,
         )
     }
 
     fn mouse(&mut self, mouse: Mouse) -> Flow {
-        let at = Self::point(&mouse);
+        let at = self.point(&mouse);
         self.pointer_at = Some(at);
         if self.overlay.is_some() || self.press_taken {
             return self.overlay_mouse(&mouse);
@@ -1180,10 +1306,11 @@ impl Live<'_> {
                 }
             }
             MouseKind::Wheel { dx, dy } => {
+                let (column, row) = self.cell_points();
                 self.page.wheel(
                     at,
-                    f32::from(dx) * WHEEL_ROWS * COLUMN,
-                    f32::from(dy) * WHEEL_ROWS * ROW,
+                    f32::from(dx) * WHEEL_ROWS * column,
+                    f32::from(dy) * WHEEL_ROWS * row,
                     Phase::Wheel,
                     false,
                 );
@@ -1195,7 +1322,7 @@ impl Live<'_> {
     }
 
     fn pressed(&mut self, mouse: &Mouse, button: Button) {
-        let at = Self::point(mouse);
+        let at = self.point(mouse);
         let hit = self
             .page
             .fields()
@@ -1225,7 +1352,7 @@ impl Live<'_> {
             self.dirty = true;
         }
         let now = Instant::now();
-        let cell = (mouse.col, mouse.row);
+        let cell = self.cell_of(mouse);
         let count = match &self.press {
             Some(last)
                 if last.button == button
@@ -1250,7 +1377,8 @@ impl Live<'_> {
         });
     }
 
-    /// The caret of the field `id` goes to the cell the pointer is over.
+    /// The caret of the field `id` goes to the edge of a character the pointer is nearest to: in
+    /// pixels where the window is a picture, in cells where it is not.
     fn place_caret(&mut self, id: Id, mouse: &Mouse, extend: bool) {
         let Some(room) = self
             .page
@@ -1261,10 +1389,30 @@ impl Live<'_> {
         else {
             return;
         };
-        let first = (room.x / COLUMN).round().max(0.0) as u16;
-        let width = (room.w / COLUMN).round().max(1.0) as u16;
+        let (cell, width) = match &self.pixel {
+            Some(pixel) => {
+                // The room is as many whole cells as fit in it, from its left edge, and the
+                // nearer edge of a cell is the one the caret goes to.
+                #[allow(clippy::cast_precision_loss)]
+                let across = pixel.cell().0.max(1) as f32;
+                let x = self.point(mouse).x * pixel.scale();
+                let from = room.x * pixel.scale();
+                (
+                    ((x - from) / across + 0.5).floor().max(0.0) as usize,
+                    (room.w * pixel.scale() / across).floor().max(1.0) as u16,
+                )
+            }
+            None => {
+                let (column, _) = self.cell_points();
+                let first = (room.x / column).round().max(0.0) as u16;
+                let (at, _) = self.cell_of(mouse);
+                (
+                    usize::from(at.saturating_sub(first)),
+                    (room.w / column).round().max(1.0) as u16,
+                )
+            }
+        };
         if let Some(field) = self.fields.get_mut(&id) {
-            let cell = usize::from(mouse.col.saturating_sub(first));
             field.place(cell, width, extend);
             self.dirty = true;
         }
@@ -1272,8 +1420,18 @@ impl Live<'_> {
 
     // --- What is over the page ----------------------------------------------------------------
 
+    /// The cell the pointer is in: what the terminal says, or the cell the pixel it says is in.
     fn cell_of(&self, mouse: &Mouse) -> (u16, u16) {
-        (mouse.col, mouse.row)
+        match (&self.pixel, self.pixel_mouse) {
+            (Some(pixel), true) => {
+                let (width, height) = pixel.cell();
+                (
+                    mouse.col / u16::try_from(width).unwrap_or(u16::MAX).max(1),
+                    mouse.row / u16::try_from(height).unwrap_or(u16::MAX).max(1),
+                )
+            }
+            _ => (mouse.col, mouse.row),
+        }
     }
 
     /// The pointer while something is over the page: it is the overlay's, and the page hears none of
@@ -1406,10 +1564,15 @@ impl Live<'_> {
         if self.overlay.is_some() {
             return;
         }
-        if let Some(menu) = effects.menu.take() {
+        if let Some(mut menu) = effects.menu.take() {
+            // A menu's lines show the keys a person presses: ⌃⇧ and a character for the page's ⌘.
+            if self.keys {
+                chord::menu(&mut menu, |key, mods| self.page.binds(key, mods));
+            }
+            let (column, row) = self.cell_points();
             let at = (
-                (menu.at.x / COLUMN).floor().max(0.0) as u16,
-                (menu.at.y / ROW).floor().max(0.0) as u16,
+                (menu.at.x / column).floor().max(0.0) as u16,
+                (menu.at.y / row).floor().max(0.0) as u16,
             );
             // A menu that was only a paste has nothing to show: it is as if it had been turned away.
             let shown = MenuBox::new(&menu, at, size);
@@ -1588,11 +1751,16 @@ impl Live<'_> {
     /// ours).
     fn lend(&mut self, lent: Lent) -> Flow {
         self.tty
-            .lend(lent, ON)
+            .lend(lent, &self.on)
             .map_err(|error| Stop::io(&self.tty, &error))?;
         if self.keys {
             self.tty
                 .write_all(b"\x1b[>1u")
+                .map_err(|error| Stop::io(&self.tty, &error))?;
+        }
+        if self.pixel_mouse {
+            self.tty
+                .write_all(PIXEL_MOUSE)
                 .map_err(|error| Stop::io(&self.tty, &error))?;
         }
         self.pointer = None;
@@ -1605,6 +1773,11 @@ impl Live<'_> {
         self.size = self.tty.size();
         self.ask_cell();
         self.screen.forget();
+        // What the terminal held of the window was cleared with the screen.
+        if let Some(pixel) = &mut self.pixel {
+            pixel.forget();
+        }
+        self.refit();
         self.dirty = true;
         Ok(())
     }
@@ -1616,6 +1789,32 @@ impl Live<'_> {
         if self.found.cell.is_some() {
             self.cell = None;
             let _ = self.tty.write_all(b"\x1b[16t");
+        }
+    }
+
+    /// The window has cells of another number: the picture is made for them. Its cells are as many
+    /// pixels as they were until the terminal says otherwise (where it does), or as the window's
+    /// pixels over them.
+    fn refit(&mut self) {
+        let size = self.size;
+        let Some(pixel) = &mut self.pixel else {
+            return;
+        };
+        let cell = if self.found.cell.is_none()
+            && size.width > 0
+            && size.height > 0
+            && size.cols > 0
+            && size.rows > 0
+        {
+            (
+                (u32::from(size.width) / u32::from(size.cols)).max(1),
+                (u32::from(size.height) / u32::from(size.rows)).max(1),
+            )
+        } else {
+            pixel.cell()
+        };
+        if pixel.fit(cell, (size.cols, size.rows)) {
+            self.page.set_measure(pixel.measure());
         }
     }
 
@@ -1641,6 +1840,9 @@ impl Live<'_> {
             message: Some(error.to_string()),
         })?;
         self.page = page;
+        if let Some(pixel) = &self.pixel {
+            dress(&mut self.page, pixel);
+        }
         self.fields.clear();
         self.focus = None;
         self.dragging = None;
@@ -1668,6 +1870,9 @@ impl Live<'_> {
 
     /// The page, laid out and painted for the window as it is, and what changed of it written.
     fn frame(&mut self) -> Flow {
+        if self.pixel.is_some() {
+            return self.pixel_frame();
+        }
         let (cols, rows) = (self.size.cols, self.size.rows);
         let now = self.now();
         let drawing = Instant::now();
@@ -1687,11 +1892,7 @@ impl Live<'_> {
         let mut effects = Effects::default();
         painted.deliver_held(&mut effects);
         self.apply(effects)?;
-        let present: Vec<Id> = self.page.fields().iter().map(|field| field.id).collect();
-        self.fields.retain(|id, _| present.contains(id));
-        if self.focus.is_some_and(|id| !present.contains(&id)) {
-            self.focus = None;
-        }
+        self.keep_fields();
         let theme = self.found.theme;
         let options = Paint {
             col: COLUMN,
@@ -1767,6 +1968,106 @@ impl Live<'_> {
             .iter()
             .map(|p| 4 * u64::from(p.width) * u64::from(p.height))
             .sum::<u64>();
+        Ok(())
+    }
+
+    /// The host's fields are the ones the page has: one it no longer has is let go of, and so is
+    /// the keyboard it had.
+    fn keep_fields(&mut self) {
+        let present: Vec<Id> = self.page.fields().iter().map(|field| field.id).collect();
+        self.fields.retain(|id, _| present.contains(id));
+        if self.focus.is_some_and(|id| !present.contains(&id)) {
+            self.focus = None;
+        }
+    }
+
+    /// The page, laid out in the pixels of the window and painted into them, and what changed of the
+    /// picture the terminal holds written to it.
+    fn pixel_frame(&mut self) -> Flow {
+        let now = self.now();
+        let drawing = Instant::now();
+        self.last_frame = now;
+        self.dirty = false;
+        let Some((size, scale)) = self
+            .pixel
+            .as_ref()
+            .map(|pixel| (pixel.size(), f64::from(pixel.scale())))
+        else {
+            return Ok(());
+        };
+        let mut painted = self.page.frame(FrameAt {
+            size,
+            scale,
+            now,
+            // A terminal is sent what moves as pictures, and the page's glides cost a frame of
+            // bytes each.
+            reduce_motion: true,
+        });
+        let mut effects = Effects::default();
+        painted.deliver_held(&mut effects);
+        self.apply(effects)?;
+        self.keep_fields();
+        let Some(pixel) = self.pixel.as_mut() else {
+            return Ok(());
+        };
+        // What the host draws over the page: its fields, and a menu, a panel or a link over those.
+        #[allow(clippy::cast_precision_loss)]
+        let paper = Paper {
+            fonts: pixel.fonts(),
+            scale: pixel.scale(),
+            cell: (pixel.cell().0 as f32, pixel.cell().1 as f32),
+            window: Rect::new(0.0, 0.0, size.0 as f32, size.1 as f32),
+        };
+        let mut over = chrome::fields(&paper, self.page.fields(), &self.fields, self.focus);
+        let screen = (self.size.cols, self.size.rows);
+        match &self.overlay {
+            Some(Overlay::Menu(menu)) => over.extend(menu.paint(&paper)),
+            Some(Overlay::Panel(bar)) => over.extend(bar.paint(&paper, screen)),
+            Some(Overlay::Link(bar)) => over.extend(bar.paint(&paper, screen)),
+            None => {}
+        }
+        painted.list.items.extend(over);
+        let written = pixel.draw(painted.list, self.page.images());
+        self.waits = if written.waiting { self.waits + 1 } else { 0 };
+        self.waiting = written.waiting && self.waits < PATIENCE_FRAMES;
+        let bytes = written.bytes;
+        if !bytes.is_empty() && !self.pictures {
+            self.pictures = true;
+            self.leaving();
+        }
+        if self.trace.frames() < TRACED_FRAMES {
+            let sent = bytes.len();
+            let how = if written.whole {
+                "the window".to_owned()
+            } else {
+                format!("{} bands", written.bands.len())
+            };
+            self.trace
+                .mark(|| format!("frame, {sent} bytes written ({how})"));
+        }
+        if !bytes.is_empty() {
+            self.tty
+                .write_all(&bytes)
+                .map_err(|error| Stop::io(&self.tty, &error))?;
+        }
+        let spent = &mut self.trace.spent;
+        spent.frames += 1;
+        spent.drawn += drawing.elapsed();
+        spent.written += bytes.len() as u64;
+        spent.pictures += if written.whole {
+            1
+        } else {
+            written.bands.len() as u64
+        };
+        spent.pixels += if written.whole {
+            4 * u64::from(size.0) * u64::from(size.1)
+        } else {
+            written
+                .bands
+                .iter()
+                .map(|(_, rows)| 4 * u64::from(size.0) * u64::from(*rows))
+                .sum::<u64>()
+        };
         Ok(())
     }
 
@@ -1850,13 +2151,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_screen_says_it_draws_in_cells_and_whether_its_pictures_are_coarse() {
+    fn a_screen_says_it_draws_pictures_where_the_terminal_does_and_cells_where_it_does_not() {
         let with = Clock::new();
         with.found(true);
-        assert_eq!(with.draws(), [Drawing::Cells]);
+        assert_eq!(with.draws(), [Drawing::Shadow]);
         let without = Clock::new();
         without.found(false);
         assert_eq!(without.draws(), [Drawing::Cells, Drawing::CoarseImages]);
+    }
+
+    #[test]
+    fn whatever_puts_the_terminal_back_gives_its_ground_back_too() {
+        let ground = b"\x1b]111\x1b\\";
+        let has = |bytes: &[u8]| bytes.windows(ground.len()).any(|w| w == ground);
+        assert!(has(OFF));
+        for bits in 0..16_u8 {
+            let bytes = off(bits & 1 != 0, bits & 2 != 0, bits & 4 != 0, bits & 8 != 0);
+            assert!(has(&bytes), "off({bits:#06b}) gives the ground back");
+        }
+    }
+
+    #[test]
+    fn the_terminals_ground_is_set_to_the_pages_in_the_palette_the_page_is_drawn_in() {
+        use pencere_drive::shot::Palette;
+        let dark = on(pixel::ground_of(Palette::Dark));
+        assert!(dark.starts_with(ON));
+        assert!(dark.ends_with(b"\x1b]11;rgb:0d/11/17\x1b\\"));
+        let light = on(pixel::ground_of(Palette::Light));
+        assert!(light.ends_with(b"\x1b]11;rgb:ff/ff/ff\x1b\\"));
     }
 
     #[test]
@@ -1867,7 +2189,7 @@ mod tests {
         // The probe answers a moment after the page asked.
         std::thread::sleep(Duration::from_millis(50));
         clock.found(true);
-        assert_eq!(asking.join().ok(), Some(vec![Drawing::Cells]));
+        assert_eq!(asking.join().ok(), Some(vec![Drawing::Shadow]));
     }
 
     fn file(name: &str, bytes: Arc<[u8]>) -> (String, Arc<[u8]>) {

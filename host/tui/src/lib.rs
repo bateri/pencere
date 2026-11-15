@@ -29,6 +29,10 @@
 //! cell is an eighth block at the edge of its cell, and a thin upright line over a letter reverses
 //! the cell, so it is a caret and not a bar over the word.
 
+mod chord;
+mod chrome;
+#[cfg(test)]
+mod chrome_tests;
 mod color;
 #[doc(hidden)]
 pub mod compose;
@@ -42,6 +46,9 @@ mod output;
 mod overlay;
 mod paint;
 mod pictures;
+mod pixel;
+#[cfg(test)]
+mod pixel_tests;
 mod probe;
 mod screen;
 mod theme;

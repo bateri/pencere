@@ -22,7 +22,9 @@ unicode-width = "0.2"
 # The page the screen runs and draws: its frames, its input, and what it says to its host
 # (`Host`). The page's side of the program's view; the host of a terminal that hosts views links it
 # too.
-pencere-drive = { path = "../../kit/drive", version = "0.4.1", default-features = false }
+# `shot` is its drawing of a page into pixels (and the faces that draw them): the live screen sends
+# the page to a terminal that draws pictures as the picture it is.
+pencere-drive = { path = "../../kit/drive", version = "0.4.1", default-features = false, features = ["shot"] }
 # The program's side of the view: its options (the handlers the page calls), the terminal it takes
 # for the screen (`Tty`), and the conversation with the handlers. The live screen is what a program
 # that carries its own view shows where no terminal hosts it.

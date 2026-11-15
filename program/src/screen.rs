@@ -3,7 +3,7 @@
 //! Where no terminal hosts the program's view ([`NoViewReason::NoHost`](crate::NoViewReason) and
 //! the others that leave it with none), a program that carries a host for its view can still show
 //! it: [`Options::screen`](crate::Options::screen) hands the program's options and the terminal to
-//! that host, which draws the view with the characters of the terminal. The terminal is taken as
+//! that host, which draws the view in the terminal itself. The terminal is taken as
 //! [`Taken`] takes it for the protocol, and with the keys of the line discipline switched off
 //! (flow control, suspend, quit, the next character literally), ⌃C left a signal; and the way back is
 //! the same one: the end, a signal, a panic and `exit` all give it back, after writing what the

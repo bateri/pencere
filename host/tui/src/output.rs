@@ -462,15 +462,21 @@ pub(crate) fn base64(bytes: &[u8]) -> String {
 /// `first` and the rest with what a continuation has. `q=2` keeps the terminal from answering into
 /// the input of whatever shows the file.
 fn pieces(out: &mut String, first: &str, data: &str) {
+    pieces_quiet(out, first, data, 2);
+}
+
+/// As [`pieces`], with the terminal's answers kept down as `quiet` says: `2` keeps all of them, `1`
+/// keeps the ones that say it took the picture and lets a refusal through.
+pub(crate) fn pieces_quiet(out: &mut String, first: &str, data: &str, quiet: u8) {
     let chunks: Vec<&[u8]> = data.as_bytes().chunks(CHUNK).collect();
     let last = chunks.len().saturating_sub(1);
     for (i, chunk) in chunks.iter().enumerate() {
         let more = u8::from(i < last);
         let text = std::str::from_utf8(chunk).unwrap_or("");
         if i == 0 {
-            let _ = write!(out, "\x1b_G{first},q=2,m={more};{text}\x1b\\");
+            let _ = write!(out, "\x1b_G{first},q={quiet},m={more};{text}\x1b\\");
         } else {
-            let _ = write!(out, "\x1b_Gm={more},q=2;{text}\x1b\\");
+            let _ = write!(out, "\x1b_Gm={more},q={quiet};{text}\x1b\\");
         }
     }
 }
@@ -509,7 +515,7 @@ fn geometry(placement: &Placement) -> String {
 
 /// How hard the pixels of a picture are packed (`miniz_oxide`'s levels run 0 to 10): the fastest that
 /// still shrinks them, since a page is packed while the person waits for it.
-const PACK_LEVEL: u8 = 1;
+pub(crate) const PACK_LEVEL: u8 = 1;
 
 /// The sequences that give a terminal the whole of `pixels` to keep under `id`, and draw nothing; with
 /// the pixels compressed (zlib, which the terminal says it takes) where `compress` says to be, and

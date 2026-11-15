@@ -245,7 +245,8 @@ std::fs::write("target/editor.png", page.shot(&fonts)?)?;
 ```
 
 The pictures are drawn with tiny-skia and the faces read and drawn with swash (out of memory-mapped
-files); a terminal that drives pages links none of them.
+files); the session crate that drives pages links none of them, and `pencere-tui` links them to
+send a page to a terminal as a picture.
 
 ## License
 
