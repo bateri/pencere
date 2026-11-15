@@ -36,7 +36,6 @@
 
 pub mod bands;
 mod color;
-mod colplan;
 mod command;
 pub mod edit;
 mod element;
@@ -50,7 +49,6 @@ mod layout;
 mod motion;
 mod paint;
 mod rich;
-mod rowplan;
 mod rows;
 mod scrolls;
 mod style;
@@ -86,7 +84,7 @@ pub use style::{Anchor, Border, Gradient, Shadow, Side, Track, Zoom};
 pub use system::{
     Drawing, KeyConvention, TerminalCaret, TerminalLook, TerminalSelection, WallTime,
 };
-pub use text::{Align, EditorMetrics, Family, Font, Grid, Measure, Metrics};
+pub use text::{Align, EditorMetrics, Family, Font, Measure, Metrics};
 pub use ui::{DRAG_START, Drag, Dropped, Ui};
 
 #[cfg(test)]
@@ -97,8 +95,6 @@ mod carry_tests;
 mod commands_tests;
 #[cfg(test)]
 mod editor_tests;
-#[cfg(test)]
-mod grid_tests;
 #[cfg(test)]
 mod image_tests;
 #[cfg(test)]

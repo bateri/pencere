@@ -25,10 +25,10 @@ All notable changes to the `pencere` command are recorded here. The format follo
   and the buttons of a mouse beyond the third with their own events (`magnify`, `smart_magnify`,
   `rotate`, `swipe`, `pressure`, `extra_press`, `extra_release`), and `move`, `release` and `wheel`
   carry the modifiers (the kit's specification, Section 2.3).
-- **A built app opens in any terminal.** The command links `pencere-tui` (the new feature
-  `terminal`, on by default): an app started in a terminal that hosts no views draws its `lua` page in
-  the cells of that terminal, with the app's own handlers in the same process, and runs its
-  `fallback` only where that cannot be done (no terminal, no page of the kit). The interpreter is the
+- **A built app opens in a terminal that speaks Kitty graphics.** The command links `pencere-tui` (the new
+  feature `terminal`, on by default): an app started in a terminal that hosts no views but speaks that
+  protocol draws its `lua` page there as pictures, with the app's own handlers in the same process, and
+  runs its `fallback` where that cannot be done (no terminal, no Kitty graphics, no page of the kit). The interpreter is the
   one the build compiled (no code generator is in the file) and the PDF reader is in.
   `serve { tui = false }` keeps an app from it, `PENCERE_TUI=0` or `1` does so for a person.
 - **`pencere build --no-terminal`** makes the other kind of app: the file is smaller, links none of

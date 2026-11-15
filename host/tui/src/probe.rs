@@ -2,7 +2,7 @@
 //!
 //! The questions go out in two rounds, each ending with the one every terminal answers (the device
 //! attributes), so that its answer says no more is coming and a terminal that knows none of the others
-//! is not waited for. The first asks the colours, the keyboard and what the terminal is; the second,
+//! is not waited for. The first asks the ground, the keyboard and what the terminal is; the second,
 //! the one whether it draws pictures, goes out only to a terminal that is not a multiplexer: tmux and
 //! screen keep what they are sent in a string of that kind (the Kitty graphics query) for the title of
 //! the pane, and do not draw the pictures of the terminal behind them. A terminal that never answers is
@@ -13,9 +13,8 @@ use std::time::{Duration, Instant};
 
 use pencere::Tty;
 
-use crate::input::{Decoder, Event, Reply, Slot};
-use crate::output::Depth;
-use crate::theme::Theme;
+use crate::color::Rgb;
+use crate::input::{Decoder, Event, Reply};
 
 /// The longest the answers of a round are waited for.
 const PATIENCE: Duration = Duration::from_millis(1000);
@@ -32,14 +31,11 @@ pub(crate) const FRAMES: u32 = 33;
 /// to another place in it (`a=c`) is about.
 pub(crate) const COMPOSE: u32 = 34;
 
-/// The first round: the colours, the text colour and ground and the sixteen of the palette; whether the
-/// keyboard has the Kitty protocol; what the terminal is, by its version and by its kind; how many
-/// pixels a cell is; the device attributes.
+/// The first round: the ground of the terminal (whether the page is drawn in the light palette or the
+/// dark one); whether the keyboard has the Kitty protocol; what the terminal is, by its version and by
+/// its kind; how many pixels a cell is; the device attributes.
 pub(crate) fn questions() -> Vec<u8> {
-    let mut out = String::from("\x1b]10;?\x1b\\\x1b]11;?\x1b\\");
-    for index in 0..16 {
-        out.push_str(&format!("\x1b]4;{index};?\x1b\\"));
-    }
+    let mut out = String::from("\x1b]11;?\x1b\\");
     out.push_str("\x1b[?u");
     out.push_str("\x1b[>q\x1b[>c\x1b[16t\x1b[14t");
     // Whether the pointer may be told in pixels (the mode is asked and not set: it is set once the
@@ -80,11 +76,8 @@ pub(crate) fn graphics_question() -> Vec<u8> {
 /// What the terminal said of itself.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Found {
-    /// The colours of the terminal: what it answered, over the built-in palette.
-    pub theme: Theme,
-    /// Whether the terminal told any of its colours.
-    pub colors: bool,
-    pub depth: Depth,
+    /// The ground of the terminal is dark (what it answered, else what is guessed).
+    pub dark: bool,
     /// The Kitty graphics protocol took a picture.
     pub graphics: bool,
     /// It takes pixels that are packed (`o=z`) too.
@@ -126,31 +119,20 @@ impl Found {
     }
 }
 
-/// How the terminal is guessed to be, before it says (and where it says nothing): the colours that
-/// were asked for, and what `COLORTERM` says of the number of colours.
+/// How the terminal is guessed to be, before it says (and where it says nothing): the ground is dark
+/// unless `PENCERE_TUI_THEME` says `light`; and whether it is tmux or screen.
 pub(crate) struct Guess {
-    pub theme: Theme,
-    pub depth: Depth,
+    pub dark: bool,
     /// The environment says the program runs in tmux or screen.
     pub multiplexer: bool,
 }
 
 impl Guess {
-    /// From the environment: `PENCERE_TUI_THEME` (`light` or `dark`), `COLORTERM` (`truecolor`
-    /// or `24bit` is true colour, anything else the 256 of the palette), and whether it is tmux or
+    /// From the environment: `PENCERE_TUI_THEME` (`light` or `dark`), and whether it is tmux or
     /// screen's ([`pencere::in_multiplexer`]).
     pub(crate) fn from_environment() -> Self {
-        let theme = match std::env::var("PENCERE_TUI_THEME").as_deref() {
-            Ok("light") => Theme::light(),
-            _ => Theme::dark(),
-        };
-        let depth = match std::env::var("COLORTERM").as_deref() {
-            Ok("truecolor" | "24bit") => Depth::True,
-            _ => Depth::Indexed,
-        };
         Self {
-            theme,
-            depth,
+            dark: std::env::var("PENCERE_TUI_THEME").as_deref() != Ok("light"),
             multiplexer: pencere::in_multiplexer(),
         }
     }
@@ -162,10 +144,9 @@ fn multiplexer_named(name: &str) -> bool {
     name.starts_with("tmux") || name.starts_with("screen")
 }
 
-/// What the terminal answered, put together: the colours it gave over the guess's.
+/// What the terminal answered, put together: its ground over the guess's.
 fn found(guess: &Guess, replies: &[Reply], fenced: bool) -> Found {
-    let mut theme = guess.theme;
-    let mut colors = false;
+    let mut dark = guess.dark;
     let mut graphics = false;
     let mut compression = false;
     let mut frames = false;
@@ -175,32 +156,10 @@ fn found(guess: &Guess, replies: &[Reply], fenced: bool) -> Found {
     let mut cell = None;
     let mut keyboard = false;
     let mut multiplexer = guess.multiplexer;
-    // The ground first: it says whether the palette that fills the rest is a light one's or a
-    // dark one's.
-    if let Some(background) = replies.iter().find_map(|reply| match reply {
-        Reply::Color(Slot::Background, rgb) => Some(*rgb),
-        _ => None,
-    }) {
-        let base = if Theme::new(background, background, theme.ansi).is_dark() {
-            Theme::dark()
-        } else {
-            Theme::light()
-        };
-        theme = Theme::new(background, base.foreground, base.ansi);
-    }
     for reply in replies {
         match reply {
-            Reply::Color(Slot::Foreground, rgb) => {
-                theme.foreground = *rgb;
-                theme.cursor = *rgb;
-                colors = true;
-            }
-            Reply::Color(Slot::Background, _) => colors = true,
-            Reply::Color(Slot::Ansi(index), rgb) => {
-                if let Some(slot) = theme.ansi.get_mut(usize::from(*index)) {
-                    *slot = *rgb;
-                }
-                colors = true;
+            Reply::Background(rgb) => {
+                dark = rgb.contrast(Rgb::hex(0xffffff)) > rgb.contrast(Rgb::hex(0x000000))
             }
             Reply::Graphics { id, ok } if *id == COMPRESSION => compression |= *ok,
             Reply::Graphics { id, ok } if *id == FRAMES => frames |= *ok,
@@ -217,9 +176,7 @@ fn found(guess: &Guess, replies: &[Reply], fenced: bool) -> Found {
         }
     }
     Found {
-        theme,
-        colors,
-        depth: guess.depth,
+        dark,
         // A multiplexer does not draw the pictures of the terminal behind it, whatever answered.
         graphics: graphics && !multiplexer,
         compression: compression && graphics && !multiplexer,
@@ -314,12 +271,10 @@ fn round(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::color::Rgb;
 
     fn guess() -> Guess {
         Guess {
-            theme: Theme::dark(),
-            depth: Depth::Indexed,
+            dark: true,
             multiplexer: false,
         }
     }
@@ -327,36 +282,34 @@ mod tests {
     #[test]
     fn a_terminal_that_says_nothing_is_the_guess() {
         let found = found(&guess(), &[], false);
-        assert_eq!(found.theme, Theme::dark());
-        assert!(!found.colors && !found.graphics && !found.keyboard);
-        assert_eq!(found.depth, Depth::Indexed);
+        assert!(found.dark && !found.graphics && !found.keyboard);
+        let light = Guess {
+            dark: false,
+            ..guess()
+        };
+        assert!(!self::found(&light, &[], false).dark);
     }
 
     #[test]
-    fn what_the_terminal_says_of_its_colours_is_what_the_theme_is() {
+    fn what_the_terminal_says_of_its_ground_is_what_the_palette_is() {
         let light = Rgb::new(0xfa, 0xfa, 0xfa);
         let replies = [
-            Reply::Color(Slot::Background, light),
-            Reply::Color(Slot::Foreground, Rgb::new(0x10, 0x10, 0x10)),
-            Reply::Color(Slot::Ansi(4), Rgb::new(0, 0, 0xff)),
+            Reply::Background(light),
             Reply::Graphics { id: 31, ok: true },
             Reply::KeyboardFlags(0),
         ];
         let found = found(&guess(), &replies, true);
-        assert!(found.colors && found.graphics && found.keyboard);
-        assert_eq!(found.theme.background, light);
-        assert_eq!(found.theme.foreground, Rgb::new(0x10, 0x10, 0x10));
-        assert_eq!(found.theme.ansi.get(4), Some(&Rgb::new(0, 0, 0xff)));
-        // A light ground has the light palette's other colours.
-        assert_eq!(found.theme.ansi.get(1), Theme::light().ansi.get(1));
-        assert!(!found.theme.is_dark());
+        assert!(found.graphics && found.keyboard);
+        assert!(!found.dark, "a light ground is a light palette's");
+        let dark = [Reply::Background(Rgb::new(0x1e, 0x1e, 0x2e))];
+        assert!(self::found(&guess(), &dark, true).dark);
     }
 
     #[test]
     fn the_questions_end_with_the_one_every_terminal_answers() {
         let questions = questions();
         assert!(questions.ends_with(b"\x1b[c"));
-        assert!(questions.starts_with(b"\x1b]10;?"));
+        assert!(questions.starts_with(b"\x1b]11;?"));
         assert!(graphics_question().ends_with(b"\x1b[c"));
     }
 

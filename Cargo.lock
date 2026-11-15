@@ -1272,7 +1272,7 @@ name = "pencere-tui"
 version = "0.4.1"
 dependencies = [
  "libc",
- "miniz_oxide 0.9.1",
+ "miniz_oxide 0.8.9",
  "pencere",
  "pencere-drive",
  "pencere-fake-host",

@@ -1884,7 +1884,6 @@ fn page_in(page: u32, top: f32, whole: Size, view: Size) -> Picture {
         src: "doc.pdf".to_owned(),
         page,
         rect,
-        cells: rect,
         crop: Rect::new(0.0, 0.0, 1.0, 1.0),
         shown: Rect::new(
             (seen.x - rect.x) / rect.w,
@@ -1897,7 +1896,6 @@ fn page_in(page: u32, top: f32, whole: Size, view: Size) -> Picture {
         radii: [0.0; 4],
         clip,
         turn: 0.0,
-        exact: None,
     }
 }
 

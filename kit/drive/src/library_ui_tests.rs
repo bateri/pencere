@@ -661,8 +661,7 @@ fn tabs_move_among_themselves_with_the_arrow_keys() -> Result<(), Error> {
 fn a_modal_with_more_than_the_page_is_tall_stays_on_the_page_and_its_list_gives_way()
 -> Result<(), Error> {
     // A card of a title and a list that scrolls, whose rows come to more than the page: the page
-    // has not worked out how tall the list may be (a sum of the card's parts in points is not their
-    // sum on the cells of a terminal).
+    // has not worked out how tall the list may be.
     let mut page = open(
         r#"
 view = function(u)

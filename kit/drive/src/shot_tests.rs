@@ -30,7 +30,6 @@ fn quad(rect: Rect, role: Role) -> Paint {
         border: None,
         shadow: None,
         clip: Rect::new(0.0, 0.0, 120.0, 60.0),
-        exact: None,
     })
 }
 
@@ -132,7 +131,6 @@ fn a_rounded_box_cut_by_its_clip_is_cut_straight_and_keeps_its_own_corners() {
             border: None,
             shadow: None,
             clip: Rect::new(0.0, 0.0, 40.0, 20.0),
-            exact: None,
         })],
     };
     let drawn = png(&list, (40, 40), &Fonts::none(), None, Palette::Dark).expect("a picture");
@@ -938,7 +936,6 @@ fn items_that_reach() -> Vec<Paint> {
             }),
             shadow,
             clip,
-            exact: None,
         })
     };
     let shadow = |dy: f32, blur: f32| {
@@ -1036,7 +1033,6 @@ fn rows_drawn_alone_are_the_rows_of_the_picture_drawn_whole() {
         border: None,
         shadow: None,
         clip: Rect::new(0.0, 0.0, 400.0, 300.0),
-        exact: None,
     })];
     items.extend(items_that_reach());
     let list = DrawList { items };

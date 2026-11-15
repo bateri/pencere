@@ -855,62 +855,61 @@ fn a_box_inside_padding_stands_in_its_middle_at_a_scale_that_is_not_whole() {
     }
 }
 
-/// A terminal's: a column is 8 pixels, a row 18, and a line of text is a row and each character a
-/// column.
-struct Cells;
+/// The page `card` is the box of, laid out with the stand-in measure: a row, so that the card is as
+/// large as it is written.
+fn spill_page(card: crate::Element) -> crate::Laid {
+    let root = div().row().items_start().child(card.id(CARD));
+    layout(root, Size::new(400.0, 600.0), 1.0, &mut Fixed)
+}
 
-impl Measure for Cells {
-    fn measure(&mut self, _font: &Font, text: &str) -> Metrics {
-        Metrics {
-            width: text.chars().count() as f32 * 8.0,
-            height: 18.0,
-        }
-    }
+const CARD: Id = Id::new(1);
+const INNER: Id = Id::new(20);
 
-    fn grid(&self) -> Option<crate::Grid> {
-        crate::Grid::new(8.0, 18.0)
-    }
+#[test]
+fn a_box_that_stands_past_the_inside_of_its_box_is_said_and_one_that_does_not_is_not() {
+    // Two hundred points in a card that has 180 inside: twenty past the padding.
+    let wide = div().col().w(208.0).h(180.0).p(14.0).no_shrink().child(
+        div()
+            .id(INNER)
+            .w(200.0)
+            .h(36.0)
+            .no_shrink()
+            .child(text("wide")),
+    );
+    let spills = spill_page(wide).spills();
+    assert_eq!(spills.len(), 1, "{spills:?}");
+    let spill = &spills[0];
+    assert_eq!(spill.id, Some(INNER));
+    assert_eq!(spill.within, Some(CARD));
+    assert_eq!(spill.past, [0.0, 0.0, 20.0, 0.0]);
+    assert_eq!(spill.words, "wide");
+    // A card whose parts are as wide as its inside has none.
+    let fits = div()
+        .col()
+        .w(208.0)
+        .h(180.0)
+        .p(14.0)
+        .no_shrink()
+        .child(div().id(INNER).w(180.0).h(36.0).no_shrink());
+    assert_eq!(spill_page(fits).spills(), []);
 }
 
 #[test]
-fn on_a_grid_every_box_stands_on_the_cells_and_a_line_of_text_is_a_row() {
-    // Written in points of every size: 22 and 24 down, 6 and 14 across, a gap of 5, a line of text.
-    let root = div()
+fn what_a_box_that_scrolls_holds_and_what_is_laid_over_a_box_are_not_said_to_stand_past_it() {
+    let scrolls = div()
         .col()
-        .p(6.0)
-        .gap(5.0)
-        .child(div().h(22.0).child(text("abc")))
-        .child(
-            div()
-                .h(24.0)
-                .row()
-                .gap(14.0)
-                .child(text("x"))
-                .child(text("yz")),
-        )
-        .child(text("last"))
-        .child(div().w(1.0).h(1.0).bg(Role::Border));
-    let laid = layout(root, Size::new(80.0 * 8.0, 24.0 * 18.0), 1.0, &mut Cells);
-    for (index, rect) in laid.rects().enumerate() {
-        for (what, value, cell) in [
-            ("x", rect.x, 8.0),
-            ("width", rect.w, 8.0),
-            ("y", rect.y, 18.0),
-            ("height", rect.h, 18.0),
-        ] {
-            assert!(
-                (value / cell - (value / cell).round()).abs() < 1e-4,
-                "box {index}: {what} is {value}, not a whole number of cells"
-            );
-        }
-    }
-    // A line of text is one row, and a box that was written is not lost between the cells: the
-    // hairline takes a cell and is drawn as thick as it was written.
-    let boxes: Vec<Rect> = laid.rects().collect();
-    assert_eq!(boxes[boxes.len() - 2].h, 18.0);
-    let hairline = boxes[boxes.len() - 1];
-    assert_eq!((hairline.w, hairline.h), (8.0, 18.0));
-    let drawn = laid.paint(&mut Cells);
-    let quad = quads(&drawn).pop().expect("the hairline is drawn");
-    assert_eq!((quad.rect.w, quad.rect.h), (1.0, 1.0));
+        .w(200.0)
+        .h(180.0)
+        .scroll()
+        .no_shrink()
+        .child(div().w(300.0).h(400.0).no_shrink());
+    assert_eq!(spill_page(scrolls).spills(), []);
+    let over = div().col().w(200.0).h(180.0).p(14.0).no_shrink().child(
+        div()
+            .absolute()
+            .inset(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+            .w(200.0)
+            .h(180.0),
+    );
+    assert_eq!(spill_page(over).spills(), []);
 }

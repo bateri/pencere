@@ -70,8 +70,6 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
   tells the page: where ⌃ is the main modifier ⌃A selects all and ⌃Z, ⌃Y undo and redo (`Editors::set_keyboard`).
   A host whose keyboard is a Mac's (what one built for macOS says unless it says another) has the keys it had.
 
-- The measure the drive hands the page on says the host's grid (`Measure::grid` of the engine).
-
 - The headless host and the screenshot draw a picture with `Images::picture` and the crop of the
   bitmap (`Bitmap::crop_of`): a large SVG or page of a PDF is drawn where it is seen, so a page is
   sharp at every zoom and the pixels held come to the screen.

@@ -46,10 +46,10 @@ return {
 			return line(event.id)
 		elseif event.type == "key" and event.key == "f1" then
 			-- The page binds ctrl+shift+k itself: a line with cmd+k has no key to show, and one with
-			-- cmd+left (no chord) none either.
+			-- cmd+left (no chord) none either, nor has one with cmd+/ (⌃⇧/ is a sign's key, not a chord).
 			return editor_menu({ cut = "cmd+x", copy = "cmd+c", comment = "cmd+/", taken = "cmd+k", home = "cmd+left" })
 		elseif event.type == "key" and event.key == "f3" then
-			return editor_menu({ cut = "ctrl+shift+x", copy = "ctrl+shift+c", comment = "ctrl+shift+/" })
+			return editor_menu({ cut = "ctrl+shift+x", copy = "ctrl+shift+c" })
 		elseif event.type == "key" and event.key == "f2" then
 			return line(pencere.layout.zoom_of("list") > 1.001 and "zoomed" or "scrolled")
 		elseif event.type == "menu" then

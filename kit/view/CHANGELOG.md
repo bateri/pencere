@@ -32,79 +32,23 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
   `precise` and `mods`, `Move` and `Release` have `mods`. **Breaking:** `Input::Move` is `Move { at,
 mods }` and `Input::Release` has `mods`, so a host or a page that builds or matches them names
   the field.
-- **`Drawing::Cells` and `Drawing::CoarseImages`**: a host says (`Program::draws`) that its page is
-  drawn in the character cells of a terminal, and that a picture of it is drawn in too few pixels to
-  read a small one by (a terminal with no graphics protocol). `pencere.draws()` has them as `cells`
-  and `coarse_images`; a page that is told them draws what is small as a character and keeps off
-  sizes a cell would round to nothing. A host that says neither is as it was.
-- **`Grid` and `Measure::grid`**: a host that draws in the cells of a terminal says how many pixels
-  a cell is across and down, and the page is laid out on them: every length a page writes is a whole
-  number of columns across (width, the room to the left and right, the gap between columns, the
-  columns of a grid, how far a box is scrolled across) and of rows down, and a line of text is a row
-  of the measure's height. A box that is written with a size keeps at least a cell, and one written
-  thinner than half a cell is drawn as thick as it was written, in its cell. A box that is written a
-  height and is a column of boxes that are written theirs has its rows shared out as a whole, and not
-  rounded part by part: its rows are those of its height, and its padding above and below, the gaps
-  between what is in it and the heights of those are shared out over them by the points each is (a
-  card of 164 points is 9 rows, a head, a value, figures and a graph of 1, 2, 2 and 2 rows with a row
-  of padding above and below, where each rounded on its own is 8 and leaves a row at the foot); a part
-  with a line of text in it is a row for each line at least; parts of as many points as one another are
-  as many rows as one another, taking a row more together or none (ten rows of 32 points are ten
-  rows); a part takes a row above its points only from half a row up; and a box that is given its
-  rows by the one it is in has them. A box that centres what is in it down the page (a row that is
-  `items_center`, a column that is `justify_center`) is the nearest number of rows to its height that
-  has the oddness of what is in it (44 points round 3 rows around one line, 2 around two lines), so
-  that a line in it has as many rows above as below. A box that is not written a height, or whose
-  parts are not all written one, is as it was. Across, a box that is written a width gives what is in
-  it its columns: in a column, a box written as wide as the inside of the box it is in is as many
-  columns as that inside, and one written narrower is no more (a card of 26 columns with 14 points of
-  padding has 22 inside, and a graph written the card's width less that padding, 22.5 columns, was 23
-  and stood a column past the words above it, at three widths of a window in five); in a row whose
-  boxes are all written a width, and written no wider than the row, but come to more columns than
-  it has when each is rounded on its own, the row's columns are shared out over the boxes and the
-  gaps by the points each is, equal ones taking a column more together or none (a table's row was a
-  column wider than its view, and its last column cut at the edge). A row whose boxes fit as they
-  round, a box written wider than the one it is in (what a box that scrolls across holds), a box that
-  is not written a width, a grid, and a box that grows, has a margin beside it or a least or a most
-  width, are as they were. A box that is not written a width has the width of the inside of the
-  column it is stretched across, in points and in columns, and gives what is in it its columns as one
-  that is written does (a band with padding that the page stretches, and in it a box written the
-  page's width less that padding). A canvas is drawn for the size it was written: where its box is the cells
-  that size rounds to, what is drawn in it is as much wider and taller as the box is, so that it
-  fills the box, none of it is cut off at the box's edge and none of the box is left bare. A host
-  that does not say (the default) is laid out as ever, pixel for pixel.
-
-- **A bar thinner than half a cell stands in the middle of its cell** when the row that holds it
-  centres its items, as a gauge stands beside its label; in a row that does not, and for a box put
-  against an edge of its parent, it stays at the top.
+- **`Drawing::Cells` and `Drawing::CoarseImages`**: what a host may say (`Program::draws`) about how its
+  page is drawn, in character cells and in pictures too coarse to read a small one by. `pencere.draws()`
+  has them as `cells` and `coarse_images`. The engine lays a page out in pixels whatever a host says.
 - **`Laid::spills` and `Spill`**: the boxes of a page laid out that stand past the inside of the
   box they are in (that box less its padding) by more than half a pixel: each with its box, that
   inside, how far it stands past it on each side, the names of the two and the first words in each.
   What a box that scrolls holds, what is laid over a box (`absolute`, an overlay), what is hidden or
   has no size and what stands in an editor's room are not looked at. None on a page whose sizes come
-  out as they were written: what a test of a page looks at for every size of its window, on the cells
-  of a terminal above all, where a size worked out from another in points is a column or a row out.
-
+  out as they were written: what a test of a page looks at for every size of its window.
 - **`Picture::shown`**: what of the whole image is inside the picture's clip, as shares of it like
   `crop`. A host that rasterises a large SVG or page draws that part and not all of it
   (`pencere-sandbox`'s `Images::picture`).
-- **A box on a grid is also where the page wrote it, to the pixel.** `Quad::exact` is that place for a
-  box laid over another that was written a size in pixels, and an image is drawn in the box the page
-  wrote for it, in the middle of the cells it came to; a page with no grid is as it was, and an icon
-  (a tinted image) stays on its cells (its written place is `Picture::exact`).
-- **An icon says where the page wrote it.** `Picture::exact` is the box the page wrote for an icon,
-  in the middle of its cells, for a host that draws more finely than the cells does; `rect` is
-  its cells, as before, and `None` where the page wrote it no place.
 
 ### Changed
 
-- **Breaking:** `Picture` has `cells`, the box the page's grid made of the element the image is in
-  (`rect` where the page has no grid), so that a host that draws more finely than the cells does not
-  draw outside them.
 - **Breaking:** `Picture` has `shown`, so a host that builds one with a struct literal names it
   (`crop` where it knows no better: `(0, 0, 1, 1)` is all of the image).
-- **Breaking:** `Picture` has `exact`, so a host that builds one with a struct literal names it
-  (`None` where it knows no better).
 - **Breaking: an element that is no editor holds no room for an editor's options**
   (`wire::Meta::editor` is `Option<Box<EditorOptions>>`; `Element::editor` takes the options as
   before). The options are 928 bytes and were held in every element, of 1728: an element is now
@@ -116,12 +60,6 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
 
 ### Fixed
 
-- **A line put against the right or the bottom of a box is at that edge of the box.** A thin box with
-  `absolute` and `inset(0, 0, 0, nil)` is a cell wide on a grid; its fill stood at the near edge of
-  that cell, so the right line of a tab was a cell inside the tab's ground. It is at the edge of
-  the cell it is against, the one the ground ends at.
-- **A line that names nothing is no box laid over what is under it.** On a grid it takes the whole
-  cell, and the pointer could not reach the tab beneath it.
 - **A long list is built for the window it has, not for the page's.** `Built` keeps how tall the
   window was that its rows were built for, and `stale` is true where the window is less than three
   quarters of that. A list is first built before its box is laid out, for a window as tall as the

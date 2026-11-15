@@ -190,7 +190,8 @@ pencere.serve {                                            -- either: the termin
 
 A terminal that draws views itself shows the page of the kit in its own font and theme; one that has
 a web view shows the web page; one that has neither gets the page of the kit drawn by the app itself,
-in the cells of the terminal it was started in (see "What it is, and is not"), and only where that cannot
+as pictures in the terminal it was started in, where that speaks the Kitty graphics protocol (see "What it
+is, and is not"), and only where that cannot
 be done (no terminal at all, no page of the kit, `tui = false`, an app of the other kind) is
 `fallback` run. A web page may reach the
 network only where `access` says (`connect`, `resources`, `frames`, `base` as lists of origins, and
@@ -375,9 +376,9 @@ of that form cannot live in a directory of that name.
   is signed ad hoc, in the process; a Linux one is static.
 - **Two kinds of app.** The command comes with the terminal in it or without it, and the app is a
   copy of the command that built it. With it (the default), an app started in a terminal that hosts
-  no views opens its `lua` page in that terminal's cells: its handlers and its program are the
-  app's, the same page, with the mouse and the keyboard, the colours of the terminal's theme, and
-  pictures where the terminal has the Kitty graphics protocol. The runner carries the interpreter
+  no views but speaks the Kitty graphics protocol opens its `lua` page there as pictures: its handlers
+  and its program are the app's, the same page, with the mouse and the keyboard and the colours of the
+  terminal's theme. The runner carries the interpreter
   the build compiled (no code generator) and the PDF reader. `serve { tui = false }` keeps an app
   from this, and `PENCERE_TUI=0` or `1` does the same or forces it for a person. Without it
   (`pencere build --no-terminal`) the file is smaller and links none of the kit: the app runs

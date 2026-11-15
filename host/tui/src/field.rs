@@ -1,19 +1,12 @@
-//! A text field of the host's, in cells: what the person has typed in it, and where it is drawn.
+//! A text field of the host's: what the person has typed in it, in the cells of the room it is drawn in.
 //!
 //! The page puts a field over the room of an element, fills it (a text, what is selected) and is told
 //! what is typed. Which keys the field keeps and which are the page's is the kit's to say
-//! ([`FieldState::takes`]); this keeps the text, the caret and the selection, edits them, and
-//! draws them over the cells of the room.
+//! ([`FieldState::takes`]); this keeps the text, the caret and the selection and edits them (the
+//! drawing is `chrome`'s).
 
-use std::collections::HashMap;
-
-use pencere_drive::Field;
-use pencere_view::{FieldKind, FieldState, Fill, Id, Key, Mods, Role};
+use pencere_view::{FieldKind, FieldState, Fill, Key, Mods};
 use unicode_width::UnicodeWidthChar;
-
-use crate::color::Rgb;
-use crate::grid::{Attrs, Grid};
-use crate::theme::Theme;
 
 /// The most a field remembers to undo.
 const HISTORY: usize = 100;
@@ -374,174 +367,6 @@ impl TextField {
         let caret = self.caret_cells();
         slice.caret = (caret - skip.min(caret)).min(room.saturating_sub(1));
         slice
-    }
-
-    /// Draws the field over the cells `cols` by `rows` from `at`: its text, or `hint` dimmed while
-    /// it is empty, the selection, and the cell the caret is in.
-    pub fn draw(
-        &self,
-        grid: &mut Grid,
-        at: (u16, u16),
-        size: (u16, u16),
-        look: Look,
-        hint: Option<&str>,
-    ) -> Option<(u16, u16)> {
-        let (cols, rows) = size;
-        if cols == 0 || rows == 0 {
-            return None;
-        }
-        // The middle row, where the page centres its own words in a room of two rows too (the lower).
-        let row = at.1 + rows / 2;
-        let secret = matches!(self.kind, FieldKind::Secret);
-        let shown = |c: char| if secret { '\u{2022}' } else { c };
-        let width_of = |c: char| UnicodeWidthChar::width(shown(c)).unwrap_or(0);
-        let line: &str = self.text.lines().next().unwrap_or("");
-        let (from, to) = (self.anchor.min(self.head), self.anchor.max(self.head));
-        let caret_x = self.caret_cells();
-        let skip = self.scrolled(cols);
-        let mut x = 0_usize;
-        if self.text.is_empty() {
-            if let Some(hint) = hint {
-                let mut col = at.0;
-                for c in hint.chars() {
-                    let w = UnicodeWidthChar::width(c).unwrap_or(0);
-                    if w == 0 || col + w as u16 > at.0 + cols {
-                        break;
-                    }
-                    put(grid, col, row, c, look.hint, Attrs::NONE, None);
-                    col += w as u16;
-                }
-            }
-        } else {
-            for (index, c) in line.char_indices() {
-                let w = width_of(c);
-                if w == 0 {
-                    continue;
-                }
-                if x >= skip && x - skip + w <= usize::from(cols) {
-                    let selected = index >= from && index < to;
-                    let ground = selected.then_some(look.selection);
-                    put(
-                        grid,
-                        at.0 + u16::try_from(x - skip).unwrap_or(0),
-                        row,
-                        shown(c),
-                        look.text,
-                        Attrs::NONE,
-                        ground,
-                    );
-                }
-                x += w;
-            }
-        }
-        let col = at.0 + u16::try_from(caret_x - skip.min(caret_x)).unwrap_or(0);
-        Some((col.min(at.0 + cols - 1), row))
-    }
-}
-
-/// The page's fields drawn over their rooms in `grid` (a column is `cell.0` points across and a row
-/// `cell.1` down): each its own text from `texts`, or, where nobody has touched it yet, its hint,
-/// dim. Where the caret of the one that has the keyboard (`focus`) is.
-pub fn draw_fields(
-    grid: &mut Grid,
-    fields: &[Field],
-    texts: &HashMap<Id, TextField>,
-    focus: Option<Id>,
-    cell: (f32, f32),
-    theme: &Theme,
-) -> Option<(u16, u16)> {
-    let look = Look {
-        text: theme.role(Role::Foreground),
-        hint: theme.role(Role::Dim),
-        selection: theme.role(Role::Selection),
-    };
-    let mut cursor = None;
-    for field in fields {
-        if field.covered {
-            continue;
-        }
-        let untouched;
-        let text = match texts.get(&field.id) {
-            Some(text) => text,
-            None => {
-                untouched = TextField::new(field.kind);
-                &untouched
-            }
-        };
-        let rect = field.rect;
-        let at = (
-            (rect.x / cell.0).round().max(0.0) as u16,
-            (rect.y / cell.1).round().max(0.0) as u16,
-        );
-        let size = (
-            (rect.w / cell.0).round().max(1.0) as u16,
-            (rect.h / cell.1).round().max(1.0) as u16,
-        );
-        let caret = text.draw(grid, at, size, look, field.hint.as_deref());
-        if focus == Some(field.id) {
-            cursor = caret;
-        }
-    }
-    cursor
-}
-
-/// The hints of the page's fields, over their rooms in `frame` (the fields nobody has typed in): for
-/// a look at a frame drawn without a terminal.
-pub fn show_hints(frame: &mut crate::Frame, fields: &[Field], cell: (f32, f32), theme: &Theme) {
-    show_texts(frame, fields, &HashMap::new(), cell, theme);
-}
-
-/// The page's fields, over their rooms in `frame`, each holding the text `texts` has for it (what a
-/// test or a picture of the page has typed in it) and, where it has none, its hint: for a look at a
-/// frame drawn without a terminal.
-pub fn show_texts(
-    frame: &mut crate::Frame,
-    fields: &[Field],
-    texts: &HashMap<Id, String>,
-    cell: (f32, f32),
-    theme: &Theme,
-) {
-    let mut typed = HashMap::new();
-    for field in fields {
-        if let Some(text) = texts.get(&field.id) {
-            let mut held = TextField::new(field.kind);
-            held.fill(&Fill {
-                text: Some(text.clone()),
-                select: None,
-            });
-            typed.insert(field.id, held);
-        }
-    }
-    draw_fields(&mut frame.grid, fields, &typed, None, cell, theme);
-}
-
-/// What a field is drawn in.
-#[derive(Clone, Copy, Debug)]
-pub struct Look {
-    pub text: Rgb,
-    pub hint: Rgb,
-    pub selection: Rgb,
-}
-
-/// A character into the cell at `col`, `row`, on the ground the cell has (or `ground`), with the tail
-/// cell of a wide one.
-fn put(grid: &mut Grid, col: u16, row: u16, c: char, fg: Rgb, attrs: Attrs, ground: Option<Rgb>) {
-    let wide = UnicodeWidthChar::width(c).unwrap_or(1) > 1;
-    if let Some(cell) = grid.cell_mut(col, row) {
-        cell.ch = c;
-        cell.fg = fg;
-        cell.attrs = attrs;
-        cell.tail = false;
-        if let Some(ground) = ground {
-            cell.bg = crate::grid::Bg::Rgb(ground);
-        }
-    }
-    if wide && let Some(cell) = grid.cell_mut(col + 1, row) {
-        cell.ch = ' ';
-        cell.tail = true;
-        if let Some(ground) = ground {
-            cell.bg = crate::grid::Bg::Rgb(ground);
-        }
     }
 }
 

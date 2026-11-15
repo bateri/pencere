@@ -189,33 +189,6 @@ impl Path {
         self
     }
 
-    /// The same path `x` times as wide and `y` times as tall, from the corner its points are
-    /// counted from; its line as many times as thick as the lesser of the two.
-    #[must_use]
-    pub(crate) fn stretched(mut self, x: f32, y: f32) -> Self {
-        let stretch = |at: Point| Point::new(at.x * x, at.y * y);
-        for segment in &mut self.segments {
-            *segment = match *segment {
-                Segment::Move(at) => Segment::Move(stretch(at)),
-                Segment::Line(at) => Segment::Line(stretch(at)),
-                Segment::Quad { control, to } => Segment::Quad {
-                    control: stretch(control),
-                    to: stretch(to),
-                },
-                Segment::Cubic { a, b, to } => Segment::Cubic {
-                    a: stretch(a),
-                    b: stretch(b),
-                    to: stretch(to),
-                },
-                Segment::Close => Segment::Close,
-            };
-        }
-        if let Some(stroke) = self.stroke.as_mut() {
-            stroke.width *= x.min(y);
-        }
-        self
-    }
-
     /// The same path with every colour `opacity` as faint.
     #[must_use]
     pub(crate) fn faded(&self, opacity: f32) -> Self {

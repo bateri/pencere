@@ -1701,7 +1701,7 @@ fn the_rust_example_ends_when_the_terminal_goes_away() {
 
 #[test]
 fn the_rust_example_prints_its_containers_where_no_view_can_be_shown() {
-    // Where nothing hosts the view the example draws it itself, in the cells; with that off it prints.
+    // Where nothing hosts the view the example draws it itself, as pictures; with that off it prints.
     let binary = rust_example().to_string_lossy().into_owned();
     let run = run(&["--no-host"], &["env", "PENCERE_TUI=0", &binary]);
     assert!(run.status.success(), "{}", run.text());
@@ -2144,8 +2144,8 @@ fn the_built_lua_app_opens_its_view_answers_calls_and_feeds_its_page_until_the_i
 #[test]
 fn the_built_lua_app_prints_its_text_where_no_terminal_hosts_pencere() {
     let app = lua_example().to_string_lossy().into_owned();
-    // `PENCERE_TUI=0`: where the page is not to be drawn in the terminal's cells (the person's
-    // choice here; the app's `tui = false`, or a runner with no terminal in it, are the others).
+    // `PENCERE_TUI=0`: where the page is not to be drawn in the terminal (the person's choice
+    // here; the app's `tui = false`, or a runner with no terminal in it, are the others).
     let run = run_with(&["--no-host"], &[&app], &[("PENCERE_TUI", "0")]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&["host: does not host pencere: no answer"]);

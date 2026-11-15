@@ -49,22 +49,13 @@ pub struct Mouse {
     pub mods: Mods,
 }
 
-/// Which colour of the terminal an answer is about.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Slot {
-    Foreground,
-    Background,
-    /// One of the 16 of the palette.
-    Ansi(u8),
-}
-
 /// What the terminal answered to a question.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reply {
     /// The device attributes (`CSI c`): the fence after the questions, which every terminal answers.
     Attributes(Vec<u16>),
-    /// A colour (OSC 10, 11, 4).
-    Color(Slot, Rgb),
+    /// The terminal's background (OSC 11).
+    Background(Rgb),
     /// The Kitty keyboard protocol's flags in force: only a terminal that has it answers.
     KeyboardFlags(u32),
     /// The Kitty graphics protocol answered a query, the one whose image number was `id` (`ok` when it
@@ -500,17 +491,7 @@ fn osc_reply(body: &[u8], used: usize) -> Found {
         return Found::Skip(used);
     };
     let reply = match command {
-        "10" => color(rest).map(|rgb| Reply::Color(Slot::Foreground, rgb)),
-        "11" => color(rest).map(|rgb| Reply::Color(Slot::Background, rgb)),
-        "4" => {
-            let mut parts = rest.splitn(2, ';');
-            let slot = parts.next().and_then(|n| n.parse::<u8>().ok());
-            let rgb = parts.next().and_then(color);
-            match (slot, rgb) {
-                (Some(slot), Some(rgb)) if slot < 16 => Some(Reply::Color(Slot::Ansi(slot), rgb)),
-                _ => None,
-            }
-        }
+        "11" => color(rest).map(Reply::Background),
         _ => None,
     };
     match reply {
@@ -694,7 +675,52 @@ fn legacy_key(body: &str, last: u8) -> Option<Event> {
     Some(key(named, mods))
 }
 
-/// `CSI code ; mods : event ; text u`, the Kitty keyboard protocol's key.
+/// The key a code of the private use area is (the Kitty keyboard protocol keeps it for the function
+/// keys, the keypad, the media and the modifier keys), or none: the keypad is the keys it repeats, the function
+/// keys that the page has (F13 to F20) are those, and the rest (the media keys, the modifiers, F21 and
+/// after) is not a key of a page.
+fn functional(code: u32) -> Option<Key> {
+    Some(match code {
+        57_376..=57_383 => Key::Function(u8::try_from(code - 57_376 + 13).ok()?),
+        57_399..=57_408 => Key::Character(char::from(b'0' + u8::try_from(code - 57_399).ok()?)),
+        57_409 => Key::Character('.'),
+        57_410 => Key::Character('/'),
+        57_411 => Key::Character('*'),
+        57_412 => Key::Character('-'),
+        57_413 => Key::Character('+'),
+        57_414 => Key::Enter,
+        57_415 => Key::Character('='),
+        57_416 => Key::Character(','),
+        57_417 => Key::Left,
+        57_418 => Key::Right,
+        57_419 => Key::Up,
+        57_420 => Key::Down,
+        57_421 => Key::PageUp,
+        57_422 => Key::PageDown,
+        57_423 => Key::Home,
+        57_424 => Key::End,
+        57_426 => Key::Delete,
+        _ => return None,
+    })
+}
+
+/// Whether `c` is a letter of a Latin script (or not a letter at all), the keys whose own character a
+/// shortcut is.
+fn is_latin(c: char) -> bool {
+    let c = u32::from(c);
+    c < 0x250 || (0x1E00..=0x1EFF).contains(&c)
+}
+
+/// `CSI code : shifted : base ; mods : event ; text u`, the Kitty keyboard protocol's key. The code
+/// is the key without its shift; `shifted` is what it makes with it, which a terminal says where it
+/// was asked for the alternate keys (flag 4), `base` the key of the same place on a PC-101 keyboard.
+///
+/// A sign (a key that is no letter) that Shift made is the sign it made, with the shift spent, as a
+/// shortcut is read on a Mac: ⌃⇧7 on a Turkish keyboard is Ctrl and `/`, ⌃⇧/ on a US one Ctrl and
+/// `?`. A letter keeps its shift: ⌃⇧C is a chord of its own. A shortcut on a keyboard whose letters
+/// are no Latin ones (Cyrillic, Greek) is the key of the same place on a PC-101 keyboard: ⌃C is still
+/// Ctrl and `c`. The keys of the keypad and the function keys past F20 that the protocol gives
+/// codes of their own are the keys they are or none, never a character of the private use area.
 fn kitty_key(body: &str) -> Option<Event> {
     if body.starts_with(['?', '>', '<', '=']) {
         // `CSI ? flags u` is the answer to the query for the flags.
@@ -707,9 +733,18 @@ fn kitty_key(body: &str) -> Option<Event> {
         return None;
     }
     let mut fields = body.split(';');
-    let code: u32 = fields.next()?.split(':').next()?.parse().ok()?;
+    let mut codes = fields.next()?.split(':');
+    let code: u32 = codes.next()?.parse().ok()?;
+    let shifted = codes
+        .next()
+        .and_then(|shifted| shifted.parse().ok())
+        .and_then(char::from_u32);
+    let base = codes
+        .next()
+        .and_then(|base| base.parse().ok())
+        .and_then(char::from_u32);
     let mut modifiers = fields.next().unwrap_or("").split(':');
-    let mods = mods_of(modifiers.next().and_then(|m| m.parse().ok()).unwrap_or(1));
+    let mut mods = mods_of(modifiers.next().and_then(|m| m.parse().ok()).unwrap_or(1));
     let kind: u32 = modifiers.next().and_then(|e| e.parse().ok()).unwrap_or(1);
     let text: String = fields
         .next()
@@ -725,13 +760,35 @@ fn kitty_key(body: &str) -> Option<Event> {
         13 => Key::Enter,
         27 => Key::Escape,
         127 => Key::Backspace,
-        57_399..=57_408 => Key::Character(char::from(b'0' + u8::try_from(code - 57_399).ok()?)),
-        c => Key::Character(char::from_u32(c)?),
+        57_344..=63_743 => functional(code)?,
+        c => {
+            let key = char::from_u32(c)?;
+            match base {
+                // Where the letters are no Latin ones, a shortcut is the key of the same place on a
+                // PC-101 keyboard.
+                Some(base)
+                    if mods.any_command() && !is_latin(key) && base.is_ascii_alphabetic() =>
+                {
+                    Key::Character(base.to_ascii_lowercase())
+                }
+                _ => Key::Character(key),
+            }
+        }
     };
-    // The key is the one the keycap says, so a shifted letter comes with its case from `text`.
-    let key_ = match (key_, text.chars().next()) {
-        (Key::Character(_), Some(shown)) if mods.shift => Key::Character(shown),
-        (key_, _) => key_,
+    // Where a terminal says the text a key typed, a shifted letter comes with its case from it.
+    let key_ = match (key_, text.chars().next(), shifted) {
+        (Key::Character(_), Some(shown), _) if mods.shift => Key::Character(shown),
+        (Key::Character(sign), None, Some(made))
+            if mods.shift
+                && !sign.is_alphabetic()
+                && made != sign
+                && !made.is_whitespace()
+                && !made.is_control() =>
+        {
+            mods.shift = false;
+            Key::Character(made)
+        }
+        (key_, _, _) => key_,
     };
     let down = kind != 3;
     let types = !text.is_empty() && !mods.control && !mods.alt && !mods.command;
@@ -990,9 +1047,7 @@ mod tests {
         assert_eq!(
             events,
             [
-                Event::Reply(Reply::Color(Slot::Background, Rgb::new(0x1e, 0x1e, 0x2e))),
-                Event::Reply(Reply::Color(Slot::Foreground, Rgb::new(255, 255, 255))),
-                Event::Reply(Reply::Color(Slot::Ansi(1), Rgb::new(0xcc, 0, 0))),
+                Event::Reply(Reply::Background(Rgb::new(0x1e, 0x1e, 0x2e))),
                 Event::Reply(Reply::Attributes(vec![62, 4])),
                 Event::Reply(Reply::KeyboardFlags(0)),
                 Event::Focus(true),
@@ -1051,6 +1106,46 @@ mod tests {
     }
 
     #[test]
+    fn the_keypad_and_the_far_function_keys_are_the_keys_they_are_and_never_a_private_use_character()
+     {
+        assert_eq!(only_key(b"\x1b[57414u").key, Key::Enter);
+        assert_eq!(only_key(b"\x1b[57404u").key, Key::Character('5'));
+        assert_eq!(only_key(b"\x1b[57409u").key, Key::Character('.'));
+        assert_eq!(only_key(b"\x1b[57419u").key, Key::Up);
+        assert_eq!(only_key(b"\x1b[57422u").key, Key::PageDown);
+        assert_eq!(only_key(b"\x1b[57376u").key, Key::Function(13));
+        assert_eq!(only_key(b"\x1b[57383u").key, Key::Function(20));
+        // F21 and after, the media keys and the modifiers are no keys of a page: nothing is typed.
+        for code in ["57384", "57398", "57428", "57441", "57425"] {
+            let bytes = format!("\x1b[{code}u");
+            assert!(decode_all(bytes.as_bytes()).is_empty(), "{code}");
+        }
+    }
+
+    #[test]
+    fn a_shortcut_on_a_keyboard_with_no_latin_letters_is_the_key_of_the_same_place_on_a_pc_keyboard()
+     {
+        // ⌃C on a Russian keyboard: the key is `с` (1089), the key of that place on a PC-101 one is `c`.
+        let interrupt = only_key(b"\x1b[1089::99;5u");
+        assert_eq!(interrupt.key, Key::Character('c'));
+        assert!(interrupt.mods.control && !interrupt.mods.shift);
+        // ⌃⇧C is the chord of the copy of a ⌘ key, as on a Latin keyboard.
+        let copy = only_key(b"\x1b[1089:1057:99;6u");
+        assert_eq!(copy.key, Key::Character('c'));
+        assert!(copy.mods.control && copy.mods.shift);
+        // A Turkish letter is a Latin one: its own character is the key.
+        assert_eq!(
+            only_key("\x1b[305::105;5u".as_bytes()).key,
+            Key::Character('\u{131}')
+        );
+        // And a key with no modifier is the character it is.
+        assert_eq!(
+            only_key("\x1b[1089::99;1u".as_bytes()).key,
+            Key::Character('с')
+        );
+    }
+
+    #[test]
     fn the_kitty_keyboard_protocol_says_the_key_and_whether_it_went_up() {
         let down = only_key(b"\x1b[107;6u");
         assert!(down.mods.control && down.mods.shift && down.key == Key::Character('k'));
@@ -1083,6 +1178,63 @@ mod tests {
         let without = only_key(b"\x1f");
         assert_eq!(without.key, Key::Character('_'));
         assert!(without.mods.control && !without.mods.shift);
+    }
+
+    /// What a key with the alternate keys on (`CSI > 5 u`) is to the page: the character it makes,
+    /// the shift that made it spent, as macOS reads a key for a shortcut.
+    #[test]
+    fn a_shifted_sign_is_the_character_it_makes_and_its_shift_is_spent() {
+        let control = Mods {
+            control: true,
+            ..Mods::default()
+        };
+        let both = Mods {
+            shift: true,
+            ..control
+        };
+        // A Turkish Q keyboard: `/` is Shift and 7, so ⌃⇧7 is Ctrl and the slash.
+        let turkish = only_key(b"\x1b[55:47;6u");
+        assert_eq!((turkish.key, turkish.mods), (Key::Character('/'), control));
+        // A US keyboard: ⌃/ is as it was, ⌃⇧/ is Ctrl and the question mark, ⌃⇧, is Ctrl and `<`.
+        let slash = only_key(b"\x1b[47;5u");
+        assert_eq!((slash.key, slash.mods), (Key::Character('/'), control));
+        let question = only_key(b"\x1b[47:63;6u");
+        assert_eq!(
+            (question.key, question.mods),
+            (Key::Character('?'), control)
+        );
+        let less = only_key(b"\x1b[44:60:44;6u");
+        assert_eq!((less.key, less.mods), (Key::Character('<'), control));
+        // Alt as well, and a key that goes up the same.
+        let alt = only_key(b"\x1b[55:47;4u");
+        assert_eq!(
+            (alt.key, alt.mods),
+            (
+                Key::Character('/'),
+                Mods {
+                    alt: true,
+                    ..Mods::default()
+                }
+            )
+        );
+        assert!(!only_key(b"\x1b[55:47;6:3u").down);
+        // A letter keeps its shift (⌃⇧C is a chord of its own, which a letter has in either case),
+        // the Turkish dotted and dotless i as well, whose capitals are not a lower case's.
+        for (bytes, letter) in [
+            (&b"\x1b[99:67;6u"[..], 'c'),
+            (&b"\x1b[105:304;6u"[..], 'i'),
+            (&b"\x1b[305:73;6u"[..], '\u{131}'),
+        ] {
+            let key = only_key(bytes);
+            assert_eq!((key.key, key.mods), (Key::Character(letter), both));
+        }
+        // A key with no alternate (a terminal that has not been asked for them, or a key that has
+        // none) is as it was: the key and its shift.
+        let plain = only_key(b"\x1b[55;6u");
+        assert_eq!((plain.key, plain.mods), (Key::Character('7'), both));
+        let tab = only_key(b"\x1b[9;2u");
+        assert_eq!(tab.key, Key::Tab);
+        assert!(tab.mods.shift);
     }
 
     #[test]

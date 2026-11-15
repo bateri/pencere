@@ -67,7 +67,6 @@ impl Paper<'_> {
             border: None,
             shadow: None,
             clip,
-            exact: None,
         })
     }
 

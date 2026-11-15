@@ -1,6 +1,6 @@
 [package]
 name = "pencere-tui"
-description = "The cells of a terminal as a host of pencere's native views: a page drawn with characters, for a program whose terminal does not host them"
+description = "A terminal that draws pictures as a host of pencere's native views: a page drawn into pixels and sent to the terminal as a picture, for a program whose terminal does not host them"
 version = "0.4.1"
 edition.workspace = true
 rust-version.workspace = true
@@ -17,7 +17,8 @@ pencere-view = { path = "../../kit/view", version = "0.4.1" }
 # The sandbox's pictures: the pixels of an image and of a canvas, the one door to the decoders and
 # the rasteriser of every host.
 pencere-sandbox = { path = "../../kit/sandbox", version = "0.4.1", default-features = false }
-# How many cells of a terminal a character takes (a letter one, a Chinese character or an emoji two).
+# How many cells of a terminal a character takes (a letter one, a Chinese character or an emoji two): the
+# room of a text field and the lines of a menu are counted in the cells of the window.
 unicode-width = "0.2"
 # The page the screen runs and draws: its frames, its input, and what it says to its host
 # (`Host`). The page's side of the program's view; the host of a terminal that hosts views links it
@@ -31,8 +32,8 @@ pencere-drive = { path = "../../kit/drive", version = "0.4.1", default-features 
 pencere = { path = "../../program", version = "0.4.1" }
 
 # The deflate that packs the pixels of a picture for a terminal that takes them so (Kitty's `o=z`); the
-# decoder PDF and PNG reading already link carries the same crate.
-miniz_oxide = "0.9"
+# drive packs its embedded faces with the same version.
+miniz_oxide = "0.8"
 
 [features]
 default = ["compiler", "pdf"]

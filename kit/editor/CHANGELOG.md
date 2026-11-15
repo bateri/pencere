@@ -20,12 +20,6 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
 
 ### Changed
 
-- On a host that draws in cells (`Measure::grid` of the engine) a row of the editor is a row of the
-  grid, with no room above and below the text that `line_height` asks, and the room kept around the
-  text and the columns of the gutter are whole cells.
-  A gap the page keeps open is whole rows (the nearest, and a row at least), and the text after it is
-  not drawn higher by what the last row is short of the gap's height.
-
 - The editor's measure passes the page of an image on (`Measure::image(src, page)` of the engine).
 
 ## [0.4.1] - 2026-11-05

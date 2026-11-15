@@ -334,7 +334,6 @@ fn shifted(item: &Paint, dy: f32) -> Paint {
             let mut quad = quad.clone();
             quad.rect = down(quad.rect);
             quad.clip = down(quad.clip);
-            quad.exact = quad.exact.map(down);
             Paint::Quad(quad)
         }
         Paint::Text(run) => {
@@ -346,9 +345,7 @@ fn shifted(item: &Paint, dy: f32) -> Paint {
         Paint::Image(picture) => {
             let mut picture = picture.clone();
             picture.rect = down(picture.rect);
-            picture.cells = down(picture.cells);
             picture.clip = down(picture.clip);
-            picture.exact = picture.exact.map(down);
             Paint::Image(picture)
         }
         Paint::Figure(figure) => {

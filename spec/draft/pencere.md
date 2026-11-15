@@ -2250,12 +2250,12 @@ terminal.
 - **The host refused or ended the open.** `closed` before the view ran gets the same
   treatment.
 
-_Non-normative._ The "own text interface" of the second case may be the program's own view drawn in
-the cells of the terminal it was started in. That is not a view in the sense of this specification:
+_Non-normative._ The "own text interface" of the second case may be the program's own view drawn as
+pictures in the terminal it was started in. That is not a view in the sense of this specification:
 no frame is sent and no host takes part. The libraries of this repository's implementation do it
 for the `lua` view a program carries (the page a host that draws `lua` views would draw), with the
-program's handlers in the same process, and the program's own text interface (its `fallback`) runs
-only where that cannot be done.
+program's handlers in the same process, in a terminal that speaks the Kitty graphics protocol; the
+program's own text interface (its `fallback`) runs only where that cannot be done.
 
 **A program in a pipeline.** A filter, a program whose stdin and stdout carry a
 pipeline's data (`… | tool --select | mail`), speaks this protocol on its controlling

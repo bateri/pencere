@@ -950,7 +950,7 @@ fn a_command_the_page_binds_to_a_command_key_is_done_by_control_shift_and_the_pa
 
 #[test]
 #[ignore = "heavy: starts a page, which compiles the interpreter"]
-fn control_and_the_slash_of_the_kitty_keyboard_reaches_the_page_as_it_is_and_with_shift_as_the_command_key()
+fn control_and_the_slash_of_the_kitty_keyboard_reaches_the_page_as_it_is_and_the_shift_that_made_it_is_spent()
  {
     let mut terminal = Terminal::start_with(
         &["--script", &page("slash.lua")],
@@ -967,12 +967,24 @@ fn control_and_the_slash_of_the_kitty_keyboard_reaches_the_page_as_it_is_and_wit
     terminal.type_bytes(ENTER);
     terminal.until_written(&pasteboard("Y3RybC1zbGFzaA=="), 1);
     terminal.quiet();
-    // With Shift the page, which binds neither, is told the ⌘ key of the chord, as for any character.
+    // ⌃⇧7 of a Turkish keyboard, where the slash is Shift and 7: the terminal says the key makes
+    // it, and the page is told Ctrl and the slash, the shift spent.
+    terminal.type_bytes(b"\x1b[55:47;6u");
+    terminal.quiet();
+    terminal.type_bytes(DOWN);
+    terminal.type_bytes(ENTER);
+    terminal.until_written(&pasteboard("Y3RybC1zbGFzaA=="), 2);
+    terminal.quiet();
+    // ⌃⇧/ of a US keyboard is Ctrl and the question mark: not the slash, so the page hears nothing.
+    // A terminal that says no alternate key has the slash with Ctrl and Shift as the page's own, not
+    // ⌘ (a sign is no chord).
+    terminal.type_bytes(b"\x1b[47:63;6u");
+    terminal.quiet();
     terminal.type_bytes(b"\x1b[47;6u");
     terminal.quiet();
     terminal.type_bytes(DOWN);
     terminal.type_bytes(ENTER);
-    terminal.until_written(&pasteboard("Y21kLXNsYXNo"), 1);
+    terminal.until_written(&pasteboard("Y3RybC1zaGlmdC1zbGFzaA=="), 1);
     terminal.type_bytes(b"\x1b[99;5u");
     assert_eq!(terminal.ended().code(), Some(130));
 }
@@ -989,7 +1001,8 @@ fn a_menu_the_page_wrote_for_a_mac_shows_the_keys_a_terminal_sends_and_none_it_d
     );
     terminal.until_picture();
     let resting = terminal.pixels(100, 30);
-    // Written for a Mac: ⌘X, ⌘C, ⌘/ (and ⌘K, which the page's own ⌃⇧K took, and ⌘ with an arrow).
+    // Written for a Mac: ⌘X, ⌘C (and ⌘/ and ⌘ with an arrow, which have no chord, and ⌘K, which the
+    // page's own ⌃⇧K took).
     terminal.type_bytes(F1);
     terminal.quiet();
     let for_a_mac = terminal.pixels(100, 30);
@@ -1064,7 +1077,7 @@ fn a_terminal_that_has_the_kitty_protocols_gets_them_and_gives_them_back() {
     let pushed = terminal
         .raw
         .windows(5)
-        .position(|window| window == b"\x1b[>1u")
+        .position(|window| window == b"\x1b[>5u")
         .expect("the keyboard protocol is switched on");
     // ⌃C is a key where the keyboard is the Kitty protocol's (no byte for the tty to turn into a
     // signal), and it ends the program all the same.

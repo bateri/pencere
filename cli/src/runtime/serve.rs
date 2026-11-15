@@ -498,8 +498,9 @@ pub(super) fn prepare(
 
 /// The library's `serve`, with the terminal's own screen behind it when this runner has one
 /// (`terminal`) and `drawn_here` asks for it: a terminal that hosts the view is still the one that
-/// shows it, and what no terminal hosts is drawn in the cells of the one the app was started in. Where
-/// that cannot be done (no terminal, no `lua` view, a screen that fails) the outcome is the library's
+/// shows it, and what no terminal hosts is drawn as pictures in the one the app was started in, where
+/// that speaks Kitty graphics. Where that cannot be done (no such terminal, no `lua` view, a screen
+/// that fails) the outcome is the library's
 /// `NoView` as it always was, and the Lua `fallback` runs on it.
 #[cfg(feature = "terminal")]
 fn serve_view(serving: Options, drawn_here: bool) -> Result<Outcome, pencere::Error> {

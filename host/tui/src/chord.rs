@@ -1,21 +1,23 @@
 //! The keys of a Mac's ⌘ in a terminal that tells ⌃⇧ and a letter from ⌃ and the letter (the Kitty
 //! keyboard protocol).
 //!
-//! A page writes the keys of its editors and menus for a Mac: ⌘C, ⌘X, ⌘/. A terminal has no ⌘ key: the
+//! A page writes the keys of its editors and menus for a Mac: ⌘C, ⌘X, ⌘K. A terminal has no ⌘ key: the
 //! one it has for the system's copy is ⌃⇧C, which its own window takes in the cases where the program
-//! has not asked for the keys. So a ⌘ key with a character is ⌃⇧ and the character here, the way a
+//! has not asked for the keys. So a ⌘ key with a letter is ⌃⇧ and the letter here, the way a
 //! terminal's own programs write it: it is shown so (a menu says `Ctrl+Shift+C`, not `Super+C`, the
-//! key no keyboard sends) and it is taken so (the key is the page's as ⌘ and the character).
+//! key no keyboard sends) and it is taken so (the key is the page's as ⌘ and the letter).
 //!
-//! A page that binds ⌃⇧ and a character to a command of its own keeps it: its own binding is what
+//! A page that binds ⌃⇧ and a letter to a command of its own keeps it: its own binding is what
 //! the key does, and the line of a menu that would have been the same key is not shown with it,
 //! for pressing it does the page's other thing. A ⌘ shortcut that has no chord is not shown either
 //! (a menu never says `Super+Left`: no keyboard sends it to a terminal). A ⌘ key a terminal does
 //! report as one (the Kitty protocol has a bit for it) is the page's as it was.
 //!
 //! Not the keys that have a ⌃ key of their own in the editors (⌃A, ⌃Z and ⌃Y: select all, undo and
-//! redo, which a terminal that cannot send ⇧ with ⌃ sends for the chord as well), and not a key that
-//! is no character (a ⌘ with an arrow is the line's end, and ⌃⇧ with an arrow selects by words).
+//! redo, which a terminal that cannot send ⇧ with ⌃ sends for the chord as well), not a key that is no
+//! letter (a ⌘ with an arrow is the line's end, and ⌃⇧ with an arrow selects by words), and not a
+//! sign: the terminal says the sign ⌃⇧ makes (the decoder, `input`), and ⌃⇧/ is Ctrl and `?` where the
+//! slash is a key of its own and Ctrl and `/` where it is Shift and 7.
 
 use pencere_view::{Key, Menu, MenuEntry, Mods, Shortcut};
 
@@ -38,9 +40,11 @@ const COMMAND: Mods = Mods {
 /// The characters whose ⌃ key (no ⇧) the editors have for themselves.
 const OWN: [char; 3] = ['a', 'z', 'y'];
 
-/// Whether the ⌘ key of `key` has a chord: a character that is not one of [`OWN`].
+/// Whether the ⌘ key of `key` has a chord: a letter that is not one of [`OWN`]. Not a sign: a terminal
+/// that has the alternate keys says the sign ⌃⇧ makes (⌃⇧/ is Ctrl and `?` on one keyboard, ⌃⇧7 is Ctrl
+/// and `/` on another), and that is the key, with no ⌘ in it.
 fn has_chord(key: Key) -> bool {
-    matches!(key, Key::Character(c) if !OWN.contains(&c.to_ascii_lowercase()))
+    matches!(key, Key::Character(c) if c.is_alphabetic() && !OWN.contains(&c.to_ascii_lowercase()))
 }
 
 /// What the key `key` pressed with `mods` is to the page: ⌘ and the character where it is ⌃⇧ and a
@@ -93,9 +97,24 @@ mod tests {
 
     #[test]
     fn control_shift_and_a_character_is_command_and_the_character() {
-        for c in ['c', 'x', '/', 'k', 'd', '[', 'C'] {
+        for c in ['c', 'x', 'k', 'd', 'C', '\u{131}'] {
             let (key, mods) = chord(c);
             assert_eq!(pressed(key, mods, nothing), COMMAND, "{c}");
+        }
+    }
+
+    #[test]
+    fn a_sign_is_no_chord_of_a_command_key() {
+        // The terminal with the alternate keys says the sign ⌃⇧ makes (⌃⇧/ is Ctrl and `?` on a US
+        // keyboard, ⌃⇧7 is Ctrl and `/` on a Turkish one), and a sign that comes with ⌃ and ⇧ is the one
+        // a terminal that does not say it sends: neither is a ⌘ key.
+        for c in ['/', '[', ',', '7', '=', '?'] {
+            let (key, mods) = chord(c);
+            assert_eq!(pressed(key, mods, nothing), mods, "{c}");
+        }
+        for words in ["cmd+/", "cmd+,", "cmd+7", "cmd+["] {
+            let shortcut = Shortcut::parse(words).expect("keys");
+            assert_eq!(shown(shortcut, nothing), None, "{words}");
         }
     }
 
@@ -212,8 +231,9 @@ mod tests {
                 "Ctrl+Shift+X",
                 "Ctrl+Shift+C",
                 "Ctrl+A",
-                "Ctrl+Shift+/",
-                // ⌘Z has ⌃Z of its own, ⌘⇧F and ⌘← have no chord: no key a keyboard sends.
+                // ⌘/ has no chord (⌃⇧/ is Ctrl and `?`), ⌘Z has ⌃Z of its own, ⌘⇧F and ⌘← have none
+                // either: no key a keyboard sends.
+                "",
                 "",
                 "",
                 // ⌃⇧K is the page's own: the line has no key to show.

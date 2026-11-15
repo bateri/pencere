@@ -445,14 +445,12 @@ page is told `{ type = "terminal_look" }` (Section 2.3) when it changes. **The h
 page's editors**: the page decides what they take, and an editor is as its options say, whatever the
 host's terminal looks like. `pencere.draws()` says what the host draws that not every host does, as a
 table of names that are true: `shadow` where it draws a box's soft shadow (a caret's `glow` is one);
-`cells` where the page is drawn in the character cells of a terminal (boxes stand on cells, a line of
-text is a row, a line thinner than a cell is a line along the edge of one, so what is small is best a
-character and a size a cell would round to nothing is kept off; a box written a size gives what is in
-it its rows and its columns, so that what is written as wide as the inside of a box is as wide as it,
-and a canvas is drawn to fill the cells its box comes to); `coarse_images` where a picture is drawn
+`cells` where the page is drawn in the character cells of a terminal (what is small is best a
+character, and a size a cell would round to nothing is kept off); `coarse_images` where a picture is drawn
 in too few pixels to read a small one by (a terminal with no graphics protocol, which draws it in half
 blocks), so that an icon is best said in characters; `{}` where it draws only what every host does; the
-same every time it is asked. The library (`@pencere/ui`) follows `cells` itself (its glyphs are
+same every time it is asked. (The terminal host of this repository draws pictures, with `shadow`, and
+says neither `cells` nor `coarse_images`; they are for a host that draws in characters.) The library (`@pencere/ui`) follows `cells` itself (its glyphs are
 characters, a table's head and a palette's rows are rows, a status bar guesses a word a column wide);
 `coarse_images` is the page's to read, for the pictures it has of its own (an icon of its bundle). A page that
 wants its editors to look as the person's terminal does gives them all of it where it says nothing,
@@ -1700,8 +1698,8 @@ A host:
   `shadow` where it draws a box's soft shadow (`Quad::shadow`); `cells` where the page is drawn in the
   character cells of a terminal; `coarse_images` where a picture is drawn in too few pixels to read a
   small one by; only what it draws. A host MAY leave the soft shadow out; a caret's `glow` is then not
-  seen, and the page can tell (`pencere.draws()`). A host that does not say `cells` is drawn as it was
-  (the page lays itself out as it always did);
+  seen, and the page can tell (`pencere.draws()`). The engine lays a page out in pixels whatever a host
+  says;
 - tells the drive the pointer's shape when only the modifiers changed what is under it (a link
   that ⌘ made: `Drained::cursor`, the shape the host takes where the pointer is over the page);
 - times the pointer's rest over a word of an editor that hears of it on its own clock, as it does the

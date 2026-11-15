@@ -179,7 +179,7 @@ pub(crate) fn scale_for(fonts: &Fonts, cell_width: u32) -> f32 {
 
 /// The palette the page is drawn in, for a terminal whose ground is as `found` says.
 pub(crate) fn palette_of(found: &Found) -> Palette {
-    if found.theme.is_dark() {
+    if found.dark {
         Palette::Dark
     } else {
         Palette::Light

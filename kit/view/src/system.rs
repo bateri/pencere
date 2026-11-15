@@ -119,14 +119,12 @@ impl TerminalLook {
 pub enum Drawing {
     /// A box's soft shadow (`Quad::shadow`), which a caret's glow is.
     Shadow,
-    /// The page is drawn in the character cells of a terminal: boxes stand on cells, a line of text
-    /// is a row, and a line thinner than a cell is a line along the edge of one. A page draws what
-    /// is small (a mark, an arrow) as a character, which is drawn exactly, and keeps off sizes a
-    /// cell would round to nothing.
+    /// The page is drawn in the character cells of a terminal. No host says it: the engine lays a page
+    /// out in pixels only. The value stays because the interpreter's interface (`pencere.draws()`)
+    /// has it and the library reads it.
     Cells,
-    /// The host draws a picture of the page (`Picture`, and a canvas) in too few pixels to read a
-    /// small one by (the terminal has no graphics protocol, and a picture is half blocks): a page
-    /// says what a picture of an icon says in characters instead.
+    /// A picture of the page is drawn in too few pixels to read a small one by (half blocks). No host
+    /// says it; the value stays for the same reason as [`Drawing::Cells`].
     CoarseImages,
 }
 

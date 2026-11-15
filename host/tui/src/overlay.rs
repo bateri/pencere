@@ -2,9 +2,9 @@
 //! menu the page asked for, the line of a panel (the path of a file to give the page, or of a place
 //! to save to) and the address of a link.
 //!
-//! They are drawn into the cells of the frame, after the page, so that they are one more thing the
-//! diff of the screen writes; while one is up the keys and the pointer are its own. None of it is
-//! the page's to draw, and the page is told only what the person chose.
+//! They are laid out on the cells of the window and drawn over the page as pictures; while one is up
+//! the keys and the pointer are its own. None of it is the page's to draw, and the page is told only
+//! what the person chose.
 
 use std::collections::HashMap;
 use std::hash::{BuildHasher, Hasher};
@@ -19,9 +19,7 @@ use pencere_view::{
 use unicode_width::UnicodeWidthChar;
 
 use crate::chrome::Paper;
-use crate::field::{Look, TextField};
-use crate::grid::{Attrs, Bg, Grid};
-use crate::theme::Theme;
+use crate::field::TextField;
 
 /// The most bytes of a file the page is given to draw by its handle.
 const LONGEST_FILE: u64 = 64 * 1024 * 1024;
@@ -82,61 +80,6 @@ fn width_of(text: &str) -> usize {
         .sum()
 }
 
-// --- Writing into the grid -----------------------------------------------------------------
-
-/// What a run of characters is drawn in.
-#[derive(Clone, Copy)]
-struct Ink {
-    fg: crate::color::Rgb,
-    bg: crate::color::Rgb,
-    attrs: Attrs,
-}
-
-/// `text` from `col` on row `row`, no further than `until` (a column), in `ink`; the column after it.
-fn write(grid: &mut Grid, col: u16, row: u16, until: u16, text: &str, ink: Ink) -> u16 {
-    let mut at = col;
-    for c in text.chars() {
-        let w = UnicodeWidthChar::width(c).unwrap_or(0) as u16;
-        if w == 0 {
-            continue;
-        }
-        if at + w > until {
-            break;
-        }
-        if let Some(cell) = grid.cell_mut(at, row) {
-            cell.ch = c;
-            cell.fg = ink.fg;
-            cell.bg = Bg::Rgb(ink.bg);
-            cell.attrs = ink.attrs;
-            cell.tail = false;
-        }
-        if w == 2
-            && let Some(cell) = grid.cell_mut(at + 1, row)
-        {
-            cell.ch = ' ';
-            cell.fg = ink.fg;
-            cell.bg = Bg::Rgb(ink.bg);
-            cell.attrs = ink.attrs;
-            cell.tail = true;
-        }
-        at += w;
-    }
-    at
-}
-
-/// `count` of `c` from `col`.
-fn fill(grid: &mut Grid, col: u16, row: u16, count: u16, c: char, ink: Ink) {
-    for at in col..col.saturating_add(count) {
-        if let Some(cell) = grid.cell_mut(at, row) {
-            cell.ch = c;
-            cell.fg = ink.fg;
-            cell.bg = Bg::Rgb(ink.bg);
-            cell.attrs = ink.attrs;
-            cell.tail = false;
-        }
-    }
-}
-
 /// The rectangle of cells `col`, `row`, `cols`, `rows`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Area {
@@ -152,22 +95,6 @@ impl Area {
             && col < self.col.saturating_add(self.cols)
             && row >= self.row
             && row < self.row.saturating_add(self.rows)
-    }
-
-    /// Takes off `placements` the pictures that would be drawn over this: those of the layers that
-    /// are over the grounds of the cells (under the text, or over it), which a host's menu or bar over
-    /// the page would be under; a picture under the grounds is covered by the cells as they are.
-    pub(crate) fn hides(&self, placements: &mut Vec<crate::Placement>) {
-        placements
-            .retain(|p| p.z <= crate::output::GROUND || !self.meets(p.col, p.row, p.cols, p.rows));
-    }
-
-    /// Whether the cells `col`..`col + cols` and `row`..`row + rows` share any with this.
-    pub fn meets(&self, col: u16, row: u16, cols: u16, rows: u16) -> bool {
-        col < self.col.saturating_add(self.cols)
-            && self.col < col.saturating_add(cols)
-            && row < self.row.saturating_add(self.rows)
-            && self.row < row.saturating_add(rows)
     }
 }
 
@@ -305,6 +232,7 @@ impl MenuBox {
         self.serial
     }
 
+    #[cfg(test)]
     pub fn area(&self) -> Area {
         self.area
     }
@@ -450,7 +378,6 @@ impl MenuBox {
                 color: Color::from(Role::Shadow).faded(0.5),
             }),
             clip: paper.window,
-            exact: None,
         })];
         let font = paper.face(false);
         let inner = paper.cells(col + 1, row + 1, cols - 2, rows - 2);
@@ -491,92 +418,11 @@ impl MenuBox {
         }
         items
     }
-
-    pub fn draw(&self, grid: &mut Grid, theme: &Theme) {
-        let Area {
-            col,
-            row,
-            cols,
-            rows,
-        } = self.area;
-        if cols < 3 || rows < 2 {
-            return;
-        }
-        // The ground of the page, so that the card is its frame and what is inside: a raised ground
-        // would show as a band outside the line too, which stands in the middle of the cells of the
-        // frame, and read as a second frame.
-        let ground = theme.role(Role::Background);
-        let line = theme.role(Role::Border).mix(theme.foreground, 0.35);
-        let text = theme.role(Role::Foreground);
-        let dim = theme.role(Role::Dim);
-        let chosen = theme.role(Role::Selection);
-        let edge = Ink {
-            fg: line,
-            bg: ground,
-            attrs: Attrs::NONE,
-        };
-        // The frame.
-        fill(grid, col, row, cols, '─', edge);
-        fill(grid, col, row + rows - 1, cols, '─', edge);
-        write(grid, col, row, col + 1, "╭", edge);
-        write(grid, col + cols - 1, row, col + cols, "╮", edge);
-        write(grid, col, row + rows - 1, col + 1, "╰", edge);
-        write(grid, col + cols - 1, row + rows - 1, col + cols, "╯", edge);
-        for (index, entry) in self.lines.iter().enumerate() {
-            let at = row + 1 + u16::try_from(index).unwrap_or(0);
-            if at + 1 >= row + rows {
-                break;
-            }
-            write(grid, col, at, col + 1, "│", edge);
-            write(grid, col + cols - 1, at, col + cols, "│", edge);
-            match entry {
-                Line::Separator => {
-                    fill(grid, col + 1, at, cols - 2, '─', edge);
-                    write(grid, col, at, col + 1, "├", edge);
-                    write(grid, col + cols - 1, at, col + cols, "┤", edge);
-                }
-                Line::Item {
-                    title,
-                    keys,
-                    enabled,
-                } => {
-                    let ground = if self.selected == Some(index) {
-                        chosen
-                    } else {
-                        ground
-                    };
-                    let ink = Ink {
-                        fg: if *enabled { text } else { dim },
-                        bg: ground,
-                        attrs: Attrs::NONE,
-                    };
-                    fill(grid, col + 1, at, cols - 2, ' ', ink);
-                    let inner = col + cols - 1;
-                    write(grid, col + 2, at, inner.saturating_sub(1), title, ink);
-                    if !keys.is_empty() {
-                        let start = inner.saturating_sub(1 + width_of(keys) as u16);
-                        let dimmer = Ink { fg: dim, ..ink };
-                        write(grid, start.max(col + 2), at, inner, keys, dimmer);
-                    }
-                }
-            }
-        }
-    }
 }
 
 // --- The line of the bottom row ------------------------------------------------------------
 
-/// The ink of the bar at the foot of the screen, over the page.
-fn bar(theme: &Theme) -> Ink {
-    Ink {
-        fg: theme.role(Role::Foreground),
-        bg: theme.role(Role::Raised(3)),
-        attrs: Attrs::NONE,
-    }
-}
-
-/// The address of a link, shown on the bottom row as a link the terminal can open (OSC 8), until a
-/// key or a press turns it away.
+/// The address of a link, shown on the bottom row until a key or a press turns it away.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LinkBar {
     url: String,
@@ -634,52 +480,6 @@ impl LinkBar {
             cols: screen.0,
             rows: 1,
         }
-    }
-
-    /// Draws the bar; where the link is (the row and its columns), for the screen to write as one.
-    pub fn draw(&self, grid: &mut Grid, theme: &Theme) -> Option<crate::paint::Link> {
-        let (cols, rows) = (grid.cols(), grid.rows());
-        if cols < 8 || rows == 0 {
-            return None;
-        }
-        let row = rows - 1;
-        let ink = bar(theme);
-        fill(grid, 0, row, cols, ' ', ink);
-        let note = " Esc closes ";
-        let note_width = width_of(note) as u16;
-        let accent = Ink {
-            fg: theme.role(Role::Accent),
-            attrs: Attrs::UNDERLINE,
-            ..ink
-        };
-        let label = " Link ";
-        let after = write(
-            grid,
-            0,
-            row,
-            cols,
-            label,
-            Ink {
-                attrs: Attrs::BOLD,
-                ..ink
-            },
-        );
-        let room = cols.saturating_sub(after + note_width + 1);
-        let shown = shorten(&self.url, usize::from(room));
-        let end = write(grid, after, row, cols, &shown, accent);
-        if cols > note_width + end {
-            let dim = Ink {
-                fg: theme.role(Role::Dim),
-                ..ink
-            };
-            write(grid, cols - note_width, row, cols, note, dim);
-        }
-        Some(crate::paint::Link {
-            row,
-            from: after,
-            to: end,
-            url: self.url.clone(),
-        })
     }
 }
 
@@ -976,73 +776,6 @@ impl PanelBar {
             rows: rows.min(screen.1),
         }
     }
-
-    /// Draws the line, and gives the cell of the caret.
-    pub fn draw(&self, grid: &mut Grid, theme: &Theme) -> Option<(u16, u16)> {
-        let (cols, rows) = (grid.cols(), grid.rows());
-        if cols < 12 || rows == 0 {
-            return None;
-        }
-        let row = rows - 1;
-        let ink = bar(theme);
-        fill(grid, 0, row, cols, ' ', ink);
-        let label = format!(" {}: ", self.word());
-        let after = write(
-            grid,
-            0,
-            row,
-            cols,
-            &label,
-            Ink {
-                fg: theme.role(Role::Accent),
-                attrs: Attrs::BOLD,
-                ..ink
-            },
-        );
-        let look = Look {
-            text: ink.fg,
-            hint: theme.role(Role::Dim),
-            selection: theme.role(Role::Selection),
-        };
-        // The keys are told at the right, as a link's bar tells its Escape, where the path has the
-        // room it needs without them: it is the first to go.
-        let keys = self.keys();
-        let keys_width = width_of(keys) as u16;
-        let told = cols.saturating_sub(after + keys_width) >= PATH_ROOM;
-        let room = if told {
-            cols - after - keys_width
-        } else {
-            cols - after
-        };
-        let hint = match (&self.panel, told) {
-            (Panel::Pick { .. }, true) => "a path (Tab completes)",
-            (Panel::Save { .. }, true) => "where to (Tab completes)",
-            (Panel::Pick { .. }, false) => "a path — Tab completes, Enter takes, Esc turns away",
-            (Panel::Save { .. }, false) => "where to — Tab completes, Enter takes, Esc turns away",
-        };
-        let caret = self
-            .field
-            .draw(grid, (after, row), (room, 1), look, Some(hint));
-        if told {
-            let dim = Ink {
-                fg: theme.role(Role::Dim),
-                ..ink
-            };
-            write(grid, cols - keys_width, row, cols, keys, dim);
-        }
-        if let Some(note) = &self.note
-            && row > 0
-        {
-            let above = row - 1;
-            let warn = Ink {
-                fg: theme.role(Role::Dim),
-                ..ink
-            };
-            fill(grid, 0, above, cols, ' ', warn);
-            write(grid, 1, above, cols, note, warn);
-        }
-        caret
-    }
 }
 
 /// What the person typed, as a path: `~` is their home, a relative one is from where the program is.
@@ -1168,59 +901,6 @@ mod tests {
     use super::*;
     use pencere_view::{Point, Shortcut};
 
-    /// A picture of `cols` by `rows` cells at (`col`, `row`) in the layer `z`.
-    fn picture(col: u16, row: u16, z: i32) -> crate::Placement {
-        let raster = Arc::new(crate::Raster {
-            id: None,
-            width: 1,
-            height: 1,
-            pixels: vec![255; 4],
-            crop: pencere_view::Rect::new(0.0, 0.0, 1.0, 1.0),
-        });
-        crate::Placement {
-            col,
-            row,
-            cols: 2,
-            rows: 1,
-            offset: None,
-            pixels: crate::output::Pixels::of(raster, None, 1.0),
-            x: 0,
-            y: 0,
-            width: 1,
-            height: 1,
-            z,
-        }
-    }
-
-    #[test]
-    fn what_is_over_the_page_hides_the_pictures_over_the_grounds_under_it_and_not_those_under_the_grounds()
-     {
-        let area = Area {
-            col: 4,
-            row: 0,
-            cols: 6,
-            rows: 3,
-        };
-        let mut placements = vec![
-            picture(5, 1, crate::output::GROUND),
-            picture(5, 1, crate::output::BEHIND_TEXT),
-            picture(5, 1, crate::output::OVER_TEXT),
-            // Beside it, and under it: not under the area.
-            picture(0, 1, crate::output::OVER_TEXT),
-            picture(5, 3, crate::output::BEHIND_TEXT),
-        ];
-        area.hides(&mut placements);
-        let kept: Vec<(u16, u16, i32)> = placements.iter().map(|p| (p.col, p.row, p.z)).collect();
-        assert_eq!(
-            kept,
-            [
-                (5, 1, crate::output::GROUND),
-                (0, 1, crate::output::OVER_TEXT),
-                (5, 3, crate::output::BEHIND_TEXT),
-            ]
-        );
-    }
-
     fn item(title: &str, keys: Option<&str>, enabled: bool) -> MenuEntry {
         MenuEntry::Item {
             title: title.to_owned(),
@@ -1234,86 +914,6 @@ mod tests {
             at: Point::new(0.0, 0.0),
             entries,
             serial: 7,
-        }
-    }
-
-    fn blank(cols: u16, rows: u16) -> Grid {
-        crate::render(
-            &pencere_view::DrawList::default(),
-            cols,
-            rows,
-            &Theme::dark(),
-            &crate::NoPictures,
-            &crate::Options::default(),
-        )
-        .grid
-    }
-
-    #[test]
-    fn a_menu_is_a_frame_on_the_ground_of_the_page_with_no_band_outside_it() {
-        let theme = Theme::dark();
-        let menu = MenuBox::new(
-            &menu(vec![item("Copy", None, true), item("Paste", None, true)]),
-            (4, 2),
-            (30, 10),
-        );
-        let mut grid = blank(30, 10);
-        menu.draw(&mut grid, &theme);
-        let Area {
-            col,
-            row,
-            cols,
-            rows,
-        } = menu.area();
-        let ground = Bg::Rgb(theme.role(Role::Background));
-        // Every cell of the card, the frame's and the inside, has the page's ground, and so has what
-        // is round it: nothing is raised, so that the line is the whole of the card's edge.
-        for at in row.saturating_sub(1)..=row + rows {
-            for across in col.saturating_sub(1)..=col + cols {
-                assert_eq!(
-                    grid.cell(across, at).map(|cell| cell.bg),
-                    Some(ground),
-                    "{across},{at}"
-                );
-            }
-        }
-        assert_eq!(grid.cell(col, row).map(|cell| cell.ch), Some('╭'));
-    }
-
-    #[test]
-    fn a_panel_tells_its_keys_at_the_right_until_the_path_would_have_no_room() {
-        let theme = Theme::dark();
-        for (panel, keys) in [
-            (Panel::Pick { multiple: false }, "Enter opens  Esc cancels"),
-            (
-                Panel::Save {
-                    name: "a.txt".to_owned(),
-                    media_type: None,
-                },
-                "Enter saves  Esc cancels",
-            ),
-        ] {
-            let bar = PanelBar::new(panel);
-            let mut wide = blank(80, 5);
-            bar.draw(&mut wide, &theme);
-            let last = wide.text().lines().nth(4).unwrap_or_default().to_owned();
-            assert!(last.ends_with(keys), "{last:?}");
-            // The link's bar ends its line the same way, in the same ink.
-            let mut linked = blank(80, 5);
-            LinkBar::new("https://example.org/".to_owned()).draw(&mut linked, &theme);
-            assert_eq!(
-                wide.cell(79, 4).map(|cell| cell.fg),
-                linked.cell(79, 4).map(|cell| cell.fg)
-            );
-            // Too narrow for the path and the keys: the keys go.
-            let mut narrow = blank(40, 5);
-            bar.draw(&mut narrow, &theme);
-            let last = narrow.text().lines().nth(4).unwrap_or_default().to_owned();
-            assert!(
-                !last.contains("Enter") || last.contains("Tab completes"),
-                "{last:?}"
-            );
-            assert!(!last.ends_with("cancels"), "{last:?}");
         }
     }
 

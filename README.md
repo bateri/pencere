@@ -74,9 +74,9 @@ pencere.serve { -- shows src/view/: page.lua, a script of the kit's page API, dr
 }
 ```
 
-In a terminal that hosts no views an app made with `pencere build` draws that page itself, in the
-cells of the terminal it was started in, and `fallback` runs only where it cannot (a smaller file
-that always runs it is made with `pencere build --no-terminal`; [`cli`](cli/README.md)).
+In a terminal that hosts no views but speaks the Kitty graphics protocol, an app made with `pencere build`
+draws that page itself, as pictures in the terminal, and `fallback` runs only where it cannot (a smaller
+file that always runs it is made with `pencere build --no-terminal`; [`cli`](cli/README.md)).
 
 The view of a Lua app can be a web page instead (`src/view/index.html`, started by
 `pencere new app --page web`: HTML and JavaScript, no npm and no build step; a page a tool builds is
@@ -138,7 +138,8 @@ The messages ride in the terminal's own stream: no port, no extra connection, no
 the server. The view opens in the program's own pane and closes when the program ends. It leaves
 the terminal's own shortcuts alone, loads its files once and keeps them by content, and a program
 in a terminal that does not support pencere is told so, and can fall back to text or, for the `lua`
-view, draw it in the terminal's own cells (the `pencere` command's apps do).
+view, draw it as pictures where the terminal speaks the Kitty graphics protocol (the `pencere` command's
+apps do).
 
 The view runs on the machine of the person looking at it, so it is kept in a sandbox. A script
 gets nothing it was not handed; a web page reaches nothing but its own program unless

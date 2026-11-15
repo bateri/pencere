@@ -8,11 +8,8 @@ use pencere_view::{
     Border, Color, DrawList, Family, Font, Paint, Point, Quad, Rect, Role, Run, Shadow,
 };
 
-use crate::color::Rgb;
-use crate::output::Depth;
 use crate::pixel::{Pixel, Written};
 use crate::probe::Found;
-use crate::theme::Theme;
 
 const CELL: (u32, u32) = (10, 20);
 
@@ -22,9 +19,7 @@ fn found(frames: bool) -> Found {
 
 fn found_with(frames: bool, compose: bool) -> Found {
     Found {
-        theme: Theme::dark(),
-        colors: true,
-        depth: Depth::True,
+        dark: true,
         graphics: true,
         compression: true,
         frames,
@@ -51,7 +46,6 @@ fn quad(rect: Rect, color: Color) -> Paint {
         border: None,
         shadow: None,
         clip: Rect::new(0.0, 0.0, 800.0, 400.0),
-        exact: None,
     })
 }
 
@@ -98,7 +92,6 @@ fn page(lines: &[String], shift: f32) -> DrawList {
             color: Role::Shadow.alpha(0.5),
         }),
         clip: Rect::new(0.0, 0.0, 800.0, 400.0),
-        exact: None,
     }));
     for (row, line) in lines.iter().enumerate() {
         #[allow(clippy::cast_precision_loss)]
@@ -371,7 +364,7 @@ fn an_edit_the_terminal_refuses_is_the_whole_window_and_no_edit_again() {
 #[test]
 fn a_light_terminal_is_drawn_in_the_light_palette() {
     let mut found = found(true);
-    found.theme = Theme::new(Rgb::hex(0xffffff), Rgb::hex(0x000000), Theme::light().ansi);
+    found.dark = false;
     let mut pixel = Pixel::new(Fonts::carried(), &found, CELL, (60, 12));
     let mut window = Window::default();
     send(&mut window, &mut pixel, DrawList::default());

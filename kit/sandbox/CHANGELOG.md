@@ -57,18 +57,12 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   linked and a PDF a page shows is refused as an image that cannot be read, with the diagnostic
   `this build has no PDF reader`. A consumer that took the crate with `default-features = false` has
   neither now, and takes `precompile` to build.
-- **The library follows a host that draws in the cells of a terminal (`pencere.draws().cells`).**
-  `look.glyph` is the character that says the glyph (`▸ ▾ ◂ ▴ × ✓ - + • i !`, all in the fonts a
-  terminal has by default), a grid's head (which centres its cells' words) is a row, with its column
-  lines the whole of it (and two lines of words are three rows), a
-  palette's rows are the theme's row with no inset and it is as tall as the rows it has, and a
-  status bar guesses a word as a column wide. Where the host says nothing the library draws as it did.
-  An item of a status bar can say its `width`, points, where its words are an element.
-- **The interpreter says `cells` and `coarse_images` in `pencere.draws()`** (the interface's
-  `system.drawing` has `cells` and `coarse-images`); `make luau` rebuilt it.
-- **`u:palette` takes `inset`, the points around its rows (4 as before).** A page that is laid out
-  on the cells of a terminal gives rows of whole rows (`height`) and an `inset` of 0, which a
-  rounding of every written length to a cell does not turn into a row each.
+- **The library follows a host that says it draws in character cells (`pencere.draws().cells`):**
+  glyphs are characters, a grid's head and a palette's rows are rows, and a status bar guesses a word
+  a column wide. Where the host says nothing the library draws as it did. An item of a status bar can
+  say its `width`, points, where its words are an element. The interpreter has `cells` and
+  `coarse_images` in `pencere.draws()`.
+- **`u:palette` takes `inset`, the points around its rows (4 as before).**
 - **`Images::picture(&Picture)`, `Bitmap::part` and `Bitmap::crop_of(&Picture)`: a large SVG or page
   of a PDF is drawn only where it is seen.** A page whose whole is more than 512 by 512 pixels at the
   size it is shown at is drawn in the part that is seen (`Picture::shown` of `pencere-view`), 128
@@ -83,10 +77,8 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Changed
 
-- **On the cells of a terminal a grid has no rule under its head, and a palette none under its field and
-  above its footer:** a rule a point thick is a row of its own there, which a table of a 24-row pane has
-  not to spare. The head is told from the rows by its words, and the field and the footer by their
-  padding and their ground. A page that is not on cells is laid out as it was.
+- Where the host says `cells`, a grid has no rule under its head and a palette none under its field and
+  above its footer. A page that is not on cells is laid out as it was.
 - `pencere.layout.keymap` lists the keys of the host's keyboard: where ⌃ is the main modifier (`"windows"`,
   `"linux"`) `ctrl+a` is `select_all`, not the line's start, and `ctrl+z`, `ctrl+y`, `ctrl+left`,
   `ctrl+right`, `ctrl+home`, `ctrl+end` (with `shift` the last four extend) are in it, first, so a menu
@@ -100,9 +92,8 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 - **The card of a modal is no taller than the page under its top** (`@pencere/ui`: `u:modal`,
   `u:dialog`, a palette): the page's height less the card's top and the page's edge, and what is in
   it may be shorter than it would be on its own, so that the part of it that scrolls gives way. A
-  page had to work out how tall its list may be from the points of the card's other parts, which on
-  the cells of a terminal are not the rows they come to: a help of 47 rows stood a row under a
-  window of 48. A card that fits is as it was.
+  page had to work out how tall its list may be from the points of the card's other parts. A card
+  that fits is as it was.
 - **A settle that changed the page and what changes it right after are one page.** `Module` makes
   the page a settle asked for after the rest of what waited with it, where it made it at once: a
   page that heard its program, was woken or was told a key as it was laid out was made twice over,
@@ -122,8 +113,7 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 - **A frame's elements are taken into a list as long as they are**, not one that doubles until
   they fit.
 - **The rows of a list keep their height when there are more of them than fit.** A row of `u:list`
-  (and so of `u:palette`) is `no_shrink`: a list laid out on the cells of a terminal, where every
-  length is rounded to a cell, squeezed its rows into one cell each when its content was more than
+  (and so of `u:palette`) is `no_shrink`: a list squeezed its rows when its content was more than
   its box.
 - **A picture the host shows is not left empty for want of room.** An SVG or a page of a PDF that
   has no room at the size it is shown at, and no pixels at any other size, is drawn at a half, a

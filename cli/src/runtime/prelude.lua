@@ -335,11 +335,12 @@ module.process = {
 --   { shown = false, reason = "no-tty" | "no-host" | "no-common-version" | "no-common-view" |
 --     "refused" | "failed" | "timeout" | "interrupted", code =, message =, status = }
 -- A terminal that has no view to show is not an error. Where the app has a page and the runner has a
--- terminal in it (the default kind of runner), the page is drawn in the cells of the terminal the app
--- was started in, and `serve` gives how that ended (`shown = true`); `tui = false` keeps it from
--- that. Where the page cannot be drawn so (no terminal at all, no page, a runner with no terminal in
--- it, or `tui = false`) `fallback(outcome)` runs, once the terminal is the shell's again, and is where
--- the app shows its text.
+-- terminal in it (the default kind of runner), the page is drawn as pictures in the terminal the app
+-- was started in where that speaks the Kitty graphics protocol, and `serve` gives how that ended
+-- (`shown = true`); `tui = false` keeps it from that. Where the page cannot be drawn so (no terminal
+-- at all, a terminal with no Kitty graphics or a multiplexer, no page, a runner with no terminal in
+-- it, or `tui = false`) `fallback(outcome)` runs, once the terminal is the shell's again, and is
+-- where the app shows its text.
 -- A page that fails (an error, a trap, a limit it went past) is shown again from the start, once in a minute, without a word and
 -- with the terminal the app's throughout (the page asks the app for where it was); `ended = "error"`
 -- says that was given up on: the failure came twice inside the minute, or the terminal did not bring

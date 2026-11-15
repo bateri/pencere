@@ -194,10 +194,6 @@ impl Measure for Measured<'_> {
     fn anchors(&mut self, id: Id) -> Vec<(Id, Rect)> {
         self.editors.anchors(id)
     }
-
-    fn grid(&self) -> Option<pencere_view::Grid> {
-        self.measure.grid()
-    }
 }
 
 impl Editors {
@@ -1474,19 +1470,19 @@ fn keep_in_view(
     let (top, height) = (view.scroll.y, view.room.h);
     // The caret's whole row is kept in view, not only its caret, and as many rows about it as the
     // page asks (at most half of those in view).
-    let index = ((caret.y - view.pad_y) / view.row).floor().max(0.0);
+    let index = ((caret.y - view.pad) / view.row).floor().max(0.0);
     let (above, below) = (
-        view.pad_y + index * view.row,
-        view.pad_y + (index + 1.0) * view.row,
+        view.pad + index * view.row,
+        view.pad + (index + 1.0) * view.row,
     );
     let in_view = (height / view.row).floor().max(1.0);
     let margin = f32::from(view.options.scroll_margin).min(((in_view - 1.0) / 2.0).floor())
         * view.row
-        + view.pad_y;
+        + view.pad;
     let y = match align {
-        RevealAlign::Start => Some((above - view.pad_y).max(0.0)),
+        RevealAlign::Start => Some((above - view.pad).max(0.0)),
         RevealAlign::Center => Some(((above + below - height) / 2.0).max(0.0)),
-        RevealAlign::End => Some((below + view.pad_y - height).max(0.0)),
+        RevealAlign::End => Some((below + view.pad - height).max(0.0)),
         RevealAlign::Nearest if above - margin < top => Some((above - margin).max(0.0)),
         RevealAlign::Nearest if below + margin > top + height => Some(below + margin - height),
         RevealAlign::Nearest => None,

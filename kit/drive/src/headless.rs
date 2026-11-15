@@ -2350,7 +2350,7 @@ impl<P: Peer> Headless<P> {
     /// The boxes of the last frame that stand past the inside of the box they are in
     /// ([`Laid::spills`]), in the host's points as [`Headless::bounds`] is: none on a page whose
     /// sizes come out as they were written. What a test looks at for every size of the window a page
-    /// is to be drawn in, where the page is laid out on the cells of a terminal above all.
+    /// is to be drawn in.
     pub fn spills(&self) -> Vec<pencere_view::Spill> {
         let Some(laid) = self.page.laid() else {
             return Vec::new();

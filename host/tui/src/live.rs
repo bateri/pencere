@@ -3,8 +3,8 @@
 //! [`run`] is what a program's options hand a terminal to when no terminal hosts the program's view
 //! ([`pencere::Options::screen`]): it takes the view the program carries (the first of the kind this
 //! crate draws), runs its page in this process, speaks to the program's handlers as a terminal
-//! would carry the six messages (`pencere::Conversation`), and draws the page's frames in the cells
-//! of the terminal, writing only what changed.
+//! would carry the six messages (`pencere::Conversation`), and draws the page's frames as pictures
+//! in the terminal, writing only what changed.
 //!
 //! One thread does it all and waits where there is nothing to do: for the terminal's bytes, for
 //! the page (its module and its images wake the wait), for the handlers (they wake it too), for a
@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 use std::io;
-use std::sync::{Arc, Condvar, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use pencere::{
@@ -28,25 +28,16 @@ use pencere_view::{
 
 use crate::chord;
 use crate::chrome::{self, Paper};
-use crate::field::{TextField, draw_fields};
+use crate::field::TextField;
 use crate::input::{Decoder, Event, KeyEvent, Mouse, MouseKind, Reply};
-use crate::measure::Cells;
 use crate::memory;
 use crate::output::base64;
 use crate::overlay::{self, Answered, Chose, Handles, LinkBar, MenuBox, PanelBar};
-use crate::paint::{CanvasMode, ImageMode, Options as Paint, render};
 use crate::pixel::{self, Pixel};
 use crate::probe::{self, Found, Guess};
-use crate::screen::Screen;
-use crate::theme::Theme;
 
 /// The version of the kit's interface (the `lua` view's) this screen runs.
 pub const KIT_VERSION: &str = "0.1";
-
-/// The pixels of the page a column is across and a row is down: the page is laid out on cells of
-/// this size, and `render` takes them back to cells.
-const COLUMN: f32 = 8.0;
-const ROW: f32 = 18.0;
 
 /// The rows a turn of the wheel moves.
 const WHEEL_ROWS: f32 = 3.0;
@@ -94,6 +85,10 @@ fn on(ground: [u8; 3]) -> Vec<u8> {
 /// The pointer told in the pixels of the window and not its cells, where the terminal says it does
 /// (switched on once it has).
 const PIXEL_MOUSE: &[u8] = b"\x1b[?1016h";
+/// The Kitty keyboard protocol's flags asked for: the keys are told apart (`1`, so that ⌃⇧C is not ⌃C)
+/// and with the alternate keys (`4`: the key a shifted sign makes, so that ⌃⇧7 on a Turkish keyboard is
+/// the slash it types).
+const KEYS_ON: &[u8] = b"\x1b[>5u";
 /// The Kitty keyboard protocol's flags taken back, which comes before the rest where it was asked for.
 const KEYS_OFF: &[u8] = b"\x1b[<u";
 /// The pointer's shape given back to the terminal's own (an empty `OSC 22`), before the screen is
@@ -102,15 +97,11 @@ const POINTER_OFF: &[u8] = b"\x1b]22;\x1b\\";
 
 /// What is written, before the screen is left, whenever the terminal is given back: the modes put
 /// back, the keyboard's flags taken back where they were asked for, the pointer's shape where the
-/// page chose one and the cursor's where it was made a bar, and the pictures the terminal keeps
-/// given up where it was sent some.
-fn off(keys: bool, pointer: bool, pictures: bool, bar: bool) -> Vec<u8> {
+/// page chose one, and the pictures the terminal keeps given up where it was sent some.
+fn off(keys: bool, pointer: bool, pictures: bool) -> Vec<u8> {
     let mut bytes = Vec::new();
     if pictures {
         bytes.extend_from_slice(crate::output::FREE_ALL.as_bytes());
-    }
-    if bar {
-        bytes.extend_from_slice(crate::screen::OWN_SHAPE.as_bytes());
     }
     if keys {
         bytes.extend_from_slice(KEYS_OFF);
@@ -232,51 +223,17 @@ impl Assets for Files {
     }
 }
 
-/// How long a page that asks what is drawn waits for the terminal to say what it is: the probe's
-/// own end (a terminal that does not answer is given up on much sooner) and a little more.
-const LONGEST_ASKED: Duration = Duration::from_secs(10);
-
 /// What the page asks of its program's system: the time on the clock the frames run on, what the
 /// screen draws, and the keyboard of a terminal that is not a Mac's. The program has the room for
 /// whatever the page says (the handlers are read as fast as they write).
 struct Clock {
     started: Instant,
-    /// Whether the terminal draws pictures (Kitty graphics), once the probe has found out: what is
-    /// drawn is said from it, and the page is started before the probe, so a page that asks first
-    /// waits here (on its own thread) for the answer.
-    graphics: Mutex<Option<bool>>,
-    found_out: Condvar,
 }
 
 impl Clock {
     fn new() -> Self {
         Self {
             started: Instant::now(),
-            graphics: Mutex::new(None),
-            found_out: Condvar::new(),
-        }
-    }
-
-    /// The probe is over: the terminal draws pictures or does not (`false` also when it did not
-    /// answer, which is the guess that costs nothing).
-    fn found(&self, graphics: bool) {
-        if let Ok(mut said) = self.graphics.lock() {
-            *said = Some(graphics);
-        }
-        self.found_out.notify_all();
-    }
-
-    /// Whether the terminal draws pictures, waiting for the probe; `false` when it takes too long.
-    fn pictures(&self) -> bool {
-        let Ok(said) = self.graphics.lock() else {
-            return false;
-        };
-        match self
-            .found_out
-            .wait_timeout_while(said, LONGEST_ASKED, |said| said.is_none())
-        {
-            Ok((said, _)) => (*said).unwrap_or(false),
-            Err(_) => false,
         }
     }
 }
@@ -296,14 +253,9 @@ impl Program for Clock {
         KeyConvention::Linux
     }
 
-    /// A terminal that draws pictures is sent the page as pixels, shadows and all; one that draws
-    /// none draws the page in its cells, and the ones a page has in half blocks.
+    /// The terminal is sent the page as pixels, shadows and all.
     fn draws(&self) -> Vec<Drawing> {
-        if self.pictures() {
-            vec![Drawing::Shadow]
-        } else {
-            vec![Drawing::Cells, Drawing::CoarseImages]
-        }
+        vec![Drawing::Shadow]
     }
 }
 
@@ -610,7 +562,6 @@ struct Live<'t> {
     page: Page,
     conversation: Conversation,
     decoder: Decoder,
-    screen: Screen,
     found: Found,
     /// How many pixels a cell is, across and down, as the terminal last said it (`CSI 16 t`); none
     /// before it has, and while it is asked again after the window changed.
@@ -659,14 +610,11 @@ struct Live<'t> {
     lent_back: bool,
     /// Pictures were sent to the terminal, which keeps them: they are given up when it is given back.
     pictures: bool,
-    /// The terminal's cursor was made a bar, which is given back to its own shape when it is.
-    bar: bool,
     /// The shape the page last asked for, and where the pointer last was (in the page's points).
     told: Cursor,
     pointer_at: Option<Point>,
-    /// The window as pixels, where the terminal draws pictures: the page is laid out in them, and
-    /// what it draws is sent as a picture.
-    pixel: Option<Pixel>,
+    /// The window as pixels: the page is laid out in them, and what it draws is sent as a picture.
+    pixel: Pixel,
     /// The terminal tells the pointer in pixels (the SGR pixel mode), not in cells.
     pixel_mouse: bool,
     trace: Trace,
@@ -709,7 +657,6 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
     let found = match probe::ask(&tty, &mut decoder, &mut early, &guess) {
         Ok(found) => found,
         Err(signal) => {
-            clock.found(false);
             return Ok(closed(shown, &Stop::by(EndedBy::Signal(signal))));
         }
     };
@@ -720,21 +667,19 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
             "did not answer to the end"
         };
         format!(
-            "the terminal {how} (colours {}, Kitty graphics {}, edits {}, Kitty keyboard {})",
-            found.colors, found.graphics, found.frames, found.keyboard
+            "the terminal {how} (Kitty graphics {}, edits {}, Kitty keyboard {})",
+            found.graphics, found.frames, found.keyboard
         )
     });
     let size = tty.size();
     let cell = found.cell_in(&size);
     let Some(cell) = cell.filter(|_| found.graphics && !found.multiplexer) else {
-        clock.found(false);
         return Err(not_shown(if found.graphics {
             "the terminal does not say how many pixels its cells are"
         } else {
             "the terminal draws no pictures"
         }));
     };
-    clock.found(true);
     // The terminal draws the pictures: only now does it leave its screen for ours. One that does
     // not is given nothing but the questions, and the program takes its fallback on the screen the
     // person has.
@@ -746,13 +691,11 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
     let pixel = Pixel::new(fonts, &found, cell, (size.cols, size.rows));
     dress(&mut page, &pixel);
     let pixel_mouse = found.pixel_mouse && tty.write_all(PIXEL_MOUSE).is_ok();
-    let keys = found.keyboard && tty.write_all(b"\x1b[>1u").is_ok();
+    let keys = found.keyboard && tty.write_all(KEYS_ON).is_ok();
     if keys {
-        tty.leaving(&off(true, false, false, false));
+        tty.leaving(&off(true, false, false));
     }
     let conversation = Conversation::waking(options, &waker);
-    let mut screen = Screen::new(found.depth);
-    screen.compress_pixels(found.compression);
     let mut live = Live {
         tty,
         clock,
@@ -762,7 +705,6 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
         page,
         conversation,
         decoder,
-        screen,
         cell: found.cell,
         found,
         size,
@@ -783,14 +725,13 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
         escape_at: None,
         lent_back: false,
         pictures: false,
-        bar: false,
         notes: Vec::new(),
         keys,
         on,
         pointer: None,
         told: Cursor::Arrow,
         pointer_at: None,
-        pixel: Some(pixel),
+        pixel,
         pixel_mouse,
         trace,
     };
@@ -859,7 +800,6 @@ fn open_page(
     let setup = Setup {
         program: Arc::clone(clock) as Arc<dyn Program>,
         assets: Some(files),
-        measure: Box::new(Cells::new(COLUMN, ROW)),
         ..Setup::default()
     };
     let wake = waker.clone();
@@ -923,7 +863,6 @@ impl Live<'_> {
         if self.tty.take_resize() {
             self.size = self.tty.size();
             self.ask_cell();
-            self.screen.forget();
             self.refit();
             self.dirty = true;
             let size = self.size;
@@ -1038,19 +977,15 @@ impl Live<'_> {
                     self.dirty = true;
                 }
                 let cells = (self.size.cols, self.size.rows);
-                if let Some(pixel) = &mut self.pixel {
-                    if pixel.fit((width, height), cells) {
-                        self.page.set_measure(pixel.measure());
-                    }
-                    self.dirty = true;
+                if self.pixel.fit((width, height), cells) {
+                    self.page.set_measure(self.pixel.measure());
                 }
+                self.dirty = true;
                 false
             }
             // The answer to an edit of the picture that is the window: a refusal is not made again.
             Event::Reply(Reply::Graphics { id, ok }) => {
-                if let Some(pixel) = &mut self.pixel
-                    && pixel.answered(id, ok)
-                {
+                if self.pixel.answered(id, ok) {
                     self.dirty = true;
                 }
                 false
@@ -1248,23 +1183,20 @@ impl Live<'_> {
 
     /// How many points of the page a cell of the terminal is, across and down.
     fn cell_points(&self) -> (f32, f32) {
-        match &self.pixel {
-            Some(pixel) => {
-                #[allow(clippy::cast_precision_loss)]
-                let (width, height) = (pixel.cell().0 as f32, pixel.cell().1 as f32);
-                (width / pixel.scale(), height / pixel.scale())
-            }
-            None => (COLUMN, ROW),
-        }
+        let pixel = &self.pixel;
+        #[allow(clippy::cast_precision_loss)]
+        let (width, height) = (pixel.cell().0 as f32, pixel.cell().1 as f32);
+        (width / pixel.scale(), height / pixel.scale())
     }
 
     /// Where the page is pointed at: the middle of the cell the terminal says, or the pixel (in
     /// pixels, a terminal that was asked to say so, over the pixels to a point).
     fn point(&self, mouse: &Mouse) -> Point {
-        if let (Some(pixel), true) = (&self.pixel, self.pixel_mouse) {
+        if self.pixel_mouse {
+            let scale = self.pixel.scale();
             return Point::new(
-                (f32::from(mouse.col) + 0.5) / pixel.scale(),
-                (f32::from(mouse.row) + 0.5) / pixel.scale(),
+                (f32::from(mouse.col) + 0.5) / scale,
+                (f32::from(mouse.row) + 0.5) / scale,
             );
         }
         let (column, row) = self.cell_points();
@@ -1377,8 +1309,7 @@ impl Live<'_> {
         });
     }
 
-    /// The caret of the field `id` goes to the edge of a character the pointer is nearest to: in
-    /// pixels where the window is a picture, in cells where it is not.
+    /// The caret of the field `id` goes to the edge of a character the pointer is nearest to.
     fn place_caret(&mut self, id: Id, mouse: &Mouse, extend: bool) {
         let Some(room) = self
             .page
@@ -1389,29 +1320,17 @@ impl Live<'_> {
         else {
             return;
         };
-        let (cell, width) = match &self.pixel {
-            Some(pixel) => {
-                // The room is as many whole cells as fit in it, from its left edge, and the
-                // nearer edge of a cell is the one the caret goes to.
-                #[allow(clippy::cast_precision_loss)]
-                let across = pixel.cell().0.max(1) as f32;
-                let x = self.point(mouse).x * pixel.scale();
-                let from = room.x * pixel.scale();
-                (
-                    ((x - from) / across + 0.5).floor().max(0.0) as usize,
-                    (room.w * pixel.scale() / across).floor().max(1.0) as u16,
-                )
-            }
-            None => {
-                let (column, _) = self.cell_points();
-                let first = (room.x / column).round().max(0.0) as u16;
-                let (at, _) = self.cell_of(mouse);
-                (
-                    usize::from(at.saturating_sub(first)),
-                    (room.w / column).round().max(1.0) as u16,
-                )
-            }
-        };
+        // The room is as many whole cells as fit in it, from its left edge, and the nearer edge of a
+        // cell is the one the caret goes to.
+        let scale = self.pixel.scale();
+        #[allow(clippy::cast_precision_loss)]
+        let across = self.pixel.cell().0.max(1) as f32;
+        let x = self.point(mouse).x * scale;
+        let from = room.x * scale;
+        let (cell, width) = (
+            ((x - from) / across + 0.5).floor().max(0.0) as usize,
+            (room.w * scale / across).floor().max(1.0) as u16,
+        );
         if let Some(field) = self.fields.get_mut(&id) {
             field.place(cell, width, extend);
             self.dirty = true;
@@ -1422,15 +1341,14 @@ impl Live<'_> {
 
     /// The cell the pointer is in: what the terminal says, or the cell the pixel it says is in.
     fn cell_of(&self, mouse: &Mouse) -> (u16, u16) {
-        match (&self.pixel, self.pixel_mouse) {
-            (Some(pixel), true) => {
-                let (width, height) = pixel.cell();
-                (
-                    mouse.col / u16::try_from(width).unwrap_or(u16::MAX).max(1),
-                    mouse.row / u16::try_from(height).unwrap_or(u16::MAX).max(1),
-                )
-            }
-            _ => (mouse.col, mouse.row),
+        if self.pixel_mouse {
+            let (width, height) = self.pixel.cell();
+            (
+                mouse.col / u16::try_from(width).unwrap_or(u16::MAX).max(1),
+                mouse.row / u16::try_from(height).unwrap_or(u16::MAX).max(1),
+            )
+        } else {
+            (mouse.col, mouse.row)
         }
     }
 
@@ -1476,8 +1394,8 @@ impl Live<'_> {
                 }
             }
             (Overlay::Link(_), MouseKind::Press(_)) => {
-                // The terminal opens a link by its own click (with the key it asks for) where the
-                // mouse is reported; a press anywhere else turns the line away.
+                // The bar is a picture, so the terminal has no link to open in it: a press turns it
+                // away.
                 self.press_taken = true;
                 self.overlay = None;
                 self.dirty = true;
@@ -1672,12 +1590,8 @@ impl Live<'_> {
 
     /// What is written when the terminal is given back, as the screen stands.
     fn leaving(&self) {
-        self.tty.leaving(&off(
-            self.keys,
-            self.pointer.is_some(),
-            self.pictures,
-            self.bar,
-        ));
+        self.tty
+            .leaving(&off(self.keys, self.pointer.is_some(), self.pictures));
     }
 
     /// The pointer takes the shape asked for, where it is not the one it has: written only
@@ -1755,7 +1669,7 @@ impl Live<'_> {
             .map_err(|error| Stop::io(&self.tty, &error))?;
         if self.keys {
             self.tty
-                .write_all(b"\x1b[>1u")
+                .write_all(KEYS_ON)
                 .map_err(|error| Stop::io(&self.tty, &error))?;
         }
         if self.pixel_mouse {
@@ -1765,18 +1679,14 @@ impl Live<'_> {
         }
         self.pointer = None;
         self.pictures = false;
-        self.bar = false;
         self.leaving();
         self.decoder = Decoder::new();
         self.escape_at = None;
         self.press = None;
         self.size = self.tty.size();
         self.ask_cell();
-        self.screen.forget();
         // What the terminal held of the window was cleared with the screen.
-        if let Some(pixel) = &mut self.pixel {
-            pixel.forget();
-        }
+        self.pixel.forget();
         self.refit();
         self.dirty = true;
         Ok(())
@@ -1797,9 +1707,7 @@ impl Live<'_> {
     /// pixels over them.
     fn refit(&mut self) {
         let size = self.size;
-        let Some(pixel) = &mut self.pixel else {
-            return;
-        };
+        let pixel = &mut self.pixel;
         let cell = if self.found.cell.is_none()
             && size.width > 0
             && size.height > 0
@@ -1840,9 +1748,7 @@ impl Live<'_> {
             message: Some(error.to_string()),
         })?;
         self.page = page;
-        if let Some(pixel) = &self.pixel {
-            dress(&mut self.page, pixel);
-        }
+        dress(&mut self.page, &self.pixel);
         self.fields.clear();
         self.focus = None;
         self.dragging = None;
@@ -1868,109 +1774,6 @@ impl Live<'_> {
         Ok(())
     }
 
-    /// The page, laid out and painted for the window as it is, and what changed of it written.
-    fn frame(&mut self) -> Flow {
-        if self.pixel.is_some() {
-            return self.pixel_frame();
-        }
-        let (cols, rows) = (self.size.cols, self.size.rows);
-        let now = self.now();
-        let drawing = Instant::now();
-        self.last_frame = now;
-        self.dirty = false;
-        let mut painted = self.page.frame(FrameAt {
-            size: (
-                u32::from(cols) * COLUMN as u32,
-                u32::from(rows) * ROW as u32,
-            ),
-            scale: 1.0,
-            now,
-            // A terminal redraws what moves cell by cell, and the page's glides cost a frame of
-            // bytes each.
-            reduce_motion: true,
-        });
-        let mut effects = Effects::default();
-        painted.deliver_held(&mut effects);
-        self.apply(effects)?;
-        self.keep_fields();
-        let theme = self.found.theme;
-        let options = Paint {
-            col: COLUMN,
-            row: ROW,
-            images: if self.found.graphics {
-                ImageMode::Kitty
-            } else {
-                ImageMode::Blocks
-            },
-            canvases: CanvasMode::Characters,
-            pixels: self.cell_pixels(),
-        };
-        let mut frame = render(
-            &painted.list,
-            cols,
-            rows,
-            &theme,
-            &self.page.images(),
-            &options,
-        );
-        self.waits = if frame.waiting { self.waits + 1 } else { 0 };
-        self.waiting = frame.waiting && self.waits < PATIENCE_FRAMES;
-        let mut cursor = self.draw_fields(&mut frame.grid, &theme);
-        if cursor.is_none() && self.overlay.is_none() {
-            cursor = self.editor_cursor();
-        }
-        if let Some(overlay) = &self.overlay {
-            cursor = None;
-            let area = match overlay {
-                Overlay::Menu(menu) => {
-                    menu.draw(&mut frame.grid, &theme);
-                    Some(menu.area())
-                }
-                Overlay::Panel(bar) => {
-                    cursor = bar.draw(&mut frame.grid, &theme);
-                    Some(bar.area((cols, rows)))
-                }
-                Overlay::Link(bar) => {
-                    frame.links.extend(bar.draw(&mut frame.grid, &theme));
-                    Some(bar.area((cols, rows)))
-                }
-            };
-            // A picture that is drawn over the grounds would cover what is over the page.
-            if let Some(area) = area {
-                area.hides(&mut frame.placements);
-            }
-        }
-        let bytes = self.screen.draw(&frame, cursor);
-        if self.screen.holds_pictures() && !self.pictures {
-            self.pictures = true;
-            self.leaving();
-        }
-        if self.screen.bars_cursor() && !self.bar {
-            self.bar = true;
-            self.leaving();
-        }
-        if self.trace.frames() < TRACED_FRAMES {
-            let sent = bytes.len();
-            self.trace.mark(|| format!("frame, {sent} bytes written"));
-        }
-        if !bytes.is_empty() {
-            self.tty
-                .write_all(&bytes)
-                .map_err(|error| Stop::io(&self.tty, &error))?;
-        }
-        let spent = &mut self.trace.spent;
-        spent.frames += 1;
-        spent.drawn += drawing.elapsed();
-        spent.written += bytes.len() as u64;
-        spent.pictures += frame.placements.len() as u64;
-        spent.pixels += frame
-            .placements
-            .iter()
-            .map(|p| 4 * u64::from(p.width) * u64::from(p.height))
-            .sum::<u64>();
-        Ok(())
-    }
-
     /// The host's fields are the ones the page has: one it no longer has is let go of, and so is
     /// the keyboard it had.
     fn keep_fields(&mut self) {
@@ -1983,18 +1786,12 @@ impl Live<'_> {
 
     /// The page, laid out in the pixels of the window and painted into them, and what changed of the
     /// picture the terminal holds written to it.
-    fn pixel_frame(&mut self) -> Flow {
+    fn frame(&mut self) -> Flow {
         let now = self.now();
         let drawing = Instant::now();
         self.last_frame = now;
         self.dirty = false;
-        let Some((size, scale)) = self
-            .pixel
-            .as_ref()
-            .map(|pixel| (pixel.size(), f64::from(pixel.scale())))
-        else {
-            return Ok(());
-        };
+        let (size, scale) = (self.pixel.size(), f64::from(self.pixel.scale()));
         let mut painted = self.page.frame(FrameAt {
             size,
             scale,
@@ -2007,9 +1804,7 @@ impl Live<'_> {
         painted.deliver_held(&mut effects);
         self.apply(effects)?;
         self.keep_fields();
-        let Some(pixel) = self.pixel.as_mut() else {
-            return Ok(());
-        };
+        let pixel = &mut self.pixel;
         // What the host draws over the page: its fields, and a menu, a panel or a link over those.
         #[allow(clippy::cast_precision_loss)]
         let paper = Paper {
@@ -2071,51 +1866,6 @@ impl Live<'_> {
         Ok(())
     }
 
-    /// The cell the terminal's cursor goes to for the editor that has the keyboard: the cell its
-    /// caret is in, where that is on the screen. The terminal draws it, and blinks it, as the person
-    /// set it to; the page's own caret is not drawn.
-    fn editor_cursor(&mut self) -> Option<(u16, u16)> {
-        let mut editors = self.page.editors();
-        editors.focused()?;
-        let at = editors.caret()?;
-        let rect = editors.rect(at)?;
-        // The caret's box starts at its place between two characters: the nearer cell edge. A tall
-        // line's caret is in the row its middle is in.
-        let col = (rect.x / COLUMN + 0.5).floor();
-        let row = ((rect.y + rect.h / 2.0) / ROW).floor();
-        let on = |at: f32, of: u16| at >= 0.0 && at < f32::from(of);
-        (on(col, self.size.cols) && on(row, self.size.rows)).then_some((col as u16, row as u16))
-    }
-
-    /// The pixels of a cell of the terminal, where it says (a guess where it does not).
-    fn cell_pixels(&self) -> (u32, u32) {
-        if let Some((width, height)) = self.cell {
-            return (width.max(1), height.max(1));
-        }
-        let (cols, rows) = (u32::from(self.size.cols), u32::from(self.size.rows));
-        if self.size.width > 0 && self.size.height > 0 && cols > 0 && rows > 0 {
-            (
-                (u32::from(self.size.width) / cols).max(1),
-                (u32::from(self.size.height) / rows).max(1),
-            )
-        } else {
-            Paint::default().pixels
-        }
-    }
-
-    /// The host's fields drawn over their rooms; where the caret of the one that has the keyboard
-    /// is.
-    fn draw_fields(&self, grid: &mut crate::Grid, theme: &Theme) -> Option<(u16, u16)> {
-        draw_fields(
-            grid,
-            self.page.fields(),
-            &self.fields,
-            self.focus,
-            (COLUMN, ROW),
-            theme,
-        )
-    }
-
     // --- The end ------------------------------------------------------------------------------
 
     /// Gives the terminal back, and says what the page asked that this screen did not do.
@@ -2151,13 +1901,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_screen_says_it_draws_pictures_where_the_terminal_does_and_cells_where_it_does_not() {
-        let with = Clock::new();
-        with.found(true);
-        assert_eq!(with.draws(), [Drawing::Shadow]);
-        let without = Clock::new();
-        without.found(false);
-        assert_eq!(without.draws(), [Drawing::Cells, Drawing::CoarseImages]);
+    fn a_screen_says_it_draws_pictures() {
+        assert_eq!(Clock::new().draws(), [Drawing::Shadow]);
     }
 
     #[test]
@@ -2165,8 +1910,8 @@ mod tests {
         let ground = b"\x1b]111\x1b\\";
         let has = |bytes: &[u8]| bytes.windows(ground.len()).any(|w| w == ground);
         assert!(has(OFF));
-        for bits in 0..16_u8 {
-            let bytes = off(bits & 1 != 0, bits & 2 != 0, bits & 4 != 0, bits & 8 != 0);
+        for bits in 0..8_u8 {
+            let bytes = off(bits & 1 != 0, bits & 2 != 0, bits & 4 != 0);
             assert!(has(&bytes), "off({bits:#06b}) gives the ground back");
         }
     }
@@ -2179,17 +1924,6 @@ mod tests {
         assert!(dark.ends_with(b"\x1b]11;rgb:0d/11/17\x1b\\"));
         let light = on(pixel::ground_of(Palette::Light));
         assert!(light.ends_with(b"\x1b]11;rgb:ff/ff/ff\x1b\\"));
-    }
-
-    #[test]
-    fn a_page_that_asks_before_the_probe_is_over_waits_for_what_it_found() {
-        let clock = Arc::new(Clock::new());
-        let page = Arc::clone(&clock);
-        let asking = std::thread::spawn(move || page.draws());
-        // The probe answers a moment after the page asked.
-        std::thread::sleep(Duration::from_millis(50));
-        clock.found(true);
-        assert_eq!(asking.join().ok(), Some(vec![Drawing::Shadow]));
     }
 
     fn file(name: &str, bytes: Arc<[u8]>) -> (String, Arc<[u8]>) {
