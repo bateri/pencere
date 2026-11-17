@@ -8,6 +8,9 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Added
 
+- **`shot::Scratch` and `shot::raster_rows_in`**: rows drawn in buffers the caller keeps from one
+  frame to the next, with the page's edge repeated past them, so that a frame at the rate of keys asks
+  the system for no picture's worth of memory.
 - **`shot::raster_rows` and `shot::reach`**: the rows of a picture that changed are drawn again and
   the rest are kept, and `reach` says how far an item draws beyond its own box (a shadow, a glow), so
   that a row is not left out that one of them touches.

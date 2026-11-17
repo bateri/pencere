@@ -129,6 +129,12 @@ impl Handles {
         }
     }
 
+    /// Lets every handle go: the files given and the places chosen are nothing once the view is
+    /// shown again.
+    fn clear(&self) {
+        self.rows().clear();
+    }
+
     /// Lets the place of `handle` go: it is saved, or it never will be.
     fn forget(&self, handle: &str) {
         let mut rows = self.rows();
@@ -203,8 +209,10 @@ impl Disk {
         self.send(Job::Write(writing));
     }
 
-    /// The saves that are under way are given up (their parts deleted) and their places let go.
+    /// The view is shown again, and what it was given is nothing: every handle is let go (the files
+    /// given and the places chosen), and the saves under way are given up (their parts deleted).
     pub fn abandon(&mut self) {
+        self.handles.clear();
         if self.jobs.is_some() {
             self.send(Job::Abandon);
         }
@@ -416,9 +424,15 @@ impl Part {
         })
     }
 
-    /// Gives the part the name of its place.
+    /// Gives the part the name of its place. A file that was there keeps its mode: the part is made
+    /// with the mode a new file has, and is not the file the person had.
     fn keep(mut self, target: &Path) -> io::Result<()> {
         self.file.sync_all()?;
+        if let Ok(was) = fs::symlink_metadata(target)
+            && was.is_file()
+        {
+            let _ = fs::set_permissions(&self.path, was.permissions());
+        }
         fs::rename(&self.path, target)?;
         // The name is the place's now: the file closes with the part and nothing is deleted.
         self.kept = true;

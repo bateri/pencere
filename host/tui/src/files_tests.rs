@@ -259,6 +259,37 @@ fn the_saves_under_way_are_given_up_when_the_view_is_shown_again_and_when_the_sc
 }
 
 #[test]
+fn the_files_given_and_the_places_chosen_are_nothing_once_the_view_is_shown_again() {
+    let mut bench = Bench::new("reopen");
+    let given = bench.given("given.txt", b"from the person");
+    let (place, target) = bench.place("chosen.bin");
+    // Nothing has been asked of the disk yet, and a file read is read as it was given.
+    assert_eq!(bench.read(&given, 0, 4).unwrap(), b"from");
+    bench.disk.abandon();
+    assert_eq!(refused(bench.read(&given, 0, 4)), "handle");
+    assert_eq!(refused(bench.write(&place, 0, b"abc", true)), "handle");
+    assert!(!target.exists());
+    // A view that has not asked the disk for anything has its handles let go too.
+    let mut fresh = Bench::new("reopen-fresh");
+    let given = fresh.given("given.txt", b"from the person");
+    fresh.disk.abandon();
+    assert_eq!(refused(fresh.read(&given, 0, 4)), "handle");
+}
+
+#[test]
+fn a_file_that_is_replaced_keeps_the_mode_it_had() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mut bench = Bench::new("mode");
+    let (handle, target) = bench.place("kept.sh");
+    std::fs::write(&target, b"old").unwrap();
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o750)).unwrap();
+    bench.write(&handle, 0, b"new", true).unwrap();
+    assert_eq!(std::fs::read(&target).unwrap(), b"new");
+    let mode = std::fs::metadata(&target).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o750);
+}
+
+#[test]
 fn a_name_that_is_nearly_as_long_as_a_name_may_be_still_has_a_part_that_is_a_name() {
     let mut bench = Bench::new("long");
     let name = "n".repeat(250);

@@ -671,3 +671,141 @@ fn a_page_that_scrolls_with_something_at_its_edge_keeps_what_is_past_the_cells_t
         compare(&window, &pixel, &list, &format!("laid over at {first}"));
     }
 }
+
+/// What a frame asks the system for: the frames that change a line of a window, one after another, are
+/// drawn, compared and packed in the memory the frames before them were. The pictures' worth of pixels
+/// (a band, a mask, a copy of the band, a cut of it) and the deflate's state are not asked for again
+/// by each frame; the few the system makes zero and the drawing writes over are the first frames'.
+#[test]
+fn frames_that_change_a_line_ask_the_system_for_no_pictures_worth_of_memory() {
+    use crate::alloc_count_tests as large;
+    let mut pixel = Pixel::new(Fonts::carried(), &found_with(true, true), CELL, (150, 12));
+    let mut text = lines();
+    let first = page(&text, 0.0);
+    let mut lists = Vec::new();
+    for n in 0..40 {
+        text[6] = format!("line 6: typed {n}");
+        text[2] = format!("line 2: and {}", n * 7);
+        lists.push(page(&text, 0.0));
+    }
+    // The window, and the frames that grow what the others are drawn in.
+    let written = pixel.draw(first, None);
+    assert!(written.whole);
+    let mut asked = Vec::new();
+    for (n, list) in lists.into_iter().enumerate() {
+        large::reset();
+        let written = pixel.draw(list, None);
+        let (count, bytes) = large::large();
+        assert!(
+            !written.whole && !written.bands.is_empty(),
+            "frame {n} is bands of the window"
+        );
+        asked.push((n, count, bytes));
+    }
+    let later: Vec<_> = asked
+        .iter()
+        .skip(3)
+        .filter(|(_, count, _)| *count > 0)
+        .collect();
+    assert!(
+        later.is_empty(),
+        "frames after the third asked for memory of {} bytes or more: (frame, times, bytes) {later:?}",
+        large::LARGE
+    );
+}
+
+/// The pixels packed in the state a frame keeps unpack to the pixels, over and over, whatever the size
+/// of the pack (the buffer it is made in is grown as it needs, a piece at a time), and are nothing
+/// where they would not be smaller than the pixels (a fresh pack is no smaller either).
+#[test]
+fn pixels_packed_in_the_kept_state_unpack_to_the_pixels_and_are_none_where_not_smaller() {
+    let mut wire = crate::pixel::Wire::new();
+    let mut seed = 12345_u32;
+    // Runs of one value; noise; and a few values at random, that pack to a few parts in ten.
+    for (n, len) in [
+        4_usize, 4000, 65_536, 300, 120_000, 4000, 17, 700_000, 70_000,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let data: Vec<u8> = (0..len)
+            .map(|at| {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                match n % 3 {
+                    0 => (at / 64 % 7) as u8,
+                    1 => (seed >> 24) as u8,
+                    _ => ((seed >> 24) % 12) as u8,
+                }
+            })
+            .collect();
+        let fresh = miniz_oxide::deflate::compress_to_vec_zlib(&data, crate::output::PACK_LEVEL);
+        match crate::pixel::deflate(&mut wire.comp, &mut wire.deflated, &data) {
+            Some(made) => {
+                assert!(made < data.len(), "piece {n} of {len} bytes is not smaller");
+                let unpacked = miniz_oxide::inflate::decompress_to_vec_zlib(&wire.deflated[..made]);
+                assert_eq!(
+                    unpacked.as_deref().ok(),
+                    Some(data.as_slice()),
+                    "piece {n} of {len} bytes"
+                );
+            }
+            None => assert!(
+                fresh.len() >= data.len(),
+                "piece {n} of {len} bytes is smaller packed ({}) and was not",
+                fresh.len()
+            ),
+        }
+    }
+}
+
+/// The runs of pixels two rows do not share are the same wherever the pixels that differ fall (in the
+/// blocks the rows are compared in, between them, at the end), and whatever the rows' width.
+#[test]
+fn the_runs_of_pixels_two_rows_do_not_share_are_found_pixel_by_pixel_and_block_by_block_alike() {
+    let mut seed = 7_u32;
+    let mut next = |most: u32| {
+        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (seed >> 8) % most
+    };
+    for width in [1_usize, 2, 15, 16, 17, 31, 32, 33, 100, 241] {
+        for round in 0..40 {
+            let a: Vec<u8> = (0..width * 4).map(|at| (at % 251) as u8).collect();
+            let mut b = a.clone();
+            // None, a few, or many pixels that differ.
+            let changes = match round % 4 {
+                0 => 0,
+                1 => 1,
+                2 => 1 + next(4),
+                _ => width as u32,
+            };
+            for _ in 0..changes {
+                let pixel = next(width as u32) as usize;
+                b[pixel * 4 + next(4) as usize] ^= 1 + next(200) as u8;
+            }
+            for join in [0, 1, 4, 20] {
+                let want = naive_runs(&a, &b, join);
+                assert_eq!(
+                    crate::pixel::diff_runs(&a, &b, join),
+                    want,
+                    "width {width}, round {round}, join {join}"
+                );
+            }
+        }
+    }
+}
+
+/// The runs of pixels, one at a time.
+fn naive_runs(a: &[u8], b: &[u8], join: u32) -> Vec<(u32, u32)> {
+    let mut runs: Vec<(u32, u32)> = Vec::new();
+    for (x, (p, q)) in a.chunks(4).zip(b.chunks(4)).enumerate() {
+        if p == q {
+            continue;
+        }
+        let x = x as u32;
+        match runs.last_mut() {
+            Some(last) if x < last.1 + join => last.1 = x + 1,
+            _ => runs.push((x, x + 1)),
+        }
+    }
+    runs
+}

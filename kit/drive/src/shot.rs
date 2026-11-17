@@ -14,7 +14,8 @@
 use pencere_sandbox::{Images, draw_figure};
 use pencere_view::{Color, DrawList, Paint, Rect, Role, Source};
 use tiny_skia::{
-    FillRule, Mask, Paint as Ink, PathBuilder, Pixmap, PixmapPaint, PixmapRef, Stroke, Transform,
+    FillRule, Mask, Paint as Ink, PathBuilder, Pixmap, PixmapMut, PixmapPaint, PixmapRef, Stroke,
+    Transform,
 };
 
 mod find;
@@ -191,6 +192,130 @@ impl Raster {
     }
 }
 
+/// The buffers a picture is drawn in, kept from one picture to the next: a frame that comes at the
+/// rate of keys is drawn in the memory the frame before it was, and asks the system for no picture's
+/// worth of fresh pages (which the system makes zero, and which the drawing then writes over). A
+/// buffer grows to the largest picture asked of it and stays. What a picture leaves in one is not
+/// what the next starts from: the rows are drawn over from the ground, and the mask is cleared where
+/// its last clip was.
+#[derive(Default)]
+pub struct Scratch {
+    /// The rows being drawn, four bytes a pixel.
+    pixels: Vec<u8>,
+    tools: Tools,
+    grown: u32,
+}
+
+impl Scratch {
+    /// Buffers with nothing in them yet.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The first `length` bytes of the buffer the rows are drawn in: for a picture drawn from its
+    /// top (`raster_rows_in` with a `top` of 0) in a `Scratch` of its own, which the bytes it
+    /// handed back are all of, and which is kept as it was drawn.
+    pub fn into_pixels(mut self, length: usize) -> Vec<u8> {
+        self.pixels.truncate(length);
+        self.pixels
+    }
+
+    /// How many times a buffer had to grow, to hold a picture larger than any before it: a picture
+    /// drawn in what the pictures before it were adds none.
+    pub fn grown(&self) -> u32 {
+        self.grown + self.tools.grown
+    }
+}
+
+/// What the drawing is cut through and what a soft shadow is made in: the buffers of a [`Scratch`]
+/// that are not the pixels.
+#[derive(Default)]
+struct Tools {
+    /// The mask the drawing is cut through: one byte a pixel, zero but where `inked` says.
+    mask: Option<Mask>,
+    /// The rectangle `mask` is the cut of.
+    clip: Option<[f32; 4]>,
+    /// The columns and rows (end excluded) `mask` is not zero in.
+    inked: Option<(usize, usize, usize, usize)>,
+    /// A shadow's silhouette as pixels, and the coverage of the silhouette and of the box itself.
+    under: Vec<u8>,
+    cover: Vec<f32>,
+    own: Vec<f32>,
+    grown: u32,
+}
+
+impl Tools {
+    /// The mask of `clip` for a picture of `size`: what is drawn through it is cut there. The one
+    /// buffer is cleared where its last clip was and written where this one is, and is as it was
+    /// where the clip is the same. `None` where the clip is no rectangle.
+    fn masked(&mut self, size: (u32, u32), clip: Rect) -> Option<&Mask> {
+        let rect = tiny_skia::Rect::from_xywh(clip.x, clip.y, clip.w, clip.h)?;
+        let (w, h) = (size.0 as usize, size.1 as usize);
+        if self.mask.as_ref().map(|mask| (mask.width(), mask.height())) != Some(size) {
+            let (mut bytes, across) = self.mask.take().map_or((Vec::new(), 0), |mask| {
+                let across = mask.width();
+                (mask.take(), across)
+            });
+            if across != size.0 {
+                // Rows of another width are not rows of this one: begin again from zero.
+                bytes.clear();
+                self.inked = None;
+            }
+            if bytes.capacity() < w * h {
+                self.grown += 1;
+            }
+            bytes.resize(w * h, 0);
+            self.mask = Some(Mask::from_vec(
+                bytes,
+                tiny_skia::IntSize::from_wh(size.0, size.1)?,
+            )?);
+            self.clip = None;
+        }
+        let mask = self.mask.as_mut()?;
+        let key = [clip.x, clip.y, clip.w, clip.h];
+        if self.clip != Some(key) {
+            if let Some((x0, y0, x1, y1)) = self.inked.take() {
+                let data = mask.data_mut();
+                for row in y0..y1.min(h) {
+                    if let Some(cells) = data.get_mut(row * w + x0..row * w + x1.min(w)) {
+                        cells.fill(0);
+                    }
+                }
+            }
+            mask.fill_path(
+                &PathBuilder::from_rect(rect),
+                FillRule::Winding,
+                false,
+                Transform::identity(),
+            );
+            // Where a fill of the rectangle can write: the pixels it covers and the rounding of its edges.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let inked = (
+                ((clip.x.floor() - 1.0).max(0.0) as usize).min(w),
+                ((clip.y.floor() - 1.0).max(0.0) as usize).min(h),
+                ((clip.right().ceil() + 1.0).max(0.0) as usize).min(w),
+                ((clip.bottom().ceil() + 1.0).max(0.0) as usize).min(h),
+            );
+            self.inked = Some(inked);
+            self.clip = Some(key);
+        }
+        self.mask.as_ref()
+    }
+}
+
+/// A mask of its own, of `clip`, for a picture of `size`: for a drawing that cuts it further.
+fn fresh_mask(size: (u32, u32), clip: Rect) -> Option<Mask> {
+    let mut mask = Mask::new(size.0, size.1)?;
+    let rect = tiny_skia::Rect::from_xywh(clip.x, clip.y, clip.w, clip.h)?;
+    mask.fill_path(
+        &PathBuilder::from_rect(rect),
+        FillRule::Winding,
+        false,
+        Transform::identity(),
+    );
+    Some(mask)
+}
+
 /// The draw list `list` of a view of `width` × `height` pixels drawn into pixels: as [`png`] draws
 /// them, before they are written as a file.
 ///
@@ -206,8 +331,19 @@ pub fn raster(
 ) -> Result<Raster, Error> {
     let (width, height) = size;
     let mut pixmap = Pixmap::new(width, height).ok_or(Error::Size(width, height))?;
-    ground(&mut pixmap, palette);
-    draw(&mut pixmap, list.items.iter(), fonts, images, palette);
+    let mut view = pixmap.as_mut();
+    ground(&mut view, palette);
+    #[allow(clippy::cast_precision_loss)]
+    let bounds = (width as f32, height as f32);
+    draw(
+        view,
+        bounds,
+        &mut Tools::default(),
+        list.items.iter(),
+        fonts,
+        images,
+        palette,
+    );
     Ok(Raster { pixmap })
 }
 
@@ -227,24 +363,68 @@ pub fn raster_rows(
     palette: Palette,
     (top, rows): (u32, u32),
 ) -> Result<Raster, Error> {
+    let width = size.0;
+    let rows = rows.min(size.1.saturating_sub(top));
+    let bytes = raster_rows_in(
+        &mut Scratch::new(),
+        list,
+        size,
+        fonts,
+        images,
+        palette,
+        (top, rows),
+        (0, 0),
+    )?
+    .to_vec();
+    Raster::from_rgba(width, rows, bytes).ok_or(Error::Size(width, rows))
+}
+
+/// The rows [`raster_rows`] draws, drawn in `scratch` and handed back where they were drawn, with no
+/// copy of them made: nothing is asked of the system once `scratch` has held rows as many. `margin`
+/// is how many pixels more there are at the right and at the foot of the rows than the picture has:
+/// the picture's last column is repeated into the first of them and its last row (and the margin of
+/// that row) into the second, as a terminal's window that is not a whole number of cells has the
+/// page's edge. The bytes are `width + right` pixels across and `rows + below` down, four bytes each.
+///
+/// # Errors
+///
+/// A picture of no pixels, or rows that are none of it.
+#[allow(clippy::too_many_arguments)]
+pub fn raster_rows_in<'a>(
+    scratch: &'a mut Scratch,
+    list: &DrawList,
+    size: (u32, u32),
+    fonts: &Fonts,
+    images: Option<&Images>,
+    palette: Palette,
+    (top, rows): (u32, u32),
+    (right, below): (u32, u32),
+) -> Result<&'a [u8], Error> {
     let (width, height) = size;
     let bottom = top.saturating_add(rows).min(height);
-    if bottom <= top {
+    if bottom <= top || width == 0 {
         return Err(Error::Size(width, rows));
     }
+    // What reaches the rows; the whole picture is every item.
+    let all = top == 0 && bottom >= height;
     #[allow(clippy::cast_precision_loss)]
-    let (above, below) = (top as f32, bottom as f32);
+    let (above, under) = (top as f32, bottom as f32);
     let reaching: Vec<(&Paint, (f32, f32))> = list
         .items
         .iter()
-        .filter_map(|item| reach(item, fonts).map(|rows| (item, rows)))
-        .filter(|(_, (first, last))| *first < below && *last > above)
+        .filter_map(|item| {
+            if all {
+                return Some((item, (above, under)));
+            }
+            reach(item, fonts).map(|rows| (item, rows))
+        })
+        .filter(|(_, (first, last))| *first < under && *last > above)
         .collect();
     // A shadow is blurred over the rows it reaches, cut at its clip, as a grid of them: the picture
     // has them all, so that it is blurred over the same grid as in the whole picture.
     let (mut from, mut to) = (top, bottom);
     for (item, (first, last)) in &reaching {
-        if matches!(item, Paint::Quad(quad) if quad.shadow.is_some()) {
+        if !all && matches!(item, Paint::Quad(quad) if quad.shadow.is_some()) {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             {
                 from = from.min(first.floor().max(0.0) as u32);
@@ -252,29 +432,77 @@ pub fn raster_rows(
             }
         }
     }
-    let mut pixmap = Pixmap::new(width, to - from).ok_or(Error::Size(width, to - from))?;
-    ground(&mut pixmap, palette);
-    #[allow(clippy::cast_precision_loss)]
-    let moved: Vec<Paint> = reaching
-        .iter()
-        .map(|(item, _)| shifted(item, -(from as f32)))
-        .collect();
-    draw(&mut pixmap, moved.iter(), fonts, images, palette);
-    let rect = tiny_skia::IntRect::from_xywh(
-        0,
-        i32::try_from(top - from).unwrap_or(0),
-        width,
-        bottom - top,
-    )
-    .ok_or(Error::Size(width, rows))?;
-    pixmap
-        .clone_rect(rect)
-        .map(|pixmap| Raster { pixmap })
-        .ok_or(Error::Size(width, rows))
+    // The rows drawn, and the rows the buffer holds: the margin at the foot is under the last kept.
+    let across = width.checked_add(right).ok_or(Error::Size(width, rows))?;
+    let kept = (bottom - top) as usize;
+    let first = (top - from) as usize;
+    let high = (to - from).max(bottom - from + below);
+    let row = across as usize * 4;
+    let len = row * high as usize;
+    if scratch.pixels.len() < len {
+        scratch.grown += 1;
+        scratch.pixels.resize(len, 0);
+    }
+    let Scratch { pixels, tools, .. } = scratch;
+    let all_rows = pixels.get_mut(..len).ok_or(Error::Size(across, high))?;
+    {
+        let mut view =
+            PixmapMut::from_bytes(&mut *all_rows, across, high).ok_or(Error::Size(across, high))?;
+        ground(&mut view, palette);
+        let moved: Vec<Paint>;
+        let items: Vec<&Paint> = if from == 0 {
+            reaching.iter().map(|(item, _)| *item).collect()
+        } else {
+            #[allow(clippy::cast_precision_loss)]
+            {
+                moved = reaching
+                    .iter()
+                    .map(|(item, _)| shifted(item, -(from as f32)))
+                    .collect();
+            }
+            moved.iter().collect()
+        };
+        // The shadows are blurred inside the picture the rows are of, not inside the margin.
+        #[allow(clippy::cast_precision_loss)]
+        let bounds = (width as f32, (to - from) as f32);
+        draw(
+            view,
+            bounds,
+            tools,
+            items.into_iter(),
+            fonts,
+            images,
+            palette,
+        );
+    }
+    // The margin: what was drawn there is not the page's edge, which is the last column and last row.
+    if right > 0 {
+        for at in first..first + kept {
+            let last = at * row + (width as usize - 1) * 4;
+            let Some(edge) = all_rows
+                .get(last..last + 4)
+                .and_then(|pixel| <[u8; 4]>::try_from(pixel).ok())
+            else {
+                continue;
+            };
+            if let Some(margin) = all_rows.get_mut(last + 4..(at + 1) * row) {
+                for pixel in margin.as_chunks_mut::<4>().0 {
+                    *pixel = edge;
+                }
+            }
+        }
+    }
+    let last = (first + kept - 1) * row;
+    for more in 1..=below as usize {
+        all_rows.copy_within(last..last + row, last + more * row);
+    }
+    all_rows
+        .get(first * row..(first + kept + below as usize) * row)
+        .ok_or(Error::Size(across, high))
 }
 
 /// The ground of `palette` under a picture.
-fn ground(pixmap: &mut Pixmap, palette: Palette) {
+fn ground(pixmap: &mut PixmapMut<'_>, palette: Palette) {
     let [r, g, b, _] = palette.role(Role::Background);
     if let Some(color) = tiny_skia::Color::from_rgba(r, g, b, 1.0) {
         pixmap.fill(color);
@@ -358,9 +586,13 @@ fn shifted(item: &Paint, dy: f32) -> Paint {
     }
 }
 
-/// `items` drawn into `pixmap`, in order.
+/// `items` drawn into `pixmap`, in order, what is cut through a mask or made in a buffer in `tools`;
+/// `bounds` is how far the picture goes (a shadow is blurred inside it), which the pixmap may be more
+/// than.
 fn draw<'a>(
-    pixmap: &mut Pixmap,
+    pixmap: PixmapMut<'_>,
+    bounds: (f32, f32),
+    tools: &mut Tools,
     items: impl Iterator<Item = &'a Paint>,
     fonts: &Fonts,
     images: Option<&Images>,
@@ -370,6 +602,8 @@ fn draw<'a>(
         pixmap,
         fonts,
         palette,
+        bounds,
+        tools,
     };
     for item in items {
         match item {
@@ -406,10 +640,13 @@ fn draw<'a>(
 }
 
 /// What a picture is drawn on, and with.
-struct Canvas<'a> {
-    pixmap: &'a mut Pixmap,
+struct Canvas<'a, 'b> {
+    pixmap: PixmapMut<'b>,
     fonts: &'a Fonts,
     palette: Palette,
+    /// How wide and how high the picture is that is drawn: what a shadow is blurred inside.
+    bounds: (f32, f32),
+    tools: &'a mut Tools,
 }
 
 /// Where two rectangles meet.
@@ -419,6 +656,35 @@ fn intersect(a: Rect, b: Rect) -> Option<Rect> {
     let right = (a.x + a.w).min(b.x + b.w);
     let bottom = (a.y + a.h).min(b.y + b.h);
     (right > x && bottom > y).then(|| Rect::new(x, y, right - x, bottom - y))
+}
+
+/// What `path` covers of a picture of `size`, from 0 to 1 a pixel, in `kept`; made in `under`, which
+/// is cleared first.
+fn coverage(
+    under: &mut Vec<u8>,
+    grown: &mut u32,
+    kept: &mut Vec<f32>,
+    size: (u32, u32),
+    path: &tiny_skia::Path,
+) -> Option<()> {
+    let bytes = size.0 as usize * size.1 as usize * 4;
+    if under.capacity() < bytes {
+        *grown += 1;
+    }
+    under.clear();
+    under.resize(bytes, 0);
+    let mut view = PixmapMut::from_bytes(under.as_mut_slice(), size.0, size.1)?;
+    let mut white = Ink::default();
+    white.set_color(tiny_skia::Color::WHITE);
+    white.anti_alias = true;
+    view.fill_path(path, &white, FillRule::Winding, Transform::identity(), None);
+    kept.clear();
+    kept.extend(
+        under
+            .chunks(4)
+            .map(|pixel| f32::from(pixel.get(3).copied().unwrap_or(0)) / 255.0),
+    );
+    Some(())
 }
 
 /// `rect` with its corners rounded by `radii` (top-left, top-right, bottom-right, bottom-left).
@@ -504,7 +770,7 @@ fn ink([r, g, b, a]: [f32; 4]) -> Ink<'static> {
     paint
 }
 
-impl Canvas<'_> {
+impl Canvas<'_, '_> {
     fn quad(&mut self, quad: &pencere_view::Quad) {
         // The shadow first: under the box, which it never shows through (and which a clip that
         // cuts the box away may leave the light of in).
@@ -520,14 +786,19 @@ impl Canvas<'_> {
         // The box's own corners, cut where its clip cuts it: a box a scrolled list half hides
         // keeps its corners where they are and is cut straight at the edge.
         let whole = shown == quad.rect;
+        let size = (self.pixmap.width(), self.pixmap.height());
         if let (Some(fill), Some(path)) = (fill, rounded(quad.rect, quad.radii)) {
-            let mask = if whole { None } else { self.mask(quad.clip) };
+            let mask = if whole {
+                None
+            } else {
+                self.tools.masked(size, quad.clip)
+            };
             self.pixmap.fill_path(
                 &path,
                 &ink(self.palette.resolve(fill)),
                 FillRule::Winding,
                 Transform::identity(),
-                mask.as_ref(),
+                mask,
             );
         }
         if let Some(border) = quad.border {
@@ -538,7 +809,7 @@ impl Canvas<'_> {
                 quad.rect.w - border.width,
                 quad.rect.h - border.width,
             );
-            let mask = self.mask(quad.clip);
+            let mask = self.tools.masked(size, quad.clip);
             if let Some(path) = rounded(inner, quad.radii) {
                 let stroke = Stroke {
                     width: border.width,
@@ -549,7 +820,7 @@ impl Canvas<'_> {
                     &ink(self.palette.resolve(border.color)),
                     &stroke,
                     Transform::identity(),
-                    mask.as_ref(),
+                    mask,
                 );
             }
         }
@@ -569,7 +840,7 @@ impl Canvas<'_> {
             quad.rect.h,
         );
         // The picture's pixels the shadow may reach, and the clip cuts: its work area.
-        let (width, height) = (self.pixmap.width() as f32, self.pixmap.height() as f32);
+        let (width, height) = self.bounds;
         let area = Rect::new(
             (moved.x - reach).min(quad.rect.x).floor(),
             (moved.y - reach).min(quad.rect.y).floor(),
@@ -591,46 +862,46 @@ impl Canvas<'_> {
             (work.bottom().ceil() - y0) as usize,
         );
         // The silhouette's coverage, then blurred; what the box covers, to leave out.
-        let paint = |rect: Rect, offset: (f32, f32)| -> Option<Vec<f32>> {
-            let mut under = Pixmap::new(u32::try_from(w).ok()?, u32::try_from(h).ok()?)?;
-            let path = rounded(
+        let (Ok(across), Ok(down)) = (u32::try_from(w), u32::try_from(h)) else {
+            return;
+        };
+        let (Some(moved_path), Some(own_path)) = (
+            rounded(
                 Rect::new(
-                    rect.x + offset.0 - x0,
-                    rect.y + offset.1 - y0,
-                    rect.w,
-                    rect.h,
+                    quad.rect.x + shadow.dx - x0,
+                    quad.rect.y + shadow.dy - y0,
+                    quad.rect.w,
+                    quad.rect.h,
                 ),
                 quad.radii,
-            )?;
-            let mut white = Ink::default();
-            white.set_color(tiny_skia::Color::WHITE);
-            white.anti_alias = true;
-            under.fill_path(
-                &path,
-                &white,
-                FillRule::Winding,
-                Transform::identity(),
-                None,
-            );
-            Some(
-                under
-                    .data()
-                    .chunks(4)
-                    .map(|pixel| f32::from(pixel.get(3).copied().unwrap_or(0)) / 255.0)
-                    .collect(),
-            )
-        };
-        let (Some(mut cover), Some(own)) = (
-            paint(quad.rect, (shadow.dx, shadow.dy)),
-            paint(quad.rect, (0.0, 0.0)),
+            ),
+            rounded(
+                Rect::new(quad.rect.x - x0, quad.rect.y - y0, quad.rect.w, quad.rect.h),
+                quad.radii,
+            ),
         ) else {
             return;
         };
-        for _ in 0..3 {
-            blur(&mut cover, (w, h), sigma);
+        let tools = &mut *self.tools;
+        for (path, kept) in [(&moved_path, &mut tools.cover), (&own_path, &mut tools.own)] {
+            if coverage(
+                &mut tools.under,
+                &mut tools.grown,
+                kept,
+                (across, down),
+                path,
+            )
+            .is_none()
+            {
+                return;
+            }
         }
+        for _ in 0..3 {
+            blur(&mut tools.cover, (w, h), sigma);
+        }
+        let (cover, own) = (&tools.cover, &tools.own);
+        let stride = self.pixmap.width() as usize;
         let pixels = self.pixmap.data_mut();
-        let stride = width as usize;
         for row in 0..h {
             for column in 0..w {
                 let (px, py) = (x0 as usize + column, y0 as usize + row);
@@ -661,19 +932,6 @@ impl Canvas<'_> {
                 }
             }
         }
-    }
-
-    /// A mask of `clip`: what is drawn through it is cut there.
-    fn mask(&self, clip: Rect) -> Option<Mask> {
-        let mut mask = Mask::new(self.pixmap.width(), self.pixmap.height())?;
-        let rect = tiny_skia::Rect::from_xywh(clip.x, clip.y, clip.w, clip.h)?;
-        mask.fill_path(
-            &PathBuilder::from_rect(rect),
-            FillRule::Winding,
-            false,
-            Transform::identity(),
-        );
-        Some(mask)
     }
 
     fn text(&mut self, run: &pencere_view::Run) {
@@ -920,8 +1178,9 @@ impl Canvas<'_> {
             let turned =
                 Transform::from_rotate_at(turn, rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
             // Nothing shows where the clip or the box is no room at all.
+            let size = (self.pixmap.width(), self.pixmap.height());
             let (Some(mut mask), Some(room)) = (
-                self.mask(clip),
+                fresh_mask(size, clip),
                 tiny_skia::Rect::from_xywh(rect.x, rect.y, rect.w, rect.h),
             ) else {
                 return;
@@ -949,12 +1208,13 @@ impl Canvas<'_> {
         let Some(shown) = intersect(rect, clip) else {
             return;
         };
-        let mask = self.mask(shown);
+        let size = (self.pixmap.width(), self.pixmap.height());
+        let mask = self.tools.masked(size, shown);
         let paint = PixmapPaint {
             opacity: opacity.clamp(0.0, 1.0),
             ..PixmapPaint::default()
         };
         self.pixmap
-            .draw_pixmap(0, 0, source, &paint, transform, mask.as_ref());
+            .draw_pixmap(0, 0, source, &paint, transform, mask);
     }
 }

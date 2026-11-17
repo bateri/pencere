@@ -14,6 +14,8 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
   large its cells are, and a multiplexer get the program's own fallback.
 - **Only what changed is sent.** The window is one picture; a key or a wheel turn sends the rectangles
   that changed, and a picture is sent once and then only placed.
+- **Frames are made in memory kept from one to the next.** The bands, their mask and the deflate's
+  state are not asked of the system again for each frame, and only the rectangles sent are copied.
 - **The page's keys.** A ⌘ key with a letter is `Ctrl+Shift` and the letter, and a sign that
   `Ctrl+Shift` makes is the character the terminal says it makes. The keyboard protocol is asked to
   report the keys with their alternates.

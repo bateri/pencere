@@ -1082,3 +1082,149 @@ fn rows_drawn_alone_are_the_rows_of_the_picture_drawn_whole() {
         }
     }
 }
+
+/// What `raster_rows_in` is to hand back for the rows `top`..`top + rows` of the picture `whole`: the
+/// rows, each with the page's last column repeated `right` times, and after the last of them its last
+/// row `below` times.
+fn with_edge(
+    whole: &crate::shot::Raster,
+    top: u32,
+    rows: u32,
+    (right, below): (u32, u32),
+) -> Vec<u8> {
+    let width = whole.width() as usize;
+    let mut out = Vec::new();
+    let mut last = Vec::new();
+    let lines = whole.rgba().chunks(width * 4);
+    for line in lines.skip(top as usize).take(rows as usize) {
+        last.clear();
+        last.extend_from_slice(line);
+        for _ in 0..right {
+            if let Some(edge) = line.last_chunk::<4>() {
+                last.extend_from_slice(edge);
+            }
+        }
+        out.extend_from_slice(&last);
+    }
+    for _ in 0..below {
+        out.extend_from_slice(&last);
+    }
+    out
+}
+
+/// Rows drawn one band after another in the same buffers are the rows the picture drawn whole has, with
+/// the page's edge at the right and at the foot, whatever the buffers held before: the mask of a clip, the
+/// rows of a band that was drawn higher, the margin. And once the buffers have been as large as the
+/// largest band they are not grown again.
+#[test]
+fn bands_drawn_in_the_same_buffers_are_the_rows_of_the_whole_with_the_pages_edge_past_them() {
+    let mut items = vec![Paint::Quad(Quad {
+        rect: Rect::new(0.0, 0.0, 400.0, 300.0),
+        radii: [0.0; 4],
+        fill: Some(Role::Background.solid()),
+        gradient: None,
+        border: None,
+        shadow: None,
+        clip: Rect::new(0.0, 0.0, 400.0, 300.0),
+    })];
+    items.extend(items_that_reach());
+    let list = DrawList { items };
+    let bands = [
+        (0, 20),
+        (80, 20),
+        (90, 13),
+        (100, 34),
+        (118, 34),
+        (151, 17),
+        (160, 40),
+        (190, 110),
+        (0, 300),
+        (299, 1),
+        (118, 34),
+        (0, 20),
+        (280, 20),
+    ];
+    for (which, fonts) in [
+        ("carried", Fonts::carried()),
+        ("installed", Fonts::installed()),
+    ] {
+        let whole =
+            crate::shot::raster(&list, (400, 300), &fonts, None, Palette::Dark).expect("a picture");
+        let mut scratch = crate::shot::Scratch::new();
+        let mut grown = None;
+        for pass in 0..2 {
+            for (top, rows) in bands {
+                let edge = (10, if top + rows >= 300 { 30 } else { 0 });
+                let got = crate::shot::raster_rows_in(
+                    &mut scratch,
+                    &list,
+                    (400, 300),
+                    &fonts,
+                    None,
+                    Palette::Dark,
+                    (top, rows),
+                    edge,
+                )
+                .expect("a band")
+                .to_vec();
+                let want = with_edge(&whole, top, rows, edge);
+                assert_eq!(
+                    got.len(),
+                    want.len(),
+                    "{which}: rows {top}+{rows}: the size"
+                );
+                let wrong = got
+                    .chunks(4)
+                    .zip(want.chunks(4))
+                    .filter(|(a, b)| a != b)
+                    .count();
+                assert_eq!(
+                    wrong, 0,
+                    "{which} pass {pass}: rows {top}+{rows} differ from the whole in {wrong} pixels"
+                );
+            }
+            if pass == 0 {
+                grown = Some(scratch.grown());
+            }
+        }
+        assert_eq!(
+            Some(scratch.grown()),
+            grown,
+            "{which}: the buffers are grown again by bands they have been as large as"
+        );
+    }
+}
+
+/// A clip far past the picture (more than a pixel count can say) leaves a mask that the next clip clears
+/// without a sum that overflows.
+#[test]
+fn a_clip_far_past_the_picture_is_cleared_for_the_next_clip() {
+    let boxed = |rect: Rect| {
+        Paint::Quad(Quad {
+            rect,
+            radii: [0.0; 4],
+            fill: None,
+            gradient: None,
+            border: Some(pencere_view::Border {
+                width: 2.0,
+                color: Role::Accent.solid(),
+            }),
+            shadow: None,
+            clip: rect,
+        })
+    };
+    let list = DrawList {
+        items: vec![
+            boxed(Rect::new(2.0e19, 5.0, 1.0e13, 100.0)),
+            boxed(Rect::new(4.0, 4.0, 20.0, 20.0)),
+        ],
+    };
+    let drawn = crate::shot::raster(&list, (40, 40), &Fonts::none(), None, Palette::Dark)
+        .expect("a picture");
+    let ground = drawn.rgba().get(39 * 160 + 39 * 4).copied();
+    assert_ne!(
+        drawn.rgba().get(4 * 160 + 4 * 4).copied(),
+        ground,
+        "the box"
+    );
+}

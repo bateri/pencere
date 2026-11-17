@@ -18,6 +18,8 @@
 //! (the scale is the one that makes a column of the page a column of the terminal), as it is in
 //! bateri.
 
+#[cfg(test)]
+mod alloc_count_tests;
 mod chord;
 mod chrome;
 #[cfg(test)]

@@ -15,7 +15,15 @@ fn sextet(n: u32, shift: u32) -> char {
 
 /// `bytes` as base64, padded.
 pub(crate) fn base64(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    let mut out = String::new();
+    base64_into(&mut out, bytes);
+    out
+}
+
+/// `bytes` as base64, padded, put at the end of `out`: where `out` is one kept from a frame to the
+/// next the text is made in what the frame before it was.
+pub(crate) fn base64_into(out: &mut String, bytes: &[u8]) {
+    out.reserve(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let mut n = 0_u32;
         for (i, byte) in chunk.iter().enumerate() {
@@ -26,7 +34,6 @@ pub(crate) fn base64(bytes: &[u8]) -> String {
         out.push(if chunk.len() > 1 { sextet(n, 6) } else { '=' });
         out.push(if chunk.len() > 2 { sextet(n, 0) } else { '=' });
     }
-    out
 }
 
 /// The sequences of an image's `data` (base64), in pieces the terminal takes: the first begins with

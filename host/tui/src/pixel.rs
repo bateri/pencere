@@ -18,7 +18,10 @@
 
 use std::fmt::Write as _;
 
-use pencere_drive::shot::{Fonts, Palette, raster, raster_rows, reach};
+use miniz_oxide::deflate::core::{
+    CompressorOxide, TDEFLFlush, TDEFLStatus, compress, create_comp_flags_from_zip_params,
+};
+use pencere_drive::shot::{Fonts, Palette, Scratch, raster_rows_in, reach};
 use pencere_sandbox::Images;
 use pencere_view::{DrawList, Family, Font, Measure, Paint, Role};
 
@@ -153,6 +156,71 @@ pub(crate) struct Pixel {
     edited: Option<u32>,
     /// The last frame had rows of the picture of that number copied.
     copied: Option<u32>,
+    /// The buffers the bands are drawn in, kept from frame to frame.
+    scratch: Scratch,
+    /// What the pixels are packed and written in, kept from frame to frame.
+    wire: Wire,
+}
+
+/// What the pixels of a frame are packed in, kept from one frame to the next: the deflate's state is
+/// as large as a picture's worth of pages, and a frame does not ask the system for it again for each
+/// rectangle it sends.
+pub(crate) struct Wire {
+    pub(crate) comp: CompressorOxide,
+    /// The packed pixels, as large as the largest pack of a rectangle.
+    pub(crate) deflated: Vec<u8>,
+    /// The base64 of what is sent.
+    encoded: String,
+    /// The pixels of a rectangle that is not as wide as the window, cut from its band.
+    cut: Vec<u8>,
+}
+
+impl Wire {
+    pub(crate) fn new() -> Self {
+        let flags = create_comp_flags_from_zip_params(i32::from(output::PACK_LEVEL), 1, 0);
+        Self {
+            comp: CompressorOxide::new(flags),
+            deflated: Vec::new(),
+            encoded: String::new(),
+            cut: Vec::new(),
+        }
+    }
+}
+
+/// `rgba` packed with zlib in `deflated`, how many bytes that is: where it is smaller than `rgba` is,
+/// and `None` where it is not. The pack is what `miniz_oxide::deflate::compress_to_vec_zlib` makes
+/// (the same level, and any zlib reader reads it as the pixels), with the state of `comp` and the
+/// buffer kept: the buffer grows to what a rectangle packs to, and no more.
+pub(crate) fn deflate(
+    comp: &mut CompressorOxide,
+    deflated: &mut Vec<u8>,
+    rgba: &[u8],
+) -> Option<usize> {
+    /// The least the buffer is, and so how much a rectangle that packs small asks for.
+    const LEAST: usize = 16 * 1024;
+    comp.reset();
+    if deflated.len() < LEAST {
+        deflated.resize(LEAST, 0);
+    }
+    let (mut input, mut at) = (rgba, 0);
+    loop {
+        let (status, taken, made) =
+            compress(comp, input, deflated.get_mut(at..)?, TDEFLFlush::Finish);
+        at += made;
+        input = input.get(taken..)?;
+        match status {
+            TDEFLStatus::Done => return (at < rgba.len()).then_some(at),
+            TDEFLStatus::Okay if at < rgba.len() => {
+                // More room: twice as much, and no more than the pixels are (the pack that is not
+                // smaller than they are is not sent).
+                if deflated.len() - at < 30 {
+                    let more = (deflated.len() * 2).min(rgba.len().max(LEAST));
+                    deflated.resize(more.max(deflated.len() + 30), 0);
+                }
+            }
+            _ => return None,
+        }
+    }
 }
 
 /// How many pixels a column of the kit's mono text is at a scale of one point to a pixel, as the
@@ -194,29 +262,6 @@ pub(crate) fn ground_of(palette: Palette) -> [u8; 3] {
     [red, green, blue].map(|channel| (channel.clamp(0.0, 1.0) * 255.0).round() as u8)
 }
 
-/// `pixels` (four bytes each, `width` across) with `right` columns more at the right and `below` rows
-/// more at the foot: the last column and the last row repeated into them.
-fn extend(pixels: &[u8], width: usize, right: usize, below: usize) -> Vec<u8> {
-    let row = width * 4;
-    if row == 0 || (right == 0 && below == 0) {
-        return pixels.to_vec();
-    }
-    let rows: Vec<&[u8]> = pixels.chunks_exact(row).collect();
-    let mut out = Vec::with_capacity((width + right) * (rows.len() + below) * 4);
-    for at in 0..rows.len() + below {
-        let Some(line) = rows.get(at).or(rows.last()) else {
-            break;
-        };
-        out.extend_from_slice(line);
-        if let Some(last) = line.rchunks_exact(4).next() {
-            for _ in 0..right {
-                out.extend_from_slice(last);
-            }
-        }
-    }
-    out
-}
-
 impl Pixel {
     /// The window of `cells` cells of `cell` pixels, in `fonts`, in the palette of the terminal's
     /// ground, for a terminal that answered as `found` says.
@@ -238,6 +283,8 @@ impl Pixel {
             laid: 0,
             edited: None,
             copied: None,
+            scratch: Scratch::new(),
+            wire: Wire::new(),
         }
     }
 
@@ -392,22 +439,33 @@ impl Pixel {
         images: Option<&Images>,
         written: &mut Written,
     ) {
-        let Ok(drawn) = raster(&frame.list, size, &self.fonts, images, self.palette) else {
+        // The window and the page's edge past it, drawn in buffers of their own: what is drawn is
+        // what the terminal holds, and is kept as it is (the buffers of the bands are not grown to
+        // the size of the window for it).
+        let mut fresh = Scratch::new();
+        let Ok(length) = raster_rows_in(
+            &mut fresh,
+            &frame.list,
+            size,
+            &self.fonts,
+            images,
+            self.palette,
+            (0, size.1),
+            self.cell,
+        )
+        .map(<[u8]>::len) else {
             return;
         };
+        let pixels = fresh.into_pixels(length);
         let past = self.extent();
-        let pixels = extend(
-            drawn.rgba(),
-            size.0 as usize,
-            self.cell.0 as usize,
-            self.cell.1 as usize,
-        );
         let id = self.number();
         let layer = self.next_layer();
         // At the window's corner, the cursor where it was.
         out.push_str("\x1b[H");
         let header = format!("a=T,f=32,s={},v={},i={id},z={layer},C=1", past.0, past.1);
-        transmit(out, &header, &pixels, self.packed, 1);
+        // Packed in a state of its own, which goes with the frame: the one the bands are sent with is
+        // not grown to the size of the window for a frame that comes once.
+        transmit(&mut Wire::new(), out, &header, &pixels, self.packed, 1);
         for old in self.held.drain(..) {
             output::free(out, old);
         }
@@ -443,32 +501,31 @@ impl Pixel {
         let width = past.0 as usize;
         // The rectangles a frame is sent as are shared by its bands.
         let most = (MOST_RECTS / runs.len().max(1)).max(2);
+        // The buffers are taken out of `self` while the bands are drawn in them and sent.
+        let mut scratch = std::mem::take(&mut self.scratch);
+        let mut cutting = std::mem::take(&mut self.wire.cut);
         for &(first, count) in runs {
             #[allow(clippy::cast_possible_truncation)]
             let (top, rows) = (
                 first as u32 * self.cell.1,
                 (count as u32 * self.cell.1).min(size.1.saturating_sub(first as u32 * self.cell.1)),
             );
-            let Ok(strip) = raster_rows(
+            // The band that reaches the foot of the window goes on to the foot of the picture, and
+            // every band to the page's edge at the right: drawn so, in the buffer, with no copy.
+            let below = if top + rows >= size.1 { self.cell.1 } else { 0 };
+            let Ok(pixels) = raster_rows_in(
+                &mut scratch,
                 &frame.list,
                 size,
                 &self.fonts,
                 images,
                 self.palette,
                 (top, rows),
+                (self.cell.0, below),
             ) else {
                 continue;
             };
-            // The band that reaches the foot of the window goes on to the foot of the picture.
-            let below = if top + rows >= size.1 { self.cell.1 } else { 0 };
             let rows = rows + below;
-            let strip = extend(
-                strip.rgba(),
-                size.0 as usize,
-                self.cell.0 as usize,
-                below as usize,
-            );
-            let pixels = strip.as_slice();
             written.bands.push((top, rows));
             if !self.edits {
                 // Over the window, in the row of cells it starts at.
@@ -477,7 +534,7 @@ impl Pixel {
                 let row = top / self.cell.1 + 1;
                 let _ = write!(out, "\x1b[{row};1H");
                 let header = format!("a=T,f=32,s={},v={rows},i={id},z={layer},C=1", past.0);
-                transmit(out, &header, pixels, self.packed, 1);
+                transmit(&mut self.wire, out, &header, pixels, self.packed, 1);
                 self.held.push(id);
                 self.laid += 1;
                 written.areas.push(Area {
@@ -486,7 +543,18 @@ impl Pixel {
                     w: past.0,
                     h: rows,
                 });
-                keep(&mut shown.held, width, top, pixels);
+                keep_area(
+                    &mut shown.held,
+                    width,
+                    top,
+                    pixels,
+                    Area {
+                        x: 0,
+                        y: top,
+                        w: past.0,
+                        h: rows,
+                    },
+                );
                 continue;
             }
             let areas = self.differing(&shown.held, pixels, past, top, rows, most);
@@ -503,17 +571,20 @@ impl Pixel {
                 areas
             };
             for area in areas {
-                let cut = cut(pixels, width, top, area);
+                let cut = cut(&mut cutting, pixels, width, top, area);
                 let header = format!(
                     "a=f,i={},r=1,x={},y={},s={},v={},f=32",
                     shown.id, area.x, area.y, area.w, area.h
                 );
-                transmit(out, &header, &cut, self.packed, 1);
+                transmit(&mut self.wire, out, &header, cut, self.packed, 1);
                 self.edited = Some(shown.id);
                 written.areas.push(area);
+                // What is not in a rectangle is what the terminal holds already.
+                keep_area(&mut shown.held, width, top, pixels, area);
             }
-            keep(&mut shown.held, width, top, pixels);
         }
+        self.scratch = scratch;
+        self.wire.cut = cutting;
     }
 
     /// The rectangles of the rows `top`..`top + rows` whose pixels are not what `held` has: the rows
@@ -711,16 +782,22 @@ fn runs_of(rows: &[bool]) -> Vec<(usize, usize)> {
 /// The sequences that give the terminal `rgba` (the pixels of a picture or of a part of one), under
 /// the keys `header`: packed with zlib where the terminal takes it and it is smaller so. `quiet`: `1`
 /// has the terminal answer only a refusal.
-fn transmit(out: &mut String, header: &str, rgba: &[u8], packed: bool, quiet: u8) {
-    if packed {
-        let deflated = miniz_oxide::deflate::compress_to_vec_zlib(rgba, output::PACK_LEVEL);
-        if deflated.len() < rgba.len() {
-            let header = format!("{header},o=z");
-            output::pieces_quiet(out, &header, &output::base64(&deflated), quiet);
-            return;
-        }
+fn transmit(wire: &mut Wire, out: &mut String, header: &str, rgba: &[u8], packed: bool, quiet: u8) {
+    let Wire {
+        comp,
+        deflated,
+        encoded,
+        ..
+    } = wire;
+    encoded.clear();
+    if packed && let Some(made) = deflate(comp, deflated, rgba) {
+        output::base64_into(encoded, deflated.get(..made).unwrap_or_default());
+        let header = format!("{header},o=z");
+        output::pieces_quiet(out, &header, encoded, quiet);
+        return;
     }
-    output::pieces_quiet(out, header, &output::base64(rgba), quiet);
+    output::base64_into(encoded, rgba);
+    output::pieces_quiet(out, header, encoded, quiet);
 }
 
 /// Where in each of the `rows` rows from `top` the pixels of `pixels` (a strip of those rows) are not
@@ -747,26 +824,51 @@ fn row_runs(
         .collect()
 }
 
-/// The runs of pixels, four bytes each, that `a` and `b` do not share.
-fn diff_runs(a: &[u8], b: &[u8], join: u32) -> Vec<(u32, u32)> {
+/// The runs of pixels, four bytes each, that `a` and `b` do not share. The pixels are compared sixteen
+/// at a time, and the blocks that are the same (most of a row, mostly) are passed over whole.
+pub(crate) fn diff_runs(a: &[u8], b: &[u8], join: u32) -> Vec<(u32, u32)> {
     let mut runs: Vec<(u32, u32)> = Vec::new();
     if a == b {
         return runs;
     }
-    for (x, (p, q)) in a
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .zip(b.as_chunks::<4>().0)
-        .enumerate()
-    {
-        if p == q {
-            continue;
-        }
+    let length = a.len().min(b.len());
+    let (Some(a), Some(b)) = (a.get(..length), b.get(..length)) else {
+        return runs;
+    };
+    let mut differ = |x: usize| {
         let x = u32::try_from(x).unwrap_or(u32::MAX);
         match runs.last_mut() {
             Some(last) if x < last.1.saturating_add(join) => last.1 = x + 1,
             _ => runs.push((x, x + 1)),
+        }
+    };
+    let ((blocks_a, tail_a), (blocks_b, tail_b)) = (a.as_chunks::<64>(), b.as_chunks::<64>());
+    for (n, (block_a, block_b)) in blocks_a.iter().zip(blocks_b).enumerate() {
+        if block_a == block_b {
+            continue;
+        }
+        for (at, (p, q)) in block_a
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(block_b.as_chunks::<4>().0)
+            .enumerate()
+        {
+            if p != q {
+                differ(n * 16 + at);
+            }
+        }
+    }
+    let first = blocks_a.len() * 16;
+    for (at, (p, q)) in tail_a
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(tail_b.as_chunks::<4>().0)
+        .enumerate()
+    {
+        if p != q {
+            differ(first + at);
         }
     }
     runs
@@ -903,11 +1005,19 @@ fn bounding(areas: &[Area]) -> Option<Area> {
     })
 }
 
-/// The pixels of `area` from a strip of rows (the first of them the row `top` of the window).
-fn cut(strip: &[u8], width: usize, top: u32, area: Area) -> Vec<u8> {
-    let mut out = Vec::with_capacity(area.w as usize * area.h as usize * 4);
-    for row in area.y..area.bottom() {
-        let from = ((row - top) as usize * width + area.x as usize) * 4;
+/// The pixels of `area` from a strip of rows (the first of them the row `top` of the window): the
+/// rows themselves where the rectangle is as wide as the strip, and else a cut of them made in `out`.
+fn cut<'a>(out: &'a mut Vec<u8>, strip: &'a [u8], width: usize, top: u32, area: Area) -> &'a [u8] {
+    let row = width * 4;
+    let first = (area.y - top) as usize;
+    if area.x == 0 && area.w as usize == width {
+        return strip
+            .get(first * row..(first + area.h as usize) * row)
+            .unwrap_or_default();
+    }
+    out.clear();
+    for line in first..first + area.h as usize {
+        let from = line * row + area.x as usize * 4;
         if let Some(pixels) = strip.get(from..from + area.w as usize * 4) {
             out.extend_from_slice(pixels);
         }
@@ -915,11 +1025,22 @@ fn cut(strip: &[u8], width: usize, top: u32, area: Area) -> Vec<u8> {
     out
 }
 
-/// The rows of a strip (the first of them the row `top` of the window) put in what is kept of it.
-fn keep(held: &mut [u8], width: usize, top: u32, strip: &[u8]) {
-    let from = top as usize * width * 4;
-    if let Some(rows) = held.get_mut(from..from + strip.len()) {
-        rows.copy_from_slice(strip);
+/// The pixels of `area` from a strip of rows (the first of them the row `top` of the window) put in
+/// what is kept of the window: the rectangle that was sent.
+fn keep_area(held: &mut [u8], width: usize, top: u32, strip: &[u8], area: Area) {
+    let row = width * 4;
+    for line in area.y..area.bottom() {
+        let (from, to) = (
+            (line - top) as usize * row + area.x as usize * 4,
+            line as usize * row + area.x as usize * 4,
+        );
+        let length = area.w as usize * 4;
+        if let (Some(pixels), Some(kept)) = (
+            strip.get(from..from + length),
+            held.get_mut(to..to + length),
+        ) {
+            kept.copy_from_slice(pixels);
+        }
     }
 }
 
