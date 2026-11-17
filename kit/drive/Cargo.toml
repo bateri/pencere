@@ -44,5 +44,11 @@ fontdue = { version = "0.9", optional = true, default-features = false, features
 shot = ["dep:tiny-skia", "dep:fontdue"]
 program = ["dep:pencere"]
 
+# Pictures of the page scripts of a directory in a dark and a light theme, for a site: the
+# kit's elements and components as the drive draws them (`examples/shots.rs`).
+[[example]]
+name = "shots"
+required-features = ["shot"]
+
 [lints]
 workspace = true

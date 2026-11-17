@@ -8,6 +8,12 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Added
 
+- **Pictures of a directory of pages** (the example `shots`, with the feature `shot`): every page
+  script of a directory is pictured in a dark terminal's colours and in a light one's, after what
+  its own lines that start with `--@` say is done to it (its size, a click, a key, what is typed),
+  and `shots.json` says the size of each. It is what the site's pictures of the kit are made with
+  (`site/shots.sh`). `Headless::images()` is the page's pictures, decoded, which a picture of its
+  draw list is drawn with, and `Headless::field_of(id)` is what a host's field holds, by its id.
 - **A drag out of the view, and the view's text size**: a host that says it carries
   (`Page::set_carry(true)`) is given, in the `input` that moved the pointer, the system's drag of
   what an element says it carries: pressed on it with the main button and moved `DRAG_START` points

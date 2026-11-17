@@ -15,4 +15,7 @@ npm run build      # dist/, after the site and the repository are checked agains
 A push to `main` builds and deploys it (Cloudflare's own build, with this directory as its root;
 `wrangler.jsonc`), and the `site` workflow builds it on every push and pull request.
 
+The pictures of the elements and the components (`public/shots/`) are made by `shots.sh` from the
+page scripts under `demos/`, with the drive's example `shots`.
+
 The site is under the repository's licence, but for the footage of its first scene: [NOTICE](NOTICE).
