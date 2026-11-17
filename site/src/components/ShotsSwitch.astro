@@ -1,0 +1,24 @@
+---
+// Shows the pictures of the part `for` names in a dark terminal's colours or a light one's: the kit
+// draws a page in the theme of the terminal it is in. It starts dark, as the site is.
+interface Props {
+  for: string;
+}
+const { for: target } = Astro.props;
+---
+<div class="segmented" role="group" aria-label="The terminal's theme" data-shots-switch={target}>
+  <button type="button" data-value="dark" aria-pressed="false">Dark terminal</button>
+  <button type="button" data-value="light" aria-pressed="false">Light terminal</button>
+</div>
+<script>
+  for (const group of document.querySelectorAll<HTMLElement>("[data-shots-switch]")) {
+    const target = document.getElementById(group.dataset.shotsSwitch ?? "");
+    const buttons = [...group.querySelectorAll<HTMLButtonElement>("button")];
+    const show = (value: string) => {
+      target?.setAttribute("data-shots", value);
+      for (const button of buttons) button.setAttribute("aria-pressed", String(button.dataset.value === value));
+    };
+    show("dark");
+    for (const button of buttons) button.addEventListener("click", () => show(button.dataset.value ?? "dark"));
+  }
+</script>

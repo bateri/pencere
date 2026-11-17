@@ -1,0 +1,158 @@
+/* What every page of the site shares: the ground, the two families of type and the colours of the
+   home page's first scene, the navigation and the footer. One family for words, one for code; the
+   only colour is the warmth of the scene's light. The site is dark and has no other theme. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+:root {
+  --ground: #040404;
+  --ink: #f3f3f1;
+  --soft: #c4c4c0;
+  --muted: #9c9c98;
+  --line: rgb(243 243 241 / 0.12);
+  --sheet: #0d0d0c;
+  --warm: #e2cfa8;
+  --font: "Instrument Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --mono: "JetBrains Mono Variable", ui-monospace, monospace;
+  /* The width of a paragraph: about seventy characters of the reading text. */
+  --measure: 36rem;
+  --gutter: clamp(20px, 4.4vw, 64px);
+  /* The page's sides: the column of the site, or the gutter where the screen is narrower than that.
+     The home page's first scene alone runs edge to edge. */
+  --side: max(var(--gutter), (100% - 1180px) / 2);
+
+  --code-foreground: #d8d9dd;
+  --code-background: transparent;
+  /* A comment is read as words are: six to one on the block's ground. */
+  --code-token-comment: #8d9199;
+  --code-token-string: #a9c29a;
+  --code-token-string-expression: #a9c29a;
+  --code-token-constant: #8fbcbc;
+  --code-token-keyword: #d9bd84;
+  --code-token-parameter: #d8d9dd;
+  --code-token-function: #9db5d6;
+  --code-token-punctuation: #909093;
+  --code-token-link: #9db5d6;
+
+  color-scheme: dark;
+}
+
+.skip {
+  position: absolute;
+  left: -9999px;
+}
+.skip:focus {
+  left: 16px;
+  top: 16px;
+  z-index: 10;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: #111;
+}
+
+/* Astro's own toolbar, while the site is written: it lay on the scene's lower edge. */
+astro-dev-toolbar {
+  display: none !important;
+}
+
+/* The navigation. On the home page it lies over the scene, at the scene's gutter; on every other
+   page it stands in the page's column. */
+.hn {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  height: 72px;
+  padding: 0 var(--gutter);
+}
+.hn__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+.hn__brand svg {
+  width: 15px;
+  height: 20px;
+}
+.hn__links {
+  display: flex;
+  gap: clamp(16px, 2.4vw, 32px);
+  font-size: 14.5px;
+}
+.hn__links a {
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+.hn__links a:hover {
+  color: var(--ink);
+}
+/* On a narrow screen the three a reader comes for stay: Start, Docs and Specification. */
+@media (max-width: 640px) {
+  .hn__wide {
+    display: none;
+  }
+  .hn {
+    height: 60px;
+  }
+}
+.hn__links a[aria-current="page"] {
+  color: var(--ink);
+}
+.hn--column {
+  padding: 0 var(--side);
+  justify-content: flex-start;
+  gap: clamp(28px, 4vw, 56px);
+}
+
+.hf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 32px;
+  margin-top: clamp(96px, 13vw, 184px);
+  padding: 28px var(--side) 36px;
+  border-top: 1px solid var(--line);
+  font-size: 14.5px;
+  color: var(--muted);
+}
+.hf p {
+  margin: 0;
+  flex: 1;
+  min-width: 14rem;
+}
+.hf nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+.hf nav a {
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+.hf nav a:hover {
+  color: var(--ink);
+}
+.hf .hn__brand {
+  color: var(--ink);
+}

@@ -1,0 +1,56 @@
+---
+import Base from "./Base.astro";
+import DocsMenu from "../components/DocsMenu.astro";
+import catalog from "../data/catalog.json";
+
+interface Props {
+  title: string;
+  description: string;
+  path: string;
+}
+const { title, description, path } = Astro.props;
+const groups = catalog.groups.map((group) => ({
+  group,
+  components: catalog.components.filter((component) => component.group === group),
+}));
+const current = (href: string) => (path === href ? "page" : undefined);
+// The components are listed under the menu on their own pages alone: on the kit's other pages their
+// twenty-four names would stand beside the kit's seven as if they were its parts too.
+const components = path === "kit/components" || path.startsWith("kit/components/");
+---
+<Base title={title} description={description} path={path}>
+  <div class="wrap kit">
+    <aside class:list={["side", { "side--whole": components }]} aria-label="Documentation">
+      <DocsMenu path={path} />
+      {
+        components && (
+          <div class="side__groups">
+            {
+              groups.map(({ group, components }) => (
+                <>
+                  <h3>{group}</h3>
+                  <ul>
+                    {components.map((component) => (
+                      <li>
+                        <a
+                          href={`/kit/components/${component.name}`}
+                          class:list={{ host: component.host }}
+                          aria-current={current(`kit/components/${component.name}`)}
+                        >
+                          {component.name}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ))
+            }
+          </div>
+        )
+      }
+    </aside>
+    <article class="doc">
+      <slot />
+    </article>
+  </div>
+</Base>

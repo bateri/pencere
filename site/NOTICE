@@ -1,0 +1,15 @@
+pencere site
+Copyright 2026 The pencere Authors
+
+The site is under the Apache License, Version 2.0, as the repository is (../LICENSE), but for the
+footage of its first scene:
+
+  public/scene/leaves.mp4
+  public/scene/leaves.jpg
+    From "Plant shadow on a wall" by Karolina Grabowska,
+    https://www.pexels.com/video/plant-shadow-on-a-wall-4238473/
+    Used under the Pexels License, https://www.pexels.com/license/
+    Changed: made grey, its contrast raised, cut to a loop.
+    The Pexels License is not an open licence: it does not allow selling
+    unaltered copies of the footage, or redistributing it on stock or
+    wallpaper platforms.

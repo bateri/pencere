@@ -1,0 +1,89 @@
+---
+import Kit from "../../../layouts/Kit.astro";
+import CodeBlock from "../../../components/CodeBlock.astro";
+import Shot from "../../../components/Shot.astro";
+import catalog from "../../../data/catalog.json";
+import { REPO } from "../../../lib/code.js";
+
+export function getStaticPaths() {
+  return catalog.components.map((component, index) => ({
+    params: { name: component.name },
+    props: { index },
+  }));
+}
+
+const { index } = Astro.props;
+const component = catalog.components[index];
+const before = catalog.components[index - 1];
+const after = catalog.components[index + 1];
+const plain = component.summary.replace(/<[^>]+>/g, "");
+---
+<Kit title={`${component.name}: the pencere kit`} description={plain} path={`kit/components/${component.name}`}>
+  <header>
+    <p class="crumbs"><a href="/kit/components">Components</a> / {component.group}</p>
+    <h1><code>u:{component.name}</code></h1>
+    <p class="lead" set:html={component.summary} />
+  </header>
+
+  {
+    component.demo ? (
+      <div class="stage">
+        <Shot name={`components/${component.name}`} width={component.demo.width} height={component.demo.height} alt={plain} eager />
+      </div>
+    ) : (
+      <p class="notice">
+        The terminal draws this one: the page asks for it in its reply, and the menu the person sees is the system's own,
+        with its keys and its looks.
+      </p>
+    )
+  }
+
+  {
+    component.demo && (
+      <>
+        <h2>The code</h2>
+        <CodeBlock code={component.demo.code} />
+      </>
+    )
+  }
+
+  <h2>What it does</h2>
+  <div class="prose">
+    {component.doc.map((paragraph) => <p set:html={paragraph} />)}
+    {
+      component.source && (
+        <p>
+          <a href={`${REPO}/blob/main/${component.source.file}#L${component.source.line}`}>
+            {component.source.file}, line {component.source.line}
+          </a>
+        </p>
+      )
+    }
+  </div>
+
+  {
+    component.icon && (
+      <>
+        <h2>Its icon</h2>
+        <div class="prose">
+          <p set:html={catalog.icon} />
+        </div>
+      </>
+    )
+  }
+
+  <nav class="pager" aria-label="Components">
+    {before ? (
+      <a href={`/kit/components/${before.name}`}>
+        <span>Before</span>
+        <code>{before.name}</code>
+      </a>
+    ) : <span />}
+    {after && (
+      <a href={`/kit/components/${after.name}`}>
+        <span>Next</span>
+        <code>{after.name}</code>
+      </a>
+    )}
+  </nav>
+</Kit>

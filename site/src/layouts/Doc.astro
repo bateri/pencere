@@ -1,0 +1,224 @@
+---
+// A document of the repository as a page: the document in a narrow column, and beside it the list
+// of its sections, which follows the page. What the page is, and which file it shows, is its line
+// in the site's map (src/docs.js); the Markdown is read when the site is built.
+import Base from "./Base.astro";
+import Numbered from "../components/Numbered.astro";
+import DocsMenu from "../components/DocsMenu.astro";
+import { REPO } from "../lib/code.js";
+
+interface Props {
+  /** The page's line in the map. */
+  page: {
+    path: string;
+    words: string;
+    source: string;
+    title: string;
+    description: string;
+    area?: string;
+    sections?: string[];
+    opening?: boolean;
+    heading?: string;
+    alone?: boolean;
+    note?: string;
+    crumbs?: [string, string][];
+  };
+  headings: { depth: number; slug: string; text: string }[];
+}
+const { page, headings } = Astro.props;
+const { title, description, path, words: name, source, note = "", crumbs = [], heading, sections: only, opening = true } = page;
+// A page of the documentation has its menu over the list of the sections.
+const docs = !page.alone;
+
+// A heading's number and its title, apart: "9. Messages and the bridge of a page", "9.2 The six messages".
+const apart = (text: string) => {
+  const found = text.match(/^(Appendix [A-Z]|\d+(?:\.\d+)*)\.?\s+(.*)$/);
+  return { number: found ? found[1].replace("Appendix ", "") : "", title: found ? found[2] : text };
+};
+// The sections, each with the sections inside it.
+type Section = { slug: string; number: string; title: string; inside: Section[] };
+const sections: Section[] = [];
+let shown = true;
+for (const entry of headings) {
+  // Of a part of a document, the sections that are shown and what is inside them.
+  if (entry.depth === 2) shown = !only || only.includes(entry.slug);
+  if (!shown || entry.depth < 2) continue;
+  const section = { slug: entry.slug, ...apart(entry.text), inside: [] };
+  if (entry.depth === 2) sections.push(section);
+  else if (entry.depth === 3) sections.at(-1)?.inside.push(section);
+  // A part of a section inside a section (the modules of the kit's library): no number, its name alone.
+  else if (entry.depth === 4) sections.at(-1)?.inside.at(-1)?.inside.push({ ...section, number: "", title: entry.text });
+}
+const numbered = sections.some((section) => section.number);
+// A document of one section has nothing to list beside it.
+const listed = sections.length > 1;
+---
+<Base title={title} description={description} path={path}>
+  <div class="wrap kit kit--spec">
+    <aside class:list={["side", "spec__side", { "spec__side--alone": !docs }]} aria-label={docs ? "Documentation, and the sections of this page" : "Sections"}>
+      {docs && <DocsMenu path={path} />}
+      {listed && <h2 class="spec__name">{docs ? "On this page" : name}</h2>}
+      <div class="side__scroll" hidden={!listed}>
+        <ol class:list={["spec__list", { "spec__list--plain": !numbered }]}>
+          <li class="spec__mark" aria-hidden="true"></li>
+          {
+            sections.map((section) => (
+              <li>
+                <a href={`#${section.slug}`}>{numbered && <span>{section.number}</span>}{section.title}</a>
+                {section.inside.length > 0 && (
+                  <div class="spec__inside">
+                    <ol>
+                      {
+                        section.inside.map((inner) => (
+                          <li>
+                            <a href={`#${inner.slug}`}>{numbered && <span>{inner.number}</span>}{inner.title}</a>
+                            {inner.inside.length > 0 && (
+                              <div class="spec__inside spec__inside--parts">
+                                <ol>
+                                  {inner.inside.map((part) => <li><a href={`#${part.slug}`}>{part.title}</a></li>)}
+                                </ol>
+                              </div>
+                            )}
+                          </li>
+                        ))
+                      }
+                    </ol>
+                  </div>
+                )}
+              </li>
+            ))
+          }
+        </ol>
+      </div>
+    </aside>
+    <article class:list={["doc", "spec", { "spec--titled": heading }]}>
+      {crumbs.length > 0 && <p class="crumbs">{crumbs.map(([words, address], i) => <>{i > 0 && " / "}<a href={address}>{words}</a></>)}</p>}
+      {heading && <h1>{heading}</h1>}
+      <Numbered source={source} path={path} keep={only} opening={opening}><slot /></Numbered>
+      <p class="spec__said" role="status" aria-live="polite"></p>
+      <p class="spec__source">
+        This page is {only ? "a part of " : ""}<a href={`${REPO}/blob/main/${source}`}>{source}</a> of the repository{note}.
+      </p>
+    </article>
+  </div>
+</Base>
+
+<script>
+  // A heading's link copies the address of its section, and goes there as a link does. For a moment
+  // the link shows a tick in place of its chain, and the page says so to a screen reader. Where the
+  // browser will not let a page write to the clipboard nothing is claimed: the link has still gone
+  // to the heading, and the address is in the browser's bar.
+  const said = document.querySelector<HTMLElement>(".spec__said");
+  const copied = new WeakMap<Element, number>();
+  for (const anchor of document.querySelectorAll<HTMLAnchorElement>(".spec .anchor")) {
+    anchor.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(new URL(anchor.hash, location.href).href);
+      } catch {
+        return;
+      }
+      anchor.classList.add("is-copied");
+      if (said) said.textContent = "Link copied";
+      clearTimeout(copied.get(anchor));
+      copied.set(
+        anchor,
+        window.setTimeout(() => {
+          anchor.classList.remove("is-copied");
+          if (said) said.textContent = "";
+        }, 1600),
+      );
+    });
+  }
+
+  // The list beside the document follows the page: the section that is being read is marked in it,
+  // and the sections inside that one open under it. The section being read is the last whose
+  // heading has passed a line near the top of the window. A mark on the list's rail goes to the
+  // line that is being read; it is moved here, a little each frame, because the lines of the list
+  // are themselves moving while a section opens and another closes.
+  const side = document.querySelector<HTMLElement>(".spec__side");
+  const list = side?.querySelector<HTMLElement>(".spec__list");
+  // What scrolls is the list alone: the kit's menu over it stays where it is.
+  const scroller = side?.querySelector<HTMLElement>(".side__scroll");
+  const mark = side?.querySelector<HTMLElement>(".spec__mark");
+  const links = new Map<string, HTMLAnchorElement>();
+  for (const link of list?.querySelectorAll<HTMLAnchorElement>("a[href^='#']") ?? []) links.set(decodeURIComponent(link.hash.slice(1)), link);
+  const headings = [...document.querySelectorAll<HTMLElement>(".spec :is(h2, h3, h4)[id]")].filter((heading) => links.has(heading.id));
+  if (side && list && scroller && mark && headings.length) {
+    const still = matchMedia("(prefers-reduced-motion: reduce)");
+    const LINE = 96;
+    let tops: number[] = [];
+    const measure = () => (tops = headings.map((heading) => heading.getBoundingClientRect().top + scrollY));
+
+    // The mark: where it is, and the line it is going to.
+    let here: HTMLAnchorElement | null = null;
+    let y = 0, tall = 0, shown = false, moving = 0, until = 0;
+    const place = (now: number) => {
+      moving = 0;
+      if (!here) return;
+      const box = here.getBoundingClientRect(), frame = list.getBoundingClientRect();
+      const toY = box.top - frame.top + 5, toTall = box.height - 10;
+      const ease = still.matches || !shown ? 1 : 0.24;
+      y += (toY - y) * ease;
+      tall += (toTall - tall) * ease;
+      shown = true;
+      mark.style.transform = `translateY(${y.toFixed(2)}px)`;
+      mark.style.height = `${tall.toFixed(2)}px`;
+      mark.style.opacity = "1";
+      if (now < until || Math.abs(toY - y) > 0.3 || Math.abs(toTall - tall) > 0.3) moving = requestAnimationFrame(place);
+    };
+    const go = () => {
+      // The lines of the list go on moving for as long as a section takes to open.
+      until = performance.now() + 420;
+      if (!moving) moving = requestAnimationFrame(place);
+    };
+
+    let last: string | null = null;
+    const follow = () => {
+      // Binary search: the last heading above the line.
+      let low = 0, high = tops.length - 1, at = -1;
+      const line = scrollY + LINE;
+      while (low <= high) {
+        const middle = (low + high) >> 1;
+        if (tops[middle] <= line) (at = middle), (low = middle + 1);
+        else high = middle - 1;
+      }
+      const id = at < 0 ? "" : headings[at].id;
+      if (id === last) return;
+      last = id;
+      for (const el of list.querySelectorAll(".is-here, .is-open")) el.classList.remove("is-here", "is-open");
+      const link = links.get(id) ?? null;
+      here = link;
+      if (!link) {
+        mark.style.opacity = "0";
+        shown = false;
+        return;
+      }
+      // The line of the heading, and every line it is inside: each is marked, and each is open.
+      for (let item = link.closest("li"); item && list.contains(item); item = item.parentElement?.closest("li") ?? null) {
+        item.classList.add("is-open");
+        item.querySelector(":scope > a")?.classList.add("is-here");
+      }
+      go();
+      // Keep the line in sight in the list, where the list is longer than the window.
+      // (At the top of the page the list's own end is below the window's: what is in sight ends there.)
+      const box = link.getBoundingClientRect(), frame = scroller.getBoundingClientRect();
+      const end = Math.min(frame.bottom, innerHeight);
+      if (box.top < frame.top + 40 || box.bottom > end - 40) {
+        scroller.scrollTo({ top: scroller.scrollTop + box.top - frame.top - (end - frame.top) / 3, behavior: still.matches ? "auto" : "smooth" });
+      }
+    };
+    let waiting = false;
+    addEventListener(
+      "scroll",
+      () => {
+        if (waiting) return;
+        waiting = true;
+        requestAnimationFrame(() => ((waiting = false), follow()));
+      },
+      { passive: true },
+    );
+    new ResizeObserver(() => (measure(), follow(), go())).observe(document.querySelector(".spec")!);
+    measure();
+    follow();
+  }
+</script>

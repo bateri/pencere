@@ -1,0 +1,20 @@
+---
+import { INSTALL } from "../lib/code.js";
+---
+<div class="install">
+  <code>{INSTALL}</code>
+  <button type="button" data-copy={INSTALL}>Copy</button>
+</div>
+<script>
+  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-copy]")) {
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.copy ?? "");
+        button.textContent = "Copied";
+        setTimeout(() => (button.textContent = "Copy"), 1600);
+      } catch {
+        button.textContent = "Select it";
+      }
+    });
+  }
+</script>

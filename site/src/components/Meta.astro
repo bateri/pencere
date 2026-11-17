@@ -1,0 +1,23 @@
+---
+// What a page says of itself to whatever reads it without drawing it: a search engine, a place
+// where its address is shared. The same on every page; the picture is the home page's first scene.
+interface Props {
+  title: string;
+  description: string;
+  /** The page's address in the site, without the slash it begins with; none: the home page. */
+  path?: string;
+}
+const { title, description, path = "" } = Astro.props;
+const address = new URL(`/${path}`, Astro.site).href;
+const picture = new URL("/og.png", Astro.site).href;
+---
+<link rel="canonical" href={address} />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="pencere" />
+<meta property="og:title" content={title} />
+<meta property="og:description" content={description} />
+<meta property="og:url" content={address} />
+<meta property="og:image" content={picture} />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />

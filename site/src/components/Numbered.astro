@@ -1,0 +1,82 @@
+---
+// A document of the repository, shown on the site. Three things are done to it, and nothing else of
+// what is inside is touched; a heading's id and its text stay what they were.
+//
+// A numbered heading has its number set apart from its title, so that a page can set the two
+// differently: "9.2 The six messages" becomes a span of class num, "9.2", and the title.
+//
+// Every heading is given a link to itself, after its title: without a script the link goes to the
+// heading, so the address can be taken from the browser; the page's script also copies the address
+// and shows, in the link's own place, that it did (the link's two pictures: a chain, and a tick).
+//
+// A link to another file of the repository goes where that file is: to its page of the site when it
+// has one (src/docs.js), and to the repository otherwise.
+import { posix } from "node:path";
+import { REPO } from "../lib/code.js";
+import { router } from "../lib/documents.js";
+
+interface Props {
+  /** The document's file in the repository ("cli/README.md"), and the address of the page it is shown on. */
+  source: string;
+  path: string;
+  /** The sections to show, by the ids of their headings; none: the whole document. */
+  keep?: string[];
+  /** With `keep`: whether what the document says before its first section is shown too. */
+  opening?: boolean;
+}
+const { source, path, keep, opening = true } = Astro.props;
+const at = posix.dirname(source) === "." ? "" : posix.dirname(source);
+const BLOB = `${REPO}/blob/main/`;
+// A link to a file of the repository goes to the page that shows it, and a link to a heading to
+// the page that heading is on: a document shown in parts has its sections on more than one page,
+// and a link inside it to one of its own headings may lead to another of them.
+const page = await router();
+const here = `/${path}`;
+const where = (href: string) => {
+  if (href.startsWith("mailto:")) return href;
+  let file: string;
+  if (href.startsWith("#")) file = source + href;
+  else if (href.startsWith(BLOB)) file = href.slice(BLOB.length);
+  else if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith("//")) return href;
+  else file = posix.normalize(posix.join(at, href));
+  const [name, hash = ""] = file.split("#");
+  // A directory is named for its README.
+  const found = page(name, hash) ?? (/\.[a-z]+$/i.test(name) ? undefined : page(`${name.replace(/\/$/, "")}/README.md`, hash));
+  if (found) return found.startsWith(`${here}#`) ? found.slice(here.length) : found;
+  if (href.startsWith("#")) return href;
+  return href.startsWith(BLOB) ? href : `${BLOB}${name}${hash ? `#${hash}` : ""}`;
+};
+// A page may be a part of a document: some of its sections, in the document's order. A section
+// that is asked for and is not in the document stops the build, so that a page cannot go on
+// showing less than it says when the document's headings change.
+const whole = await Astro.slots.render("default");
+const part = () => {
+  const [before, ...sections] = whole.split(/(?=<h2[ >])/);
+  const found = new Set<string>();
+  const kept = sections.filter((section) => {
+    const id = section.match(/^<h2 id="([^"]*)"/)?.[1] ?? "";
+    if (keep!.includes(id)) found.add(id);
+    return keep!.includes(id);
+  });
+  const missing = keep!.filter((id) => !found.has(id));
+  if (missing.length) throw new Error(`${source} has no section ${missing.join(", ")}.`);
+  return (opening ? before : "") + kept.join("");
+};
+const html = keep ? part() : whole;
+const picture = (d: string, name: string) =>
+  `<svg class="anchor__${name}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
+const CHAIN = "M6.9 9.1a2.9 2.9 0 0 0 4.1 0l2.2-2.2a2.9 2.9 0 0 0-4.1-4.1l-.9.9M9.1 6.9a2.9 2.9 0 0 0-4.1 0L2.8 9.1a2.9 2.9 0 0 0 4.1 4.1l.9-.9";
+const TICK = "M3.2 8.4l3.1 3.1 6.5-7";
+const numbered = html
+  .replace(
+    /<(h[2-4])( id="[^"]*")?>(Appendix [A-Z]|\d+(?:\.\d+)*)(\.?)\s+/g,
+    (_, tag, id = "", number, dot) => `<${tag}${id}><span class="num">${number}${dot ? `<span class="num__dot">${dot}</span>` : ""}</span> `,
+  )
+  .replace(/<a href="([^"]*)"/g, (_, href) => `<a href="${where(href)}"`)
+  .replace(
+    /<(h[2-4]) id="([^"]*)">([\s\S]*?)<\/\1>/g,
+    (_, tag, id, inside) =>
+      `<${tag} id="${id}">${inside}<a class="anchor" href="#${id}" aria-label="Copy a link to this section">${picture(CHAIN, "chain")}${picture(TICK, "tick")}</a></${tag}>`,
+  );
+---
+<Fragment set:html={numbered} />

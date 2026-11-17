@@ -1,0 +1,475 @@
+/* A document of the repository: one long text of Markdown, in the site's type. Its words are set
+   to the measure of reading; a table and a block of code may take the whole column, and what is
+   wider than that scrolls inside its own block. A section's number is small beside its title, the
+   two on one line; hairlines, not boxes; wide space between sections. */
+.spec {
+  font-size: 17px;
+  line-height: 1.6;
+}
+.spec > :is(p, ul, ol, blockquote) {
+  max-width: var(--measure);
+}
+
+/* The opening: the document's name, what it is, and its three facts in a row. */
+.spec > h1 + p:has(+ table) {
+  margin: clamp(18px, 2.2vw, 28px) 0 0;
+  font-size: clamp(18px, 1.5vw, 21px);
+  line-height: 1.48;
+  letter-spacing: -0.012em;
+  color: var(--muted);
+}
+.spec > h1 + p:has(+ table) strong {
+  font-weight: 400;
+  color: var(--soft);
+}
+.spec > h1 + p:has(+ table) + table {
+  display: block;
+  width: auto;
+  margin: clamp(28px, 3vw, 40px) 0 0;
+  font-size: 13.5px;
+  overflow: visible;
+}
+.spec > h1 + p:has(+ table) + table tbody {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+}
+.spec > h1 + p:has(+ table) + table tr {
+  display: flex;
+  gap: 10px;
+}
+.spec > h1 + p:has(+ table) + table td {
+  min-width: 0 !important;
+  padding: 0;
+  border: 0;
+  font-family: var(--mono);
+  color: var(--ink);
+}
+.spec > h1 + p:has(+ table) + table td:first-child {
+  color: var(--muted);
+}
+
+/* A document that opens in plain paragraphs: they begin a little under its name. A long name is
+   set a size down, so that it does not stand taller than what it names. */
+.spec > h1 {
+  max-width: 16em;
+}
+.spec > h1 + p:not(:has(+ table)) {
+  margin-top: clamp(24px, 3vw, 36px);
+}
+.spec > .crumbs {
+  margin: 0 0 18px;
+}
+.spec > .crumbs a {
+  text-decoration: none !important;
+  color: var(--muted) !important;
+}
+.spec > .crumbs a:hover {
+  color: var(--ink) !important;
+}
+/* A page with a title of its own leaves out the document's first heading. */
+.spec--titled > h1 ~ h1 {
+  display: none;
+}
+
+/* A section: a hairline, its number in the code's face and small, its title large. */
+.spec h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 18px;
+  margin: clamp(80px, 9vw, 120px) 0 26px;
+  padding-top: clamp(32px, 4vw, 44px);
+  border-top: 1px solid var(--line);
+  font-weight: 480;
+  font-size: clamp(28px, 3.1vw, 40px);
+  line-height: 1.06;
+  letter-spacing: -0.035em;
+}
+.spec h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 14px;
+  margin: clamp(48px, 5vw, 64px) 0 14px;
+  font-weight: 520;
+  font-size: clamp(19px, 1.7vw, 22px);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+.spec h4 {
+  margin: 36px 0 10px;
+  font-weight: 560;
+  font-size: 18.5px;
+  letter-spacing: -0.012em;
+}
+.spec .num {
+  flex: none;
+  font: 500 13.5px/1 var(--mono);
+  letter-spacing: 0;
+  color: var(--muted);
+}
+.spec h3 .num {
+  font-size: 13px;
+}
+.spec .num__dot {
+  display: none;
+}
+/* A heading's link to itself, after its title. It is out of the way until the heading is pointed at
+   or the link has the keyboard; where nothing can point (a touch screen) it is there, faint. When it
+   has copied the address its chain gives way to a tick, the one coming as the other goes. Its place
+   to press is larger than its picture. */
+.spec .anchor {
+  position: relative;
+  flex: none;
+  align-self: center;
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 2px;
+  vertical-align: middle;
+  color: var(--muted);
+  opacity: 0;
+  transition:
+    opacity 0.2s ease,
+    color 0.2s ease,
+    scale 0.15s ease;
+}
+.spec h4 .anchor {
+  margin-left: 10px;
+}
+.spec .anchor::before {
+  content: "";
+  position: absolute;
+  inset: -12px;
+}
+.spec :is(h2, h3, h4):hover .anchor,
+.spec .anchor:focus-visible,
+.spec .anchor.is-copied {
+  opacity: 1;
+}
+.spec .anchor:hover,
+.spec .anchor.is-copied {
+  color: var(--ink);
+}
+.spec .anchor:active {
+  scale: 0.96;
+}
+.spec .anchor svg {
+  grid-area: 1 / 1;
+  width: 16px;
+  height: 16px;
+  transition:
+    opacity 0.25s cubic-bezier(0.2, 0, 0, 1),
+    scale 0.25s cubic-bezier(0.2, 0, 0, 1),
+    filter 0.25s cubic-bezier(0.2, 0, 0, 1);
+}
+.spec .anchor__tick,
+.spec .anchor.is-copied .anchor__chain {
+  opacity: 0;
+  scale: 0.25;
+  filter: blur(4px);
+}
+.spec .anchor.is-copied .anchor__tick {
+  opacity: 1;
+  scale: 1;
+  filter: blur(0);
+}
+@media (hover: none) {
+  .spec .anchor {
+    opacity: 0.5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spec .anchor,
+  .spec .anchor svg {
+    transition: none;
+  }
+}
+/* What the page says to a screen reader when a link was copied: not shown. */
+.spec__said {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px !important;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.spec :is(h2, h3, h4) code {
+  background: none;
+  padding: 0;
+  font-size: 0.9em;
+}
+
+.spec p,
+.spec li {
+  color: var(--soft);
+  text-wrap: pretty;
+}
+.spec p {
+  margin: 0 0 16px;
+}
+.spec strong {
+  color: var(--ink);
+  font-weight: 560;
+}
+.spec ul,
+.spec ol {
+  margin: 0 0 16px;
+  padding-left: 1.25em;
+}
+.spec li {
+  margin: 6px 0;
+  padding-left: 0.2em;
+}
+.spec li::marker {
+  color: var(--muted);
+}
+.spec li > ul,
+.spec li > ol {
+  margin: 6px 0 0;
+}
+.spec li > p {
+  margin-bottom: 8px;
+}
+
+/* Code: a frame of the wire is one long line, and scrolls in its block. */
+.spec pre {
+  margin: 20px 0 24px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--sheet) !important;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(243 243 241 / 0.2) transparent;
+}
+.spec pre code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}
+
+/* A table: rows on hairlines, the first column the thing the row is about. */
+.spec table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 20px 0 28px;
+  border-collapse: collapse;
+  font-size: 15px;
+  line-height: 1.5;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(243 243 241 / 0.2) transparent;
+}
+.spec th,
+.spec td {
+  padding: 11px 24px 11px 0;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  color: var(--soft);
+}
+.spec :is(th, td):last-child {
+  padding-right: 0;
+}
+.spec td:first-child {
+  color: var(--ink);
+}
+.spec th {
+  padding-top: 0;
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* A word of code in a table is not broken in the middle; a long line of code (a function with
+   all it takes) goes over lines at its spaces, in a column no wider than a third of the table's
+   room. The last column, which is the one in words, keeps a width it can be read at: a table too
+   wide for the page scrolls, it is not squeezed. */
+.spec table code {
+  font-size: 0.9em;
+  overflow-wrap: normal;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.spec td:first-child:not(:last-child) {
+  max-width: 17em;
+}
+/* A first column of words (a kind, a name in words) keeps room for them beside a long second one,
+   where there is room: on a wide page. */
+@media (min-width: 861px) {
+  .spec td:first-child:not(:last-child):not(:has(code)) {
+    min-width: 11em;
+  }
+}
+.spec td:last-child:not(:first-child) {
+  min-width: 13em;
+}
+.spec thead:has(th:empty) {
+  display: none;
+}
+.spec blockquote {
+  margin: 0 0 16px;
+  padding-left: 18px;
+  border-left: 1px solid var(--rule-strong);
+}
+.spec blockquote p {
+  color: var(--muted);
+}
+/* A section begins with a rule of its own. */
+.spec hr {
+  display: none;
+}
+.spec :is(h2, h3, h4) {
+  scroll-margin-top: 28px;
+}
+.spec__source {
+  margin: clamp(80px, 9vw, 120px) 0 0 !important;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+  font-size: 14.5px;
+  color: var(--muted) !important;
+}
+
+/* The sections, beside the document: a rail, and on it a number in the code's face and a title.
+   The list follows the page (the script of pages/spec.astro). The section being read comes up to
+   the ink's colour; the sections inside it open under it, their height and their ink together; and
+   a mark on the rail goes to the line that is being read. Nothing here appears at once. */
+/* The list is set in from its rail, so its column is that much wider than the kit's. */
+@media (min-width: 861px) {
+  .kit--spec {
+    grid-template-columns: 236px minmax(0, 1fr);
+    gap: clamp(32px, 5vw, 72px);
+  }
+}
+.spec__list,
+.spec__list ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.spec__list {
+  position: relative;
+  padding-left: 16px !important;
+  border-left: 1px solid var(--line);
+}
+.spec__mark {
+  position: absolute;
+  left: -1px;
+  top: 0;
+  width: 1px;
+  height: 0;
+  background: var(--ink);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  will-change: transform;
+  pointer-events: none;
+}
+.spec__list a {
+  display: grid;
+  grid-template-columns: 1.7em minmax(0, 1fr);
+  gap: 4px;
+  transition: color 0.28s ease;
+}
+/* A document whose sections have no numbers: the titles alone. */
+.spec__list--plain a,
+.spec__list--plain .spec__inside a {
+  display: block;
+}
+.spec__list--plain .spec__inside a {
+  padding-left: 14px;
+}
+.spec__list a span {
+  font: 500 12px/1.75 var(--mono);
+  color: var(--muted);
+  opacity: 0.75;
+  transition:
+    color 0.28s ease,
+    opacity 0.28s ease;
+}
+.spec__list a.is-here {
+  color: var(--ink);
+}
+.spec__list a.is-here span {
+  color: var(--soft);
+  opacity: 1;
+}
+/* The sections inside a section: shut to no height, and opened to their own. */
+.spec__inside {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    grid-template-rows 0.36s cubic-bezier(0.22, 0.8, 0.2, 1),
+    opacity 0.24s ease,
+    visibility 0s 0.36s;
+}
+.spec__inside > ol {
+  min-height: 0;
+  overflow: hidden;
+}
+.spec__list li.is-open > .spec__inside {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition:
+    grid-template-rows 0.36s cubic-bezier(0.22, 0.8, 0.2, 1),
+    opacity 0.3s ease 0.08s,
+    visibility 0s;
+}
+.spec__inside li:first-child {
+  padding-top: 2px;
+}
+.spec__inside li:last-child {
+  padding-bottom: 8px;
+}
+.spec__inside a {
+  grid-template-columns: 2.6em minmax(0, 1fr);
+  padding: 3px 0 3px calc(1.7em + 4px);
+  font-size: 13.5px;
+}
+/* The parts of a section inside a section: set in once more, without a number. A part's name is
+   often a module's, so it is in the code's face. */
+.spec__inside--parts a {
+  display: block;
+  padding: 3px 0 3px calc(1.7em + 2.6em + 12px);
+  font: 12.5px/1.5 var(--mono);
+}
+.spec__list--plain .spec__inside--parts a {
+  padding-left: 28px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .spec__mark,
+  .spec__list a,
+  .spec__list a span,
+  .spec__inside,
+  .spec__list li.is-open > .spec__inside {
+    transition: none;
+  }
+}
+
+/* Under the kit's menu the list of sections has a heading of its own, set apart from the menu. */
+.side > ul + .spec__name {
+  margin-top: 22px;
+  padding-top: 22px;
+  border-top: 1px solid var(--rule);
+}
+/* On a narrow page a kit's menu is a row of chips and stays. The list of sections is left out:
+   nineteen sections would be a wall before the first word, and the document begins at once. A
+   document that is no page of the kit has nothing else beside it, and its whole side goes. */
+@media (max-width: 860px) {
+  .spec__side .spec__name,
+  .spec__side .side__scroll {
+    display: none;
+  }
+  .spec__side--alone {
+    display: none;
+  }
+}

@@ -1,0 +1,157 @@
+{
+  "components/badge": {
+    "diagnostics": [],
+    "height": 58.0,
+    "width": 296.0
+  },
+  "components/banner": {
+    "diagnostics": [],
+    "height": 75.0,
+    "width": 640.0
+  },
+  "components/button": {
+    "diagnostics": [],
+    "height": 66.0,
+    "width": 345.0
+  },
+  "components/completions": {
+    "diagnostics": [],
+    "height": 260.0,
+    "width": 560.0
+  },
+  "components/dialog": {
+    "diagnostics": [],
+    "height": 320.0,
+    "width": 560.0
+  },
+  "components/find_bar": {
+    "diagnostics": [],
+    "height": 181.0,
+    "width": 560.0
+  },
+  "components/grid": {
+    "diagnostics": [],
+    "height": 260.0,
+    "width": 560.0
+  },
+  "components/icon_button": {
+    "diagnostics": [],
+    "height": 66.0,
+    "width": 162.0
+  },
+  "components/input": {
+    "diagnostics": [],
+    "height": 102.0,
+    "width": 400.0
+  },
+  "components/kbd": {
+    "diagnostics": [],
+    "height": 56.0,
+    "width": 199.5
+  },
+  "components/list": {
+    "diagnostics": [],
+    "height": 240.0,
+    "width": 440.0
+  },
+  "components/modal": {
+    "diagnostics": [],
+    "height": 320.0,
+    "width": 560.0
+  },
+  "components/palette": {
+    "diagnostics": [],
+    "height": 400.0,
+    "width": 640.0
+  },
+  "components/popover": {
+    "diagnostics": [],
+    "height": 220.0,
+    "width": 420.0
+  },
+  "components/rule": {
+    "diagnostics": [],
+    "height": 105.5,
+    "width": 340.0
+  },
+  "components/segments": {
+    "diagnostics": [],
+    "height": 64.0,
+    "width": 198.0
+  },
+  "components/split": {
+    "diagnostics": [],
+    "height": 220.0,
+    "width": 520.0
+  },
+  "components/status": {
+    "diagnostics": [],
+    "height": 64.0,
+    "width": 600.0
+  },
+  "components/tabs": {
+    "diagnostics": [],
+    "height": 76.0,
+    "width": 520.0
+  },
+  "components/toasts": {
+    "diagnostics": [],
+    "height": 240.0,
+    "width": 560.0
+  },
+  "components/toggle": {
+    "diagnostics": [],
+    "height": 62.0,
+    "width": 120.0
+  },
+  "components/tree": {
+    "diagnostics": [],
+    "height": 240.0,
+    "width": 280.0
+  },
+  "elements/canvas": {
+    "diagnostics": [],
+    "height": 164.0,
+    "width": 360.0
+  },
+  "elements/div": {
+    "diagnostics": [],
+    "height": 131.5,
+    "width": 360.0
+  },
+  "elements/editor": {
+    "diagnostics": [],
+    "height": 220.0,
+    "width": 520.0
+  },
+  "elements/image": {
+    "diagnostics": [],
+    "height": 104.0,
+    "width": 208.0
+  },
+  "elements/rich": {
+    "diagnostics": [],
+    "height": 73.0,
+    "width": 400.0
+  },
+  "elements/spacer": {
+    "diagnostics": [],
+    "height": 72.5,
+    "width": 400.0
+  },
+  "elements/spark": {
+    "diagnostics": [],
+    "height": 98.5,
+    "width": 380.0
+  },
+  "elements/text": {
+    "diagnostics": [],
+    "height": 195.0,
+    "width": 380.0
+  },
+  "kit/counter": {
+    "diagnostics": [],
+    "height": 99.0,
+    "width": 184.0
+  }
+}

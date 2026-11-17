@@ -1,0 +1,19 @@
+---
+// A picture of the kit, in a light terminal's colours and in a dark one's: the one the page's theme
+// (or the part of it that says `data-shots`) asks for is shown. `name` is a picture of
+// public/shots/, `width` its width in points: it is drawn at that size, two pixels to the point.
+interface Props {
+  name: string;
+  width: number;
+  height: number;
+  alt: string;
+  fill?: boolean;
+  eager?: boolean;
+}
+const { name, width, height, alt, fill = false, eager = false } = Astro.props;
+const loading = eager ? "eager" : "lazy";
+---
+<figure class:list={["shot", { "shot--fill": fill }]} style={`--w:${width}px`}>
+  <img class="light" src={`/shots/${name}-light.png`} width={width} height={height} alt={alt} loading={loading} decoding="async" />
+  <img class="dark" src={`/shots/${name}-dark.png`} width={width} height={height} alt={alt} loading={loading} decoding="async" />
+</figure>

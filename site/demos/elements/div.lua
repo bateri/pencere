@@ -1,0 +1,20 @@
+--@ size 520 220
+--@ crop demo
+local page = require("../_page")
+
+return page(function()
+	local header = pencere.div():row():items_center():gap(8)
+		:child(pencere.div():w(8):h(8):rounded(4):bg("success"))
+		:child(pencere.text("postgres"):weight(700))
+		:child(pencere.spacer())
+		:child(pencere.text("running"):color("dim"))
+	local figures = pencere.div():row():gap(16)
+		:child(pencere.div():gap(2):child(pencere.text("CPU"):color("dim")):child(pencere.text("128.4%")))
+		:child(pencere.div():gap(2):child(pencere.text("Memory"):color("dim")):child(pencere.text("851 MiB")))
+		:child(pencere.div():gap(2):child(pencere.text("Threads"):color("dim")):child(pencere.text("23")))
+	return pencere.div():w(320):p(14):gap(12)
+		:bg("raised1"):border(1, "border"):rounded(10)
+		:shadow(0, 8, 24, pencere.alpha("shadow", 0.4))
+		:child(header)
+		:child(figures)
+end)

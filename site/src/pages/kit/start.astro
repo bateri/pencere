@@ -1,0 +1,123 @@
+---
+// Start: from nothing to an app in a pane, in the order a person does it. Every step is the
+// repository's own, read when the site is built (src/lib/project.js): the commands and what is
+// said of each are the command's README's, the project is the one `pencere new` makes (its files
+// as the command lists them, each shown whole with the comment it opens with), and what is said
+// of the project is the README the command puts in it. The page says only where to go next.
+import Kit from "../../layouts/Kit.astro";
+import CodeBlock from "../../components/CodeBlock.astro";
+import { INSTALL } from "../../lib/code.js";
+import { command, install, kinds, project, use } from "../../lib/project.js";
+
+const NAME = "hello";
+const made = project("lua", NAME);
+// The README of the project says four things of it: where things are, what is built, how it is
+// run, and how it is tested.
+const [where, built, run, tested] = made.says;
+if (!tested) throw new Error("cli/templates/lua/README.md no longer says four things of the project.");
+// The command's lines of use, by what is run.
+const lines = use();
+const line = (start: string) => {
+  const found = lines.filter((entry) => entry.run.startsWith(start));
+  if (found.length === 0) throw new Error(`cli/README.md, Use: no line of ${start}.`);
+  return found;
+};
+const shell = (entries: { run: string }[]) => entries.map((entry) => entry.run).join("\n");
+// The lines that make another kind of project.
+const others = kinds();
+// Of the tests, the file's opening and its first test.
+const tests = made.file("test/page_test.lua");
+const first = tests.slice(0, tests.indexOf("\ntest(", tests.indexOf("test(") + 1)).trimEnd();
+---
+<Kit
+  title="Start: the pencere kit"
+  description="From nothing to an app in a terminal's pane: install the pencere command, make a project, run it, change it, test it and build one file."
+  path="kit/start"
+>
+  <header>
+    <h1>Start</h1>
+    <p class="lead" set:html={install().says} />
+  </header>
+
+  <ol class="steps">
+    <li>
+      <h2>Install the command</h2>
+      <CodeBlock code={INSTALL} lang="sh" />
+      <div class="prose">
+        <p set:html={command().says} />
+        <p set:html={install().host} />
+      </div>
+    </li>
+
+    <li>
+      <h2>Make a project</h2>
+      <CodeBlock code={shell([...line("pencere new"), ...line("cd ")])} lang="sh" />
+      <CodeBlock code={made.tree} lang="text" />
+      <div class="prose">
+        <p set:html={where} />
+      </div>
+    </li>
+
+    <li>
+      <h2>Run it</h2>
+      <CodeBlock code={shell(line("pencere dev"))} lang="sh" />
+      <div class="prose">
+        <p set:html={run} />
+      </div>
+    </li>
+
+    <li>
+      <h2>The program</h2>
+      <CodeBlock code={made.file("src/program/app.lua")} name="src/program/app.lua" />
+    </li>
+
+    <li>
+      <h2>The page</h2>
+      <CodeBlock code={made.file("src/view/page.lua")} name="src/view/page.lua" />
+      <div class="prose">
+        <p>
+          What a page is made of is in <a href="/kit/elements">the elements</a>, and what is ready to use on one in
+          <a href="/kit/components">the components</a>.
+        </p>
+      </div>
+    </li>
+
+    <li>
+      <h2>Test it</h2>
+      <CodeBlock code={shell(line("pencere test"))} lang="sh" />
+      <CodeBlock code={first} name="test/page_test.lua" />
+      <div class="prose">
+        <p set:html={tested} />
+      </div>
+    </li>
+
+    <li>
+      <h2>Build one file</h2>
+      <CodeBlock code={shell(line("pencere build"))} lang="sh" />
+      <div class="prose">
+        <p set:html={built} />
+      </div>
+    </li>
+  </ol>
+
+  <h2>In another language, or with a web page</h2>
+  <dl class="says">
+    {others.map((entry) => <><dt><code>{entry.run}</code></dt><dd set:html={entry.says} /></>)}
+  </dl>
+  <div class="prose" style="margin-top:16px">
+    <p>
+      The program is then written <a href="/sdk/typescript">in TypeScript</a> or <a href="/sdk/rust">in Rust</a>, and the
+      view is <a href="/sdk/page">a web page</a>.
+    </p>
+  </div>
+
+  <h2>Where to go from here</h2>
+  <ul class="next">
+    <li><a class="next__go" href="/kit/elements"><b>Elements</b><span>What a page is made of, each with its picture and its code.</span></a></li>
+    <li><a class="next__go" href="/kit/components"><b>Components</b><span>The library's components, each with its picture and its code.</span></a></li>
+    <li><a class="next__go" href="/kit/spec"><b>The page API</b><span>Everything a page can do, in full.</span></a></li>
+    <li><a class="next__go" href="/sdk/lua"><b>The program</b><span>Everything a program in Lua has, and how an app is laid out.</span></a></li>
+    <li><a class="next__go" href="/kit/command"><b>The command</b><span>Everything the command does, to the release of an app.</span></a></li>
+    <li><a class="next__go" href="/kit/examples"><b>Examples</b><span>Apps in the repository to read and to run.</span></a></li>
+  </ul>
+</Kit>

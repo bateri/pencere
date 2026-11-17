@@ -1,0 +1,1293 @@
+/* The pages under the home page: the kit's and the specification. The ground, the type and the
+   colours are the site's (styles/shell.css); the names below are this file's own for them. The
+   kit's pictures keep their own ground: they are drawn in a terminal's GitHub colours. */
+
+:root {
+  --ink-2: var(--soft);
+  --ink-3: var(--muted);
+  --rule: var(--line);
+  --rule-strong: rgb(243 243 241 / 0.24);
+  --accent: var(--warm);
+  --accent-ink: #111;
+  --code-ground: rgb(243 243 241 / 0.08);
+  /* The ground of the kit's pictures, and of a pane: a dark terminal's, unless a part says light. */
+  --shot-ground: #0d1117;
+  --pane: #0d1117;
+  --pane-ink: #c9d1d9;
+  --pane-line: rgb(243 243 241 / 0.12);
+  --show-light: none;
+  --show-dark: block;
+
+  --sans: var(--font);
+  --maxw: 1180px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* A part of the page that shows the kit's pictures in one theme, whatever the page's. */
+[data-shots="dark"] {
+  --shot-ground: #0d1117;
+  --show-light: none;
+  --show-dark: block;
+}
+[data-shots="light"] {
+  --shot-ground: #ffffff;
+  --show-light: block;
+  --show-dark: none;
+}
+
+/* ───────── Base ───────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-padding-top: 28px;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: 400 17px/1.6 var(--font);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* A link is the colour of what it is in. In running text it is underlined, as on the home page; a
+   link that is a part of the page (a card, a line of a list) has a class or a place of its own. */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+:is(.doc, .notice) :is(p, li, dd, td) a:not([class]) {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1px;
+  text-decoration-color: rgb(243 243 241 / 0.4);
+  transition: text-decoration-color 0.15s ease;
+}
+:is(.doc, .notice) :is(p, li, dd, td) a:not([class]):hover {
+  text-decoration-color: currentColor;
+}
+
+:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+code,
+pre,
+kbd,
+.mono {
+  font-family: var(--mono);
+  font-variant-ligatures: none;
+}
+
+:not(pre) > code {
+  font-size: 0.86em;
+  background: var(--code-ground);
+  padding: 0.1em 0.36em;
+  border-radius: 5px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+/* The home page's headings: light in weight, set tight. */
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: 520;
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+h2 {
+  font-size: clamp(1.7rem, 3.2vw, 2.3rem);
+}
+
+h3 {
+  font-size: 1.2rem;
+  letter-spacing: -0.01em;
+}
+
+p {
+  margin: 0;
+}
+
+.wrap {
+  width: 100%;
+  max-width: calc(var(--maxw) + 2 * var(--gutter));
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+.lead {
+  font-size: clamp(18px, 1.5vw, 21px);
+  line-height: 1.48;
+  letter-spacing: -0.012em;
+  color: var(--soft);
+  max-width: 35rem;
+  text-wrap: pretty;
+}
+
+/* ───────── The pane: a terminal's pane, and what a program puts in it ───────── */
+
+.pane {
+  background: var(--pane);
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 1px var(--pane-line),
+    0 30px 80px -40px rgba(10, 14, 22, 0.55);
+  overflow: hidden;
+}
+
+.pane__bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 34px;
+  padding: 0 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: #8b949e;
+  font-size: 0.8rem;
+  font-family: var(--mono);
+}
+.pane__bar b {
+  color: var(--pane-ink);
+  font-weight: 500;
+}
+
+.pane__body {
+  position: relative;
+  aspect-ratio: 16 / 10;
+}
+.pane__body > img {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top left;
+}
+
+.pane__shell {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 16px 18px;
+  color: var(--pane-ink);
+  font-size: inherit;
+  line-height: 1.5;
+  white-space: pre;
+}
+.pane__shell .prompt {
+  color: #7ee787;
+}
+
+/* ───────── Home ───────── */
+
+.hero {
+  padding: clamp(48px, 8vw, 104px) 0 clamp(56px, 8vw, 96px);
+}
+
+.hero__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(24px, 5vw, 72px);
+  align-items: start;
+  margin-top: clamp(24px, 3vw, 36px);
+}
+
+.hero h1 {
+  font-size: clamp(2.6rem, 5.6vw, 4.6rem);
+  font-weight: 560;
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+}
+
+.hero__act {
+  display: grid;
+  gap: 14px;
+}
+
+.hero__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  font-size: 0.98rem;
+}
+
+.hero__pane {
+  margin: clamp(40px, 6vw, 72px) 0 0;
+}
+.hero__pane .pane__body {
+  font-size: clamp(0.8rem, 1.3vw, 1rem);
+}
+
+.hero figcaption {
+  margin-top: 14px;
+  color: var(--ink-3);
+  font-size: 0.88rem;
+}
+
+@media (max-width: 960px) {
+  .hero__grid {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+/* The one moment: the command is typed, the program takes the pane, and the words above settle from
+   the terminal's letters into an interface's. Without motion, the page is drawn as it ends. */
+/* The words settle only where both of their forms fit the same lines, so that nothing below them moves. */
+@media (prefers-reduced-motion: no-preference) and (min-width: 1100px) {
+  .hero h1 {
+    animation: settle 0.8s var(--ease) 1.55s both;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pane__shell .typed {
+    display: inline-block;
+    vertical-align: bottom;
+    overflow: hidden;
+    animation: type 0.55s steps(6, end) 0.45s both;
+  }
+  .pane__shell .caret {
+    animation: blink 0.5s step-end 0s 3 both;
+  }
+  .hero .pane__body > img {
+    animation: open 0.75s var(--ease) 1.5s both;
+  }
+}
+
+@keyframes settle {
+  from {
+    font-family: var(--mono);
+    letter-spacing: -0.05em;
+  }
+  to {
+  }
+}
+@keyframes type {
+  from {
+    width: 0;
+  }
+  to {
+    width: 6ch;
+  }
+}
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes open {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+.install {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 6px 6px 6px 14px;
+  min-width: 0;
+}
+.install code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  background: none;
+  padding: 6px 0;
+  font-size: 0.84rem;
+  scrollbar-width: none;
+}
+.install code::-webkit-scrollbar {
+  display: none;
+}
+.install button {
+  flex: none;
+  font: inherit;
+  font-size: 0.85rem;
+  border: 0;
+  border-radius: 7px;
+  padding: 7px 12px;
+  background: var(--ink);
+  color: var(--ground);
+  cursor: pointer;
+}
+.install button:hover {
+  background: color-mix(in srgb, var(--ink) 85%, var(--ground));
+}
+
+.section {
+  padding: clamp(64px, 9vw, 112px) 0;
+  border-top: 1px solid var(--rule);
+}
+
+.section__head {
+  display: grid;
+  gap: 16px;
+  margin-bottom: clamp(32px, 5vw, 56px);
+}
+
+/* The programs made with pencere: one large, the rest two by two. */
+.pens {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(20px, 3vw, 36px) clamp(16px, 2.4vw, 28px);
+}
+.pens figure {
+  margin: 0;
+}
+.pens figure:first-child {
+  grid-column: 1 / -1;
+}
+.pens .pane__body {
+  aspect-ratio: 16 / 10;
+}
+.pens figcaption {
+  margin-top: 14px;
+  display: grid;
+  gap: 2px;
+}
+.pens figcaption a {
+  color: var(--ink);
+  font-weight: 560;
+  font-family: var(--mono);
+}
+.pens figcaption span {
+  color: var(--ink-2);
+  font-size: 0.95rem;
+  max-width: 44rem;
+}
+@media (max-width: 720px) {
+  .pens {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* How it works: a program, the terminal's stream, the view. */
+.flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.8fr) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 0;
+}
+.flow__end {
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 20px 22px;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+.flow__end p {
+  color: var(--ink-2);
+  font-size: 0.95rem;
+}
+.flow__wire {
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: 0 12px;
+}
+.flow__wire::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: 2px dashed var(--rule-strong);
+}
+.flow__wire span {
+  position: relative;
+  background: var(--ground);
+  padding: 4px 10px;
+  color: var(--ink-2);
+  font-size: 0.85rem;
+  text-align: center;
+}
+@media (max-width: 760px) {
+  .flow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .flow__wire {
+    min-height: 64px;
+  }
+  .flow__wire::before {
+    left: 50%;
+    right: auto;
+    top: 0;
+    bottom: 0;
+    border-top: 0;
+    border-left: 2px dashed var(--rule-strong);
+  }
+}
+
+.messages {
+  margin-top: clamp(28px, 4vw, 44px);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 40px;
+}
+.messages h3 {
+  font-size: 1rem;
+  color: var(--ink-2);
+  font-weight: 560;
+  margin-bottom: 4px;
+}
+.messages dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 10px 16px;
+}
+.messages dt {
+  font-family: var(--mono);
+  font-weight: 560;
+}
+.messages dd {
+  margin: 0;
+  color: var(--ink-2);
+}
+@media (max-width: 760px) {
+  .messages {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.kinds {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.kind {
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 26px 26px 24px;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+.kind p {
+  color: var(--ink-2);
+}
+.kind .tag {
+  justify-self: start;
+  font-size: 0.82rem;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--code-ground);
+  color: var(--ink);
+}
+@media (max-width: 760px) {
+  .kinds {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Tabs of code, one language at a time. */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--rule);
+}
+.tabs button {
+  font: inherit;
+  font-size: 0.92rem;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 10px 14px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.tabs button[aria-selected="true"] {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+.tabpanel[hidden] {
+  display: none;
+}
+
+.first-app {
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
+  gap: clamp(28px, 5vw, 64px);
+  align-items: start;
+}
+.first-app .section__head {
+  margin-bottom: 0;
+}
+@media (max-width: 900px) {
+  .first-app {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.rules {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 40px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rules li {
+  padding: 18px 0;
+  border-top: 1px solid var(--rule);
+  display: grid;
+  gap: 4px;
+  align-content: start;
+}
+.rules b {
+  font-weight: 560;
+}
+.rules span {
+  color: var(--ink-2);
+}
+@media (max-width: 760px) {
+  .rules {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The kit, in the theme of the terminal it is drawn in: the switch changes the pictures alone. */
+.kit-show {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: 16px;
+  margin-top: 20px;
+}
+.kit-show__side {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+.kit-show__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+@media (max-width: 860px) {
+  .kit-show {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--code-ground);
+  gap: 2px;
+}
+.segmented button {
+  font: inherit;
+  font-size: 0.86rem;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  padding: 5px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.segmented button[aria-pressed="true"] {
+  background: var(--sheet);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin-top: 28px;
+}
+
+/* ───────── The kit's pictures ───────── */
+
+.shot {
+  margin: 0;
+  background: var(--shot-ground);
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px var(--pane-line);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.shot img {
+  width: var(--w);
+  max-width: 100%;
+}
+.shot .light {
+  display: var(--show-light);
+}
+.shot .dark {
+  display: var(--show-dark);
+}
+.shot--fill img {
+  width: 100%;
+}
+
+/* ───────── Code ───────── */
+
+.code {
+  position: relative;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.code pre {
+  margin: 0;
+  padding: 16px 18px;
+  overflow-x: auto;
+  font-size: 0.84rem;
+  line-height: 1.6;
+  tab-size: 2;
+}
+.code__name {
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 0.8rem;
+  color: var(--ink-3);
+  font-family: var(--mono);
+}
+
+/* ───────── The kit's pages ───────── */
+
+.kit {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: clamp(32px, 6vw, 88px);
+  padding-top: clamp(40px, 6vw, 80px);
+  padding-bottom: 24px;
+}
+
+/* The side of a page: the kit's menu, which stays where it is, and under it what the page opens (the
+   components, a document's sections), which is the part that scrolls when it is longer than the window. */
+.side {
+  position: sticky;
+  top: 28px;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  /* No taller than the window has room for when the page is at its top, where the side stands under
+     the navigation (72) and the page's own space above it: its last line is then in the window too. */
+  max-height: calc(100vh - 72px - clamp(40px, 6vw, 80px) - 16px);
+  font-size: 14.5px;
+  line-height: 1.45;
+}
+.side > * {
+  flex: none;
+}
+.side > :is(.side__groups, .side__scroll) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 24px;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(243 243 241 / 0.26) transparent;
+}
+/* It says that it scrolls: a thin bar that is always there, and its lines fading out at the edge
+   there is more past (the layout's script says which: data-more). At an end nothing fades. */
+.side > :is(.side__groups, .side__scroll)::-webkit-scrollbar {
+  width: 5px;
+}
+.side > :is(.side__groups, .side__scroll)::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: rgb(243 243 241 / 0.26);
+}
+/* The components' pages: the list of all of them is the page's own way about, and it is longer
+   than a window. It is shown whole and goes with the page, so that nothing of it is behind a
+   scroll of its own. */
+.side--whole {
+  position: static;
+  display: block;
+  max-height: none;
+}
+.side--whole > .side__groups {
+  overflow: visible;
+  padding-bottom: 0;
+}
+.side--whole > [data-more] {
+  mask-image: none !important;
+}
+.side > [data-more="down"] {
+  mask-image: linear-gradient(#000 calc(100% - 56px), transparent);
+}
+.side > [data-more="up"] {
+  mask-image: linear-gradient(transparent, #000 40px);
+}
+.side > [data-more="both"] {
+  mask-image: linear-gradient(transparent, #000 40px, #000 calc(100% - 56px), transparent);
+}
+/* Three sizes, so that what is a name and what is under it are told apart at a glance: a list's
+   name is a small label, its links are the size of reading, and what is inside one of them (a
+   group's components) is smaller, in the code's face, and set in from a rail. */
+.side h2 {
+  font-size: 12.5px;
+  font-weight: 560;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  margin: 26px 0 8px;
+}
+.side > h2:first-child {
+  margin-top: 0;
+}
+.side ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.side a {
+  display: block;
+  padding: 4px 0;
+  color: var(--muted);
+  transition: color 0.15s ease;
+}
+.side a:hover {
+  color: var(--ink);
+}
+.side a[aria-current="page"] {
+  color: var(--ink);
+}
+/* What the page the reader is on opens, under the kit's menu: the components by their groups. A
+   group's name is smaller than the menu's heading, since the groups are inside one of its pages. */
+.side__groups {
+  margin-top: 22px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule);
+}
+.side h3 {
+  margin: 22px 0 8px;
+  font-weight: 560;
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+  color: var(--soft);
+}
+.side__groups ul {
+  padding-left: 14px;
+  border-left: 1px solid var(--rule);
+}
+.side__groups a {
+  padding: 3.5px 0;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.side .host {
+  opacity: 0.7;
+}
+
+@media (max-width: 860px) {
+  .kit {
+    grid-template-columns: minmax(0, 1fr);
+    padding-top: 24px;
+  }
+  /* The menu is one row that goes sideways, whatever lists it is made of: it does not stand in
+     rows over the title. The lists' names are left out; the links are few enough to read without. */
+  .side {
+    position: static;
+    display: flex;
+    flex-direction: row;
+    gap: 6px;
+    max-height: none;
+    margin: 0 calc(-1 * var(--gutter));
+    padding: 0 var(--gutter);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .side::-webkit-scrollbar {
+    display: none;
+  }
+  .side > h2,
+  .side__groups {
+    display: none;
+  }
+  .side > [data-more] {
+    mask-image: none;
+  }
+  .side > ul,
+  .side > ul > li {
+    display: contents;
+  }
+  .side > ul a {
+    flex: none;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 4px 12px;
+    white-space: nowrap;
+  }
+  .side > ul a[aria-current="page"] {
+    border-color: var(--rule-strong);
+  }
+}
+
+.doc {
+  min-width: 0;
+  max-width: 820px;
+}
+.doc > header {
+  display: grid;
+  gap: clamp(18px, 2.2vw, 28px);
+  margin-bottom: clamp(40px, 5vw, 64px);
+}
+.doc h1 {
+  margin-left: -0.03em;
+  font-weight: 480;
+  font-size: clamp(34px, 4.6vw, 62px);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+.doc h1 code {
+  background: none;
+  padding: 0;
+  font-size: 0.9em;
+}
+.doc h2 {
+  font-size: clamp(22px, 2vw, 27px);
+  line-height: 1.15;
+  margin: clamp(56px, 6vw, 80px) 0 16px;
+}
+.doc .prose {
+  display: grid;
+  gap: 14px;
+  max-width: var(--measure);
+}
+.doc .prose p {
+  color: var(--ink-2);
+}
+
+.crumbs {
+  font-size: 14.5px;
+  color: var(--ink-3);
+}
+.crumbs a {
+  color: var(--ink-2);
+}
+.crumbs a:hover {
+  color: var(--ink);
+}
+
+.stage {
+  display: grid;
+  gap: 10px;
+}
+.stage__bar {
+  display: flex;
+  justify-content: flex-end;
+}
+.stage .shot {
+  padding: clamp(12px, 3vw, 28px);
+  min-height: 160px;
+}
+
+.notice {
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 18px 20px;
+  color: var(--ink-2);
+}
+
+.pager {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 64px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
+}
+.pager a {
+  display: grid;
+  gap: 2px;
+  color: var(--ink);
+}
+.pager a span {
+  font-size: 0.85rem;
+  color: var(--ink-3);
+}
+.pager a:last-child:not(:first-child) {
+  text-align: right;
+}
+.pager a code {
+  background: none;
+  padding: 0;
+}
+
+/* The index of the components: what each looks like, its name and what it is. */
+.group {
+  margin-top: clamp(48px, 5vw, 72px);
+}
+.group h2 {
+  margin: 0 0 20px;
+  font-size: 19px;
+  letter-spacing: -0.015em;
+}
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 18px;
+}
+.card {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 8px;
+  color: var(--ink);
+}
+.card:hover {
+  text-decoration: none;
+}
+.card .shot {
+  height: 150px;
+  padding: 10px;
+  transition: box-shadow 0.15s;
+}
+.card:hover .shot {
+  box-shadow: 0 0 0 1px rgb(243 243 241 / 0.3);
+}
+.card .shot img {
+  width: var(--w);
+  max-width: 100%;
+  max-height: 100%;
+  height: auto;
+  object-fit: contain;
+}
+.card--wide {
+  grid-column: span 2;
+}
+.card--wide .shot {
+  height: 200px;
+}
+@media (max-width: 640px) {
+  .card--wide {
+    grid-column: auto;
+  }
+}
+.card b {
+  font-weight: 560;
+  font-family: var(--mono);
+  font-size: 0.95rem;
+}
+.card p {
+  color: var(--ink-2);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.card p {
+  max-height: 3em;
+}
+.card p code {
+  font-size: 0.92em;
+  background: none;
+  padding: 0;
+}
+.card .shot--host {
+  color: var(--ink-3);
+  font-size: 0.86rem;
+  background: var(--code-ground);
+  box-shadow: none;
+  text-align: center;
+  padding: 20px;
+}
+
+/* The elements: each with its picture and its code side by side. */
+.element {
+  padding: 40px 0;
+  border-top: 1px solid var(--rule);
+  display: grid;
+  gap: 16px;
+}
+.element:first-of-type {
+  border-top: 0;
+  padding-top: 8px;
+}
+.element h2 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+.element h2 code {
+  background: none;
+  padding: 0;
+}
+.element > p {
+  color: var(--ink-2);
+  max-width: var(--measure);
+}
+.element__pair {
+  display: grid;
+  gap: 12px;
+}
+.element__pair .shot {
+  padding: clamp(12px, 3vw, 24px);
+}
+
+/* The layers of the kit, the one furthest from the host on top. */
+.layers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.layers li {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  gap: 16px;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+.layers b {
+  display: block;
+  font-weight: 560;
+}
+/* How a page reaches the layer, under its name. */
+.layers small {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.layers span {
+  color: var(--ink-2);
+}
+@media (max-width: 640px) {
+  .layers li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+}
+
+.split-2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .split-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* What a page of the kit leads to: the one thing to do next, and the other. */
+.doc__go {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 24px;
+  margin-top: 4px;
+}
+.go {
+  display: inline-block;
+  font-size: 15px;
+  font-weight: 560;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 5px;
+  text-decoration-thickness: 1px;
+  text-decoration-color: rgb(243 243 241 / 0.4);
+  transition: text-decoration-color 0.15s ease;
+}
+.go:hover {
+  text-decoration-color: currentColor;
+}
+.go--main {
+  padding: 12px 19px 13px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #111;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+.go--main:hover {
+  background: #fff;
+}
+
+/* Start: the steps in the order a person takes them, each a heading, a command and what it does.
+   They are numbered because they are a sequence; the number is small and in the code's face, as a
+   section's is in the specification. */
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: step;
+}
+.steps > li {
+  counter-increment: step;
+  padding: clamp(36px, 4.4vw, 56px) 0;
+  border-top: 1px solid var(--rule);
+}
+.steps > li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.steps h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin: 0 0 14px;
+}
+.steps h2::before {
+  content: counter(step);
+  flex: none;
+  font: 500 13.5px/1 var(--mono);
+  letter-spacing: 0;
+  color: var(--muted);
+}
+.steps .prose {
+  margin: 0 0 16px;
+}
+.steps .code {
+  margin: 0 0 16px;
+}
+.steps > li > :last-child {
+  margin-bottom: 0;
+}
+kbd {
+  padding: 0.1em 0.4em;
+  border: 1px solid var(--rule-strong);
+  border-radius: 5px;
+  font-size: 0.82em;
+  color: var(--ink);
+}
+/* Where to go from a page: a few lines, each a name and what is there. */
+.next {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: 44rem;
+}
+.next li {
+  border-top: 1px solid var(--rule);
+}
+.next li:last-child {
+  border-bottom: 1px solid var(--rule);
+}
+.next__go {
+  display: grid;
+  grid-template-columns: 9.5em minmax(0, 1fr);
+  gap: 4px 20px;
+  padding: 15px 0;
+}
+.next b {
+  font-weight: 560;
+}
+.next span {
+  color: var(--muted);
+  transition: color 0.15s ease;
+}
+.next__go:hover span {
+  color: var(--soft);
+}
+@media (max-width: 560px) {
+  .next__go {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The library's modules: a line each, the module's name in the code's face and what it is. */
+.modules {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: 46rem;
+}
+.modules li {
+  border-top: 1px solid var(--rule);
+}
+.modules li:last-child {
+  border-bottom: 1px solid var(--rule);
+}
+.modules__go {
+  display: grid;
+  grid-template-columns: 12.5em minmax(0, 1fr);
+  gap: 6px 24px;
+  padding: 18px 0;
+}
+.modules__go b {
+  font: 500 14.5px/1.6 var(--mono);
+  color: var(--ink);
+}
+.modules__go span {
+  color: var(--muted);
+  line-height: 1.52;
+  text-wrap: pretty;
+  transition: color 0.15s ease;
+}
+.modules__go:hover span {
+  color: var(--soft);
+}
+.modules__go code {
+  font-size: 0.84em;
+}
+@media (max-width: 640px) {
+  .modules__go {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* What the repository says of each of some lines: the line, and its words beside it. */
+.says {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  gap: 12px 24px;
+  align-items: baseline;
+}
+.says dt code {
+  white-space: nowrap;
+}
+.says dd {
+  margin: 0;
+  color: var(--ink-2);
+}
+@media (max-width: 720px) {
+  .says {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .says dt {
+    overflow-x: auto;
+  }
+  .says dd {
+    margin-bottom: 12px;
+  }
+}

@@ -4,3 +4,8 @@ dist/
 .DS_Store
 *.tsbuildinfo
 .pencere/
+.astro/
+site/src/data/
+.wrangler/
+# The sketches the site came from: shown while the site is watched, kept out of the repository.
+site/lab/

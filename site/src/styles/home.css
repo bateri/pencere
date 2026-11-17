@@ -1,0 +1,561 @@
+/* The home page under its first scene. The ground, the type and the colours are the site's
+   (styles/shell.css); the scene's own measures are on the body's class hero-scene
+   (components/Scene.astro). The warmth of the scene's light marks what belongs to the view. */
+
+body.home {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 17px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  color-scheme: dark;
+}
+.home a {
+  color: inherit;
+}
+.home :focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.home code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  font-variant-ligatures: none;
+}
+
+/* A part of the page: a sentence, what it means, and what shows it. */
+.part {
+  padding: clamp(96px, 13vw, 184px) var(--side) 0;
+  scroll-margin-top: -40px;
+}
+/* The first part comes after the scene's own end, which is dark already. */
+#how {
+  padding-top: clamp(72px, 8vw, 120px);
+}
+.part h2 {
+  margin: 0 0 0 -0.03em;
+  max-width: 18ch;
+  font-weight: 480;
+  font-size: clamp(34px, 4.6vw, 62px);
+  line-height: 1;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+}
+.part__lead {
+  margin: clamp(18px, 2.2vw, 28px) 0 0;
+  max-width: 35rem;
+  font-size: clamp(18px, 1.5vw, 21px);
+  line-height: 1.48;
+  letter-spacing: -0.012em;
+  color: var(--soft);
+  text-wrap: pretty;
+}
+.part__lead a {
+  color: var(--ink);
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1px;
+  text-decoration-color: rgb(243 243 241 / 0.4);
+}
+.part h3 {
+  margin: 0 0 8px;
+  font-weight: 560;
+  font-size: 17px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+/* One pane at three moments: the command at a prompt, the view in its place, the prompt again. The
+   pane and its tab are the same in all three, which is what "its own pane" means, and all three are
+   at one height. The view is shown whole: it is dockerpen's own interface, drawn with real elements.
+   Of the two shell moments only the left of the pane is shown, where the text is, and they fade out
+   to the right, where a shell's pane is empty. Their ground is the view's ground. */
+.turns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2.6fr) minmax(0, 1fr);
+  column-gap: clamp(14px, 1.8vw, 22px);
+  margin: clamp(48px, 6vw, 84px) 0 0;
+  padding: 0;
+  list-style: none;
+}
+/* The three share their rows, so the panes are as tall as the view. */
+.turns li {
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 3;
+}
+.turns h3 {
+  margin: 22px 0 6px;
+}
+.turns li > p {
+  margin: 0;
+  max-width: 24rem;
+  font-size: 15.5px;
+  line-height: 1.52;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #000;
+}
+.turns__up .pane {
+  border-color: rgb(226 207 168 / 0.34);
+}
+.turns li:not(.turns__up) .pane {
+  border-right: 0;
+  border-radius: 12px 0 0 12px;
+  mask-image: linear-gradient(90deg, #000 76%, transparent);
+}
+.pane__tabs {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 7px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+  color: #a2a4aa;
+  font: 500 11.5px/1 var(--mono);
+  white-space: nowrap;
+}
+.pane__tabs span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 21px;
+  padding: 0 10px 0 6px;
+  border-radius: 7px;
+  background: rgb(255 255 255 / 0.1);
+  color: #eceded;
+}
+.pane__tabs svg {
+  width: 17px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.pane__tabs rect {
+  fill: rgb(255 255 255 / 0.09);
+  stroke: none;
+}
+.pane__tabs b {
+  padding: 0 6px;
+  font-weight: 400;
+  font-size: 14px;
+}
+/* Where the view is: the program's own interface, put there by src/scripts/pen-panes.js. */
+.pane__view {
+  position: relative;
+  aspect-ratio: 1300 / 760;
+  overflow: hidden;
+}
+/* A program's pane, drawn with real elements (src/scripts/pen-panes.js, src/styles/lab-pens.css):
+   laid out at its own size and brought to its place's by the script. */
+.pen-pane {
+  position: absolute;
+  transform-origin: 0 0;
+  overflow: hidden;
+  background: #000;
+}
+.pen-pane .pn {
+  animation: none;
+}
+.pen-pane__head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 10px 1px;
+  background: linear-gradient(to bottom, rgb(255 246 232 / 0.07), rgb(255 246 232 / 0));
+  box-shadow: inset 0 1px 0 rgb(255 246 232 / 0.2);
+  color: #d8d9dd;
+  font:
+    600 12.5px/1 -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Text",
+    "Helvetica Neue",
+    sans-serif;
+}
+.pen-pane__head em {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 12px;
+  color: #79b3b3;
+}
+.pen-pane__head span {
+  font-weight: 400;
+  font-size: 12px;
+  color: #909093;
+}
+.pane__text {
+  flex: 1;
+  padding: 11px 13px;
+  overflow: hidden;
+  color: #d5d6da;
+  font: 12.5px/1.6 var(--mono);
+  font-variant-ligatures: none;
+  white-space: nowrap;
+}
+.pane__text p {
+  margin: 0;
+}
+/* The prompt's place, and the cursor. */
+.pane__text i {
+  font-style: normal;
+  color: #79b3b3;
+}
+.pane__text u {
+  display: inline-block;
+  width: 0.6em;
+  height: 1.15em;
+  margin-left: 1px;
+  vertical-align: -0.2em;
+  background: #c8c9cc;
+}
+.said {
+  margin: clamp(40px, 5vw, 64px) 0 0;
+  max-width: 44rem;
+  font-size: clamp(17px, 1.35vw, 19px);
+  line-height: 1.55;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.said code {
+  color: var(--warm);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 36px clamp(24px, 3vw, 48px);
+  margin: clamp(56px, 7vw, 96px) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.facts--two {
+  grid-template-columns: repeat(2, minmax(0, 22rem));
+  margin-top: clamp(40px, 5vw, 64px);
+}
+.facts li {
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.facts p {
+  margin: 0;
+  font-size: 15.5px;
+  line-height: 1.52;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.facts code {
+  color: var(--soft);
+}
+
+/* The programs: a card each, as the bateri site lists them. The top of a card is the program's own
+   pane near its real size (src/scripts/pen-panes.js): it is not fitted to the card, its top left
+   corner is seen and it runs off the card's right and bottom. Under it the name and one sentence. */
+.pens {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(14px, 1.8vw, 24px);
+  margin: clamp(48px, 6vw, 84px) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.pen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--sheet);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.2s ease;
+}
+.pen:hover {
+  border-color: rgb(243 243 241 / 0.26);
+}
+.pen__shot {
+  position: relative;
+  display: block;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+  background: #131312;
+}
+.pen__shot .pen-pane {
+  border-radius: 10px 0 0;
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.12),
+    0 24px 48px -16px #000;
+  transition: translate 0.45s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.pen:hover .pen-pane {
+  translate: -6px -6px;
+}
+.pen > b {
+  margin: 20px 22px 0;
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 16px;
+}
+.pen__say {
+  margin: 8px 22px 24px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.pen__say code {
+  color: var(--soft);
+}
+/* Your own: no picture yet, an empty tile where one would be. */
+.pen--own .pen__shot {
+  display: grid;
+  place-items: center;
+}
+.pen--own > b {
+  font-family: var(--font);
+  font-weight: 560;
+  letter-spacing: -0.01em;
+}
+.pen--own .pen__shot > i {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 46px;
+  border: 1px dashed rgb(243 243 241 / 0.28);
+  border-radius: 13px;
+  font: 300 24px/1 var(--font);
+  font-style: normal;
+  color: var(--soft);
+}
+/* The last card, when it is alone in its row, runs the row's length: its tile at the left, its
+   words at the right. However many programs there are, no card is left an orphan. */
+@media (min-width: 981px) {
+  .pens > li:last-child:nth-child(3n + 1) {
+    grid-column: 1 / -1;
+  }
+  .pens > li:last-child:nth-child(3n + 1) .pen {
+    display: grid;
+    grid-template-columns: calc((100% - 2 * clamp(14px, 1.8vw, 24px)) / 3) minmax(0, 1fr);
+    grid-template-rows: 1fr auto auto 1fr;
+    column-gap: 10px;
+  }
+  .pens > li:last-child:nth-child(3n + 1) .pen__shot {
+    grid-row: 1 / -1;
+    aspect-ratio: auto;
+    min-height: 168px;
+    border-bottom: 0;
+    border-right: 1px solid var(--line);
+  }
+  .pens > li:last-child:nth-child(3n + 1) .pen > b {
+    grid-area: 2 / 2;
+    margin-top: 0;
+  }
+  .pens > li:last-child:nth-child(3n + 1) .pen__say {
+    grid-area: 3 / 2;
+    margin-bottom: 0;
+  }
+}
+@media (min-width: 701px) and (max-width: 980px) {
+  .pens > li:last-child:nth-child(2n + 1) {
+    grid-column: 1 / -1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pen__shot .pen-pane {
+    transition: none;
+  }
+}
+
+.go {
+  display: inline-block;
+  font-size: 15px;
+  font-weight: 560;
+  letter-spacing: -0.005em;
+  text-decoration: underline;
+  text-underline-offset: 5px;
+  text-decoration-thickness: 1px;
+  text-decoration-color: rgb(243 243 241 / 0.4);
+  transition: text-decoration-color 0.15s ease;
+}
+.go:hover {
+  text-decoration-color: currentColor;
+}
+.go--main {
+  padding: 12px 19px 13px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #111 !important;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+.go--main:hover {
+  background: #fff;
+}
+
+/* The first app, in three languages. */
+.apps {
+  margin: clamp(40px, 5vw, 64px) 0 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--sheet);
+  overflow: hidden;
+}
+.apps__tabs {
+  display: flex;
+  gap: 2px;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.apps__tabs button {
+  appearance: none;
+  border: 0;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font: 520 14.5px/1 var(--font);
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+.apps__tabs button:hover {
+  color: var(--ink);
+}
+.apps__tabs button[aria-selected="true"] {
+  background: rgb(243 243 241 / 0.1);
+  color: var(--ink);
+}
+.apps__panel > p {
+  margin: 0;
+  padding: 16px clamp(16px, 2vw, 26px) 0;
+  font-size: 15px;
+  color: var(--muted);
+}
+.apps__panel pre {
+  margin: 0;
+  padding: 16px clamp(16px, 2vw, 26px) 24px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  line-height: 1.62;
+  tab-size: 2;
+}
+.apps__panel pre code {
+  font-size: inherit;
+}
+
+.start {
+  display: grid;
+  grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr);
+  gap: 40px clamp(32px, 5vw, 88px);
+  margin-top: clamp(40px, 5vw, 64px);
+}
+.start p {
+  margin: 0 0 14px;
+  max-width: 38rem;
+  font-size: 15.5px;
+  line-height: 1.52;
+  color: var(--muted);
+}
+.start code {
+  color: var(--soft);
+  white-space: nowrap;
+}
+.cmd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  margin: 0 0 14px;
+  padding: 6px 6px 6px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--sheet);
+}
+.cmd code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--ink);
+  scrollbar-width: none;
+}
+.cmd code::-webkit-scrollbar {
+  display: none;
+}
+.cmd button {
+  appearance: none;
+  flex: none;
+  border: 0;
+  padding: 8px 12px;
+  border-radius: 7px;
+  background: rgb(243 243 241 / 0.1);
+  color: var(--ink);
+  font: 520 13.5px/1 var(--font);
+  cursor: pointer;
+}
+.cmd button:hover {
+  background: rgb(243 243 241 / 0.16);
+}
+
+.ends {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px 24px;
+  margin-top: clamp(32px, 4vw, 48px);
+}
+
+@media (max-width: 980px) {
+  .facts,
+  .pens {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .start {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* Three panes side by side get too small to read here: one under the other, at a pane's size. */
+@media (max-width: 860px) {
+  .turns {
+    grid-template-columns: minmax(0, 34rem);
+    row-gap: 44px;
+  }
+  .turns li {
+    display: block;
+  }
+  .turns li:not(.turns__up) .pane {
+    border-right: 1px solid var(--line);
+    border-radius: 12px;
+    mask-image: none;
+  }
+  .pane__text {
+    aspect-ratio: 1300 / 760;
+  }
+}
+@media (max-width: 700px) {
+  .pens,
+  .facts,
+  .facts--two {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

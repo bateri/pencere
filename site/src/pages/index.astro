@@ -1,0 +1,234 @@
+---
+// The home page: the scene, then what pencere is in words. What it shows of the project is read
+// from the README when the site is built (src/lib/project.js): the programs made with pencere, the
+// first app in each language, and the lines that install the command and the libraries.
+import { Code } from "astro:components";
+import Home from "../layouts/Home.astro";
+import Scene from "../components/Scene.astro";
+import { REPO, theme } from "../lib/code.js";
+import { install, pens, firstApps } from "../lib/project.js";
+
+const first = firstApps();
+const start = install();
+
+// The tile on a terminal's tab: a prompt, as on the tab of the scene's display.
+const tile = `<svg viewBox="0 0 22 18" aria-hidden="true"><rect x="0.75" y="0.75" width="20.5" height="16.5" rx="5" /><path d="M6.5 6l3 3-3 3M12 12.4h4" /></svg>`;
+
+// The programs are the README's, in its order and with its words; a card leads to the program's
+// page on the bateri site. What is the site's own is how each is drawn (src/scripts/pen-panes.js):
+// `title` is what the program calls its view, `place` where it runs when that is not here.
+const DRAWN: Record<string, { title: string; place?: string }> = {
+  textpen: { title: "Editor" },
+  toppen: { title: "Monitor" },
+  dockerpen: { title: "Docker", place: "shop-01" },
+  sqlpen: { title: "" },
+  pickpen: { title: "Pick" },
+  linearpen: { title: "Linear" },
+};
+const made = pens();
+const shown = made.pens.map((pen) => {
+  if (!DRAWN[pen.name]) throw new Error(`The README lists ${pen.name}, and the home page has no drawing of it (src/pages/index.astro).`);
+  return { ...pen, ...DRAWN[pen.name] };
+});
+---
+<Home
+  title="pencere: let some light into your terminal"
+  description="pencere is an open protocol that lets a program in a terminal show a real interface in the pane it runs in, on your machine or on a server over plain ssh."
+>
+  <Scene />
+
+  <section class="part" id="how">
+    <h2>A program takes its pane, and gives it back.</h2>
+    <p class="part__lead">
+      The way a full-screen program like vim takes the screen. But what it puts there is a real interface, not a grid of
+      characters.
+    </p>
+
+    <ol class="turns">
+      <li>
+        <div class="pane" role="img" aria-label="A terminal pane, connected to a server over ssh. The command dockerpen is typed at the server's prompt.">
+          <div class="pane__tabs"><span><Fragment set:html={tile} />ssh shop-01</span><b>+</b></div>
+          <div class="pane__body pane__text">
+            <p><i>~</i> $ ssh shop-01</p>
+            <p><i>shop-01 ~</i> $ dockerpen<u></u></p>
+          </div>
+        </div>
+        <h3>It starts like any command.</h3>
+        <p>At a prompt, on your machine or on a server over plain ssh.</p>
+      </li>
+      <li class="turns__up">
+        <div class="pane">
+          <div class="pane__tabs" aria-hidden="true"><span><Fragment set:html={tile} />ssh shop-01</span><b>+</b></div>
+          <div class="pane__body pane__view" data-pen="dockerpen" data-show="whole" role="img" aria-label="The same pane, filled by dockerpen's interface: a list of containers, and the one that is chosen beside it."></div>
+        </div>
+        <h3>Its view takes the pane.</h3>
+        <p>The program does not draw it. It hands the terminal the view's files, and the terminal draws them, on your machine.</p>
+      </li>
+      <li>
+        <div class="pane" role="img" aria-label="The same pane after the program has ended: the two lines that were there, and the server's prompt under them.">
+          <div class="pane__tabs"><span><Fragment set:html={tile} />ssh shop-01</span><b>+</b></div>
+          <div class="pane__body pane__text">
+            <p><i>~</i> $ ssh shop-01</p>
+            <p><i>shop-01 ~</i> $ dockerpen</p>
+            <p><i>shop-01 ~</i> $ <u></u></p>
+          </div>
+        </div>
+        <h3>It ends, and the shell is back.</h3>
+        <p>What was on the screen is there again, as after any full-screen program.</p>
+      </li>
+    </ol>
+
+    <p class="said">
+      While the view is up, the program and the view talk in six small messages. The view sends <code>call</code>,
+      <code>subscribe</code> and <code>cancel</code>; the program sends <code>response</code>, <code>push</code> and
+      <code>progress</code>. That is the whole protocol, and it is the same for every kind of view.
+    </p>
+
+    <ul class="facts">
+      <li>
+        <h3>Plain ssh is enough</h3>
+        <p>The messages ride in the terminal's own stream: no port, no extra connection, nothing to set up on the server.</p>
+      </li>
+      <li>
+        <h3>The terminal's font and theme</h3>
+        <p>A view can be a Lua script that the terminal draws itself, with the pencere kit, in its own font and theme. Or it can be a web page, which is told the terminal's colours and font.</p>
+      </li>
+      <li>
+        <h3>Kept in a sandbox</h3>
+        <p>The view runs on the machine of the person looking at it. A script gets nothing it was not handed; a web page reaches nothing but its own program unless the program names a domain and the person allows it.</p>
+      </li>
+      <li>
+        <h3>Text where there is no host</h3>
+        <p>A program in a terminal that does not support pencere is told so, and can fall back to text.</p>
+      </li>
+    </ul>
+  </section>
+
+  <section class="part" id="pens">
+    <h2>Programs made with it.</h2>
+    <p class="part__lead" set:html={made.says} />
+    <ul class="pens">
+      {
+        shown.map((pen) => (
+          <li>
+            <a class="pen" href={`https://bateri.dev/pens/${pen.name}`}>
+              <div class="pen__shot" data-pen={pen.name} data-show="corner" data-title={pen.title} data-place={pen.place} aria-hidden="true" />
+              <b>{pen.name}</b>
+              <span class="pen__say" set:html={pen.words} />
+            </a>
+          </li>
+        ))
+      }
+      <li>
+        <a class="pen pen--own" href="#write">
+          <div class="pen__shot" aria-hidden="true"><i>+</i></div>
+          <b>Your own</b>
+          <span class="pen__say" set:html={made.own} />
+        </a>
+      </li>
+    </ul>
+  </section>
+
+  <section class="part" id="write">
+    <h2>Write one.</h2>
+    <p class="part__lead" set:html={first.says} />
+    <div class="apps" data-apps-of>
+      <div class="apps__tabs" role="tablist" aria-label="The language of the program">
+        {
+          first.apps.map((app, i) => (
+            <button type="button" role="tab" id={`app-tab-${app.lang}`} aria-controls={`app-${app.lang}`} aria-selected={i === 0 ? "true" : "false"} tabindex={i === 0 ? 0 : -1}>
+              {app.name}
+            </button>
+          ))
+        }
+      </div>
+      {
+        first.apps.map((app, i) => (
+          <div class="apps__panel" role="tabpanel" id={`app-${app.lang}`} aria-labelledby={`app-tab-${app.lang}`} hidden={i !== 0}>
+            <p set:html={app.note} />
+            <Code code={app.code} lang={app.lang as any} theme={theme} />
+          </div>
+        ))
+      }
+    </div>
+    <div class="start">
+      <div>
+        <h3>Start</h3>
+        <p set:html={start.says} />
+        <div class="cmd">
+          <code>{start.command}</code>
+          <button type="button" data-copy={start.command}>Copy</button>
+        </div>
+        <p><Fragment set:html={start.librariesSay} />: {start.libraries.map((line, i) => <>{i > 0 && ", "}<code>{line}</code></>)}.</p>
+        <a class="go" href="/kit/start">Start an app, step by step</a>
+      </div>
+      <div>
+        <h3>The kit</h3>
+        <p>What a view the terminal draws is written with: elements and their layout, an editor of text, and a library of components.</p>
+        <a class="go" href="/kit">See the kit</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="part" id="host">
+    <h2>Any terminal can host it.</h2>
+    <p class="part__lead">
+      <a href="https://github.com/bateri/bateri">bateri</a> is the first terminal that hosts pencere. The
+      specification, the libraries and the tools are all under Apache-2.0, so any terminal or program, open or closed,
+      can implement the protocol or embed this code.
+    </p>
+    <ul class="facts facts--two">
+      <li>
+        <h3>A library for hosts</h3>
+        <p>The crate <code>pencere-host</code> is a Rust library for terminals that host views. It does no I/O.</p>
+      </li>
+      <li>
+        <h3>Early</h3>
+        <p>Everything is 0.x, and a minor release may still break.</p>
+      </li>
+    </ul>
+    <div class="ends">
+      <a class="go go--main" href="/host">Add pencere to a terminal</a>
+      <a class="go" href="/spec">Read the specification</a>
+      <a class="go" href={REPO}>The repository</a>
+    </div>
+  </section>
+</Home>
+
+<script>
+  import "../scripts/pen-panes.js";
+
+  // The three first apps: one is shown, the tabs choose which, with the arrow keys too.
+  for (const group of document.querySelectorAll<HTMLElement>("[data-apps-of]")) {
+    const tabs = [...group.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    const choose = (tab: HTMLButtonElement, focus = false) => {
+      for (const other of tabs) {
+        const on = other === tab;
+        other.setAttribute("aria-selected", String(on));
+        other.tabIndex = on ? 0 : -1;
+        document.getElementById(other.getAttribute("aria-controls")!)!.hidden = !on;
+      }
+      if (focus) tab.focus();
+    };
+    tabs.forEach((tab, i) => {
+      tab.addEventListener("click", () => choose(tab));
+      tab.addEventListener("keydown", (ev) => {
+        const step = ev.key === "ArrowRight" ? 1 : ev.key === "ArrowLeft" ? -1 : 0;
+        if (!step) return;
+        ev.preventDefault();
+        choose(tabs[(i + step + tabs.length) % tabs.length], true);
+      });
+    });
+  }
+  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-copy]")) {
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.copy ?? "");
+        button.textContent = "Copied";
+        setTimeout(() => (button.textContent = "Copy"), 1600);
+      } catch {
+        button.textContent = "Select it";
+      }
+    });
+  }
+</script>
