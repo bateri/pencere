@@ -6,6 +6,11 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
 
 ## [Unreleased]
 
+### Fixed
+
+- A line that wraps into more rows than the room shows, scrolled partly above the room, no longer
+  leaves the lines below it undrawn: its rows above the room took the place of theirs.
+
 ### Changed
 
 - The editor's measure passes the page of an image on (`Measure::image(src, page)` of the engine).

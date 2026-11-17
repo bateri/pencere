@@ -760,7 +760,11 @@ impl View {
             let mut line = self.line_at_row(first);
             let mut guessed_wrong = false;
             let mut measured: f32 = 0.0;
-            while line < buffer.len_lines() && rows.len() < last - first + AROUND {
+            // The rows laid out from `first` on: the first line may start above it (a line that
+            // wraps into many rows), and its rows above are not counted, or they would take the
+            // place of the lines below it that are in view.
+            let mut counted = 0;
+            while line < buffer.len_lines() && counted < last - first + AROUND {
                 let top = self.tops.get(line).copied().unwrap_or(0);
                 let next = self.tops.get(line + 1).copied().unwrap_or(top);
                 if next == top {
@@ -778,6 +782,7 @@ impl View {
                 for row in &laid {
                     measured = measured.max(row.shaped.width());
                 }
+                counted += laid.iter().filter(|row| row.index >= first).count();
                 rows.extend(laid);
                 line += 1;
             }
