@@ -207,6 +207,16 @@ impl Buffer {
         self.text.line_end(line)
     }
 
+    /// The text of every line, without its line break, in order.
+    pub(crate) fn line_texts(&self) -> impl Iterator<Item = std::borrow::Cow<'_, str>> {
+        self.text.lines()
+    }
+
+    /// How many characters the longest line has, its line break not counted.
+    pub(crate) fn longest_line(&self) -> usize {
+        self.text.longest_line()
+    }
+
     /// The line the place `at` is on.
     pub fn line_of(&self, at: usize) -> usize {
         self.text.line_of(at)

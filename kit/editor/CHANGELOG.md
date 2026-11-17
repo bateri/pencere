@@ -22,6 +22,10 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
 
 - The editor's measure passes the page of an image on (`Measure::image(src, page)` of the engine).
 
+- A key typed in a long document no longer looks up every line of it to find the longest, nor, where
+  the editor wraps, to count its rows: the lines are walked once (a document the page has put widgets
+  in still looks its lines up when it wraps).
+
 ## [0.4.1] - 2026-11-05
 
 ### Changed

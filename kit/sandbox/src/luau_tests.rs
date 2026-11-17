@@ -2033,6 +2033,67 @@ fn a_script_says_texts_of_many_looks_canvases_overlays_commands_and_roles_as_the
     assert_eq!(nodes[9].meta.state.expanded, Some(false));
 }
 
+/// A page lists its commands again at every frame, in the same words: the words are read once, so
+/// that what the commands hold of them is one table for the same words, in every frame, and none
+/// that a page can change under the others; `pencere.keys` still gives its caller one of its own.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn the_words_of_the_keys_of_commands_are_read_once_and_every_frame_lists_the_same_keys() {
+    use pencere_view::{Command, Shortcut};
+    let mut page = open_script(
+        r#"
+        local kept = nil
+        return { render = function()
+            local one = pencere.div():command("a", "A", "cmd+k")
+            local two = pencere.div():command("b", "B", { "cmd+k", "ctrl+alt+right" })
+            local read = one.meta.commands[1].keys[1]
+            kept = kept or read
+            local mine = pencere.keys("cmd+k")
+            local says = {
+                tostring(rawequal(read, two.meta.commands[1].keys[1])),
+                tostring(rawequal(read, kept)),
+                tostring(rawequal(read, mine)),
+                tostring(rawequal(pencere.keys("cmd+k"), mine)),
+                tostring(pcall(function() read.mods.shift = true end)),
+                tostring(pcall(function() mine.mods.shift = true end)),
+            }
+            return pencere.div()
+                :command("a", "A", "cmd+k")
+                :command("b", "B", { "cmd+k", "ctrl+alt+right" })
+                :command("c", "C", "cmd+k")
+                :child(pencere.text(table.concat(says, " ")))
+        end }"#,
+        ModuleLimits::default(),
+    );
+    for now in [0.0, 1.0] {
+        page.module.render(SIZE, now, false);
+        let update = page.until(Duration::from_secs(20), |u| {
+            u.frame.is_some() || u.closed.is_some()
+        });
+        assert_eq!(update.closed, None, "{:?}", update.closed);
+        let frame = update.frame.expect("a page");
+        // Read once for its words; the caller's own is a new table each time, and it is the
+        // caller's to change.
+        assert_eq!(
+            words(&frame.root),
+            ["true true false false false true"],
+            "{now}"
+        );
+        let commands = frame.root.fold().remove(0).meta.commands;
+        assert_eq!(
+            commands,
+            vec![
+                Command::new(Id::named("a"), "A").keys(Shortcut::parse("cmd+k").unwrap()),
+                Command::new(Id::named("b"), "B")
+                    .keys(Shortcut::parse("cmd+k").unwrap())
+                    .keys(Shortcut::parse("ctrl+alt+right").unwrap()),
+                Command::new(Id::named("c"), "C").keys(Shortcut::parse("cmd+k").unwrap()),
+            ],
+            "{now}"
+        );
+    }
+}
+
 /// A flag is on when it is called with nothing and what it is told otherwise, so that a field with
 /// nothing in it (`:selected(row.chosen)`) is off and not on.
 #[test]

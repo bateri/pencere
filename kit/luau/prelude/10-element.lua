@@ -724,6 +724,30 @@ function pencere.keys(words)
 	return { key = key, mods = mods }
 end
 
+-- The keys that were read, by the words they were written as. A page lists its commands again at
+-- every frame, in the same words, and `mod` means the same all the while (`pencere.keyboard`), so the
+-- words are read once. `pencere.keys` hands its caller a table of its own; the commands share these,
+-- so they are frozen. A page that writes words without end does not fill the module: past
+-- `READ_KEYS_AT` they are forgotten.
+local READ_KEYS_AT = 512
+local read_keys = {}
+local read_keys_count = 0
+local function keys_read(words)
+	local keys = read_keys[words]
+	if keys == nil then
+		keys = pencere.keys(words)
+		table.freeze(keys.mods)
+		table.freeze(keys)
+		if read_keys_count >= READ_KEYS_AT then
+			read_keys = {}
+			read_keys_count = 0
+		end
+		read_keys[words] = keys
+		read_keys_count += 1
+	end
+	return keys
+end
+
 -- Something the page can be told to do while the keyboard is on this element or inside it (on the
 -- page's outermost box: always), which the host lists and does by its keys; the page is told
 -- { type = "command", id = id }. `keys` is written as a person writes them ("cmd+k"), a list of
@@ -734,7 +758,7 @@ local function keys_of(keys)
 	if keys == nil then
 		return nil
 	elseif type(keys) == "string" then
-		return { pencere.keys(keys) }
+		return { keys_read(keys) }
 	elseif type(keys) ~= "table" then
 		refuse("the keys of a command are words, \"cmd+k\", or a list of them, not " .. type(keys))
 	end
@@ -743,7 +767,7 @@ local function keys_of(keys)
 		if type(words) ~= "string" then
 			refuse("the keys of a command are words, \"cmd+k\", or a list of them; key " .. index .. " is a " .. type(words))
 		end
-		list[index] = pencere.keys(words)
+		list[index] = keys_read(words)
 	end
 	return list
 end

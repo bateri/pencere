@@ -6,6 +6,7 @@
 //! A line with widgets is measured again when what they say or how wide they are changes, and not
 //! otherwise: its measure is kept under the text and the widgets together.
 
+use std::borrow::Cow;
 use std::rc::Rc;
 
 use pencere_view::edit::{Widget, WidgetGroup, WidgetShow, WidgetSide, limits};
@@ -89,15 +90,20 @@ impl View {
     }
 
     /// What line `line`'s measure is kept under: its text, and its widgets where it has any.
-    pub(super) fn shape_key(&self, buffer: &Buffer, line: usize, text: &str) -> String {
+    pub(super) fn shape_key<'a>(
+        &self,
+        buffer: &Buffer,
+        line: usize,
+        text: &'a str,
+    ) -> Cow<'a, str> {
         let widgets = self.line_widgets(buffer, line);
         if widgets.is_empty() {
-            text.to_owned()
+            Cow::Borrowed(text)
         } else {
-            format!(
+            Cow::Owned(format!(
                 "{text}\u{1}{widgets:?}{:?}{}",
                 self.options.widgets, self.scale
-            )
+            ))
         }
     }
 
@@ -114,7 +120,7 @@ impl View {
             return self.shape(&text, measure);
         }
         let key = self.shape_key(buffer, line, &text);
-        if let Some(found) = self.shaped.borrow().get(&key) {
+        if let Some(found) = self.shaped.borrow().get(&*key) {
             return found.clone();
         }
         let base = self.shape(&text, measure);
@@ -180,7 +186,7 @@ impl View {
         if kept.len() >= super::SHAPED {
             kept.clear();
         }
-        kept.insert(key, shaped.clone());
+        kept.insert(key.into_owned(), shaped.clone());
         shaped
     }
 

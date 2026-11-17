@@ -536,14 +536,14 @@ impl View {
         rows
     }
 
-    /// How many rows line `line` takes, as far as it is known: laid out, or guessed from its length.
-    fn rows_of(&self, buffer: &Buffer, line: usize) -> usize {
+    /// How many rows line `line`, whose text is `text`, takes, as far as it is known: laid out, or
+    /// guessed from its length.
+    fn rows_of(&self, buffer: &Buffer, line: usize, text: &str) -> usize {
         if !self.wrap {
             return 1;
         }
-        let text = buffer.line(line);
-        let key = self.shape_key(buffer, line, &text);
-        if let Some(shaped) = self.shaped.borrow().get(&key) {
+        let key = self.shape_key(buffer, line, text);
+        if let Some(shaped) = self.shaped.borrow().get(&*key) {
             return self.breaks(shaped).len().max(1);
         }
         let guess = text.chars().count() as f32 * self.digit.max(self.space);
@@ -625,7 +625,15 @@ impl View {
             shown_gaps.insert(HEAD, rows);
         }
         let mut folds = hidden.iter().peekable();
+        // The text of each line, in one pass: what a line takes is looked for in it only where the
+        // editor wraps.
+        let mut texts = self.wrap.then(|| buffer.line_texts());
         for line in 0..lines {
+            let text = texts.as_mut().and_then(Iterator::next);
+            debug_assert!(
+                text.is_some() || !self.wrap,
+                "the lines the rope walks are the lines the document counts"
+            );
             tops.push(row);
             shrinks.push(shrink);
             while folds.peek().is_some_and(|(_, last)| *last < line) {
@@ -635,7 +643,7 @@ impl View {
                 .peek()
                 .is_some_and(|(first, last)| line >= *first && line <= *last);
             if !hidden {
-                row += self.rows_of(buffer, line);
+                row += self.rows_of(buffer, line, text.as_deref().unwrap_or_default());
                 if let Some(height) = heights.get(&line) {
                     let rows = (height / self.row).ceil() as usize;
                     row += rows;
@@ -655,11 +663,7 @@ impl View {
             .widest
             .is_none_or(|(version, _)| version != buffer.version())
         {
-            let widest = (0..lines)
-                .map(|line| buffer.line_end(line) - buffer.line_start(line))
-                .max()
-                .unwrap_or(0);
-            self.widest = Some((buffer.version(), widest));
+            self.widest = Some((buffer.version(), buffer.longest_line()));
         }
     }
 
@@ -2846,5 +2850,7 @@ impl Placement for Rows<'_> {
     }
 }
 
+#[cfg(test)]
+mod count_tests;
 mod hints;
 mod rounding;

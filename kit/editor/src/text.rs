@@ -2,6 +2,7 @@
 //! nothing a page sends reaches the rope as a place it does not have. The editor counts in
 //! characters; the page counts in bytes of UTF-8, and the two are turned into one another here.
 
+use std::borrow::Cow;
 use std::fmt;
 
 use pencere_view::edit::{Refusal, TextSnapshot};
@@ -12,6 +13,10 @@ thread_local! {
     /// How many times this thread copied a whole text into one string ([`Text::string`]): what the
     /// tests of a command that reads the document so count its copies by.
     pub(crate) static COPIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// How many times this thread looked a line up in the rope ([`Text::line_start`] and
+    /// [`Text::line_of`], and so every `line_end` and `line`): what the tests of a pass over the
+    /// lines of a document so count its searches by.
+    pub(crate) static LINE_SEARCHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// The text of a document. Places are characters (code points), as the editor holds them; the
@@ -100,6 +105,8 @@ impl Text {
 
     /// The line the place `at` is on (the end of the text is on the last line).
     pub fn line_of(&self, at: usize) -> usize {
+        #[cfg(test)]
+        LINE_SEARCHES.with(|searches| searches.set(searches.get() + 1));
         let at = at.min(self.len_chars());
         self.rope.try_char_to_line(at).unwrap_or(0)
     }
@@ -109,6 +116,8 @@ impl Text {
         if line >= self.len_lines() {
             return self.len_chars();
         }
+        #[cfg(test)]
+        LINE_SEARCHES.with(|searches| searches.set(searches.get() + 1));
         self.rope.try_line_to_char(line).unwrap_or(0)
     }
 
@@ -118,6 +127,35 @@ impl Text {
             return self.len_chars();
         }
         self.line_start(line + 1).saturating_sub(1)
+    }
+
+    /// How many characters the longest line has, its `\n` not counted: what `line_end - line_start`
+    /// says of each line, found in one pass over the rope's lines and not by a search for each.
+    pub fn longest_line(&self) -> usize {
+        let last = self.len_lines().saturating_sub(1);
+        self.rope
+            .lines()
+            .enumerate()
+            .map(|(line, text)| text.len_chars() - usize::from(line < last))
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// The text of every line, without its `\n`, in one pass over the rope's lines: what `line` gives
+    /// for each, without a search for each; a line that lies in one piece of the rope is not copied.
+    pub fn lines(&self) -> impl Iterator<Item = Cow<'_, str>> {
+        let last = self.len_lines().saturating_sub(1);
+        self.rope.lines().enumerate().map(move |(line, text)| {
+            let text = if line < last {
+                text.slice(..text.len_chars() - 1)
+            } else {
+                text
+            };
+            match text.as_str() {
+                Some(text) => Cow::Borrowed(text),
+                None => Cow::Owned(text.to_string()),
+            }
+        })
     }
 
     /// The text of line `line`, without its `\n`.
