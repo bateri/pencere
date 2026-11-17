@@ -11,6 +11,10 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 - **`shot::Scratch` and `shot::raster_rows_in`**: rows drawn in buffers the caller keeps from one
   frame to the next, with the page's edge repeated past them, so that a frame at the rate of keys asks
   the system for no picture's worth of memory.
+- **`shot::raster_part_in` and `shot::across`**: the columns of rows that changed are drawn alone, and
+  `across` says how far across an item draws (the lean of a letter, a box's edge), so that a key
+  draws the columns of the line it is typed in and not the width of the window. A soft shadow that
+  reaches them is blurred over the whole width and is the `Error::Shadow` of drawing them alone.
 - **`shot::raster_rows` and `shot::reach`**: the rows of a picture that changed are drawn again and
   the rest are kept, and `reach` says how far an item draws beyond its own box (a shadow, a glow), so
   that a row is not left out that one of them touches.

@@ -1127,6 +1127,12 @@ fn a_frame_in_which_no_line_says_where_the_page_moved_is_made_as_any_other() {
         let what = format!("scrolled to {scroll}");
         compare_within(&window, &pixel, &list, &what, 1);
         assert!(drawn_rows(&written) >= 300, "{what}: {:?}", written.bands);
+        // The rows are found in what is drawn: the room is a part of the window's width (as the
+        // columns of what changed are), and a tall rectangle in it is looked for across the picture.
+        assert!(
+            !written.copies.is_empty(),
+            "{what}: the rows that moved are copied"
+        );
     }
 }
 
@@ -1240,6 +1246,378 @@ fn a_page_that_scrolls_with_lines_across_to_the_edges_of_the_window_keeps_the_ed
             // The room is 340 rows, and the picture goes on a cell past the foot: where nothing is known
             // of what moved all of them are drawn, and more.
             assert!(drawn_rows(&written) < 340, "{what}: {:?}", written.bands);
+        }
+    }
+}
+
+// A character typed changes a line of the page and the status bar, which are bands the width of the
+// window and are changed in a part of it: what is drawn is that part.
+
+/// 60 × 20 cells of 10 × 20: a window of 600 × 400 pixels.
+const TYPING_CELLS: (u16, u16) = (60, 20);
+
+fn typist(frames: bool, compose: bool) -> Pixel {
+    Pixel::new(
+        Fonts::carried(),
+        &found_with(frames, compose),
+        CELL,
+        TYPING_CELLS,
+    )
+}
+
+/// The page a person types into: a tab strip, a side, lines of code with a caret and a selection,
+/// and a status bar at the foot.
+#[derive(Clone)]
+struct Typing {
+    /// The words of the line that is typed in (the fifth), from its left.
+    line: String,
+    /// Where the caret stands in the line, and the selection that ends where it does.
+    caret: f32,
+    selection: Option<(f32, f32)>,
+    /// What the status bar says, and where it starts.
+    status: String,
+    status_at: f32,
+    tab: String,
+    /// The typed line is in italics, and as large as this (points).
+    italic: bool,
+    size: f32,
+    /// A card with a shadow that stands over the typed line.
+    card: bool,
+    /// The ground of the room, and of the status bar across the window.
+    ground: Role,
+    bar: Role,
+    /// A small box drawn last of all, over the room, from this column.
+    badge: Option<f32>,
+}
+
+impl Typing {
+    fn new() -> Self {
+        Self {
+            line: "let value = 1".to_owned(),
+            caret: 174.0 + 13.0 * 9.6,
+            selection: None,
+            status: "Ln 5, Col 14".to_owned(),
+            status_at: 470.0,
+            tab: "main.rs".to_owned(),
+            italic: false,
+            size: 16.0,
+            card: false,
+            ground: Role::Raised(1),
+            bar: Role::Raised(2),
+            badge: None,
+        }
+    }
+
+    fn list(&self) -> DrawList {
+        let window = Rect::new(0.0, 0.0, 600.0, 400.0);
+        let room = Rect::new(130.0, 40.0, 470.0, 340.0);
+        let text = Rect::new(170.0, 40.0, 430.0, 340.0);
+        let mut items = vec![
+            box_in(window, Role::Background.solid(), 0.0, window),
+            box_in(
+                Rect::new(0.0, 0.0, 130.0, 400.0),
+                Role::Raised(1).solid(),
+                0.0,
+                window,
+            ),
+            box_in(
+                Rect::new(0.0, 0.0, 600.0, 40.0),
+                Role::Raised(2).solid(),
+                0.0,
+                window,
+            ),
+            words_in(140.0, 12.0, &self.tab, window, false),
+            box_in(room, self.ground.solid(), 0.0, room),
+        ];
+        if self.card {
+            items.push(Paint::Quad(Quad {
+                rect: Rect::new(200.0, 100.0, 120.0, 60.0),
+                radii: [6.0; 4],
+                fill: Some(Role::Raised(2).solid()),
+                gradient: None,
+                border: None,
+                shadow: Some(Shadow {
+                    dx: 0.0,
+                    dy: 4.0,
+                    blur: 12.0,
+                    color: Role::Shadow.alpha(0.5),
+                }),
+                clip: room,
+            }));
+        }
+        if let Some((from, to)) = self.selection {
+            items.push(box_in(
+                Rect::new(from, 130.0, to - from, 20.0),
+                Role::Selection.solid(),
+                3.0,
+                text,
+            ));
+        }
+        for k in 0..10_u32 {
+            let y = 50.0 + k as f32 * 20.0;
+            items.push(words_in(134.0, y, &format!("{k:>3}"), room, false));
+            if k == 4 {
+                let mut line = words_in(174.0, y, &self.line, text, false);
+                if let Paint::Text(run) = &mut line {
+                    run.font.italic = self.italic;
+                    run.font.size = self.size;
+                    if self.italic {
+                        // The interface's face is one whose letters lean past their advances.
+                        run.font.family = Family::System;
+                    }
+                }
+                items.push(line);
+            } else {
+                items.push(words_in(174.0, y, &code_line(k as usize), text, false));
+            }
+        }
+        items.push(box_in(
+            Rect::new(self.caret, 130.0, 2.0, 20.0),
+            Role::Cursor.solid(),
+            0.0,
+            text,
+        ));
+        items.push(box_in(
+            Rect::new(0.0, 380.0, 600.0, 20.0),
+            self.bar.solid(),
+            0.0,
+            window,
+        ));
+        items.push(words_in(self.status_at, 381.0, &self.status, window, false));
+        if let Some(x) = self.badge {
+            items.push(box_in(
+                Rect::new(x, 200.0, 30.0, 14.0),
+                Role::Accent.solid(),
+                4.0,
+                room,
+            ));
+        }
+        DrawList { items }
+    }
+}
+
+/// The pixels the strips of a frame would have if they were as wide as the picture.
+fn across_the_picture(written: &Written, pixel: &Pixel) -> u64 {
+    let rows: u64 = written.bands.iter().map(|band| u64::from(band.1)).sum();
+    rows * u64::from(pixel.extent().0)
+}
+
+/// `before` then `after` sent to a terminal of `compose`: what the terminal shows is `after` drawn
+/// anew, and what the second frame drew (`rastered`) is less than a `share`th of what strips across
+/// the picture are (any, where `share` is 0).
+fn typed(before: &Typing, after: &Typing, compose: bool, share: u64, what: &str) -> Written {
+    let (mut window, mut pixel) = (Window::default(), typist(true, compose));
+    send(&mut window, &mut pixel, before.list());
+    let list = after.list();
+    let written = send(&mut window, &mut pixel, list.clone());
+    compare(&window, &pixel, &list, what);
+    assert!(!written.whole, "{what}: the window is not sent whole");
+    let full = across_the_picture(&written, &pixel);
+    assert!(
+        share == 0 || written.rastered * share < full,
+        "{what}: {} pixels drawn of {full} across the picture: {:?}",
+        written.rastered,
+        written.bands
+    );
+    written
+}
+
+#[test]
+fn a_character_typed_in_a_line_draws_the_columns_of_the_line_and_not_the_width_of_the_window() {
+    let before = Typing::new();
+    let mut after = before.clone();
+    after.line.push('2');
+    after.caret += 9.6;
+    after.status = "Ln 5, Col 15".to_owned();
+    typed(&before, &after, false, 2, "a character typed");
+}
+
+#[test]
+fn a_character_typed_where_the_line_goes_to_the_window_edge_has_the_margin_past_the_window() {
+    // The line is cut by the room at the window's right: the columns are the line's to the edge, and
+    // what is drawn goes on into the margin, the edge of the page repeated.
+    let mut before = Typing::new();
+    before.line = "x".repeat(50);
+    before.caret = 174.0 + 50.0 * 9.6;
+    let mut after = before.clone();
+    after.line.push('y');
+    after.caret += 9.6;
+    typed(&before, &after, false, 1, "typed at the edge");
+}
+
+#[test]
+fn a_status_bar_that_says_another_thing_draws_the_columns_of_what_it_says() {
+    let before = Typing::new();
+    let mut after = before.clone();
+    after.status = "Ln 5, Col 15".to_owned();
+    typed(&before, &after, false, 3, "the status changed");
+    // Where it says it at the window's edge: the margin and the foot are drawn with it.
+    let mut before = Typing::new();
+    before.status_at = 520.0;
+    let mut after = before.clone();
+    after.status = "Ln 5, Col 99".to_owned();
+    typed(&before, &after, false, 1, "the status at the edge changed");
+}
+
+#[test]
+fn a_tab_that_says_another_thing_draws_the_columns_of_the_tab() {
+    let before = Typing::new();
+    let mut after = before.clone();
+    after.tab = "lib.rs".to_owned();
+    typed(&before, &after, false, 3, "the tab changed");
+}
+
+#[test]
+fn a_selection_and_a_caret_that_move_draw_the_columns_they_are_in() {
+    let mut before = Typing::new();
+    before.selection = Some((174.0, 174.0 + 4.0 * 9.6));
+    let mut after = before.clone();
+    after.selection = Some((174.0, 174.0 + 8.0 * 9.6));
+    after.caret = 174.0 + 8.0 * 9.6;
+    typed(&before, &after, false, 2, "the selection grew");
+    // It appears and it goes: an item the one list has and the other has not.
+    let none = Typing::new();
+    // An item in the middle of the list moves the ones after it: they are compared with the ones that
+    // stood where they stand now, and what is drawn is the columns of them all.
+    typed(&none, &after, false, 1, "the selection appeared");
+    typed(&after, &none, false, 1, "the selection went");
+}
+
+#[test]
+fn an_item_that_the_list_has_more_of_at_its_end_is_drawn_in_its_columns() {
+    // It has none of the other list to be compared with: the end of the longer list is what changed.
+    let none = Typing::new();
+    let mut badge = Typing::new();
+    badge.badge = Some(400.0);
+    typed(&none, &badge, false, 3, "a badge appeared");
+    typed(&badge, &none, false, 3, "a badge went");
+    let mut moved = badge.clone();
+    moved.badge = Some(333.5);
+    typed(&badge, &moved, false, 3, "a badge moved");
+}
+
+#[test]
+fn italic_letters_that_lean_past_their_advance_are_drawn_to_where_they_lean() {
+    // Large, in the interface's italic face, so that the lean is more than the pixel a box's edge
+    // has past it: the last letters are f and j, whose tops lean over the advance of what follows
+    // them (nothing, at the end).
+    let mut before = Typing::new();
+    before.italic = true;
+    before.size = 36.0;
+    before.line = "the final f".to_owned();
+    // The caret is out of the way (it is at the line's start), so that what ends the columns is the
+    // line's last letter.
+    before.caret = 176.0;
+    let mut after = before.clone();
+    after.line.push_str("jf");
+    typed(&before, &after, false, 2, "italics typed");
+    let mut shorter = after.clone();
+    shorter.line.truncate(shorter.line.len() - 1);
+    typed(&after, &shorter, false, 2, "italics deleted");
+}
+
+#[test]
+fn what_stretches_across_the_window_or_has_a_shadow_is_drawn_across_the_window() {
+    let before = Typing::new();
+    let mut after = before.clone();
+    after.bar = Role::Raised(3);
+    let written = typed(&before, &after, false, 0, "the bar changed");
+    let full = across_the_picture(&written, &typist(true, false));
+    assert_eq!(written.rastered, full, "the bar is as wide as the window");
+    // The room is most of the window's width but not all of it: a part, and the edge of the page is
+    // past it.
+    let mut after = before.clone();
+    after.ground = Role::Raised(3);
+    typed(&before, &after, false, 0, "the ground changed");
+    // A shadow's blur is made over the window's width: a line it is under is drawn as wide.
+    let mut under = Typing::new();
+    under.card = true;
+    let mut after = under.clone();
+    after.line.push('2');
+    after.caret += 9.6;
+    let written = typed(&under, &after, false, 0, "typed under a shadow");
+    let full = across_the_picture(&written, &typist(true, false));
+    assert_eq!(
+        written.rastered, full,
+        "a shadow reaches the strip: {:?}",
+        written.bands
+    );
+}
+
+#[test]
+fn a_tall_box_that_changes_is_drawn_in_its_columns_where_nothing_says_that_rows_moved() {
+    // Its rectangle is high enough to be rows that moved, but no text of the page says it did.
+    let before = Typing::new();
+    let after = before.clone();
+    let bar = |typing: &Typing, color: Role| {
+        let mut list = typing.list();
+        list.items.push(box_in(
+            Rect::new(500.0, 60.0, 8.0, 70.0),
+            color.solid(),
+            0.0,
+            Rect::new(0.0, 0.0, 600.0, 400.0),
+        ));
+        list
+    };
+    for compose in [false, true] {
+        let (mut window, mut pixel) = (Window::default(), typist(true, compose));
+        send(&mut window, &mut pixel, bar(&before, Role::Raised(1)));
+        let list = bar(&after, Role::Accent);
+        let written = send(&mut window, &mut pixel, list.clone());
+        compare(&window, &pixel, &list, "a tall box of another colour");
+        assert!(
+            written.rastered * 2 < across_the_picture(&written, &pixel),
+            "compose {compose}: {} pixels drawn: {:?}",
+            written.rastered,
+            written.bands
+        );
+    }
+}
+
+#[test]
+fn pages_typed_in_for_a_long_time_are_the_list_drawn_anew_at_every_frame() {
+    for (frames, compose) in [(true, false), (true, true), (false, false)] {
+        let (mut window, mut pixel) = (Window::default(), typist(frames, compose));
+        let mut page = Typing::new();
+        send(&mut window, &mut pixel, page.list());
+        let mut seed = 0x2545_f491_u64;
+        let mut next = move |n: u64| {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 33) % n
+        };
+        for step in 0..120 {
+            let what = format!("step {step} (frames {frames}, compose {compose})");
+            match next(9) {
+                0..=2 => {
+                    let chars = ["a", "w", "f", "j", "m", "_", "{", "é"];
+                    page.line.push_str(chars[next(8) as usize]);
+                    page.caret = 174.0 + page.line.chars().count() as f32 * 9.6;
+                }
+                3 => {
+                    page.line.pop();
+                    page.caret = 174.0 + page.line.chars().count() as f32 * 9.6;
+                }
+                4 => {
+                    page.selection = if page.selection.is_some() {
+                        None
+                    } else {
+                        Some((174.0, 174.0 + next(20) as f32 * 9.6 + 3.3))
+                    };
+                }
+                5 => page.status = format!("Ln {}, Col {}", next(500), next(500)),
+                6 => page.status_at = 400.0 + next(200) as f32 + 0.37 * next(3) as f32,
+                7 => {
+                    page.tab = ["main.rs", "lib.rs", "a very long name of a tab.rs"]
+                        [next(3) as usize]
+                        .to_owned()
+                }
+                _ => page.italic = !page.italic,
+            }
+            let list = page.list();
+            send(&mut window, &mut pixel, list.clone());
+            compare(&window, &pixel, &list, &what);
         }
     }
 }

@@ -23,7 +23,9 @@ use std::fmt::Write as _;
 use miniz_oxide::deflate::core::{
     CompressorOxide, TDEFLFlush, TDEFLStatus, compress, create_comp_flags_from_zip_params,
 };
-use pencere_drive::shot::{Fonts, Palette, Scratch, Side, raster_rows_in, reach, slide, spread};
+use pencere_drive::shot::{
+    Fonts, Palette, Scratch, Side, across, raster_part_in, raster_rows_in, reach, slide, spread,
+};
 use pencere_sandbox::Images;
 use pencere_view::{DrawList, Family, Font, Measure, Paint, Role};
 
@@ -106,6 +108,9 @@ pub(crate) struct Written {
     pub areas: Vec<Area>,
     /// The rectangles the terminal was told to copy from where they stand.
     pub copies: Vec<Moved>,
+    /// How many pixels were drawn for the frame: the strips of the bands, as wide as they were drawn
+    /// (the window whole where it was sent so).
+    pub rastered: u64,
     /// A picture the page has is not drawn yet: the frame is drawn again soon.
     pub waiting: bool,
 }
@@ -119,6 +124,17 @@ struct Plan {
     columns: (u32, u32),
     /// The rows that are drawn after the copies: the first row and how many.
     strips: Vec<(u32, u32)>,
+}
+
+/// Rows of the window that are drawn alone, and the columns of them that are: none where it is the
+/// width of the picture.
+#[derive(Clone, Copy, Debug)]
+struct Strip {
+    /// The first row, and how many rows.
+    top: u32,
+    rows: u32,
+    /// The first column and the end of the columns drawn: the rest of the strip is as it was.
+    columns: Option<(u32, u32)>,
 }
 
 /// What a frame was made of, and where in the window each item reaches.
@@ -445,12 +461,22 @@ impl Pixel {
                         } else {
                             runs
                         };
-                        let strips: Vec<(u32, u32)> = runs
+                        let strips: Vec<Strip> = runs
                             .iter()
                             .map(|&(first, count)| {
                                 let top = u32::try_from(first).unwrap_or(0) * self.cell.1;
                                 let rows = u32::try_from(count).unwrap_or(0) * self.cell.1;
-                                (top, rows.min(size.1.saturating_sub(top)))
+                                // Over the window as pictures the strips are as wide as it is.
+                                let columns = if self.edits {
+                                    self.columns_of(&shown.frame, &frame, first, count, size.0)
+                                } else {
+                                    None
+                                };
+                                Strip {
+                                    top,
+                                    rows: rows.min(size.1.saturating_sub(top)),
+                                    columns,
+                                }
                             })
                             .collect();
                         self.bands(
@@ -518,6 +544,7 @@ impl Pixel {
         self.copied = None;
         written.whole = true;
         written.bands = vec![(0, past.1)];
+        written.rastered = u64::from(past.0) * u64::from(past.1);
         self.shown = Some(Shown {
             size,
             id,
@@ -526,9 +553,9 @@ impl Pixel {
         });
     }
 
-    /// The strips of rows `strips` (the first row and how many, pixels), drawn alone, and what of
-    /// them is not what the terminal holds put where it belongs; `moving`: rows of what it holds a
-    /// little further down or up (a page that scrolled, that the two lists did not say) are
+    /// The strips `strips` (rows, and the columns of them that are not as they were), drawn alone, and
+    /// what of them is not what the terminal holds put where it belongs; `moving`: rows of what it
+    /// holds a little further down or up (a page that scrolled, that the two lists did not say) are
     /// looked for in what is drawn, and copied.
     #[allow(clippy::too_many_arguments)]
     fn bands(
@@ -538,7 +565,7 @@ impl Pixel {
         size: (u32, u32),
         frame: &Frame,
         images: Option<&Images>,
-        strips: &[(u32, u32)],
+        strips: &[Strip],
         moving: bool,
         written: &mut Written,
     ) {
@@ -550,20 +577,69 @@ impl Pixel {
         // The buffers are taken out of `self` while the strips are drawn in them and sent.
         let mut scratch = std::mem::take(&mut self.scratch);
         let mut cutting = std::mem::take(&mut self.wire.cut);
-        for &(top, rows) in strips {
+        for &Strip {
+            top,
+            rows,
+            mut columns,
+        } in strips
+        {
             // The band that reaches the foot of the window goes on to the foot of the picture, and
             // every band to the page's edge at the right: drawn so, in the buffer, with no copy.
             let below = if top + rows >= size.1 { self.cell.1 } else { 0 };
-            let Ok(pixels) = raster_rows_in(
-                &mut scratch,
-                &frame.list,
-                size,
-                &self.fonts,
-                images,
-                self.palette,
-                (top, rows),
-                (self.cell.0, below),
-            ) else {
+            let (pixels, left, across, areas) = loop {
+                let (left, to) = columns.unwrap_or((0, size.0));
+                // The page's edge at the right is drawn where the columns go to the window's edge.
+                let right = if to >= size.0 { self.cell.0 } else { 0 };
+                let drawn = raster_part_in(
+                    &mut scratch,
+                    &frame.list,
+                    size,
+                    &self.fonts,
+                    images,
+                    self.palette,
+                    (top, rows),
+                    (left, to),
+                    (right, below),
+                );
+                let Ok(pixels) = drawn else {
+                    if columns.take().is_some() {
+                        // A part that cannot be drawn alone (a shadow reaches it) is the whole width.
+                        continue;
+                    }
+                    break (None, 0, 0, Vec::new());
+                };
+                let across = to - left + right;
+                written.rastered += u64::from(across) * u64::from(rows + below);
+                if !self.edits {
+                    break (Some(pixels), left, across, Vec::new());
+                }
+                let areas = self.differing(
+                    &shown.held,
+                    pixels,
+                    past.0,
+                    (left, across),
+                    (top, rows + below),
+                    most,
+                );
+                // A tall rectangle may be rows that moved, which the two lists say of their text and
+                // which are looked for in the strip across the picture: where they say it, and the
+                // columns were a part, the strip is drawn again whole.
+                let tall = LEAST_MOVE_CELLS * self.cell.1 * 2;
+                #[allow(clippy::cast_precision_loss)]
+                let line = 2.0 * self.cell.1 as f32;
+                if columns.is_some()
+                    && moving
+                    && self.compose
+                    && areas.iter().any(|area| {
+                        area.h >= tall && !shifts_of(&shown.frame, frame, area, line).is_empty()
+                    })
+                {
+                    columns = None;
+                    continue;
+                }
+                break (Some(pixels), left, across, areas);
+            };
+            let Some(pixels) = pixels else {
                 continue;
             };
             let rows = rows + below;
@@ -578,41 +654,44 @@ impl Pixel {
                 transmit(&mut self.wire, out, &header, pixels, self.packed, 1);
                 self.held.push(id);
                 self.laid += 1;
-                written.areas.push(Area {
+                let area = Area {
                     x: 0,
                     y: top,
                     w: past.0,
                     h: rows,
-                });
+                };
+                written.areas.push(area);
                 keep_area(
                     &mut shown.held,
                     width,
                     top,
                     pixels,
-                    Area {
-                        x: 0,
-                        y: top,
-                        w: past.0,
-                        h: rows,
-                    },
+                    (past.0 as usize, 0),
+                    area,
                 );
                 continue;
             }
-            let areas = self.differing(&shown.held, pixels, past, top, rows, most);
             // What moved (a page that scrolled) is copied, within what the terminal holds; what
             // is left to differ after that is sent.
-            let moved = if moving && self.compose {
+            let moved = if moving && self.compose && columns.is_none() {
                 self.moved(out, shown, pixels, past, top, &areas, frame, written)
             } else {
                 false
             };
             let areas = if moved {
-                self.differing(&shown.held, pixels, past, top, rows, most)
+                self.differing(
+                    &shown.held,
+                    pixels,
+                    past.0,
+                    (left, across),
+                    (top, rows),
+                    most,
+                )
             } else {
                 areas
             };
             for area in areas {
-                let cut = cut(&mut cutting, pixels, width, top, area);
+                let cut = cut(&mut cutting, pixels, (across as usize, left), top, area);
                 let header = format!(
                     "a=f,i={},r=1,x={},y={},s={},v={},f=32",
                     shown.id, area.x, area.y, area.w, area.h
@@ -621,27 +700,105 @@ impl Pixel {
                 self.edited = Some(shown.id);
                 written.areas.push(area);
                 // What is not in a rectangle is what the terminal holds already.
-                keep_area(&mut shown.held, width, top, pixels, area);
+                keep_area(
+                    &mut shown.held,
+                    width,
+                    top,
+                    pixels,
+                    (across as usize, left as usize),
+                    area,
+                );
             }
         }
         self.scratch = scratch;
         self.wire.cut = cutting;
     }
 
-    /// The rectangles of the rows `top`..`top + rows` whose pixels are not what `held` has: the rows
-    /// of `pixels` (a strip of those rows) are compared with it, a rectangle is where some differ
+    /// In what columns the bands `first`..`first + count` of the window are not what they were, as
+    /// far as the two lists say: where an item is not what it was in the other (the pair at the same
+    /// place in the lists of the band; what has no pair, in the longer one), the columns the two reach
+    /// are not. What is outside them is drawn by the same items in the same order in both, so it is
+    /// what the terminal holds. None where they are most of the window's width, where an item reaches
+    /// across it (a shadow's blur), or where none is known: the strip is the width of the picture
+    /// (and so it is where a shadow that no item changed reaches it: it is blurred over the width, and
+    /// the part is refused by what draws it).
+    fn columns_of(
+        &self,
+        old: &Frame,
+        new: &Frame,
+        first: usize,
+        count: usize,
+        width: u32,
+    ) -> Option<(u32, u32)> {
+        let mut span: Option<(f32, f32)> = None;
+        // An item that reaches more than one band of the strip is looked at once.
+        let mut seen: Vec<(bool, usize)> = Vec::new();
+        for band in first..first + count {
+            let (was, now) = (old.bands.get(band)?, new.bands.get(band)?);
+            for at in 0..was.len().max(now.len()) {
+                let (a, b) = (
+                    was.get(at).map(|&n| n as usize),
+                    now.get(at).map(|&n| n as usize),
+                );
+                if let (Some(a), Some(b)) = (a, b)
+                    && old.list.items.get(a) == new.list.items.get(b)
+                    && old.ready.get(a) == new.ready.get(b)
+                {
+                    continue;
+                }
+                for (frame, n) in [(old, a), (new, b)] {
+                    let Some(n) = n else {
+                        continue;
+                    };
+                    let key = (std::ptr::eq(frame, new), n);
+                    if seen.contains(&key) {
+                        continue;
+                    }
+                    seen.push(key);
+                    let Some(item) = frame.list.items.get(n) else {
+                        continue;
+                    };
+                    if let Some((left, right)) = across(item, &self.fonts) {
+                        span =
+                            Some(span.map_or((left, right), |(l, r)| (l.min(left), r.max(right))));
+                    }
+                }
+            }
+        }
+        let (left, right) = span?;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let (left, right) = (
+            left.floor().max(0.0) as u32,
+            (right.ceil().max(0.0) as u32).min(width),
+        );
+        // Most of the width is not worth the other cut.
+        (right > left && u64::from(right - left) * 8 <= u64::from(width) * 7)
+            .then_some((left, right))
+    }
+
+    /// The rectangles of the rows `top`..`top + rows` whose pixels are not what `held` (`width` pixels
+    /// across) has: the rows of `pixels` (a strip of those rows, `across` pixels each from the column
+    /// `left`) are compared with it, a rectangle is where some differ
     /// and the ones near it do too, and where there are more than `most` of them the ones that
     /// cost the least to join are joined.
     fn differing(
         &self,
         held: &[u8],
         pixels: &[u8],
-        size: (u32, u32),
-        top: u32,
-        rows: u32,
+        width: u32,
+        (left, across): (u32, u32),
+        (top, rows): (u32, u32),
         most: usize,
     ) -> Vec<Area> {
-        let runs = row_runs(held, pixels, size.0, top, rows, self.cell.0 * JOIN_CELLS);
+        let runs = row_runs(
+            held,
+            pixels,
+            width,
+            (left, across),
+            top,
+            rows,
+            self.cell.0 * JOIN_CELLS,
+        );
         let mut areas = clusters(&runs, top, JOIN_ROWS);
         if areas.len() > most {
             areas = squeeze(areas, most);
@@ -945,16 +1102,18 @@ impl Pixel {
                 written,
             );
         }
-        self.bands(
-            out,
-            shown,
-            size,
-            frame,
-            images,
-            &plan.strips,
-            false,
-            written,
-        );
+        // What the copies left is drawn across the picture: they were made in columns the lists of
+        // the two frames do not say anything of.
+        let strips: Vec<Strip> = plan
+            .strips
+            .iter()
+            .map(|&(top, rows)| Strip {
+                top,
+                rows,
+                columns: None,
+            })
+            .collect();
+        self.bands(out, shown, size, frame, images, &strips, false, written);
     }
 
     fn number(&mut self) -> u32 {
@@ -1106,24 +1265,36 @@ fn transmit(wire: &mut Wire, out: &mut String, header: &str, rgba: &[u8], packed
     output::pieces_quiet(out, header, encoded, quiet);
 }
 
-/// Where in each of the `rows` rows from `top` the pixels of `pixels` (a strip of those rows) are not
-/// what `held` (the whole window) has: runs of pixels, a run and the next being one where fewer
+/// Where in each of the `rows` rows from `top` the pixels of `pixels` (a strip of those rows, `across`
+/// pixels each, the columns from `left` of the window's `width`) are not what `held` (the whole
+/// window) has: runs of pixels, in the window's columns, a run and the next being one where fewer
 /// than `join` pixels are between them.
 fn row_runs(
     held: &[u8],
     pixels: &[u8],
     width: u32,
+    (left, across): (u32, u32),
     top: u32,
     rows: u32,
     join: u32,
 ) -> Vec<Vec<(u32, u32)>> {
-    let row = width as usize * 4;
+    let (row, part) = (width as usize * 4, across as usize * 4);
+    let from = left as usize * 4;
     (0..rows as usize)
         .map(|r| {
-            let was = held.get((top as usize + r) * row..(top as usize + r + 1) * row);
-            let now = pixels.get(r * row..(r + 1) * row);
+            let was =
+                held.get((top as usize + r) * row + from..(top as usize + r) * row + from + part);
+            let now = pixels.get(r * part..(r + 1) * part);
             match (was, now) {
-                (Some(was), Some(now)) => diff_runs(was, now, join),
+                (Some(was), Some(now)) => {
+                    let mut runs = diff_runs(was, now, join);
+                    if left > 0 {
+                        for run in &mut runs {
+                            *run = (run.0 + left, run.1 + left);
+                        }
+                    }
+                    runs
+                }
                 _ => Vec::new(),
             }
         })
@@ -1348,19 +1519,27 @@ fn bounding(areas: &[Area]) -> Option<Area> {
     })
 }
 
-/// The pixels of `area` from a strip of rows (the first of them the row `top` of the window): the
-/// rows themselves where the rectangle is as wide as the strip, and else a cut of them made in `out`.
-fn cut<'a>(out: &'a mut Vec<u8>, strip: &'a [u8], width: usize, top: u32, area: Area) -> &'a [u8] {
-    let row = width * 4;
+/// The pixels of `area` from a strip of rows (the first of them the row `top` of the window, each
+/// `across` pixels, the first column of them `left`): the rows themselves where the rectangle is as
+/// wide as the strip, and else a cut of them made in `out`.
+fn cut<'a>(
+    out: &'a mut Vec<u8>,
+    strip: &'a [u8],
+    (across, left): (usize, u32),
+    top: u32,
+    area: Area,
+) -> &'a [u8] {
+    let row = across * 4;
     let first = (area.y - top) as usize;
-    if area.x == 0 && area.w as usize == width {
+    let column = (area.x - left) as usize;
+    if column == 0 && area.w as usize == across {
         return strip
             .get(first * row..(first + area.h as usize) * row)
             .unwrap_or_default();
     }
     out.clear();
     for line in first..first + area.h as usize {
-        let from = line * row + area.x as usize * 4;
+        let from = line * row + column * 4;
         if let Some(pixels) = strip.get(from..from + area.w as usize * 4) {
             out.extend_from_slice(pixels);
         }
@@ -1368,13 +1547,21 @@ fn cut<'a>(out: &'a mut Vec<u8>, strip: &'a [u8], width: usize, top: u32, area: 
     out
 }
 
-/// The pixels of `area` from a strip of rows (the first of them the row `top` of the window) put in
-/// what is kept of the window: the rectangle that was sent.
-fn keep_area(held: &mut [u8], width: usize, top: u32, strip: &[u8], area: Area) {
+/// The pixels of `area` from a strip of rows (the first of them the row `top` of the window, each
+/// `across` pixels, the first column of them `left`) put in what is kept of the window (`width`
+/// pixels across): the rectangle that was sent.
+fn keep_area(
+    held: &mut [u8],
+    width: usize,
+    top: u32,
+    strip: &[u8],
+    (across, left): (usize, usize),
+    area: Area,
+) {
     let row = width * 4;
     for line in area.y..area.bottom() {
         let (from, to) = (
-            (line - top) as usize * row + area.x as usize * 4,
+            (line - top) as usize * across * 4 + (area.x as usize - left) * 4,
             line as usize * row + area.x as usize * 4,
         );
         let length = area.w as usize * 4;

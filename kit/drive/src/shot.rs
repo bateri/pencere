@@ -116,6 +116,9 @@ impl Palette {
 pub enum Error {
     /// A picture of no pixels, or of more than a picture may have.
     Size(u32, u32),
+    /// A soft shadow reaches the part of a picture asked for, and is blurred over the picture's whole
+    /// width: the part cannot be drawn alone.
+    Shadow,
     /// The PNG could not be written.
     Encode(String),
 }
@@ -124,6 +127,7 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Size(w, h) => write!(f, "no picture is {w} × {h} pixels"),
+            Self::Shadow => write!(f, "a soft shadow reaches the part of the picture asked for"),
             Self::Encode(why) => write!(f, "the picture could not be written: {why}"),
         }
     }
@@ -345,6 +349,7 @@ pub fn raster(
         fonts,
         images,
         palette,
+        0,
     );
     Ok(Raster { pixmap })
 }
@@ -402,15 +407,59 @@ pub fn raster_rows_in<'a>(
     (top, rows): (u32, u32),
     (right, below): (u32, u32),
 ) -> Result<&'a [u8], Error> {
+    raster_part_in(
+        scratch,
+        list,
+        size,
+        fonts,
+        images,
+        palette,
+        (top, rows),
+        (0, size.0),
+        (right, below),
+    )
+}
+
+/// The same, of the columns `left`..`to` of the rows alone: only what reaches them ([`reach`],
+/// [`across`]) is drawn, on a buffer of those columns, and the bytes are `to - left + right` pixels
+/// across. A box, a picture or a figure is moved to the buffer's corner as the rows are (so its edge
+/// that is between two pixels may be a level or sixteen apart from the same edge drawn across the
+/// picture, in a pixel or two of a rounded corner: a sixteenth of a pixel's coverage), the words are
+/// not (where a letter is is rounded in the picture's columns, and the columns left of the part are
+/// taken off after it): they are the same to the byte. The margin at the right is the page's edge
+/// only where the columns go to the picture's right (`to` is its width), and none where they do not.
+/// A soft shadow is blurred over the whole picture's width and not over part of it: where one reaches
+/// the part, it is not drawn alone.
+///
+/// # Errors
+///
+/// A picture of no pixels, rows that are none of it, or columns that are none of it; or a shadow that
+/// reaches a part that is not the whole width ([`Error::Shadow`]).
+#[allow(clippy::too_many_arguments)]
+pub fn raster_part_in<'a>(
+    scratch: &'a mut Scratch,
+    list: &DrawList,
+    size: (u32, u32),
+    fonts: &Fonts,
+    images: Option<&Images>,
+    palette: Palette,
+    (top, rows): (u32, u32),
+    (left, to): (u32, u32),
+    (right, below): (u32, u32),
+) -> Result<&'a [u8], Error> {
     let (width, height) = size;
+    let to = to.min(width);
     let bottom = top.saturating_add(rows).min(height);
-    if bottom <= top || width == 0 {
+    if bottom <= top || width == 0 || to <= left {
         return Err(Error::Size(width, rows));
     }
-    // What reaches the rows; the whole picture is every item.
-    let all = top == 0 && bottom >= height;
+    let whole_width = left == 0 && to == width;
+    // The margin at the right is the picture's edge repeated: of the part of it that has the edge.
+    let right = if to == width { right } else { 0 };
+    // What reaches the rows (and the columns); the whole picture is every item.
+    let all = top == 0 && bottom >= height && whole_width;
     #[allow(clippy::cast_precision_loss)]
-    let (above, under) = (top as f32, bottom as f32);
+    let (above, under, before, after) = (top as f32, bottom as f32, left as f32, to as f32);
     let reaching: Vec<(&Paint, (f32, f32))> = list
         .items
         .iter()
@@ -421,24 +470,34 @@ pub fn raster_rows_in<'a>(
             reach(item, fonts).map(|rows| (item, rows))
         })
         .filter(|(_, (first, last))| *first < under && *last > above)
+        .filter(|(item, _)| {
+            // A line of words is set down to know where it ends only where its clip is in the columns.
+            whole_width
+                || (!matches!(item, Paint::Text(run) if run.clip.x >= after || run.clip.right() <= before)
+                    && across(item, fonts).is_some_and(|(first, last)| first < after && last > before))
+        })
         .collect();
     // A shadow is blurred over the rows it reaches, cut at its clip, as a grid of them: the picture
     // has them all, so that it is blurred over the same grid as in the whole picture.
-    let (mut from, mut to) = (top, bottom);
+    let (mut from, mut to_row) = (top, bottom);
     for (item, (first, last)) in &reaching {
         if !all && matches!(item, Paint::Quad(quad) if quad.shadow.is_some()) {
+            if !whole_width {
+                return Err(Error::Shadow);
+            }
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             {
                 from = from.min(first.floor().max(0.0) as u32);
-                to = to.max((last.ceil().max(0.0) as u32).min(height));
+                to_row = to_row.max((last.ceil().max(0.0) as u32).min(height));
             }
         }
     }
     // The rows drawn, and the rows the buffer holds: the margin at the foot is under the last kept.
-    let across = width.checked_add(right).ok_or(Error::Size(width, rows))?;
+    let part = to - left;
+    let across = part.checked_add(right).ok_or(Error::Size(width, rows))?;
     let kept = (bottom - top) as usize;
     let first = (top - from) as usize;
-    let high = (to - from).max(bottom - from + below);
+    let high = (to_row - from).max(bottom - from + below);
     let row = across as usize * 4;
     let len = row * high as usize;
     if scratch.pixels.len() < len {
@@ -452,21 +511,21 @@ pub fn raster_rows_in<'a>(
             PixmapMut::from_bytes(&mut *all_rows, across, high).ok_or(Error::Size(across, high))?;
         ground(&mut view, palette);
         let moved: Vec<Paint>;
-        let items: Vec<&Paint> = if from == 0 {
+        let items: Vec<&Paint> = if from == 0 && left == 0 {
             reaching.iter().map(|(item, _)| *item).collect()
         } else {
             #[allow(clippy::cast_precision_loss)]
             {
                 moved = reaching
                     .iter()
-                    .map(|(item, _)| shifted(item, -(from as f32)))
+                    .map(|(item, _)| shifted(item, -(left as f32), -(from as f32)))
                     .collect();
             }
             moved.iter().collect()
         };
         // The shadows are blurred inside the picture the rows are of, not inside the margin.
         #[allow(clippy::cast_precision_loss)]
-        let bounds = (width as f32, (to - from) as f32);
+        let bounds = (width as f32, (to_row - from) as f32);
         draw(
             view,
             bounds,
@@ -475,12 +534,13 @@ pub fn raster_rows_in<'a>(
             fonts,
             images,
             palette,
+            left,
         );
     }
     // The margin: what was drawn there is not the page's edge, which is the last column and last row.
     if right > 0 {
         for at in first..first + kept {
-            let last = at * row + (width as usize - 1) * 4;
+            let last = at * row + (part as usize - 1) * 4;
             let Some(edge) = all_rows
                 .get(last..last + 4)
                 .and_then(|pixel| <[u8; 4]>::try_from(pixel).ok())
@@ -556,32 +616,112 @@ pub fn reach(item: &Paint, fonts: &Fonts) -> Option<(f32, f32)> {
     (bottom > top).then_some((top, bottom))
 }
 
-/// `item` moved down by `dy` pixels.
-fn shifted(item: &Paint, dy: f32) -> Paint {
-    let down = |r: Rect| Rect::new(r.x, r.y + dy, r.w, r.h);
+/// Where the columns of a picture are that `item` can change: from its left to its right, pixels, and
+/// `None` where it draws nothing. What a column of a row is is what the items that reach the row
+/// and the column draw on it, in order; so a column whose items are the same as before is the same.
+/// The bounds are wide where a drawing reaches past its box (the lean of a letter, a turned
+/// picture's corners), a box's edge is a pixel past it, a line of words is as wide as it is set down
+/// (the lean of its letters and its rule included), all cut at the item's clip; and they are the
+/// whole line where a shadow's blur, which is made over the width of the picture, is.
+pub fn across(item: &Paint, fonts: &Fonts) -> Option<(f32, f32)> {
+    let (left, right, clip) = match item {
+        Paint::Quad(quad) => {
+            if quad.shadow.is_some() {
+                return Some((f32::NEG_INFINITY, f32::INFINITY));
+            }
+            (quad.rect.x - 1.0, quad.rect.right() + 1.0, quad.clip)
+        }
+        Paint::Text(run) => {
+            let (left, right) = words_across(run, fonts)?;
+            (left - 1.0, right + 1.0, run.clip)
+        }
+        Paint::Image(picture) => {
+            let rect = picture.rect;
+            if picture.turn == 0.0 {
+                (rect.x - 1.0, rect.right() + 1.0, picture.clip)
+            } else {
+                // Turned about its middle: as far as its corners go.
+                let half = rect.w.hypot(rect.h) / 2.0;
+                let middle = rect.x + rect.w / 2.0;
+                (middle - half - 1.0, middle + half + 1.0, picture.clip)
+            }
+        }
+        Paint::Figure(figure) => (figure.rect.x - 1.0, figure.rect.right() + 1.0, figure.clip),
+        Paint::Editor(_) => return None,
+    };
+    let (left, right) = (left.max(clip.x), right.min(clip.right()));
+    (right > left).then_some((left, right))
+}
+
+/// From where to where the words of `run` are drawn, as `Canvas::text` draws them: the pixels of its
+/// letters, the box of one a face lacks, and the rule under or through it. None where it draws none.
+fn words_across(run: &pencere_view::Run, fonts: &Fonts) -> Option<(f32, f32)> {
+    let mut span: Option<(f32, f32)> = None;
+    let mut take = |left: f32, right: f32| {
+        span = Some(span.map_or((left, right), |(l, r)| (l.min(left), r.max(right))));
+    };
+    let width = match fonts.set_down(&run.font, &run.text) {
+        Some(set) => {
+            for mark in &set.marks {
+                let x = run.origin.x + mark.at;
+                match &mark.shape {
+                    Shape::Nothing => {}
+                    Shape::Glyph(glyph) => {
+                        #[allow(clippy::cast_precision_loss)]
+                        let at = x + glyph.left as f32;
+                        #[allow(clippy::cast_precision_loss)]
+                        take(at, at + glyph.width as f32);
+                    }
+                    Shape::Box => take(x, x + mark.advance.max(4.0)),
+                }
+            }
+            set.width
+        }
+        None => {
+            // A box for each character that is not a space, a character's width apart.
+            let advance = fonts.box_advance();
+            #[allow(clippy::cast_precision_loss)]
+            let width = run.text.chars().count() as f32 * advance;
+            if run.text.chars().any(|c| !c.is_whitespace()) {
+                take(run.origin.x, run.origin.x + width + 1.0);
+            }
+            width
+        }
+    };
+    if run.underline || run.strike {
+        take(run.origin.x, run.origin.x + width);
+    }
+    span
+}
+
+/// `item` moved down by `dy` pixels, and right by `dx`.
+fn shifted(item: &Paint, dx: f32, dy: f32) -> Paint {
+    let moved = |r: Rect| Rect::new(r.x + dx, r.y + dy, r.w, r.h);
     match item {
         Paint::Quad(quad) => {
             let mut quad = quad.clone();
-            quad.rect = down(quad.rect);
-            quad.clip = down(quad.clip);
+            quad.rect = moved(quad.rect);
+            quad.clip = moved(quad.clip);
             Paint::Quad(quad)
         }
+        // The words are not moved across: where a letter is is rounded in the picture's columns,
+        // and the same sum rounds the same where the canvas takes `dx` off after it (`Canvas::left`).
         Paint::Text(run) => {
             let mut run = run.clone();
             run.origin.y += dy;
-            run.clip = down(run.clip);
+            run.clip = moved(run.clip);
             Paint::Text(run)
         }
         Paint::Image(picture) => {
             let mut picture = picture.clone();
-            picture.rect = down(picture.rect);
-            picture.clip = down(picture.clip);
+            picture.rect = moved(picture.rect);
+            picture.clip = moved(picture.clip);
             Paint::Image(picture)
         }
         Paint::Figure(figure) => {
             let mut figure = figure.clone();
-            figure.rect = down(figure.rect);
-            figure.clip = down(figure.clip);
+            figure.rect = moved(figure.rect);
+            figure.clip = moved(figure.clip);
             Paint::Figure(figure)
         }
         Paint::Editor(slot) => Paint::Editor(slot.clone()),
@@ -590,7 +730,9 @@ fn shifted(item: &Paint, dy: f32) -> Paint {
 
 /// `items` drawn into `pixmap`, in order, what is cut through a mask or made in a buffer in `tools`;
 /// `bounds` is how far the picture goes (a shadow is blurred inside it), which the pixmap may be more
-/// than.
+/// than; `left` is how many columns of the picture are left of the pixmap's first (the words, which
+/// are not moved to it, are put in it by it).
+#[allow(clippy::too_many_arguments)]
 fn draw<'a>(
     pixmap: PixmapMut<'_>,
     bounds: (f32, f32),
@@ -599,6 +741,7 @@ fn draw<'a>(
     fonts: &Fonts,
     images: Option<&Images>,
     palette: Palette,
+    left: u32,
 ) {
     let mut canvas = Canvas {
         pixmap,
@@ -606,6 +749,7 @@ fn draw<'a>(
         palette,
         bounds,
         tools,
+        left: i64::from(left),
     };
     for item in items {
         match item {
@@ -649,6 +793,11 @@ struct Canvas<'a, 'b> {
     /// How wide and how high the picture is that is drawn: what a shadow is blurred inside.
     bounds: (f32, f32),
     tools: &'a mut Tools,
+    /// How many columns of the picture are left of the pixmap's first, where the pixmap is a part of
+    /// the picture. The words are in the picture's columns, and where a letter is is rounded in them
+    /// (and a letter of the picture's column 100.5 is in 101 where the part starts at 40 and is in its
+    /// 61): `blit` and `fill` take this off after they have rounded.
+    left: i64,
 }
 
 /// Where two rectangles meet.
@@ -1025,7 +1174,7 @@ impl Canvas<'_, '_> {
     /// A colour glyph's own pixels (straight RGBA) at `at`, `opacity` of them showing, cut at `clip`.
     fn blit_colour(&mut self, glyph: &fonts::Glyph, at: (f32, f32), opacity: f32, clip: Rect) {
         #[allow(clippy::cast_possible_truncation)]
-        let (x, y) = (at.0.round() as i64, at.1.round() as i64);
+        let (x, y) = (at.0.round() as i64 - self.left, at.1.round() as i64);
         let (w, h) = (
             i64::from(self.pixmap.width()),
             i64::from(self.pixmap.height()),
@@ -1073,6 +1222,9 @@ impl Canvas<'_, '_> {
 
     /// `rect`, cut at `clip`, filled with `color`.
     fn fill(&mut self, rect: Rect, clip: Rect, color: [f32; 4]) {
+        // The rectangle is in the picture's columns, rounded there; the clip is in the pixmap's.
+        #[allow(clippy::cast_precision_loss)]
+        let rect = Rect::new(rect.x - self.left as f32, rect.y, rect.w, rect.h);
         let Some(shown) = intersect(rect, clip) else {
             return;
         };
@@ -1087,7 +1239,7 @@ impl Canvas<'_, '_> {
     /// A glyph's coverage (one byte a pixel, `width` wide) at `at`, in `color`, cut at `clip`.
     fn blit(&mut self, coverage: &[u8], width: usize, at: (f32, f32), color: [f32; 4], clip: Rect) {
         #[allow(clippy::cast_possible_truncation)]
-        let (x, y) = (at.0.round() as i64, at.1.round() as i64);
+        let (x, y) = (at.0.round() as i64 - self.left, at.1.round() as i64);
         let (w, h) = (
             i64::from(self.pixmap.width()),
             i64::from(self.pixmap.height()),

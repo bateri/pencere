@@ -1228,3 +1228,294 @@ fn a_clip_far_past_the_picture_is_cleared_for_the_next_clip() {
         "the box"
     );
 }
+
+/// Words in the face `italic` or not, at `x` (not a whole number, where the test says so).
+fn words_at(x: f32, y: f32, size: f32, text: &str, italic: bool, strike: bool) -> Paint {
+    Paint::Text(Run {
+        origin: Point::new(x, y),
+        text: text.to_owned(),
+        font: Font {
+            family: Family::Terminal,
+            size,
+            weight: 400,
+            italic,
+        },
+        color: Role::Foreground.solid(),
+        opacity: 1.0,
+        grounds: Vec::new(),
+        clip: Rect::new(0.0, 0.0, 400.0, 300.0),
+        underline: strike,
+        strike,
+    })
+}
+
+/// What `items_that_reach` has but for the ones with a soft shadow (which are blurred over the whole
+/// width of a picture), and words at places that are not whole pixels, in two faces.
+fn items_that_reach_across() -> Vec<Paint> {
+    let mut items: Vec<Paint> = items_that_reach()
+        .into_iter()
+        .filter(|item| !matches!(item, Paint::Quad(quad) if quad.shadow.is_some()))
+        .collect();
+    for (n, x) in [100.0_f32, 100.25, 100.5, 100.75, 101.4999, 40.3, 7.5]
+        .into_iter()
+        .enumerate()
+    {
+        let y = 10.0 + n as f32 * 36.0;
+        items.push(words_at(
+            x,
+            y,
+            16.0,
+            "fn fjord(f: &f32) -> j { f(j) }",
+            n % 2 == 1,
+            false,
+        ));
+        items.push(words_at(
+            x + 0.5,
+            y,
+            21.0,
+            "iIl1| ffj jf",
+            n % 2 == 0,
+            n == 3,
+        ));
+    }
+    // Words that are wider than their size says: a letter that is three ems wide, and (where no face
+    // has the letters) boxes that are as wide whatever the size.
+    items.push(words_at(
+        20.0,
+        262.0,
+        2.0,
+        &"abcdefghij".repeat(7),
+        false,
+        false,
+    ));
+    items.push(words_at(
+        30.0,
+        278.0,
+        10.0,
+        "\u{2E3B}\u{2E3B}\u{2E3B}\u{FDFD}",
+        false,
+        false,
+    ));
+    items
+}
+
+/// A rounded box with a stroke whose edges are not whole pixels, and one is at the middle of one
+/// (150.3 + 90.2): the corners' curves are made of the numbers as the sums that make them round.
+fn box_between_pixels() -> Paint {
+    Paint::Quad(Quad {
+        rect: Rect::new(150.3, 30.7, 90.2, 40.5),
+        radii: [5.0; 4],
+        fill: Some(Role::Raised(3).solid()),
+        gradient: None,
+        border: Some(pencere_view::Border {
+            width: 1.5,
+            color: Role::Accent.solid(),
+        }),
+        shadow: None,
+        clip: Rect::new(0.0, 0.0, 400.0, 300.0),
+    })
+}
+
+/// The columns of a picture that are not the ground, the first and the last.
+fn inked_columns(drawn: &crate::shot::Raster) -> Option<(u32, u32)> {
+    let ground = Palette::Dark
+        .role(Role::Background)
+        .map(|c| (c * 255.0).round() as u8);
+    let width = drawn.width() as usize;
+    let mut columns: Vec<u32> = Vec::new();
+    for row in drawn.rgba().chunks(width * 4) {
+        for (x, px) in row.chunks(4).enumerate() {
+            if px.get(..3) != ground.get(..3) {
+                columns.push(x as u32);
+            }
+        }
+    }
+    Some((*columns.iter().min()?, *columns.iter().max()?))
+}
+
+/// Nothing an item draws is drawn outside the columns `across` says: the lean of an italic letter, the
+/// rule under words, the edge of a box, a letter a face has not.
+#[test]
+fn what_an_item_draws_is_in_the_columns_it_reaches() {
+    let mut most_lean = 0.0_f32;
+    for (which, fonts) in [
+        ("carried", Fonts::carried()),
+        ("installed", Fonts::installed()),
+        ("none", Fonts::none()),
+    ] {
+        let mut items = items_that_reach_across();
+        items.push(box_between_pixels());
+        for (n, item) in items.into_iter().enumerate() {
+            let list = DrawList {
+                items: vec![item.clone()],
+            };
+            let drawn = crate::shot::raster(&list, (400, 300), &fonts, None, Palette::Dark)
+                .expect("a picture");
+            let Some((first, last)) = inked_columns(&drawn) else {
+                continue;
+            };
+            let (left, right) = crate::shot::across(&item, &fonts).unwrap_or_else(|| {
+                panic!("{which} item {n} draws columns {first}..={last} and reaches none")
+            });
+            assert!(
+                f64::from(left) <= f64::from(first) && f64::from(right) >= f64::from(last) + 1.0,
+                "{which} item {n}: draws columns {first}..={last}, reaches {left}..{right}: {item:?}"
+            );
+            // How far the letters lean past what the words' advances say, for the notes.
+            if let Paint::Text(run) = &item
+                && !run.underline
+                && which == "carried"
+            {
+                let advances = run.text.chars().count() as f32 * 0.6 * run.font.size;
+                most_lean = most_lean.max(last as f32 + 1.0 - (run.origin.x + advances));
+            }
+        }
+    }
+    eprintln!("the letters lean at the most {most_lean} pixels past the advances of the words");
+}
+
+/// The columns of a picture drawn alone are the columns of the same rows drawn across the picture,
+/// wherever they start and end and whatever rows they are of: the same pixels, to the byte (the rows
+/// themselves are the rows of the whole to a few levels (sixteen in a rounded corner), where a box's edge is between two pixels:
+/// `rows_drawn_alone_are_the_rows_of_the_picture_drawn_whole`). What is not a whole pixel is rounded
+/// where it is in the whole picture: a letter in the column 100.5 is in the 101st, wherever the part
+/// starts. A shadow that reaches them is not a part.
+#[test]
+fn columns_drawn_alone_are_the_columns_of_the_rows_drawn_across_the_picture() {
+    let ground = Paint::Quad(Quad {
+        rect: Rect::new(0.0, 0.0, 400.0, 300.0),
+        radii: [0.0; 4],
+        fill: Some(Role::Background.solid()),
+        gradient: None,
+        border: None,
+        shadow: None,
+        clip: Rect::new(0.0, 0.0, 400.0, 300.0),
+    });
+    let (width, height) = (400_u32, 300_u32);
+    let mut worst = 0_u8;
+    let mut worst_pixels = 0;
+    let mut parts = 0;
+    for (which, fonts, between) in [
+        ("carried", Fonts::carried(), false),
+        ("installed", Fonts::installed(), false),
+        ("none", Fonts::none(), false),
+        ("carried, a box between pixels", Fonts::carried(), true),
+    ] {
+        let mut items = vec![ground.clone()];
+        items.extend(items_that_reach_across());
+        if between {
+            items.push(box_between_pixels());
+        }
+        let list = DrawList { items };
+        let mut scratch = crate::shot::Scratch::new();
+        let mut across_it = crate::shot::Scratch::new();
+        for (top, rows) in [(0, 300), (20, 40), (95, 30), (270, 30), (299, 1)] {
+            let edge = (10, if top + rows >= height { 25 } else { 0 });
+            let base = crate::shot::raster_part_in(
+                &mut across_it,
+                &list,
+                (width, height),
+                &fonts,
+                None,
+                Palette::Dark,
+                (top, rows),
+                (0, width),
+                edge,
+            )
+            .expect("rows")
+            .to_vec();
+            let line = (width + edge.0) as usize * 4;
+            for (left, to) in [
+                (0, 400),
+                (0, 1),
+                (1, 2),
+                (7, 100),
+                (100, 101),
+                (99, 230),
+                (101, 399),
+                (150, 400),
+                (233, 400),
+                (399, 400),
+                (13, 14),
+            ] {
+                let edge = (if to == width { edge.0 } else { 0 }, edge.1);
+                let got = crate::shot::raster_part_in(
+                    &mut scratch,
+                    &list,
+                    (width, height),
+                    &fonts,
+                    None,
+                    Palette::Dark,
+                    (top, rows),
+                    (left, to),
+                    edge,
+                )
+                .expect("a part")
+                .to_vec();
+                let end = if to == width { width + edge.0 } else { to };
+                let mut want = Vec::new();
+                for row in base.chunks(line) {
+                    want.extend_from_slice(&row[left as usize * 4..end as usize * 4]);
+                }
+                assert_eq!(
+                    got.len(),
+                    want.len(),
+                    "{which}: columns {left}..{to} of rows {top}+{rows}: the size"
+                );
+                let mut wrong = 0;
+                for (a, b) in got.chunks(4).zip(want.chunks(4)) {
+                    let most = a
+                        .iter()
+                        .zip(b)
+                        .map(|(p, q)| p.abs_diff(*q))
+                        .max()
+                        .unwrap_or(0);
+                    if most > 0 {
+                        wrong += 1;
+                        worst = worst.max(most);
+                    }
+                }
+                parts += 1;
+                // The words and the boxes are the same to the byte. The edges of a box that are
+                // between two pixels, with corners that are curves, are a sixteenth of a pixel's
+                // coverage (a level or sixteen) in a pixel or two: the supersampling of the path
+                // takes a sample a part of a pixel one way or the other as the sums that make the
+                // curve are rounded where they are small and where they are large.
+                if between {
+                    worst_pixels = worst_pixels.max(wrong);
+                    assert!(
+                        wrong <= 8 && worst <= 16,
+                        "{which}: columns {left}..{to} of rows {top}+{rows} differ from the rows across the picture in {wrong} pixels, {worst} levels at the most"
+                    );
+                } else {
+                    assert_eq!(
+                        wrong, 0,
+                        "{which}: columns {left}..{to} of rows {top}+{rows} differ from the rows across the picture in {wrong} pixels, {worst} levels at the most"
+                    );
+                }
+            }
+        }
+        // A soft shadow is blurred over the whole width: a part it reaches is not drawn.
+        let shadowed = DrawList {
+            items: vec![items_that_reach().remove(0)],
+        };
+        assert!(
+            crate::shot::raster_part_in(
+                &mut scratch,
+                &shadowed,
+                (width, height),
+                &fonts,
+                None,
+                Palette::Dark,
+                (90, 40),
+                (50, 100),
+                (0, 0),
+            )
+            .is_err(),
+            "{which}: a part that a shadow reaches is refused"
+        );
+    }
+    eprintln!(
+        "{parts} parts drawn alone are the rows across the picture (a box between pixels: {worst_pixels} pixels and {worst} levels at the most)"
+    );
+}

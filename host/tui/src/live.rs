@@ -1954,15 +1954,7 @@ impl Live<'_> {
         } else {
             written.bands.len() as u64
         };
-        spent.pixels += if written.whole {
-            4 * u64::from(size.0) * u64::from(size.1)
-        } else {
-            written
-                .bands
-                .iter()
-                .map(|(_, rows)| 4 * u64::from(size.0) * u64::from(*rows))
-                .sum::<u64>()
-        };
+        spent.pixels += 4 * written.rastered;
         Ok(())
     }
 
