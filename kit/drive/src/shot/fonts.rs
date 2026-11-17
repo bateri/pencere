@@ -333,6 +333,9 @@ struct State {
     covering: HashMap<char, Option<(usize, u16)>>,
     advances: HashMap<(usize, u16, Settings), f32>,
     glyphs: HashMap<(usize, u16, u32, Settings), Option<Arc<Glyph>>>,
+    /// How many runs were set down: what a test of how often the measure sets a line down reads.
+    #[cfg(test)]
+    set_downs: usize,
 }
 
 /// Characters that draw nothing and move nothing: the zero-width ones, and the selectors that say
@@ -463,6 +466,10 @@ impl State {
         scale: f32,
         images: bool,
     ) -> Line {
+        #[cfg(test)]
+        {
+            self.set_downs += 1;
+        }
         let pick = Pick::of(font);
         let settings_of = |faces: &[Face], id: usize| {
             faces.get(id).map_or(
@@ -732,6 +739,12 @@ impl Fonts {
     pub(super) fn box_advance(&self) -> f32 {
         self.fixed.advance
     }
+
+    /// How many runs these faces have set down since they were made.
+    #[cfg(test)]
+    pub(crate) fn set_downs(&self) -> usize {
+        locked(&self.state).set_downs
+    }
 }
 
 /// A carried family: its upright and italic faces, packed.
@@ -772,6 +785,39 @@ impl Measure for Fonts {
             }
             None => self.fixed.measure(font, text),
         }
+    }
+
+    /// The line set down once, and each place read from where the pen is after the characters
+    /// before it: what measuring each start of the line apart comes to, to the bit (the pen moves by
+    /// the same advances, added in the same order), for one setting down and not one a place. A
+    /// place that is not between two characters, or is past the end, is the whole line, as the
+    /// kit's measure has it.
+    fn offsets(&mut self, font: &Font, text: &str, at: &[usize]) -> Vec<f32> {
+        let Some(layout) = self.layout.as_deref() else {
+            return self.fixed.offsets(font, text, at);
+        };
+        let line = locked(&self.state).set_down(layout, font, text, self.scale, false);
+        // Where the pen is after each character, by the byte the character ends at.
+        let mut pen = 0.0_f32;
+        let ends: Vec<(usize, f32)> = text
+            .char_indices()
+            .zip(&line.marks)
+            .map(|((start, c), mark)| {
+                pen += mark.advance;
+                (start + c.len_utf8(), pen)
+            })
+            .collect();
+        at.iter()
+            .map(|place| match text.get(..*place) {
+                Some("") => 0.0,
+                Some(_) => ends
+                    .binary_search_by_key(place, |(end, _)| *end)
+                    .ok()
+                    .and_then(|found| ends.get(found))
+                    .map_or(line.width, |(_, pen)| *pen),
+                None => line.width,
+            })
+            .collect()
     }
 }
 

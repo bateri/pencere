@@ -520,3 +520,59 @@ fn the_character_sheet() {
     )
     .expect("written");
 }
+
+/// Where each place of a line is, measured as the editor asks (`Measure::offsets`): what measuring
+/// the start of the line up to it comes to, to the bit, for every place and every face; a place that
+/// is not between two characters, or past the end, is the whole line, as the measure of the kit says.
+#[test]
+fn the_places_of_a_line_are_where_its_starts_measure() {
+    let lines = [
+        "fn main() -> ExitCode {",
+        "çğış öü ÇĞİŞÖÜ — ←→ ⌘",
+        "a\u{200B}b\u{FE0F}c\u{0301}d",
+        "日本語 and 😀 boxes",
+        "",
+    ];
+    let faces = [
+        (embedded(), font(Family::Terminal, 400, false)),
+        (embedded(), font(Family::System, 700, true)),
+        (Fonts::none(), font(Family::Terminal, 400, false)),
+    ];
+    for (mut fonts, font) in faces {
+        for line in lines {
+            let mut places: Vec<usize> = (0..=line.len()).collect();
+            places.push(line.len() + 3);
+            let offsets = fonts.offsets(&font, line, &places);
+            for (place, offset) in places.iter().zip(&offsets) {
+                let expected = match line.get(..*place) {
+                    Some("") => 0.0,
+                    Some(start) => fonts.measure(&font, start).width,
+                    None => fonts.measure(&font, line).width,
+                };
+                assert!(
+                    offset.to_bits() == expected.to_bits(),
+                    "{line:?} at {place}: {offset} where its start measures {expected}"
+                );
+            }
+        }
+    }
+}
+
+/// The places of a line are found from the line set down once, not from each start of it set down
+/// apart: an editor asks for every place of the line typed in at each key, and the starts of a line
+/// are as many as its characters.
+#[test]
+fn the_places_of_a_line_set_it_down_once() {
+    let mut fonts = embedded();
+    let font = font(Family::Terminal, 400, false);
+    let line = "    let shaped = self.shape_line(buffer, line, measure);";
+    let places: Vec<usize> = (1..=line.len()).collect();
+    let before = fonts.set_downs();
+    let _ = fonts.offsets(&font, line, &places);
+    assert_eq!(
+        fonts.set_downs() - before,
+        1,
+        "set down once for {} places",
+        places.len()
+    );
+}
