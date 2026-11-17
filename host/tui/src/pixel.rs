@@ -10,18 +10,20 @@
 //! items that reach a band are the same or are not, and the bands that are not are drawn alone, cut
 //! to those rows. What the terminal holds of the window is kept here too (its pixels), so that what
 //! was drawn is compared with it, and only the rectangles whose pixels differ are sent, into the
-//! picture where it stands, by the protocol's edit of a frame (`a=f`). Where the rows of a rectangle
-//! are rows the terminal holds already, a little higher or lower (a page that scrolled), the
-//! terminal is told to copy them (`a=c`) and only the rows that came into view are sent. A terminal
-//! that refuses the edit is sent the bands as pictures of their own over the window, and the whole
-//! window again after [`MOST_LAID`] of them.
+//! picture where it stands, by the protocol's edit of a frame (`a=f`). Where the rows of a frame are
+//! rows the terminal holds already, a little higher or lower (a page that scrolled), the terminal is
+//! told to copy them (`a=c`) and only the rows that came into view are sent. Those rows are found
+//! from the two draw lists, before a row of the new frame is drawn (`Pixel::slides`), so that the
+//! rows that are copied are not drawn at all; where the lists do not say it, the rows are drawn and
+//! looked for in what was drawn (`Pixel::moved`). A terminal that refuses the edit is sent the bands
+//! as pictures of their own over the window, and the whole window again after [`MOST_LAID`] of them.
 
 use std::fmt::Write as _;
 
 use miniz_oxide::deflate::core::{
     CompressorOxide, TDEFLFlush, TDEFLStatus, compress, create_comp_flags_from_zip_params,
 };
-use pencere_drive::shot::{Fonts, Palette, Scratch, raster_rows_in, reach};
+use pencere_drive::shot::{Fonts, Palette, Scratch, Side, raster_rows_in, reach, slide, spread};
 use pencere_sandbox::Images;
 use pencere_view::{DrawList, Family, Font, Measure, Paint, Role};
 
@@ -108,6 +110,17 @@ pub(crate) struct Written {
     pub waiting: bool,
 }
 
+/// How a frame that scrolled is made of the window the terminal holds ([`Pixel::slides`]).
+struct Plan {
+    /// Rows to copy, in the columns: the first row, the end, and how many rows further down the rows
+    /// are that they are copied from (up where negative).
+    spans: Vec<(u32, u32, i32)>,
+    /// The columns the rows are copied in, from and to.
+    columns: (u32, u32),
+    /// The rows that are drawn after the copies: the first row and how many.
+    strips: Vec<(u32, u32)>,
+}
+
 /// What a frame was made of, and where in the window each item reaches.
 struct Frame {
     list: DrawList,
@@ -116,6 +129,8 @@ struct Frame {
     ready: Vec<u64>,
     /// The items that reach each band, in the order they are drawn.
     bands: Vec<Vec<u32>>,
+    /// The rows each item reaches, pixels (`reach`): none for what draws nothing.
+    reach: Vec<Option<(f32, f32)>>,
 }
 
 /// What the terminal holds of the window.
@@ -402,25 +417,53 @@ impl Pixel {
                 if !fits {
                     self.whole(&mut out, size, frame, images, &mut written);
                 } else {
-                    // Many bands are one, from the first row that changed to the last; most of the
-                    // window changing is the whole window as one edit.
-                    let runs = if touched * HALF > count || runs.len() > MOST_BANDS {
-                        let first = runs.first().map_or(0, |run| run.0);
-                        let last = runs.last().map_or(0, |run| run.0 + run.1);
-                        vec![(first, last - first)]
-                    } else {
-                        runs
-                    };
                     let mut shown = shown;
-                    self.bands(
-                        &mut out,
-                        &mut shown,
-                        size,
-                        &frame,
-                        images,
-                        &runs,
-                        &mut written,
-                    );
+                    // A page that scrolled is the rows the terminal holds, copied, and what is
+                    // left of them (found from the two lists, before a row is drawn).
+                    let plan = if self.edits && self.compose {
+                        self.slides(&shown, &frame, &rows, size)
+                    } else {
+                        None
+                    };
+                    if let Some(plan) = plan {
+                        self.scrolled(
+                            &mut out,
+                            &mut shown,
+                            size,
+                            &frame,
+                            images,
+                            plan,
+                            &mut written,
+                        );
+                    } else {
+                        // Many bands are one, from the first row that changed to the last; most of
+                        // the window changing is the whole window as one edit.
+                        let runs = if touched * HALF > count || runs.len() > MOST_BANDS {
+                            let first = runs.first().map_or(0, |run| run.0);
+                            let last = runs.last().map_or(0, |run| run.0 + run.1);
+                            vec![(first, last - first)]
+                        } else {
+                            runs
+                        };
+                        let strips: Vec<(u32, u32)> = runs
+                            .iter()
+                            .map(|&(first, count)| {
+                                let top = u32::try_from(first).unwrap_or(0) * self.cell.1;
+                                let rows = u32::try_from(count).unwrap_or(0) * self.cell.1;
+                                (top, rows.min(size.1.saturating_sub(top)))
+                            })
+                            .collect();
+                        self.bands(
+                            &mut out,
+                            &mut shown,
+                            size,
+                            &frame,
+                            images,
+                            &strips,
+                            true,
+                            &mut written,
+                        );
+                    }
                     self.shown = Some(Shown { frame, ..shown });
                 }
             }
@@ -483,8 +526,10 @@ impl Pixel {
         });
     }
 
-    /// The bands `runs` (the first band and how many, in cells' rows), drawn alone, and what of them
-    /// is not what the terminal holds put where it belongs.
+    /// The strips of rows `strips` (the first row and how many, pixels), drawn alone, and what of
+    /// them is not what the terminal holds put where it belongs; `moving`: rows of what it holds a
+    /// little further down or up (a page that scrolled, that the two lists did not say) are
+    /// looked for in what is drawn, and copied.
     #[allow(clippy::too_many_arguments)]
     fn bands(
         &mut self,
@@ -493,23 +538,19 @@ impl Pixel {
         size: (u32, u32),
         frame: &Frame,
         images: Option<&Images>,
-        runs: &[(usize, usize)],
+        strips: &[(u32, u32)],
+        moving: bool,
         written: &mut Written,
     ) {
         // The picture is wider than the window, and what is held of it is as wide.
         let past = self.extent();
         let width = past.0 as usize;
-        // The rectangles a frame is sent as are shared by its bands.
-        let most = (MOST_RECTS / runs.len().max(1)).max(2);
-        // The buffers are taken out of `self` while the bands are drawn in them and sent.
+        // The rectangles a frame is sent as are shared by its strips.
+        let most = (MOST_RECTS / strips.len().max(1)).max(2);
+        // The buffers are taken out of `self` while the strips are drawn in them and sent.
         let mut scratch = std::mem::take(&mut self.scratch);
         let mut cutting = std::mem::take(&mut self.wire.cut);
-        for &(first, count) in runs {
-            #[allow(clippy::cast_possible_truncation)]
-            let (top, rows) = (
-                first as u32 * self.cell.1,
-                (count as u32 * self.cell.1).min(size.1.saturating_sub(first as u32 * self.cell.1)),
-            );
+        for &(top, rows) in strips {
             // The band that reaches the foot of the window goes on to the foot of the picture, and
             // every band to the page's edge at the right: drawn so, in the buffer, with no copy.
             let below = if top + rows >= size.1 { self.cell.1 } else { 0 };
@@ -560,7 +601,7 @@ impl Pixel {
             let areas = self.differing(&shown.held, pixels, past, top, rows, most);
             // What moved (a page that scrolled) is copied, within what the terminal holds; what
             // is left to differ after that is sent.
-            let moved = if self.compose {
+            let moved = if moving && self.compose {
                 self.moved(out, shown, pixels, past, top, &areas, frame, written)
             } else {
                 false
@@ -616,6 +657,58 @@ impl Pixel {
         areas
     }
 
+    /// Tells the terminal to copy `rows` rows from `first` (in the columns `from` and how many)
+    /// from `shift` rows further down (up where negative), and does the same to what is kept of the
+    /// window (`shown.held`, `width` pixels across). The rows are copied in chunks that do not meet
+    /// where they are from, in the order that leaves each chunk's source as it was.
+    fn copy_rows(
+        &mut self,
+        out: &mut String,
+        shown: &mut Shown,
+        width: usize,
+        (x, across): (u32, u32),
+        (first, rows, shift): (u32, u32, i32),
+        written: &mut Written,
+    ) {
+        let step = shift.unsigned_abs().max(1);
+        let (mut done, mut chunks) = (0, Vec::new());
+        while done < rows {
+            let count = step.min(rows - done);
+            chunks.push((first + done, count));
+            done += count;
+        }
+        if shift < 0 {
+            chunks.reverse();
+        }
+        for (at, count) in chunks {
+            let from = at.checked_add_signed(shift).unwrap_or(at);
+            let _ = write!(
+                out,
+                "\x1b_Ga=c,i={},r=1,c=1,X={x},Y={from},x={x},y={at},w={across},h={count},C=1,q=1\x1b\\",
+                shown.id
+            );
+            for row in 0..count {
+                let (a, b) = (
+                    (from + row) as usize * width + x as usize,
+                    (at + row) as usize * width + x as usize,
+                );
+                shown
+                    .held
+                    .copy_within(a * 4..(a + across as usize) * 4, b * 4);
+            }
+            written.copies.push(Moved {
+                to: Area {
+                    x,
+                    y: at,
+                    w: across,
+                    h: count,
+                },
+                shift,
+            });
+            self.copied = Some(shown.id);
+        }
+    }
+
     /// Tells the terminal to copy the rows of the rectangles `areas` that are rows it holds a little
     /// further down or up, as far as the page's own items say they moved; the copies are made in
     /// what is kept of the window (`shown.held`) too. Whether any was.
@@ -648,50 +741,220 @@ impl Pixel {
                 found.reverse();
             }
             for span in found {
-                // Copied in chunks that do not meet where they are from, in the order that
-                // leaves each chunk's source as it was.
-                let step = span.shift.unsigned_abs().max(1);
-                let (mut done, mut chunks) = (0, Vec::new());
-                while done < span.rows {
-                    let rows = step.min(span.rows - done);
-                    chunks.push((span.first + done, rows));
-                    done += rows;
-                }
-                if span.shift < 0 {
-                    chunks.reverse();
-                }
-                for (first, rows) in chunks {
-                    let to = Area {
-                        x: area.x,
-                        y: first,
-                        w: area.w,
-                        h: rows,
-                    };
-                    let from_y = first.checked_add_signed(span.shift).unwrap_or(first);
-                    let _ = write!(
-                        out,
-                        "\x1b_Ga=c,i={},r=1,c=1,X={},Y={from_y},x={},y={first},w={},h={rows},C=1,q=1\x1b\\",
-                        shown.id, area.x, area.x, area.w
-                    );
-                    for row in 0..rows {
-                        let (a, b) = (
-                            (from_y + row) as usize * width + area.x as usize,
-                            (first + row) as usize * width + area.x as usize,
-                        );
-                        shown
-                            .held
-                            .copy_within(a * 4..(a + area.w as usize) * 4, b * 4);
-                    }
-                    written.copies.push(Moved {
-                        to,
-                        shift: span.shift,
-                    });
-                    self.copied = Some(shown.id);
-                    any = true;
-                }
+                self.copy_rows(
+                    out,
+                    shown,
+                    width,
+                    (area.x, area.w),
+                    (span.first, span.rows, span.shift),
+                    written,
+                );
+                any = true;
             }
         }
         any
+    }
+
+    /// How a frame that scrolled is made of the window the terminal holds: from the two lists, before
+    /// a row of the new one is drawn. The rows of the changed bands that are, to the pixel, rows the
+    /// terminal holds a little further down or up (what the two lists say of their lines and boxes,
+    /// where the page's own rules for drawing them are known: `pencere_drive::shot::slide`), in the
+    /// columns the moved lines are cut to, and where nothing else of those bands changed. None where no
+    /// line says the page moved, or the rows are few: the frame is then made as any other.
+    ///
+    /// The rows between two of them that are not (a bar, a caret's line) are copied too and drawn, and
+    /// what is drawn is compared with what the terminal holds then, so that no more than what differs
+    /// is sent. What is left to draw is a few strips (the two with the least between them are one
+    /// where there are many). The bands of the foot of the window are drawn, whatever they are, for the page's edge
+    /// is repeated down past them.
+    fn slides(&self, shown: &Shown, new: &Frame, bands: &[bool], size: (u32, u32)) -> Option<Plan> {
+        let cell = self.cell.1;
+        let count = bands.len();
+        // The changed bands but the last, which has the foot, by their rows.
+        let mut ranges: Vec<(u32, u32)> = Vec::new();
+        for (band, changed) in bands.iter().enumerate().take(count.saturating_sub(1)) {
+            if !changed {
+                continue;
+            }
+            let top = u32::try_from(band).ok()? * cell;
+            match ranges.last_mut() {
+                Some((first, rows)) if *first + *rows == top => *rows += cell,
+                _ => ranges.push((top, cell)),
+            }
+        }
+        let least = LEAST_MOVE_CELLS * cell;
+        if ranges.iter().map(|range| range.1).sum::<u32>() < least * 2 {
+            return None;
+        }
+        let slid = slide(
+            Side {
+                list: &shown.frame.list,
+                reach: &shown.frame.reach,
+            },
+            Side {
+                list: &new.list,
+                reach: &new.reach,
+            },
+            &self.fonts,
+            size,
+            &ranges,
+        )?;
+        #[allow(clippy::cast_precision_loss)]
+        let columns = (slid.columns.0 as f32, slid.columns.1 as f32);
+        let height = size.1 as usize;
+        // The rows that are the rows of a frame the terminal holds and have nothing else changed
+        // (outside the columns they are copied in), and the rows of the changed bands.
+        let mut known: Vec<Option<i32>> = vec![None; height];
+        let mut changed = vec![false; height];
+        for (band, yes) in bands.iter().enumerate() {
+            if !yes {
+                continue;
+            }
+            let rows = band * cell as usize..((band + 1) * cell as usize).min(height);
+            for row in rows.clone() {
+                if let Some(slot) = changed.get_mut(row) {
+                    *slot = true;
+                }
+            }
+            if band + 1 < count
+                && unchanged_outside(&shown.frame, new, band, columns, size.0 as f32)
+            {
+                for row in rows {
+                    if let (Some(slot), Some(shift)) = (known.get_mut(row), slid.rows.get(row)) {
+                        *slot = *shift;
+                    }
+                }
+            }
+        }
+        // Runs of rows of one shift; two of a shift with rows between them that are changed and
+        // have a row to be copied from are one.
+        let mut spans: Vec<(u32, u32, i32)> = Vec::new();
+        let mut row = 0;
+        while row < height {
+            let Some(shift) = known.get(row).copied().flatten() else {
+                row += 1;
+                continue;
+            };
+            let first = row;
+            while known.get(row).copied().flatten() == Some(shift) {
+                row += 1;
+            }
+            let (first, end) = (u32::try_from(first).ok()?, u32::try_from(row).ok()?);
+            let source = |at: u32| at.checked_add_signed(shift).is_some_and(|at| at < size.1);
+            match spans.last_mut() {
+                Some(last)
+                    if last.2 == shift
+                        && (last.1..first)
+                            .all(|at| changed.get(at as usize) == Some(&true) && source(at)) =>
+                {
+                    last.1 = end;
+                }
+                _ => spans.push((first, end, shift)),
+            }
+        }
+        spans.retain(|span| span.1 - span.0 >= least);
+        if spans.is_empty() {
+            return None;
+        }
+        // What is left to draw: the changed rows that are not rows to be copied, in strips that are
+        // joined where a cell's rows or fewer lie between them.
+        let mut left = changed;
+        for &(first, end, _) in &spans {
+            for at in first as usize..end as usize {
+                if known.get(at).copied().flatten().is_some()
+                    && let Some(slot) = left.get_mut(at)
+                {
+                    *slot = false;
+                }
+            }
+        }
+        let mut strips: Vec<(u32, u32)> = Vec::new();
+        for (at, yes) in left.iter().enumerate() {
+            if !yes {
+                continue;
+            }
+            let at = u32::try_from(at).ok()?;
+            match strips.last_mut() {
+                Some((first, rows)) if at <= *first + *rows + cell => *rows = at + 1 - *first,
+                _ => strips.push((at, 1)),
+            }
+        }
+        // Many strips are few: the two with the least between them are one, the rows between them
+        // drawn too (and what is the same there is not sent).
+        while strips.len() > MOST_BANDS {
+            let mut least: Option<(usize, u32)> = None;
+            for (at, pair) in strips.windows(2).enumerate() {
+                if let [above, below] = pair {
+                    let gap = below.0.saturating_sub(above.0 + above.1);
+                    if least.is_none_or(|(_, so_far)| gap < so_far) {
+                        least = Some((at, gap));
+                    }
+                }
+            }
+            let Some((at, _)) = least else {
+                break;
+            };
+            let next = strips.remove(at + 1);
+            if let Some(strip) = strips.get_mut(at) {
+                strip.1 = (next.0 + next.1).saturating_sub(strip.0);
+            }
+        }
+        Some(Plan {
+            spans,
+            columns: slid.columns,
+            strips,
+        })
+    }
+
+    /// A frame that scrolled: the rows of `plan` are copied where they are in what the terminal
+    /// holds, and what is left of the changed bands is drawn and what differs sent.
+    #[allow(clippy::too_many_arguments)]
+    fn scrolled(
+        &mut self,
+        out: &mut String,
+        shown: &mut Shown,
+        size: (u32, u32),
+        frame: &Frame,
+        images: Option<&Images>,
+        plan: Plan,
+        written: &mut Written,
+    ) {
+        let past = self.extent();
+        let width = past.0 as usize;
+        // Where the columns go to the window's right the picture's right is the page's edge repeated,
+        // which the rows have as they are copied.
+        let (x, right) = plan.columns;
+        let across = if right >= size.0 {
+            past.0 - x
+        } else {
+            right - x
+        };
+        let mut spans = plan.spans;
+        // The rows come from further down (up) than they go: copied from the top (the foot) first, so
+        // that no row that is copied from has been written over.
+        if spans.first().is_some_and(|span| span.2 < 0) {
+            spans.reverse();
+        }
+        for (first, end, shift) in spans {
+            self.copy_rows(
+                out,
+                shown,
+                width,
+                (x, across),
+                (first, end - first, shift),
+                written,
+            );
+        }
+        self.bands(
+            out,
+            shown,
+            size,
+            frame,
+            images,
+            &plan.strips,
+            false,
+            written,
+        );
     }
 
     fn number(&mut self) -> u32 {
@@ -721,8 +984,13 @@ impl Pixel {
         let mut bands: Vec<Vec<u32>> = vec![Vec::new(); count];
         #[allow(clippy::cast_precision_loss)]
         let (cell, window) = (self.cell.1 as f32, height as f32);
-        for (n, item) in list.items.iter().enumerate() {
-            let Some((top, bottom)) = reach(item, &self.fonts) else {
+        let reaches: Vec<Option<(f32, f32)>> = list
+            .items
+            .iter()
+            .map(|item| reach(item, &self.fonts))
+            .collect();
+        for (n, reached) in reaches.iter().enumerate() {
+            let Some((top, bottom)) = *reached else {
                 continue;
             };
             let (top, bottom) = (top.max(0.0), bottom.min(window));
@@ -740,8 +1008,46 @@ impl Pixel {
                 }
             }
         }
-        Frame { list, ready, bands }
+        Frame {
+            list,
+            ready,
+            bands,
+            reach: reaches,
+        }
     }
+}
+
+/// Whether what reaches the band `band` and is not wholly inside the columns (what is drawn in the
+/// columns beside them too) is the same in `new` as in `old`: where it is, the band's pixels outside
+/// the columns are what they were.
+fn unchanged_outside(
+    old: &Frame,
+    new: &Frame,
+    band: usize,
+    columns: (f32, f32),
+    width: f32,
+) -> bool {
+    let beside = |frame: &Frame, band: &[u32]| -> Vec<u32> {
+        band.iter()
+            .copied()
+            .filter(|&n| {
+                frame.list.items.get(n as usize).is_some_and(|item| {
+                    // What is past the window's edges is not drawn: the columns are cut to them too.
+                    let (left, right) = spread(item);
+                    left.max(0.0) < columns.0 || right.min(width) > columns.1
+                })
+            })
+            .collect()
+    };
+    let (Some(was), Some(now)) = (old.bands.get(band), new.bands.get(band)) else {
+        return false;
+    };
+    let (was, now) = (beside(old, was), beside(new, now));
+    was.len() == now.len()
+        && was.iter().zip(&now).all(|(&a, &b)| {
+            let (a, b) = (a as usize, b as usize);
+            old.list.items.get(a) == new.list.items.get(b) && old.ready.get(a) == new.ready.get(b)
+        })
 }
 
 /// Which bands of `new` are not what they were in `old`: the items that reach one, and what they
@@ -824,11 +1130,48 @@ fn row_runs(
         .collect()
 }
 
+/// Whether the words of two blocks are not all the same (a block of a multiple of eight bytes).
+#[inline(always)]
+fn blocks_differ<const N: usize>(a: &[u8; N], b: &[u8; N]) -> bool {
+    a.as_chunks::<8>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<8>().0)
+        .fold(0, |folded, (p, q)| {
+            folded | (u64::from_ne_bytes(*p) ^ u64::from_ne_bytes(*q))
+        })
+        != 0
+}
+
+/// Whether `a` and `b` are the same bytes, compared eight at a time with no call to libc: the
+/// `memcmp` the standard library's `==` on bytes comes to is, in musl's aarch64, a loop of one byte
+/// at a time (a Raspberry Pi's pages of pixels were compared at that speed: two fifths of a frame).
+/// The words of a block are folded into one before it is looked at, so that the compiler has no
+/// chain of comparisons to turn back into the call, and has the loop to make into vectors.
+pub(crate) fn same(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let ((blocks_a, tail_a), (blocks_b, tail_b)) = (a.as_chunks::<64>(), b.as_chunks::<64>());
+    if blocks_a
+        .iter()
+        .zip(blocks_b)
+        .any(|(p, q)| blocks_differ(p, q))
+    {
+        return false;
+    }
+    tail_a
+        .iter()
+        .zip(tail_b)
+        .fold(0, |folded, (p, q)| folded | (p ^ q))
+        == 0
+}
+
 /// The runs of pixels, four bytes each, that `a` and `b` do not share. The pixels are compared sixteen
 /// at a time, and the blocks that are the same (most of a row, mostly) are passed over whole.
 pub(crate) fn diff_runs(a: &[u8], b: &[u8], join: u32) -> Vec<(u32, u32)> {
     let mut runs: Vec<(u32, u32)> = Vec::new();
-    if a == b {
+    if same(a, b) {
         return runs;
     }
     let length = a.len().min(b.len());
@@ -844,7 +1187,7 @@ pub(crate) fn diff_runs(a: &[u8], b: &[u8], join: u32) -> Vec<(u32, u32)> {
     };
     let ((blocks_a, tail_a), (blocks_b, tail_b)) = (a.as_chunks::<64>(), b.as_chunks::<64>());
     for (n, (block_a, block_b)) in blocks_a.iter().zip(blocks_b).enumerate() {
-        if block_a == block_b {
+        if !blocks_differ(block_a, block_b) {
             continue;
         }
         for (at, (p, q)) in block_a
@@ -854,7 +1197,7 @@ pub(crate) fn diff_runs(a: &[u8], b: &[u8], join: u32) -> Vec<(u32, u32)> {
             .zip(block_b.as_chunks::<4>().0)
             .enumerate()
         {
-            if p != q {
+            if u32::from_ne_bytes(*p) != u32::from_ne_bytes(*q) {
                 differ(n * 16 + at);
             }
         }
@@ -867,7 +1210,7 @@ pub(crate) fn diff_runs(a: &[u8], b: &[u8], join: u32) -> Vec<(u32, u32)> {
         .zip(tail_b.as_chunks::<4>().0)
         .enumerate()
     {
-        if p != q {
+        if u32::from_ne_bytes(*p) != u32::from_ne_bytes(*q) {
             differ(first + at);
         }
     }
@@ -1141,12 +1484,12 @@ fn spans(
             close(&mut current);
             continue;
         };
-        let changing = row_of!(held, y as usize) != Some(now);
+        let changing = !row_of!(held, y as usize).is_some_and(|was| same(was, now));
         let matching = |shift: i32| -> bool {
             y.checked_add_signed(shift)
                 .filter(|from| (*from as usize) < height)
                 .and_then(|from| row_of!(held, from as usize))
-                == Some(now)
+                .is_some_and(|was| same(was, now))
         };
         match &mut current {
             Some((span, count)) if matching(span.shift) => {

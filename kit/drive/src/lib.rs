@@ -54,3 +54,5 @@ mod luau_editor_tests;
 mod page_tests;
 #[cfg(all(test, feature = "shot"))]
 mod shot_tests;
+#[cfg(all(test, feature = "shot"))]
+mod slide_tests;

@@ -135,6 +135,14 @@ fn extent(size: (u32, u32)) -> (u32, u32) {
 
 /// The window as the terminal shows it, and the same list drawn from the start.
 fn compare(window: &Window, pixel: &Pixel, list: &DrawList, what: &str) {
+    compare_within(window, pixel, list, what, 0);
+}
+
+/// The same, but for a level or `slack` in a channel of a pixel: a box whose edge is between two rows
+/// is drawn, in a few rows of the window, a level apart from the same box drawn in the rows of
+/// the picture (the rows are moved to the top of the buffer, and a number nearer to nothing has
+/// more places after the point). A row that is another row is a great many levels apart.
+fn compare_within(window: &Window, pixel: &Pixel, list: &DrawList, what: &str, slack: u8) {
     let size = pixel.size();
     let drawn = raster(list, size, pixel.fonts(), None, Palette::Dark).expect("a picture");
     let want = padded(drawn.rgba(), size, CELL);
@@ -142,7 +150,7 @@ fn compare(window: &Window, pixel: &Pixel, list: &DrawList, what: &str) {
     let wrong = shown
         .chunks(4)
         .zip(want.chunks(4))
-        .filter(|(a, b)| a != b)
+        .filter(|(a, b)| a.iter().zip(*b).any(|(p, q)| p.abs_diff(*q) > slack))
         .count();
     assert_eq!(
         wrong, 0,
@@ -794,6 +802,32 @@ fn the_runs_of_pixels_two_rows_do_not_share_are_found_pixel_by_pixel_and_block_b
     }
 }
 
+/// Bytes are the same where the words they are compared in say so: whatever the length (in blocks, in
+/// the tail past them, none at all) and wherever the one byte that differs falls.
+#[test]
+fn bytes_compared_in_words_are_the_same_where_they_are_and_not_where_one_differs() {
+    for length in (0_usize..200).chain([255, 256, 257, 9_600, 9_664]) {
+        let a: Vec<u8> = (0..length).map(|at| (at * 7 % 251) as u8).collect();
+        assert!(crate::pixel::same(&a, &a.clone()), "length {length}");
+        assert!(!crate::pixel::same(&a, &a[..length.saturating_sub(1)]) || length == 0);
+        let places: Vec<usize> = if length <= 200 {
+            (0..length).collect()
+        } else {
+            (0..length)
+                .filter(|at| at % 64 < 2 || at % 64 > 61 || at % 997 == 0)
+                .collect()
+        };
+        for at in places {
+            for flip in [1_u8, 0x80, 0xff] {
+                let mut b = a.clone();
+                b[at] ^= flip;
+                assert!(!crate::pixel::same(&a, &b), "length {length}, byte {at}");
+                assert!(!crate::pixel::same(&b, &a), "length {length}, byte {at}");
+            }
+        }
+    }
+}
+
 /// The runs of pixels, one at a time.
 fn naive_runs(a: &[u8], b: &[u8], join: u32) -> Vec<(u32, u32)> {
     let mut runs: Vec<(u32, u32)> = Vec::new();
@@ -808,4 +842,404 @@ fn naive_runs(a: &[u8], b: &[u8], join: u32) -> Vec<(u32, u32)> {
         }
     }
     runs
+}
+
+/// 60 × 20 cells: a window of 600 × 400 pixels, with a side, a room that scrolls, and a bar.
+const SCROLL_CELLS: (u16, u16) = (60, 20);
+
+fn scroller(compose: bool) -> Pixel {
+    Pixel::new(
+        Fonts::carried(),
+        &found_with(true, compose),
+        CELL,
+        SCROLL_CELLS,
+    )
+}
+
+fn words_in(x: f32, y: f32, text: &str, clip: Rect, underline: bool) -> Paint {
+    let Paint::Text(mut run) = words(x, y, text, Role::Foreground.solid()) else {
+        unreachable!("words are text")
+    };
+    run.clip = clip;
+    run.underline = underline;
+    Paint::Text(run)
+}
+
+fn box_in(rect: Rect, fill: Color, radius: f32, clip: Rect) -> Paint {
+    Paint::Quad(Quad {
+        rect,
+        radii: [radius; 4],
+        fill: Some(fill),
+        gradient: None,
+        border: None,
+        shadow: None,
+        clip,
+    })
+}
+
+/// What a page of an editor has, and does.
+#[derive(Clone, Copy)]
+struct Editor {
+    scroll: f32,
+    /// How many pixels a line is below the one before it.
+    row: f32,
+    /// Where the room starts: between two pixels, its first line is cut through.
+    top: f32,
+    /// The room goes down to the foot of the window.
+    foot: bool,
+    selection: bool,
+    caret: bool,
+    bar: bool,
+    /// Every this many lines has a line under its words (none where 0; every one, and the numbers
+    /// beside them, where 1): no line says where the page moved, as it is drawn.
+    underlined: usize,
+    /// How round the corners of the selection are.
+    round: f32,
+    /// What the line of the side that stands still says.
+    side: u32,
+    /// Three lines in six have a ground of their own across the room, to the edge of the window.
+    zebra: bool,
+    /// The ground and the room go on a hundred pixels below the foot of the window (they are not cut at it).
+    over: bool,
+    /// The lines are cut a hundred pixels past the right edge of the window.
+    wide: bool,
+}
+
+impl Editor {
+    fn at(scroll: f32, row: f32) -> Self {
+        Self {
+            scroll,
+            row,
+            top: 60.0,
+            foot: false,
+            selection: true,
+            caret: true,
+            bar: true,
+            underlined: 0,
+            round: 0.0,
+            side: 0,
+            zebra: false,
+            over: false,
+            wide: false,
+        }
+    }
+
+    fn list(&self) -> DrawList {
+        let window = Rect::new(0.0, 0.0, 600.0, 400.0);
+        let height = if self.foot {
+            400.0 - self.top + if self.over { 100.0 } else { 0.0 }
+        } else {
+            300.0
+        };
+        let past = if self.wide { 100.0 } else { 0.0 };
+        let room = Rect::new(130.0, self.top, 470.0 + past, height);
+        let numbers = Rect::new(130.0, self.top, 40.0, height);
+        let text = Rect::new(170.0, self.top, 430.0 + past, height);
+        let mut items = vec![
+            box_in(
+                Rect::new(0.0, 0.0, 600.0, if self.over { 500.0 } else { 400.0 }),
+                Role::Background.solid(),
+                0.0,
+                Rect::new(0.0, 0.0, 600.0, if self.over { 500.0 } else { 400.0 }),
+            ),
+            box_in(
+                Rect::new(0.0, 0.0, 130.0, 400.0),
+                Role::Raised(1).solid(),
+                0.0,
+                window,
+            ),
+            box_in(
+                Rect::new(0.0, 0.0, 600.0, 40.0),
+                Role::Raised(2).solid(),
+                0.0,
+                window,
+            ),
+            words_in(140.0, 8.0, "a tab strip that stands still", window, false),
+            box_in(room, Role::Raised(1).solid(), 0.0, room),
+        ];
+        for k in 0..8 {
+            items.push(words_in(
+                8.0,
+                50.0 + k as f32 * 40.0,
+                &format!("side {k} {}", if k == 3 { self.side } else { 0 }),
+                Rect::new(0.0, 0.0, 130.0, 400.0),
+                false,
+            ));
+        }
+        for n in 0..200 {
+            let y = room.y + 4.0 + n as f32 * self.row - self.scroll;
+            if y + self.row <= room.y || y >= room.bottom() {
+                continue;
+            }
+            if self.zebra && n % 6 == 0 {
+                items.push(box_in(
+                    Rect::new(130.0, y, 470.0, 3.0 * self.row),
+                    Role::Raised(3).solid(),
+                    0.0,
+                    room,
+                ));
+            }
+            if self.selection && n % 5 == 2 {
+                items.push(box_in(
+                    Rect::new(172.0, y, 140.0, self.row),
+                    Role::Selection.solid(),
+                    self.round,
+                    text,
+                ));
+            }
+            items.push(words_in(
+                174.0,
+                y,
+                &code_line(n),
+                text,
+                self.underlined != 0 && n % self.underlined == 0,
+            ));
+            items.push(words_in(
+                134.0,
+                y,
+                &format!("{n:>3}"),
+                numbers,
+                self.underlined == 1,
+            ));
+            if self.caret && n == 9 {
+                items.push(box_in(
+                    Rect::new(300.0, y, 2.0, self.row),
+                    Role::Cursor.solid(),
+                    0.0,
+                    text,
+                ));
+            }
+        }
+        if self.bar {
+            items.push(box_in(
+                Rect::new(592.0, room.y + self.scroll * 0.3, 6.0, 24.0),
+                Role::Accent.solid(),
+                0.0,
+                room,
+            ));
+        }
+        DrawList { items }
+    }
+}
+
+/// The rows a frame was drawn in, in all.
+fn drawn_rows(written: &Written) -> u32 {
+    written.bands.iter().map(|band| band.1).sum()
+}
+
+#[test]
+fn the_rows_a_scroll_copies_are_not_drawn_again_and_the_window_is_the_list_drawn_anew() {
+    for (row, by) in [
+        (21.6013, 3.0 * 21.6013),
+        (20.0, 40.0),
+        (17.3571, 2.0 * 17.3571 + 0.4137),
+    ] {
+        for direction in [1.0, -1.0] {
+            let (mut window, mut pixel) = (Window::default(), scroller(true));
+            let start = 150.5137;
+            send(&mut window, &mut pixel, Editor::at(start, row).list());
+            let list = Editor::at(start + direction * by, row).list();
+            let written = send(&mut window, &mut pixel, list.clone());
+            let what = format!("a tick of {by} pixels at {row} a row, {direction}");
+            compare_within(&window, &pixel, &list, &what, 1);
+            assert!(!written.whole, "{what}");
+            assert!(!written.copies.is_empty(), "{what}: rows are copied");
+            // The room is 300 rows, and drawn whole where nothing is known of what moved: what is
+            // drawn again is less than that where the lines said it.
+            let drawn = drawn_rows(&written);
+            assert!(
+                drawn < 300,
+                "{what}: {drawn} rows drawn again: {:?}",
+                written.bands
+            );
+            assert!(
+                written.areas.iter().all(|a| a.h < 300),
+                "{what}: {:?}",
+                written.areas
+            );
+        }
+    }
+}
+
+#[test]
+fn a_page_that_scrolls_by_parts_of_pixels_up_and_down_is_the_list_drawn_anew_at_each_frame() {
+    let mut seed = 5_u32;
+    let mut next = |most: u32| {
+        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (seed >> 8) % most
+    };
+    let mut copied_frames = 0;
+    for variant in 0..6 {
+        let row = [21.6013, 20.0, 17.3571, 24.4137, 19.0, 22.2531][variant];
+        let (mut window, mut pixel) = (Window::default(), scroller(true));
+        let mut at = 120.0 + next(1000) as f32 / 31.0;
+        let flags = |scroll: f32| {
+            let mut page = Editor::at(scroll, row);
+            page.selection = variant % 2 == 0;
+            page.caret = variant % 3 != 1;
+            page.bar = variant != 2;
+            page.underlined = if variant == 5 { 3 } else { 0 };
+            page.top = if variant == 3 { 60.3 } else { 60.0 };
+            page.foot = variant == 4;
+            page
+        };
+        send(&mut window, &mut pixel, flags(at).list());
+        for step in 0..14 {
+            // One tick, or many in one frame, or a part of a line; down or up.
+            let by = match next(4) {
+                0 => row,
+                1 => (1 + next(6)) as f32 * row,
+                2 => next(3000) as f32 / 97.0,
+                _ => 3.0 * row + next(1000) as f32 / 331.0,
+            };
+            at = (at + if next(3) == 0 { -by } else { by }).max(0.0);
+            let list = flags(at).list();
+            let written = send(&mut window, &mut pixel, list.clone());
+            copied_frames += usize::from(!written.copies.is_empty());
+            compare_within(
+                &window,
+                &pixel,
+                &list,
+                &format!("variant {variant}, step {step}, scrolled to {at} at {row} a row"),
+                1,
+            );
+        }
+    }
+    assert!(copied_frames > 20, "{copied_frames} frames copied rows");
+}
+
+#[test]
+fn a_frame_in_which_no_line_says_where_the_page_moved_is_made_as_any_other() {
+    // Every line, and every number, has a line under its words: where the baseline is rounded is not
+    // said, so no rows are found and the rows that changed are drawn (the room, whole), and the rows
+    // that are the same are looked for in what was drawn.
+    let (mut window, mut pixel) = (Window::default(), scroller(true));
+    let page = |scroll: f32| {
+        let mut page = Editor::at(scroll, 20.0);
+        page.underlined = 1;
+        page.selection = false;
+        page
+    };
+    send(&mut window, &mut pixel, page(100.0).list());
+    for scroll in [140.0, 100.0, 223.3] {
+        let list = page(scroll).list();
+        let written = send(&mut window, &mut pixel, list.clone());
+        let what = format!("scrolled to {scroll}");
+        compare_within(&window, &pixel, &list, &what, 1);
+        assert!(drawn_rows(&written) >= 300, "{what}: {:?}", written.bands);
+    }
+}
+
+#[test]
+fn a_page_whose_lines_are_cut_past_the_edge_of_the_window_is_scrolled_by_copying_its_rows() {
+    for by in [60.0, 40.0, -40.0] {
+        let (mut window, mut pixel) = (Window::default(), scroller(true));
+        let page = |scroll: f32| {
+            let mut page = Editor::at(scroll, 20.0);
+            page.wide = true;
+            page.selection = false;
+            page.caret = false;
+            page.bar = false;
+            page
+        };
+        send(&mut window, &mut pixel, page(160.0).list());
+        let list = page(160.0 + by).list();
+        let written = send(&mut window, &mut pixel, list.clone());
+        let what = format!("scrolled by {by}");
+        compare_within(&window, &pixel, &list, &what, 1);
+        assert!(drawn_rows(&written) < 300, "{what}: {:?}", written.bands);
+    }
+}
+
+#[test]
+fn a_page_of_lines_that_scrolls_by_whole_rows_draws_only_the_rows_that_came_into_view() {
+    let plain = |scroll: f32| {
+        let mut page = Editor::at(scroll, 20.0);
+        page.selection = false;
+        page.caret = false;
+        page.bar = false;
+        page
+    };
+    for (from, to) in [
+        (160.0, 220.0),
+        (220.0, 160.0),
+        (200.0, 240.0),
+        (260.0, 240.0),
+    ] {
+        let (mut window, mut pixel) = (Window::default(), scroller(true));
+        send(&mut window, &mut pixel, plain(from).list());
+        let list = plain(to).list();
+        let written = send(&mut window, &mut pixel, list.clone());
+        let what = format!("from {from} to {to}");
+        compare(&window, &pixel, &list, &what);
+        let came = (to - from).abs() as u32;
+        let drawn = drawn_rows(&written);
+        // The rows that came into view, and no more than a line's rows beside them (a line's
+        // reach is a line and a half: its rows by the strip are not known to be the same).
+        assert!(
+            drawn <= came + 40,
+            "{what}: {drawn} rows drawn, {came} came into view: {:?}",
+            written.bands
+        );
+        let rows: u32 = written.copies.iter().map(|c| c.to.h).sum();
+        assert!(rows >= 300 - came - 40, "{what}: {rows} rows copied");
+    }
+}
+
+#[test]
+fn a_page_that_scrolls_while_what_stands_beside_it_changes_is_the_list_drawn_anew() {
+    for by in [60.0, 40.0, -40.0] {
+        let (mut window, mut pixel) = (Window::default(), scroller(true));
+        let page = |scroll: f32, side: u32| {
+            let mut page = Editor::at(scroll, 20.0);
+            page.side = side;
+            page.selection = false;
+            page
+        };
+        send(&mut window, &mut pixel, page(160.0, 0).list());
+        for (n, at) in [160.0 + by, 160.0 + 2.0 * by].into_iter().enumerate() {
+            let list = page(at, n as u32 + 1).list();
+            let written = send(&mut window, &mut pixel, list.clone());
+            let what = format!("scrolled by {by}, to {at}");
+            compare(&window, &pixel, &list, &what);
+            // The rows beside the lines that changed are drawn, and the lines' own rows are copied.
+            assert!(drawn_rows(&written) < 300, "{what}: {:?}", written.bands);
+        }
+    }
+}
+
+#[test]
+fn a_page_that_scrolls_with_lines_across_to_the_edges_of_the_window_keeps_the_edges_of_the_picture()
+{
+    // Three lines in six have a ground across the room, to the right and (the room goes down to it)
+    // the foot of the window: what is past them in the picture is their last column and row.
+    for (row, over) in [
+        (20.0, false),
+        (21.6013, false),
+        (20.0, true),
+        (21.6013, true),
+    ] {
+        for by in [2.0 * row, -2.0 * row, 3.0 * row, -3.0 * row, row] {
+            let (mut window, mut pixel) = (Window::default(), scroller(true));
+            let page = |scroll: f32| {
+                let mut page = Editor::at(scroll, row);
+                page.over = over;
+                page.foot = true;
+                page.zebra = true;
+                page.selection = false;
+                page.caret = false;
+                page.bar = false;
+                page
+            };
+            send(&mut window, &mut pixel, page(200.0).list());
+            let list = page(200.0 + by).list();
+            let written = send(&mut window, &mut pixel, list.clone());
+            let what = format!("{row} a row, by {by}, past the foot: {over}");
+            compare_within(&window, &pixel, &list, &what, 1);
+            assert!(!written.copies.is_empty(), "{what}: rows are copied");
+            // The room is 340 rows, and the picture goes on a cell past the foot: where nothing is known
+            // of what moved all of them are drawn, and more.
+            assert!(drawn_rows(&written) < 340, "{what}: {:?}", written.bands);
+        }
+    }
 }

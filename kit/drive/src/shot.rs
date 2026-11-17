@@ -20,9 +20,11 @@ use tiny_skia::{
 
 mod find;
 mod fonts;
+mod slide;
 
 use fonts::Shape;
 pub use fonts::{FontError, Fonts};
+pub use slide::{Side, Slide, slide, spread};
 
 /// The colours a picture gives the kit's roles: a theme of a terminal's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
