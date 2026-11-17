@@ -21,7 +21,7 @@ npm install @pencere/sdk
 cargo add pencere
 ```
 
-To see a view you need a terminal that hosts pencere: [bateri](https://github.com/bateri/bateri) is the first, from its 0.23.
+To see a view you need a terminal that hosts pencere: [bateri](https://github.com/bateri/bateri) is the first.
 
 ## Pens
 
@@ -29,15 +29,18 @@ Programs made with pencere. Each is one file, and shows a real interface in the 
 
 <table>
   <tr>
-    <td width="50%" valign="top"><a href="https://github.com/bateri/dockerpen"><img src="https://raw.githubusercontent.com/bateri/dockerpen/main/docs/containers.png" width="100%" alt="dockerpen"></a><br><b><a href="https://github.com/bateri/dockerpen">dockerpen</a></b><br>Docker in the pane: containers, their logs and resource use, images, volumes, networks and disk.</td>
-    <td width="50%" valign="top"><a href="https://github.com/bateri/pickpen"><img src="https://raw.githubusercontent.com/bateri/pickpen/main/docs/confirm.png" width="100%" alt="pickpen"></a><br><b><a href="https://github.com/bateri/pickpen">pickpen</a></b><br>Choose rows in the middle of a pipeline: filter, sort and mark them, and the rows you chose go out on stdout.</td>
+    <td width="50%" valign="top"><a href="https://github.com/bateri/textpen"><img src="https://raw.githubusercontent.com/bateri/textpen/main/docs/editor.png" width="100%" alt="textpen"></a><br><b><a href="https://github.com/bateri/textpen">textpen</a></b><br>A code editor: the project's files as a tree, tabs, search across them, and what git says of them.</td>
+    <td width="50%" valign="top"><a href="https://github.com/bateri/toppen"><img src="https://raw.githubusercontent.com/bateri/toppen/main/docs/overview.png" width="100%" alt="toppen"></a><br><b><a href="https://github.com/bateri/toppen">toppen</a></b><br>A system monitor in the way of <code>top</code> and <code>btop</code>: CPU, memory, network, disks, GPU and a process table you can sort and act on.</td>
   </tr>
   <tr>
-    <td width="50%" valign="top"><a href="https://github.com/bateri/toppen"><img src="https://raw.githubusercontent.com/bateri/toppen/main/docs/overview.png" width="100%" alt="toppen"></a><br><b><a href="https://github.com/bateri/toppen">toppen</a></b><br>A system monitor in the way of <code>top</code> and <code>btop</code>: CPU, memory, network, disks, GPU and a process table you can sort and act on.</td>
+    <td width="50%" valign="top"><a href="https://github.com/bateri/dockerpen"><img src="https://raw.githubusercontent.com/bateri/dockerpen/main/docs/containers.png" width="100%" alt="dockerpen"></a><br><b><a href="https://github.com/bateri/dockerpen">dockerpen</a></b><br>Docker in the pane: containers, their logs and resource use, images, volumes, networks and disk.</td>
     <td width="50%" valign="top"><a href="https://github.com/bateri/sqlpen"><img src="https://raw.githubusercontent.com/bateri/sqlpen/main/docs/grid.png" width="100%" alt="sqlpen"></a><br><b><a href="https://github.com/bateri/sqlpen">sqlpen</a></b><br>A SQL client for PostgreSQL and SQLite: the tables of the database, an editor that knows SQL, and the rows in a grid.</td>
   </tr>
   <tr>
-    <td width="50%" valign="top"><a href="https://github.com/bateri/textpen"><img src="https://raw.githubusercontent.com/bateri/textpen/main/docs/editor.png" width="100%" alt="textpen"></a><br><b><a href="https://github.com/bateri/textpen">textpen</a></b><br>A code editor: the project's files as a tree, tabs, search across them, and what git says of them.</td>
+    <td width="50%" valign="top"><a href="https://github.com/bateri/pickpen"><img src="https://raw.githubusercontent.com/bateri/pickpen/main/docs/confirm.png" width="100%" alt="pickpen"></a><br><b><a href="https://github.com/bateri/pickpen">pickpen</a></b><br>Choose rows in the middle of a pipeline: filter, sort and mark them, and the rows you chose go out on stdout.</td>
+    <td width="50%" valign="top"><a href="https://github.com/bateri/linearpen"><img src="https://raw.githubusercontent.com/bateri/linearpen/main/docs/list.png" width="100%" alt="linearpen"></a><br><b><a href="https://github.com/bateri/linearpen">linearpen</a></b><br>Your Linear issues in a pane, an issue open beside them, and Claude, Codex or Cursor started on it in the pane next to it.</td>
+  </tr>
+  <tr>
     <td width="50%" valign="top"><b>Your own</b><br><code>pencere new</code> starts one, in Lua, TypeScript or Rust: <a href="#a-first-app-in-three-languages">a first app</a>.</td>
   </tr>
 </table>
@@ -45,17 +48,19 @@ Programs made with pencere. Each is one file, and shows a real interface in the 
 Each installs with its one line:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/bateri/dockerpen/main/install.sh | sh
-curl -fsSL https://raw.githubusercontent.com/bateri/pickpen/main/install.sh | sh
-curl -fsSL https://raw.githubusercontent.com/bateri/toppen/main/install.sh | sh
-curl -fsSL https://raw.githubusercontent.com/bateri/sqlpen/main/install.sh | sh
 curl -fsSL https://raw.githubusercontent.com/bateri/textpen/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/bateri/toppen/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/bateri/dockerpen/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/bateri/sqlpen/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/bateri/pickpen/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/bateri/linearpen/main/install.sh | sh
 ```
 
 ## A first app, in three languages
 
 The same program: a view, one call it answers, and one topic it feeds. Whichever you write it in,
 it is one file to hand to someone, and `pencere new <name> --lang lua|ts|rust` starts it for you.
+
 **Lua**, run by the `pencere` command (`pencere build` makes one executable of it). The program is
 `src/program/app.lua`, the view `src/view/page.lua` and the pictures `src/assets/`:
 
