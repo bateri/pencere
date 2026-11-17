@@ -18,9 +18,15 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
   `Ctrl+Shift` makes is the character the terminal says it makes. The keyboard protocol is asked to
   report the keys with their alternates.
 - **A menu, a file panel and a link over the page.** `Host::menu`, `Host::panel` and `Host::link`; a
-  link is shown as its address on the bottom row.
+  link is shown as its address on the bottom row, over the whole of the strip the page has there (a
+  status line is higher than a row of cells).
 - **The editor.** Typing, a selection, a paste in brackets, and `Ctrl+Shift+C` to copy with `OSC 52`;
   `Ctrl+C` still ends the program.
+- **A link is followed on the person's `Enter` or press.** It opens in the system's browser; over ssh,
+  or where that fails, the address goes to the terminal's pasteboard and the foot of the window says
+  "Link copied".
+- **Saving, uploading and downloading work.** The program reads the file the person chose and writes
+  only where they chose.
 - **The mouse pointer takes the shape the page asks for** (`OSC 22`).
 - **A terminal lent to a command.** A program's hand-off gives the terminal back, runs the command and
   draws the view anew.

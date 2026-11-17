@@ -286,9 +286,42 @@ impl Emulator {
     }
 }
 
+/// A directory of programs that stand in for the system's openers (`open`, `xdg-open`), which every
+/// program here finds first on its `PATH`: a link that is opened in a test never starts the browser
+/// of the person who runs the test. Each writes the address it was given to the file its
+/// `PENCERE_TEST_OPENED` names (one for each program that is started), and fails where
+/// `PENCERE_TEST_OPENER_FAILS` is set.
+fn openers() -> &'static std::path::Path {
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        use std::os::unix::fs::PermissionsExt;
+        let exe = std::env::current_exe().expect("this test's path");
+        let dir = exe
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("the target directory")
+            .join(format!("live-openers-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a directory");
+        for name in ["open", "xdg-open"] {
+            let script = dir.join(name);
+            std::fs::write(
+                &script,
+                "#!/bin/sh\nprintf '%s\\n' \"$1\" >> \"$PENCERE_TEST_OPENED\"\n[ -z \"$PENCERE_TEST_OPENER_FAILS\" ] || exit 3\n",
+            )
+            .expect("an opener");
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+                .expect("an opener that runs");
+        }
+        dir
+    })
+}
+
 /// A program on a pty, and what it has drawn.
 struct Terminal {
     pty: Pty,
+    /// Where the openers it finds write what they were asked to open.
+    opened: PathBuf,
     screen: Emulator,
     /// Everything the program wrote.
     raw: Vec<u8>,
@@ -358,12 +391,38 @@ impl Terminal {
         env: &[(&str, &str)],
         knows: Knows,
     ) -> Self {
+        static STARTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let opened = openers().join(format!(
+            "opened-{}",
+            STARTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let mut paths = vec![openers().to_path_buf()];
+        paths.extend(std::env::split_paths(&path));
         let mut variables: Vec<(String, String)> = vec![
             ("TERM".to_owned(), "xterm-256color".to_owned()),
             // Neither a terminal that says it has true colour, nor a screen forced.
             ("COLORTERM".to_owned(), String::new()),
             ("PENCERE_TUI".to_owned(), String::new()),
             ("PENCERE_TUI_THEME".to_owned(), String::new()),
+            // On the person's own machine, with a display, whoever runs the test: a link is opened
+            // there, and an ssh session is what a test says it is.
+            ("SSH_CONNECTION".to_owned(), String::new()),
+            ("SSH_CLIENT".to_owned(), String::new()),
+            ("SSH_TTY".to_owned(), String::new()),
+            ("DISPLAY".to_owned(), ":0".to_owned()),
+            ("PENCERE_TEST_OPENER_FAILS".to_owned(), String::new()),
+            (
+                "PATH".to_owned(),
+                std::env::join_paths(paths)
+                    .expect("a path")
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            (
+                "PENCERE_TEST_OPENED".to_owned(),
+                opened.to_string_lossy().into_owned(),
+            ),
         ];
         for (name, value) in env {
             variables.retain(|(have, _)| have != name);
@@ -373,6 +432,7 @@ impl Terminal {
             .expect("the program starts on a pty");
         Self {
             pty,
+            opened,
             screen: Emulator::new(usize::from(cols), usize::from(rows)),
             raw: Vec::new(),
             answered_attributes: 0,
@@ -638,6 +698,29 @@ impl Terminal {
     /// The person presses the left button at the pixel `x`, `y` and lets go (the mouse in pixels).
     fn click_at(&mut self, x: u32, y: u32) {
         self.type_bytes(format!("\x1b[<0;{x};{y}M\x1b[<0;{x};{y}m").as_bytes());
+    }
+
+    /// What the openers the program found were asked to open, in order.
+    fn opened(&self) -> Vec<String> {
+        std::fs::read_to_string(&self.opened)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// Waits until an opener has been asked `times` times.
+    fn until_opened(&mut self, times: usize) {
+        let began = Instant::now();
+        while self.opened().len() < times {
+            self.pump();
+            assert!(
+                began.elapsed() < Duration::from_secs(20),
+                "no opener asked {times} times; it was asked {:?}",
+                self.opened()
+            );
+            wait(&self.pty, false, false, 20);
+        }
     }
 }
 
@@ -2030,4 +2113,484 @@ fn a_terminal_that_draws_pictures_but_does_not_say_how_large_its_cells_are_takes
         0,
         "no alternate screen of a terminal that cannot be drawn on"
     );
+}
+
+// --- A link, and the files that move between the person and the app ----------------------------
+
+const F8: &[u8] = b"\x1b[19~";
+const F9: &[u8] = b"\x1b[20~";
+
+/// The address `overlays.lua` asks the host to open on F2.
+const LINK: &str = "https://example.org/pencere?x=1";
+
+/// The page of `overlays.lua` in a terminal that draws pictures, with the variables of the
+/// environment the program is started in said as `env`.
+fn start_overlays(env: &[(&str, &str)]) -> Terminal {
+    let mut terminal = Terminal::start_with(
+        &["--script", &page("overlays.lua")],
+        100,
+        30,
+        env,
+        pictures(),
+    );
+    terminal.until_picture();
+    terminal
+}
+
+/// What the program last wrote for the terminal's pasteboard, as text.
+fn last_pasteboard(terminal: &Terminal) -> String {
+    let at = terminal
+        .raw
+        .windows(7)
+        .rposition(|window| window == b"\x1b]52;c;")
+        .expect("something written for the pasteboard");
+    let end = position_of(&terminal.raw, b"\x1b\\", at).expect("the end of what was written");
+    unbase64(&String::from_utf8_lossy(&terminal.raw[at + 7..end]))
+}
+
+/// The window is 1000 pixels across and 600 down; its last row of cells is the one a bar takes.
+const WIDTH: u32 = 100 * CELL.0;
+const FOOT: u32 = 29 * CELL.1;
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn a_link_the_person_presses_is_opened_where_the_person_is_and_not_for_the_page_asking() {
+    let mut terminal = start_overlays(&[]);
+    let resting = terminal.pixels(100, 30);
+    terminal.type_bytes(F2);
+    terminal.quiet();
+    assert!(
+        differing(&resting, &terminal.pixels(100, 30), WIDTH).is_some(),
+        "the bar of the link is drawn"
+    );
+    assert!(
+        terminal.opened().is_empty(),
+        "the page asking is not the person pressing: {:?}",
+        terminal.opened()
+    );
+    // Enter on the bar is the person's: the system's opener has the address, as an argument alone.
+    terminal.type_bytes(ENTER);
+    terminal.until_opened(1);
+    terminal.quiet();
+    assert_eq!(terminal.opened(), [LINK]);
+    assert_eq!(
+        terminal.pixels(100, 30),
+        resting,
+        "the bar goes, and nothing is said of a link that was opened"
+    );
+    // So is a press on it.
+    terminal.type_bytes(F2);
+    terminal.quiet();
+    terminal.click_at(200, FOOT + CELL.1 / 2);
+    terminal.until_opened(2);
+    terminal.quiet();
+    assert_eq!(terminal.opened(), [LINK, LINK]);
+    assert_eq!(count(&terminal.raw, b"\x1b]52;"), 0, "nothing was copied");
+    assert_eq!(terminal.pixels(100, 30), resting);
+    end(&mut terminal);
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn a_link_the_person_presses_over_ssh_is_put_on_the_pasteboard_and_the_page_says_it_was() {
+    let mut terminal = start_overlays(&[("SSH_CONNECTION", "10.0.0.1 51234 10.0.0.2 22")]);
+    let resting = terminal.pixels(100, 30);
+    terminal.type_bytes(F2);
+    terminal.quiet();
+    assert_eq!(
+        count(&terminal.raw, b"\x1b]52;"),
+        0,
+        "not for the page asking"
+    );
+    terminal.type_bytes(ENTER);
+    terminal.until_written(b"\x1b]52;c;", 1);
+    terminal.quiet_for(400);
+    assert_eq!(last_pasteboard(&terminal), LINK);
+    assert!(
+        terminal.opened().is_empty(),
+        "no browser is started on the machine the program is on: {:?}",
+        terminal.opened()
+    );
+    // A line at the foot of the window says so, and it takes no key or press.
+    let said = terminal.pixels(100, 30);
+    let (left, top, _, bottom) = differing(&resting, &said, WIDTH).expect("a notice is drawn");
+    assert!(
+        left == 0 && top >= FOOT && bottom <= 30 * CELL.1,
+        "a row at the foot: {left} {top} {bottom}"
+    );
+    // It goes by itself.
+    terminal.settle(3500);
+    terminal.quiet();
+    assert_eq!(terminal.pixels(100, 30), resting, "the notice is gone");
+    end(&mut terminal);
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn a_link_an_opener_fails_to_open_is_put_on_the_pasteboard_instead() {
+    let mut terminal = start_overlays(&[("PENCERE_TEST_OPENER_FAILS", "1")]);
+    let resting = terminal.pixels(100, 30);
+    terminal.type_bytes(F2);
+    terminal.quiet();
+    terminal.type_bytes(ENTER);
+    terminal.until_opened(1);
+    terminal.until_written(b"\x1b]52;c;", 1);
+    terminal.quiet_for(400);
+    assert_eq!(last_pasteboard(&terminal), LINK);
+    assert!(
+        differing(&resting, &terminal.pixels(100, 30), WIDTH).is_some(),
+        "and the person is told"
+    );
+    end(&mut terminal);
+}
+
+/// The pixel at `x`, `y` of a window `WIDTH` across.
+fn at(window: &[u8], x: u32, y: u32) -> [u8; 4] {
+    let from = 4 * (y * WIDTH + x) as usize;
+    window[from..from + 4].try_into().expect("four bytes")
+}
+
+/// How high the strip of `colour` stands at the foot of the window, in the column `x`: the row it
+/// starts at.
+fn strip_top(window: &[u8], x: u32, colour: [u8; 4]) -> u32 {
+    let mut top = 30 * CELL.1;
+    while top > 0 && at(window, x, top - 1) == colour {
+        top -= 1;
+    }
+    top
+}
+
+/// What a bar at the foot of the window has to be when the page has a strip there that is taller
+/// than the bar's row of cells: it stands over the whole of the strip, so that no edge of the page's
+/// strip or of a key in it is seen above the bar. `resting` is the window as the page has it, `shown`
+/// with the bar. Where the strip starts.
+fn assert_the_bar_covers_the_strip(resting: &[u8], shown: &[u8]) -> u32 {
+    let body = at(resting, 500, 300);
+    let strip = at(resting, 500, 30 * CELL.1 - 2);
+    assert_ne!(body, strip, "the page's strip is of another ground");
+    let strip_at = strip_top(resting, 500, strip);
+    assert!(
+        strip_at < FOOT,
+        "the strip is higher than the bar's row: {strip_at} {FOOT}"
+    );
+    let bar = at(shown, 1, 30 * CELL.1 - 1);
+    assert_ne!(bar, strip, "the bar is of its own ground");
+    let bar_at = strip_top(shown, 1, bar);
+    assert!(
+        bar_at <= strip_at,
+        "the bar starts at the strip's top or above it: {bar_at} {strip_at}"
+    );
+    for x in 0..WIDTH {
+        assert_eq!(
+            at(shown, x, bar_at - 1),
+            body,
+            "the row above the bar is the page's, none of the strip's or of a key's: column {x}"
+        );
+    }
+    strip_at
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn a_bar_at_the_foot_stands_over_the_whole_of_the_strip_the_page_has_there() {
+    // The link the page asked for, over a strip taller than the bar's row.
+    let mut terminal =
+        Terminal::start_with(&["--script", &page("footer.lua")], 100, 30, &[], pictures());
+    terminal.until_picture();
+    let resting = terminal.pixels(100, 30);
+    terminal.type_bytes(F2);
+    terminal.quiet();
+    let strip = assert_the_bar_covers_the_strip(&resting, &terminal.pixels(100, 30));
+    // A press on the part of the bar that is over the strip, above the bar's row, is a press on the
+    // bar: the person's yes.
+    terminal.click_at(200, strip + 3);
+    terminal.until_opened(1);
+    terminal.quiet();
+    assert_eq!(terminal.opened(), [LINK]);
+    assert_eq!(terminal.pixels(100, 30), resting, "and it goes as it came");
+    end(&mut terminal);
+    // And the notice of a link that was put on the pasteboard, over the same strip.
+    let mut terminal = Terminal::start_with(
+        &["--script", &page("footer.lua")],
+        100,
+        30,
+        &[("SSH_CONNECTION", "10.0.0.1 51234 10.0.0.2 22")],
+        pictures(),
+    );
+    terminal.until_picture();
+    let resting = terminal.pixels(100, 30);
+    terminal.type_bytes(F2);
+    terminal.quiet();
+    terminal.type_bytes(ENTER);
+    terminal.until_written(b"\x1b]52;c;", 1);
+    terminal.quiet_for(400);
+    assert_the_bar_covers_the_strip(&resting, &terminal.pixels(100, 30));
+    terminal.settle(3500);
+    terminal.quiet();
+    assert_eq!(terminal.pixels(100, 30), resting, "the notice is gone");
+    end(&mut terminal);
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn a_link_that_is_not_http_or_https_is_not_shown_and_not_opened() {
+    let mut terminal = start_overlays(&[]);
+    let resting = terminal.pixels(100, 30);
+    for key in [F8, F9] {
+        terminal.type_bytes(key);
+        terminal.quiet();
+        assert_eq!(
+            terminal.pixels(100, 30),
+            resting,
+            "no bar for an address that is not for a browser"
+        );
+    }
+    assert!(terminal.opened().is_empty(), "{:?}", terminal.opened());
+    assert_eq!(count(&terminal.raw, b"\x1b]52;"), 0);
+    end(&mut terminal);
+}
+
+/// The app of `tests/pages/transfer`, as `pencere build` makes it, started with `args`.
+fn start_transfer(dir: &std::path::Path, args: &[&str]) -> Terminal {
+    let source = format!("{}/tests/pages/transfer", env!("CARGO_MANIFEST_DIR"));
+    let app = app_of(&command(true), dir, "transfer", &source, &[]);
+    let mut command = vec![app.to_string_lossy().into_owned()];
+    command.extend(args.iter().map(|arg| (*arg).to_owned()));
+    let mut terminal = Terminal::start_command(command, 100, 30, &[], pictures());
+    terminal.until_picture();
+    terminal
+}
+
+/// Bytes that are no pattern a piece or a line could hide behind, `length` of them.
+fn odd_bytes(length: usize) -> Vec<u8> {
+    let mut state: u32 = 0x9e37_79b9;
+    (0..length)
+        .map(|_| {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            u8::try_from(state >> 24).unwrap_or(0)
+        })
+        .collect()
+}
+
+/// More than two pieces of a megabyte, and not a whole number of them.
+const BIG: usize = 2 * 1024 * 1024 + 512 * 1024 + 3;
+
+/// Waits until the file at `path` is there, whole.
+fn until_file(terminal: &mut Terminal, path: &std::path::Path, length: usize) -> Vec<u8> {
+    let began = Instant::now();
+    loop {
+        terminal.pump();
+        if let Ok(bytes) = std::fs::read(path)
+            && bytes.len() == length
+        {
+            return bytes;
+        }
+        assert!(
+            began.elapsed() < Duration::from_secs(30),
+            "no file {} of {length} bytes",
+            path.display()
+        );
+        wait(&terminal.pty, false, false, 20);
+    }
+}
+
+/// What the page of the app was told of how its calls ended, by the terminal's pasteboard (the menu
+/// of F6 is picked by the person).
+fn reported(terminal: &mut Terminal) -> Vec<String> {
+    let had = count(&terminal.raw, b"\x1b]52;c;");
+    terminal.type_bytes(F6);
+    terminal.quiet();
+    terminal.type_bytes(DOWN);
+    terminal.type_bytes(ENTER);
+    terminal.until_written(b"\x1b]52;c;", had + 1);
+    terminal.quiet();
+    let log = last_pasteboard(terminal);
+    if log.is_empty() {
+        Vec::new()
+    } else {
+        log.split(';').map(str::to_owned).collect()
+    }
+}
+
+/// The names in `dir`, sorted.
+fn names_in(dir: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .expect("a directory")
+        .map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which loads the interpreter"]
+fn what_the_app_saves_is_written_where_the_person_chose_and_nowhere_else() {
+    let dir = scratch("download");
+    let source = dir.join("source.bin");
+    let bytes = odd_bytes(BIG);
+    std::fs::write(&source, &bytes).expect("a file");
+    let into = dir.join("into");
+    let places = dir.join("places");
+    std::fs::create_dir_all(&into).expect("a directory");
+    std::fs::create_dir_all(&places).expect("a directory");
+    let mut terminal = start_transfer(
+        &dir,
+        &[
+            "--from",
+            &source.to_string_lossy(),
+            "--into",
+            &into.to_string_lossy(),
+        ],
+    );
+    // The person types a place that is no folder's: the panel says so, and writes nothing.
+    terminal.type_bytes(F5);
+    terminal.quiet();
+    terminal.type_bytes(places.join("none/saved.bin").to_string_lossy().as_bytes());
+    terminal.type_bytes(ENTER);
+    terminal.quiet();
+    assert!(names_in(&places).is_empty(), "{:?}", names_in(&places));
+    terminal.type_bytes(ESCAPE);
+    terminal.quiet();
+    // The place the person chooses is where the file goes, whole, with no part of it left beside.
+    terminal.type_bytes(F5);
+    terminal.quiet();
+    let chosen = places.join("saved.bin");
+    terminal.type_bytes(chosen.to_string_lossy().as_bytes());
+    terminal.type_bytes(ENTER);
+    let got = until_file(&mut terminal, &chosen, BIG);
+    assert!(got == bytes, "the bytes that were saved are the app's");
+    terminal.quiet();
+    assert_eq!(names_in(&places), ["saved.bin"], "no part is left beside");
+    assert!(names_in(&into).is_empty(), "{:?}", names_in(&into));
+    assert_eq!(
+        reported(&mut terminal),
+        ["save turned away".to_owned(), format!("download {BIG}")]
+    );
+    end(&mut terminal);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which loads the interpreter"]
+fn a_name_the_page_proposes_cannot_take_the_file_out_of_the_folder_the_person_types_and_a_file_there_is_replaced_only_when_asked_twice()
+ {
+    let dir = scratch("proposed");
+    let source = dir.join("source.bin");
+    std::fs::write(&source, b"the app's file").expect("a file");
+    let places = dir.join("places");
+    std::fs::create_dir_all(&places).expect("a directory");
+    let mut terminal = start_transfer(&dir, &["--from", &source.to_string_lossy()]);
+    // The person types a folder: the page's name climbs out of it (`../escaped.bin`), and is only
+    // the last part of what it is.
+    terminal.type_bytes(F9);
+    terminal.quiet();
+    terminal.type_bytes(places.to_string_lossy().as_bytes());
+    terminal.type_bytes(ENTER);
+    until_file(&mut terminal, &places.join("escaped.bin"), 14);
+    terminal.quiet();
+    assert!(
+        !dir.join("escaped.bin").exists(),
+        "the file went to a place the person did not choose"
+    );
+    // A file that is there is the person's: Enter says so, and only a second Enter replaces it.
+    let there = places.join("there.txt");
+    std::fs::write(&there, b"the person's").expect("a file");
+    terminal.type_bytes(F5);
+    terminal.quiet();
+    terminal.type_bytes(there.to_string_lossy().as_bytes());
+    terminal.type_bytes(ENTER);
+    terminal.quiet();
+    assert_eq!(std::fs::read(&there).expect("the file"), b"the person's");
+    terminal.type_bytes(ENTER);
+    until_file(&mut terminal, &there, 14);
+    assert_eq!(std::fs::read(&there).expect("the file"), b"the app's file");
+    end(&mut terminal);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which loads the interpreter"]
+fn the_file_the_person_chooses_is_read_by_the_app_and_it_is_the_one_they_chose() {
+    let dir = scratch("upload");
+    let source = dir.join("given.bin");
+    let bytes = odd_bytes(BIG);
+    std::fs::write(&source, &bytes).expect("a file");
+    let into = dir.join("into");
+    std::fs::create_dir_all(&into).expect("a directory");
+    let mut terminal = start_transfer(&dir, &["--into", &into.to_string_lossy()]);
+    terminal.type_bytes(F4);
+    terminal.quiet();
+    terminal.type_bytes(source.to_string_lossy().as_bytes());
+    terminal.type_bytes(ENTER);
+    let got = until_file(&mut terminal, &into.join("given.bin"), BIG);
+    assert!(got == bytes, "the app has the file the person chose");
+    terminal.quiet();
+    assert_eq!(names_in(&into), ["given.bin"], "and nothing else");
+    assert_eq!(reported(&mut terminal), [format!("upload {BIG}")]);
+    end(&mut terminal);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which loads the interpreter"]
+fn a_handle_that_is_not_what_the_app_asks_of_it_is_refused_and_the_page_is_told() {
+    let dir = scratch("refused");
+    let given = dir.join("given.bin");
+    std::fs::write(&given, b"given").expect("a file");
+    let source = dir.join("source.bin");
+    std::fs::write(&source, b"the app's").expect("a file");
+    let into = dir.join("into");
+    let places = dir.join("places");
+    std::fs::create_dir_all(&into).expect("a directory");
+    std::fs::create_dir_all(&places).expect("a directory");
+    let mut terminal = start_transfer(
+        &dir,
+        &[
+            "--from",
+            &source.to_string_lossy(),
+            "--into",
+            &into.to_string_lossy(),
+        ],
+    );
+    terminal.type_bytes(F4);
+    terminal.quiet();
+    terminal.type_bytes(given.to_string_lossy().as_bytes());
+    terminal.type_bytes(ENTER);
+    until_file(&mut terminal, &into.join("given.bin"), 5);
+    terminal.quiet();
+    // A file that was given is not a place to save in: the app's write is refused, and the file
+    // is as it was.
+    terminal.type_bytes(F7);
+    terminal.quiet();
+    assert_eq!(std::fs::read(&given).expect("the file"), b"given");
+    // A place that was chosen is not a file to read.
+    terminal.type_bytes(F5);
+    terminal.quiet();
+    terminal.type_bytes(places.join("chosen.bin").to_string_lossy().as_bytes());
+    terminal.type_bytes(ENTER);
+    until_file(&mut terminal, &places.join("chosen.bin"), 9);
+    terminal.quiet();
+    terminal.type_bytes(F8);
+    terminal.quiet();
+    assert!(!into.join("never.bin").exists(), "a place was read");
+    let log = reported(&mut terminal);
+    assert_eq!(log.len(), 4, "{log:?}");
+    assert_eq!(log[0], "upload 5");
+    assert!(
+        log[1].starts_with("download-of-a-given-file error handle "),
+        "{log:?}"
+    );
+    assert_eq!(log[2], "download 9");
+    assert!(
+        log[3].starts_with("upload-of-a-place error handle "),
+        "{log:?}"
+    );
+    end(&mut terminal);
+    let _ = std::fs::remove_dir_all(dir);
 }

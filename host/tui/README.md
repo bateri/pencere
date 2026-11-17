@@ -35,9 +35,17 @@ The keys are the page's own. A terminal has no ⌘ key, so a ⌘ shortcut with a
 the letter (a menu says `Ctrl+Shift+C`), and the sign that `Ctrl+Shift` makes is the character the
 terminal says it makes. An editor has the page's caret, takes typing, a selection and a paste in brackets;
 `Ctrl+Shift+C` copies the selection with `OSC 52`, and `Ctrl+C` ends the program. A menu is a framed list
-over the page, a file panel is one line for a path (Tab completes it; the host does not read or write
-the file yet), and a link is an address shown on the bottom row until a press or Esc turns it away; the
-terminal does not open it. A program that lends its terminal to a command (a shell, an
+over the page, a file panel is one line for a path (Tab completes it), and a link is an address shown on
+the bottom row until a key or a press turns it away. `Enter` or a press of the main button on that row
+follows it: the system's opener (`open`, `xdg-open` where there is a display) is asked for it, and
+where the program runs in an ssh session, or the opener is missing or fails, the address is put on
+the terminal's pasteboard (`OSC 52`) and the foot of the window says "Link copied". Only `http` and
+`https` addresses get that far.
+
+The files are the person's: the program reads a file only after the person chose it in a panel, and
+writes a file only where the person chose, in pieces to a hidden part beside it that takes the name
+when the last piece is in (a file that is there is replaced after the second `Enter`). A program that
+is offered no staging folder reads and writes by handle, as the specification has it. A program that lends its terminal to a command (a shell, an
 editor) has the screen given back for it, and its view drawn anew after.
 
 ## Features

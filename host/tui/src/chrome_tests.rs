@@ -32,6 +32,7 @@ fn paper<'a>(fonts: &'a Fonts, scale: f32) -> Paper<'a> {
         scale,
         cell: (CELL.0 as f32, CELL.1 as f32),
         window: Rect::new(0.0, 0.0, WINDOW.0 as f32, WINDOW.1 as f32),
+        foot: (WINDOW.1 - CELL.1) as f32,
     }
 }
 
@@ -371,7 +372,7 @@ fn the_line_of_a_panel_and_the_bar_of_a_link_are_a_row_of_cells_at_the_foot_of_t
         "the caret of the line"
     );
 
-    let link = LinkBar::new("https://example.com/a/page".to_owned());
+    let link = LinkBar::new("https://example.com/a/page".to_owned(), false);
     let items = link.paint(&paper(&fonts, scale), screen);
     let said = texts(&items);
     assert!(
@@ -386,4 +387,59 @@ fn the_line_of_a_panel_and_the_bar_of_a_link_are_a_row_of_cells_at_the_foot_of_t
     assert!(items.iter().any(|item| {
         matches!(item, Paint::Text(run) if run.underline && run.text.contains("https://"))
     }));
+}
+
+/// A box of the page's, filled with the ground: for the tests of where a strip at the foot starts.
+fn boxed(x: f32, y: f32, w: f32, h: f32) -> Paint {
+    let rect = Rect::new(x, y, w, h);
+    let fills = Role::Raised(1);
+    Paint::Quad(pencere_view::Quad {
+        rect,
+        radii: [0.0; 4],
+        fill: Some(Color::from(fills)),
+        gradient: None,
+        border: None,
+        shadow: None,
+        clip: rect,
+    })
+}
+
+#[test]
+fn the_strip_a_page_has_at_the_foot_is_the_highest_box_across_the_window_that_ends_there() {
+    let (width, height) = (WINDOW.0 as f32, WINDOW.1 as f32);
+    let window = Rect::new(0.0, 0.0, width, height);
+    let row = CELL.1 as f32;
+    let status = boxed(0.0, height - 32.0, width, 32.0);
+    // The window's own ground, a key in the strip, a box across the window that does not end at the
+    // foot, and one that ends there but not across: none is the strip.
+    let others = [
+        boxed(0.0, 0.0, width, height),
+        boxed(10.0, height - 26.0, 40.0, 20.0),
+        boxed(0.0, 40.0, width, 30.0),
+        boxed(0.0, height - 30.0, width / 2.0, 30.0),
+    ];
+    let mut items = others.to_vec();
+    items.push(status);
+    assert_eq!(
+        chrome::foot_of(&items, window, row),
+        height - 32.0,
+        "the strip starts where its box does"
+    );
+    assert_eq!(
+        chrome::foot_of(&others, window, row),
+        height - row,
+        "where the page has none the bar's own row is the foot"
+    );
+    // A strip no higher than the bar's row is covered by the row.
+    let low = [boxed(0.0, height - 12.0, width, 12.0)];
+    assert_eq!(chrome::foot_of(&low, window, row), height - row);
+    // The ground of a bar is taken up to it, and no further down than the window.
+    let (fonts, scale) = faces();
+    let mut paper = paper(&fonts, scale);
+    paper.foot = height - 32.0;
+    let bar = paper.cells(0, 11, 60, 1);
+    let ground = paper.over_foot(bar);
+    assert_eq!((ground.y, ground.bottom()), (height - 32.0, height));
+    paper.foot = height - row;
+    assert_eq!(paper.over_foot(bar), bar);
 }

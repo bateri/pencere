@@ -29,10 +29,12 @@ use pencere_view::{
 use crate::chord;
 use crate::chrome::{self, Paper};
 use crate::field::TextField;
+use crate::files::{Disk, Handles};
 use crate::input::{Decoder, Event, KeyEvent, Mouse, MouseKind, Reply};
+use crate::link;
 use crate::memory;
 use crate::output::base64;
-use crate::overlay::{self, Answered, Chose, Handles, LinkBar, MenuBox, PanelBar};
+use crate::overlay::{self, Answered, Chose, LinkBar, MenuBox, NoticeBar, PanelBar};
 use crate::pixel::{self, Pixel};
 use crate::probe::{self, Found, Guess};
 
@@ -55,6 +57,8 @@ const PATIENCE_FRAMES: u32 = 100;
 
 /// How long a lone escape waits to be a key and not the start of a sequence.
 const ESCAPE_WAIT: f64 = 0.03;
+/// How long the screen's words over the foot of the page stay (seconds).
+const NOTICE_FOR: f64 = 2.0;
 
 /// How long a second press is the same click's.
 const DOUBLE: Duration = Duration::from_millis(400);
@@ -210,7 +214,7 @@ impl Assets for Files {
         if let Some(handle) = path.strip_prefix("file:") {
             return self
                 .handles
-                .path_of(handle)
+                .given_path(handle)
                 .map(|path| overlay::media_type_of(&path));
         }
         // An attached file is read for what it is by its bytes: it has no type of its own.
@@ -580,8 +584,21 @@ struct Live<'t> {
     /// The press that an overlay took: its release is the overlay's too, and the page, which would
     /// act on a button under the menu, is not told of it.
     press_taken: bool,
-    /// The files the person gave the page.
+    /// The files the person gave the page and the places they chose to save in.
     handles: Arc<Handles>,
+    /// What the program reads of the first and writes to the second, on a thread of its own.
+    disk: Disk,
+    /// The program is in an ssh session: its person is on another machine, and a link is copied for
+    /// them rather than opened here.
+    remote: bool,
+    /// The links an opener failed to open, which are copied instead.
+    failed: Arc<link::Failed>,
+    /// Words the screen says of what it did, over the foot of the page, until the time (on the
+    /// clock of the frames).
+    notice: Option<(String, f64)>,
+    /// How far down the strip the page has along the foot of the window starts, pixels, as of the last
+    /// frame ([`chrome::foot_of`]): what a bar there covers, so a press on it is a press on the bar.
+    foot: f32,
     /// The files the program attached to the view: kept when the page is opened again (the view
     /// shown again, the terminal given back), let go when the program says so.
     attached: Arc<Attached>,
@@ -715,6 +732,11 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
         press: None,
         overlay: None,
         press_taken: false,
+        disk: Disk::new(Arc::clone(&handles)),
+        remote: link::remote(|name| std::env::var(name).ok()),
+        failed: Arc::new(link::Failed::default()),
+        notice: None,
+        foot: f32::INFINITY,
         handles,
         attached,
         early,
@@ -875,6 +897,8 @@ impl Live<'_> {
             return Err(Stop::by(EndedBy::Terminal));
         }
         self.escape()?;
+        self.opened()?;
+        self.untell();
         self.pump()?;
         self.show_pointer()?;
         self.maybe_frame()
@@ -900,6 +924,9 @@ impl Live<'_> {
         }
         if let Some(at) = self.escape_at {
             soon(at);
+        }
+        if let Some((_, until)) = &self.notice {
+            soon(*until);
         }
         next.map(|at| Duration::from_secs_f64((at - now).max(0.0)))
     }
@@ -1393,12 +1420,19 @@ impl Live<'_> {
                     self.dirty = true;
                 }
             }
-            (Overlay::Link(_), MouseKind::Press(_)) => {
-                // The bar is a picture, so the terminal has no link to open in it: a press turns it
-                // away.
+            (Overlay::Link(bar), MouseKind::Press(button)) => {
+                // The bar is a picture, so the terminal has no link to open in it: a press of the
+                // main button on its row is the person's yes, any other turns it away.
                 self.press_taken = true;
+                let area = bar.area((self.size.cols, self.size.rows));
+                let covered = area.contains(col, row)
+                    || (self.pixel_mouse && f32::from(mouse.row) >= self.foot);
+                let url = (button == Button::Left && covered).then(|| bar.url().to_owned());
                 self.overlay = None;
                 self.dirty = true;
+                if let Some(url) = url {
+                    self.follow(url)?;
+                }
             }
             (_, MouseKind::Release(_)) => self.press_taken = false,
             _ => {}
@@ -1436,8 +1470,14 @@ impl Live<'_> {
                     self.panel_answered(&panel, answer)?;
                 }
             },
-            // Any key turns the line away.
-            Overlay::Link(_) => self.overlay = None,
+            // Enter is the person's yes; any other key turns the line away.
+            Overlay::Link(bar) => {
+                let url = matches!(key, Key::Enter).then(|| bar.url().to_owned());
+                self.overlay = None;
+                if let Some(url) = url {
+                    self.follow(url)?;
+                }
+            }
         }
         Ok(())
     }
@@ -1448,6 +1488,52 @@ impl Live<'_> {
         self.page.pick(serial, index, &mut effects);
         self.apply(effects)?;
         self.pump()
+    }
+
+    /// The person said yes to a link: where they are it is opened, by the system's opener, and where
+    /// they are not (an ssh session), or where there is no opener or it fails, the address is put on
+    /// the terminal's pasteboard and they are told so. The page is told nothing (§9.7).
+    fn follow(&mut self, url: String) -> Flow {
+        if !self.remote && link::can_open(|name| std::env::var(name).ok()) {
+            let waker = self.waker.clone();
+            if link::open(link::opener(), &url, &self.failed, move || waker.wake()).is_ok() {
+                return Ok(());
+            }
+        }
+        self.copy_link(url)
+    }
+
+    /// The address of a link, for the pasteboard the person's own is: they pressed it.
+    fn copy_link(&mut self, url: String) -> Flow {
+        self.copy(url, true)?;
+        self.tell("Link copied");
+        Ok(())
+    }
+
+    /// The links whose opener failed since: copied, as they are where there is none.
+    fn opened(&mut self) -> Flow {
+        for url in self.failed.take() {
+            self.copy_link(url)?;
+        }
+        Ok(())
+    }
+
+    /// Says `words` over the foot of the page for a while.
+    fn tell(&mut self, words: &str) {
+        self.notice = Some((words.to_owned(), self.now() + NOTICE_FOR));
+        self.dirty = true;
+    }
+
+    /// Takes away what was said once its time has come.
+    fn untell(&mut self) {
+        if self
+            .notice
+            .as_ref()
+            .is_some_and(|(_, until)| *until <= self.now())
+        {
+            self.notice = None;
+            self.dirty = true;
+        }
     }
 
     /// What the person did with the panel: the page is told, a panel turned away included.
@@ -1476,7 +1562,8 @@ impl Live<'_> {
             && overlay::openable(&url)
             && matches!(self.overlay, None | Some(Overlay::Link(_)))
         {
-            self.overlay = Some(Overlay::Link(LinkBar::new(url)));
+            let copies = self.remote || !link::can_open(|name| std::env::var(name).ok());
+            self.overlay = Some(Overlay::Link(LinkBar::new(url, copies)));
             self.dirty = true;
         }
         if self.overlay.is_some() {
@@ -1635,6 +1722,9 @@ impl Live<'_> {
                         attached.refused("limit");
                     }
                 }
+                // The person's files are read and written where they chose, by their handles.
+                Said::Read(reading) => self.disk.read(reading),
+                Said::Write(writing) => self.disk.write(writing),
                 Said::Detached(names) => {
                     let gone = self.attached.forget(&names);
                     if !gone.is_empty()
@@ -1749,6 +1839,8 @@ impl Live<'_> {
         })?;
         self.page = page;
         dress(&mut self.page, &self.pixel);
+        // The places the view was saving to are nothing once it is shown again (§10.7).
+        self.disk.abandon();
         self.fields.clear();
         self.focus = None;
         self.dragging = None;
@@ -1807,19 +1899,27 @@ impl Live<'_> {
         let pixel = &mut self.pixel;
         // What the host draws over the page: its fields, and a menu, a panel or a link over those.
         #[allow(clippy::cast_precision_loss)]
+        let cell = (pixel.cell().0 as f32, pixel.cell().1 as f32);
+        let window = Rect::new(0.0, 0.0, size.0 as f32, size.1 as f32);
         let paper = Paper {
             fonts: pixel.fonts(),
             scale: pixel.scale(),
-            cell: (pixel.cell().0 as f32, pixel.cell().1 as f32),
-            window: Rect::new(0.0, 0.0, size.0 as f32, size.1 as f32),
+            cell,
+            window,
+            foot: chrome::foot_of(&painted.list.items, window, cell.1),
         };
+        self.foot = paper.foot;
         let mut over = chrome::fields(&paper, self.page.fields(), &self.fields, self.focus);
         let screen = (self.size.cols, self.size.rows);
         match &self.overlay {
             Some(Overlay::Menu(menu)) => over.extend(menu.paint(&paper)),
             Some(Overlay::Panel(bar)) => over.extend(bar.paint(&paper, screen)),
             Some(Overlay::Link(bar)) => over.extend(bar.paint(&paper, screen)),
-            None => {}
+            None => {
+                if let Some((words, _)) = &self.notice {
+                    over.extend(NoticeBar::new(words).paint(&paper, screen));
+                }
+            }
         }
         painted.list.items.extend(over);
         let written = pixel.draw(painted.list, self.page.images());

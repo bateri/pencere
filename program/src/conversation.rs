@@ -69,6 +69,132 @@ pub enum Said {
     /// The program let go of the attached files of these names (`sha256:` and the digest): the
     /// holder forgets them.
     Detached(Vec<String>),
+    /// The program asks for a piece of a file the person gave the view (§8.9,
+    /// [`crate::ViewControl::read`]), which it waits to be given.
+    Read(Reading),
+    /// The program writes a piece of a file to a place the person chose in the Save panel (§8.10,
+    /// [`crate::ViewControl::write`]), and waits to hear it was written. The pieces of a handle come
+    /// in order.
+    Write(Writing),
+}
+
+/// A piece of a file the person gave, which the program asks for in a [`Conversation`] by the file's
+/// handle: the holder of the files reads it and says it with [`Reading::bytes`], or says why it
+/// cannot with [`Reading::refused`] (`handle`, `range`, `busy`, `gone`, `io`: §8.9). Dropped without
+/// either, the program is told that no view holds files ([`FileError::Unsupported`]). The program
+/// asks for at most [`crate::MAX_PIECE`] bytes; fewer than it asked for is the end of the file.
+#[derive(Debug)]
+pub struct Reading {
+    handle: String,
+    offset: u64,
+    length: u64,
+    reply: Option<SyncSender<Result<Vec<u8>, FileError>>>,
+}
+
+impl Reading {
+    /// The handle of the file, which the holder made when the person gave it.
+    #[must_use]
+    pub fn handle(&self) -> &str {
+        &self.handle
+    }
+
+    /// Where in the file the piece starts.
+    #[must_use]
+    pub fn offset(&self) -> u64 {
+        self.offset
+    }
+
+    /// How many bytes at most, and not 0: the holder says `range` of a 0 or one over
+    /// [`crate::MAX_PIECE`].
+    #[must_use]
+    pub fn length(&self) -> u64 {
+        self.length
+    }
+
+    /// Says the piece: the program has it.
+    pub fn bytes(mut self, bytes: Vec<u8>) {
+        self.answer(Ok(bytes));
+    }
+
+    /// Says why there is no piece, by the code (§8.9).
+    pub fn refused(mut self, code: &str) {
+        self.answer(Err(FileError::Refused(code.to_owned())));
+    }
+
+    fn answer(&mut self, result: Result<Vec<u8>, FileError>) {
+        if let Some(reply) = self.reply.take() {
+            let _ = reply.send(result);
+        }
+    }
+}
+
+impl Drop for Reading {
+    fn drop(&mut self) {
+        self.answer(Err(FileError::Unsupported));
+    }
+}
+
+/// A piece of a file the program writes to the place the person chose in the Save panel, by its
+/// handle: the holder writes it and says so with [`Writing::written`], or says why it cannot with
+/// [`Writing::refused`] (`handle`, `order`, `size`, `space`, `io`: §8.10). The last piece has
+/// [`Writing::end`]; the holder gives the file the person's name then, and the program waits for
+/// that. Dropped without either, the program is told that no view holds files
+/// ([`FileError::Unsupported`]).
+#[derive(Debug)]
+pub struct Writing {
+    handle: String,
+    offset: u64,
+    bytes: Vec<u8>,
+    end: bool,
+    reply: Option<SyncSender<Result<(), FileError>>>,
+}
+
+impl Writing {
+    /// The handle of the place, which the holder made when the person chose it.
+    #[must_use]
+    pub fn handle(&self) -> &str {
+        &self.handle
+    }
+
+    /// Where in the file the piece goes: where the one before it ended.
+    #[must_use]
+    pub fn offset(&self) -> u64 {
+        self.offset
+    }
+
+    /// The piece: at most [`crate::MAX_PIECE`] bytes (the holder says `size` of more).
+    #[must_use]
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// The piece is the file's last.
+    #[must_use]
+    pub fn end(&self) -> bool {
+        self.end
+    }
+
+    /// Says the piece is written (and, for the last, that the file has the person's name).
+    pub fn written(mut self) {
+        self.answer(Ok(()));
+    }
+
+    /// Says why the piece is not written, by the code (§8.10).
+    pub fn refused(mut self, code: &str) {
+        self.answer(Err(FileError::Refused(code.to_owned())));
+    }
+
+    fn answer(&mut self, result: Result<(), FileError>) {
+        if let Some(reply) = self.reply.take() {
+            let _ = reply.send(result);
+        }
+    }
+}
+
+impl Drop for Writing {
+    fn drop(&mut self) {
+        self.answer(Err(FileError::Unsupported));
+    }
 }
 
 /// The files the program attached to the view in a [`Conversation`], each by the name the view draws
@@ -407,7 +533,37 @@ impl Conversation {
                     reply: Some(reply),
                 }));
             }
-            // A conversation has no terminal to give the person's files to or to take them from.
+            // The person's files are the holder's too: it made the handles, and reads and writes
+            // what they name. A view that is not up has none.
+            Request::Read {
+                handle,
+                offset,
+                length,
+                reply,
+            } if self.up() => {
+                self.said.push_back(Said::Read(Reading {
+                    handle,
+                    offset,
+                    length,
+                    reply: Some(reply),
+                }));
+            }
+            Request::Write {
+                handle,
+                offset,
+                bytes,
+                end,
+                reply,
+            } if self.up() => {
+                self.said.push_back(Said::Write(Writing {
+                    handle,
+                    offset,
+                    bytes,
+                    end,
+                    reply: Some(reply),
+                }));
+            }
+            // With no view up the program has no files to read or write.
             Request::Attach { reply, .. } | Request::Write { reply, .. } => {
                 let _ = reply.send(Err(FileError::Unsupported));
             }

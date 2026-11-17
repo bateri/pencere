@@ -527,6 +527,143 @@ fn a_file_that_is_not_held_is_a_refusal_to_the_program_or_none_that_has_files() 
     ));
 }
 
+/// A conversation whose handlers `read` and `write` ask the program's control for a piece of a file
+/// of the person's, and for one to be written to a place the person chose, and answer with how that
+/// went.
+fn moving(control: &ViewControl) -> Conversation {
+    let (reading, writing) = (control.clone(), control.clone());
+    Conversation::new(
+        Options::new()
+            .control(control.clone())
+            .call("read", move |params, _call| {
+                let handle = params["handle"].as_str().unwrap_or("");
+                let offset = params["offset"].as_u64().unwrap_or(0);
+                Ok(json!(match reading.read(handle, offset, 8) {
+                    Ok(bytes) => format!("bytes {}", String::from_utf8_lossy(&bytes)),
+                    Err(why) => format!("error: {why:?}"),
+                }))
+            })
+            .call("write", move |params, _call| {
+                let handle = params["handle"].as_str().unwrap_or("");
+                let bytes = params["bytes"].as_str().unwrap_or("").as_bytes().to_vec();
+                let end = params["end"].as_bool().unwrap_or(false);
+                Ok(json!(match writing.write(
+                    handle,
+                    params["offset"].as_u64().unwrap_or(0),
+                    bytes,
+                    end
+                ) {
+                    Ok(()) => "written".to_owned(),
+                    Err(why) => format!("error: {why:?}"),
+                }))
+            }),
+    )
+}
+
+#[test]
+fn a_piece_the_program_reads_or_writes_is_said_to_the_holder_of_the_files_and_answered_by_it() {
+    let control = ViewControl::new();
+    let mut conversation = moving(&control);
+    // A read is said by the handle, where it starts and how much; the holder gives the bytes.
+    conversation.send(&call(1, "read", &json!({ "handle": "h1", "offset": 3 })).to_string());
+    let Some(Said::Read(reading)) = conversation.receive(WITHIN) else {
+        panic!("the read said");
+    };
+    assert_eq!(
+        (reading.handle(), reading.offset(), reading.length()),
+        ("h1", 3, 8)
+    );
+    reading.bytes(b"piece".to_vec());
+    let Some(Said::Message(answer)) = conversation.receive(WITHIN) else {
+        panic!("an answer");
+    };
+    assert!(answer.contains("bytes piece"), "{answer}");
+    // Or refuses it, by a code of §8.9.
+    conversation.send(&call(2, "read", &json!({ "handle": "h2" })).to_string());
+    let Some(Said::Read(reading)) = conversation.receive(WITHIN) else {
+        panic!("the read said");
+    };
+    reading.refused("gone");
+    let Some(Said::Message(answer)) = conversation.receive(WITHIN) else {
+        panic!("an answer");
+    };
+    assert!(
+        answer.contains("Refused") && answer.contains("gone"),
+        "{answer}"
+    );
+    // A write comes with the piece, where it goes and whether it is the last.
+    let sent = json!({ "handle": "h3", "offset": 0, "bytes": "abc", "end": true });
+    conversation.send(&call(3, "write", &sent).to_string());
+    let Some(Said::Write(writing)) = conversation.receive(WITHIN) else {
+        panic!("the write said");
+    };
+    assert_eq!(
+        (
+            writing.handle(),
+            writing.offset(),
+            writing.bytes(),
+            writing.end()
+        ),
+        ("h3", 0, &b"abc"[..], true)
+    );
+    writing.written();
+    let Some(Said::Message(answer)) = conversation.receive(WITHIN) else {
+        panic!("an answer");
+    };
+    assert!(answer.contains("written"), "{answer}");
+    conversation.send(&call(4, "write", &json!({ "handle": "h3", "offset": 9 })).to_string());
+    let Some(Said::Write(writing)) = conversation.receive(WITHIN) else {
+        panic!("the write said");
+    };
+    writing.refused("order");
+    let Some(Said::Message(answer)) = conversation.receive(WITHIN) else {
+        panic!("an answer");
+    };
+    assert!(
+        answer.contains("Refused") && answer.contains("order"),
+        "{answer}"
+    );
+}
+
+#[test]
+fn a_read_or_a_write_nobody_answers_is_no_view_that_has_files_and_with_no_view_up_it_is_said_at_once()
+ {
+    let control = ViewControl::new();
+    let mut conversation = moving(&control);
+    conversation.send(&call(1, "read", &json!({ "handle": "h" })).to_string());
+    let Some(Said::Read(reading)) = conversation.receive(WITHIN) else {
+        panic!("the read said");
+    };
+    drop(reading);
+    let Some(Said::Message(answer)) = conversation.receive(WITHIN) else {
+        panic!("an answer");
+    };
+    assert!(answer.contains("Unsupported"), "{answer}");
+    conversation.send(&call(2, "write", &json!({ "handle": "h" })).to_string());
+    let Some(Said::Write(writing)) = conversation.receive(WITHIN) else {
+        panic!("the write said");
+    };
+    drop(writing);
+    let Some(Said::Message(answer)) = conversation.receive(WITHIN) else {
+        panic!("an answer");
+    };
+    assert!(answer.contains("Unsupported"), "{answer}");
+    let closer = {
+        let control = control.clone();
+        asking(move || control.close())
+    };
+    assert!(matches!(conversation.receive(WITHIN), Some(Said::Closed)));
+    assert_eq!(joined(closer), CloseResult::Closed);
+    assert!(matches!(
+        control.read("h", 0, 8),
+        Err(FileError::Unsupported)
+    ));
+    assert!(matches!(
+        control.write("h", 0, Vec::new(), true),
+        Err(FileError::Unsupported)
+    ));
+}
+
 #[test]
 fn a_hand_off_is_said_after_the_answer_of_the_handler_that_asked_and_the_reader_ends_it() {
     let control = ViewControl::new();

@@ -252,7 +252,9 @@ match conversation.receive(Duration::from_secs(5)) {
 ```
 
 A conversation is a terminal that can close a view and answers at once: what the program asks of
-its `ViewControl` is what it says, `Said::Closed`, `Said::Reopened` and `Said::HandedOff`. No
+its `ViewControl` is what it says, `Said::Closed`, `Said::Reopened` and `Said::HandedOff`, and a read
+or a write of a file the person chose is `Said::Read` or `Said::Write` for whoever holds the files to
+answer (unanswered, it is `FileError::Unsupported`). No
 command runs; the `Lent` of a hand-off says how it ended (`lent.returned(status)`), and until then
 there is no view to hear.
 

@@ -6,11 +6,7 @@
 //! the keys and the pointer are its own. None of it is the page's to draw, and the page is told only
 //! what the person chose.
 
-use std::collections::HashMap;
-use std::hash::{BuildHasher, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use pencere_view::{
     Border, Color, FieldKind, FileEntry, Fill, Key, Menu, MenuEntry, Mods, Paint, Panel, Quad,
@@ -20,9 +16,7 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::chrome::Paper;
 use crate::field::TextField;
-
-/// The most bytes of a file the page is given to draw by its handle.
-const LONGEST_FILE: u64 = 64 * 1024 * 1024;
+use crate::files::Handles;
 
 // --- The label of a shortcut ---------------------------------------------------------------
 
@@ -422,19 +416,28 @@ impl MenuBox {
 
 // --- The line of the bottom row ------------------------------------------------------------
 
-/// The address of a link, shown on the bottom row until a key or a press turns it away.
+/// The address of a link, shown on the bottom row until a key or a press turns it away: that is the
+/// question put to the person, and Enter or a press on the row is the answer that follows the
+/// link (where it goes is the screen's: the browser where the person is, the pasteboard where they
+/// are not).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LinkBar {
     url: String,
+    /// What following it does is to copy it, and the row says so.
+    copies: bool,
 }
 
 impl LinkBar {
-    pub fn new(url: String) -> Self {
-        Self { url }
+    pub fn new(url: String, copies: bool) -> Self {
+        Self { url, copies }
+    }
+
+    pub fn url(&self) -> &str {
+        &self.url
     }
 
     /// The bar as items of the page's draw list: the row at the foot of the window, on the ground of
-    /// a bar, the address of the link underlined as a link is, and what closes the bar at the right.
+    /// a bar, the address of the link underlined as a link is, and what its keys do at the right.
     pub(crate) fn paint(&self, paper: &Paper<'_>, screen: (u16, u16)) -> Vec<Paint> {
         let (cols, rows) = screen;
         if cols < 8 || rows == 0 {
@@ -447,7 +450,11 @@ impl LinkBar {
         let top = paper.centred(&font, bar.y, bar.h);
         let cw = paper.cell.0;
         let label = " Link ";
-        let note = " Esc closes ";
+        let note = if self.copies {
+            " Enter copies  Esc closes "
+        } else {
+            " Enter opens  Esc closes "
+        };
         let after = width_of(label);
         let note_width = width_of(note);
         let room = usize::from(cols).saturating_sub(after + note_width + 1);
@@ -457,7 +464,8 @@ impl LinkBar {
             bar.x + after as f32 * cw,
             bar.x + (after + width_of(&shown)) as f32 * cw,
         );
-        let mut items = vec![paper.quad(bar, Role::Raised(3), bar)];
+        let ground = paper.over_foot(bar);
+        let mut items = vec![paper.quad(ground, Role::Raised(3), ground)];
         items.push(paper.text((bar.x, top), label, bold, Role::Foreground, bar));
         if let Paint::Text(run) = paper.text((url_x, top), &shown, font, Role::Accent, bar) {
             items.push(Paint::Text(Run {
@@ -502,6 +510,38 @@ fn shorten(text: &str, room: usize) -> String {
     out
 }
 
+/// A few words the screen says of what it did, on the bottom row, where the page was not asked and is
+/// not told: it takes no key and no press, and the screen takes it away after a while.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct NoticeBar {
+    text: String,
+}
+
+impl NoticeBar {
+    pub fn new(text: &str) -> Self {
+        Self {
+            text: text.to_owned(),
+        }
+    }
+
+    /// The row at the foot of the window, on the ground of a bar, with the words in it.
+    pub(crate) fn paint(&self, paper: &Paper<'_>, screen: (u16, u16)) -> Vec<Paint> {
+        let (cols, rows) = screen;
+        if cols < 8 || rows == 0 {
+            return Vec::new();
+        }
+        let bar = paper.cells(0, rows - 1, cols, 1);
+        let bold = paper.face(true);
+        let top = paper.centred(&bold, bar.y, bar.h);
+        let words = format!(" {} ", self.text);
+        let ground = paper.over_foot(bar);
+        vec![
+            paper.quad(ground, Role::Raised(3), ground),
+            paper.text((bar.x, top), &words, bold, Role::Foreground, bar),
+        ]
+    }
+}
+
 // --- The panel -----------------------------------------------------------------------------
 
 /// What the person did with the line of a panel.
@@ -528,6 +568,9 @@ pub(crate) struct PanelBar {
     field: TextField,
     /// What is said of the path under the line: why it is not taken, or what a Tab found.
     note: Option<String>,
+    /// The file that is there, which the person was told Enter replaces: a second Enter at the same
+    /// place does.
+    replacing: Option<PathBuf>,
 }
 
 impl PanelBar {
@@ -544,6 +587,7 @@ impl PanelBar {
             panel,
             field,
             note: None,
+            replacing: None,
         }
     }
 
@@ -622,8 +666,14 @@ impl PanelBar {
                 }
             },
             Panel::Save { name, .. } => {
-                // A folder is where the file goes under the name the page proposed.
-                let target = if path.is_dir() { path.join(name) } else { path };
+                // A folder is where the file goes under the name the page proposed: its last part,
+                // which is all that a name of a file is (the page's `../x` or `/x` puts the file
+                // where the person did not choose).
+                let target = if path.is_dir() {
+                    path.join(pencere::safe_name(name))
+                } else {
+                    path
+                };
                 let Some(file_name) = target
                     .file_name()
                     .map(|file_name| file_name.to_string_lossy().into_owned())
@@ -638,7 +688,21 @@ impl PanelBar {
                     self.note = Some("There is no such folder.".to_owned());
                     return Answered::Open;
                 }
-                let handle = handles.make(target);
+                match std::fs::symlink_metadata(&target) {
+                    Ok(meta) if meta.is_dir() => {
+                        self.note = Some("That is a folder.".to_owned());
+                        return Answered::Open;
+                    }
+                    // A file that is there is the person's: they are told, and a second Enter at the
+                    // same place says it may go (a Save panel of the system asks the same).
+                    Ok(_) if self.replacing.as_ref() != Some(&target) => {
+                        self.note = Some("That file is there: Enter again replaces it.".to_owned());
+                        self.replacing = Some(target);
+                        return Answered::Open;
+                    }
+                    _ => {}
+                }
+                let handle = handles.place(target);
                 Answered::Chose(Saving {
                     handle,
                     name: file_name,
@@ -724,11 +788,15 @@ impl PanelBar {
             && area.rows > 1
         {
             let above = paper.cells(0, rows - 2, cols, 1);
-            items.push(paper.quad(above, Role::Raised(3), above));
+            let ground = paper.over_foot(above);
+            items.push(paper.quad(ground, Role::Raised(3), ground));
             let at = paper.centred(&font, above.y, ch);
             items.push(paper.text((above.x + cw, at), note, font, Role::Dim, above));
+            items.push(paper.quad(bar, Role::Raised(3), bar));
+        } else {
+            let ground = paper.over_foot(bar);
+            items.push(paper.quad(ground, Role::Raised(3), ground));
         }
-        items.push(paper.quad(bar, Role::Raised(3), bar));
         let label = format!(" {}: ", self.word());
         let after = u16::try_from(width_of(&label)).unwrap_or(u16::MAX);
         items.push(paper.text((bar.x, top), &label, paper.face(true), Role::Accent, bar));
@@ -804,7 +872,7 @@ fn entry_of(path: &Path, handles: &Handles) -> Result<FileEntry, String> {
         .file_name()
         .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
     let folder = meta.is_dir();
-    let handle = (!folder).then(|| handles.make(path.to_path_buf()));
+    let handle = (!folder).then(|| handles.give(path, &meta));
     Ok(FileEntry {
         handle,
         name,
@@ -830,70 +898,6 @@ pub(crate) fn media_type_of(path: &Path) -> String {
         _ => "application/octet-stream",
     }
     .to_owned()
-}
-
-// --- The handles ---------------------------------------------------------------------------
-
-/// The files the person gave the page, each by the handle the page names it by: 32 lowercase hex
-/// digits, which are nothing once the screen ends. The page draws one as `file:` and the handle,
-/// and is answered from here, never from a path of its own.
-#[derive(Debug, Default)]
-pub(crate) struct Handles {
-    files: Mutex<HashMap<String, PathBuf>>,
-}
-
-impl Handles {
-    pub fn new() -> Arc<Self> {
-        Arc::new(Self::default())
-    }
-
-    /// A new handle for `path`.
-    pub fn make(&self, path: PathBuf) -> String {
-        let mut files = self.files.lock().unwrap_or_else(PoisonError::into_inner);
-        loop {
-            let handle = random_handle();
-            if !files.contains_key(&handle) {
-                files.insert(handle.clone(), path);
-                return handle;
-            }
-        }
-    }
-
-    pub fn path_of(&self, handle: &str) -> Option<PathBuf> {
-        self.files
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(handle)
-            .cloned()
-    }
-
-    /// The bytes of the file under `handle`: none for a handle that was not made, a file that is
-    /// gone or one too large to draw.
-    pub fn read(&self, handle: &str) -> Option<Vec<u8>> {
-        let path = self.path_of(handle)?;
-        let meta = std::fs::metadata(&path).ok()?;
-        if !meta.is_file() || meta.len() > LONGEST_FILE {
-            return None;
-        }
-        std::fs::read(path).ok()
-    }
-}
-
-/// 32 hex digits no one chose: the keys of two `RandomState`s (the system's randomness), the time
-/// and a count.
-fn random_handle() -> String {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static COUNT: AtomicU64 = AtomicU64::new(0);
-    let hash = |salt: u64| {
-        let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
-        hasher.write_u64(salt);
-        hasher.finish()
-    };
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_nanos() as u64);
-    let count = COUNT.fetch_add(1, Ordering::Relaxed);
-    format!("{:016x}{:016x}", hash(nanos), hash(count))
 }
 
 #[cfg(test)]
@@ -1124,7 +1128,7 @@ mod tests {
             "a folder is given the proposed name"
         );
         assert_eq!(
-            handles.path_of(&saving.handle),
+            handles.place_of(&saving.handle),
             Some(dir.join("report.txt"))
         );
         let mut bar = PanelBar::new(panel);
@@ -1133,6 +1137,85 @@ mod tests {
             bar.key(Key::Enter, Mods::default(), None, &handles),
             Answered::Open
         );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_name_the_page_proposes_is_its_last_part_in_the_folder_the_person_types() {
+        let dir = std::env::temp_dir().join(format!("pencere-tui-name-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("inside")).unwrap();
+        let handles = Handles::new();
+        for (proposed, file) in [
+            ("../escaped.txt", "escaped.txt"),
+            ("/etc/escaped.txt", "escaped.txt"),
+            ("a/b/c.txt", "c.txt"),
+        ] {
+            let mut bar = PanelBar::new(Panel::Save {
+                name: proposed.to_owned(),
+                media_type: None,
+            });
+            bar.paste(&dir.join("inside").to_string_lossy());
+            let Answered::Chose(saving) = bar.key(Key::Enter, Mods::default(), None, &handles)
+            else {
+                panic!("no place was chosen for {proposed}");
+            };
+            assert_eq!(saving.name, file, "{proposed}");
+            assert_eq!(
+                handles.place_of(&saving.handle),
+                Some(dir.join("inside").join(file)),
+                "{proposed}"
+            );
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_that_is_there_is_replaced_at_the_second_enter_and_a_folder_is_not_a_place() {
+        let dir = std::env::temp_dir().join(format!("pencere-tui-there-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("folder")).unwrap();
+        std::fs::write(dir.join("there.txt"), b"theirs").unwrap();
+        let handles = Handles::new();
+        let panel = Panel::Save {
+            name: "x.txt".to_owned(),
+            media_type: None,
+        };
+        let mut bar = PanelBar::new(panel.clone());
+        bar.paste(&dir.join("there.txt").to_string_lossy());
+        assert_eq!(
+            bar.key(Key::Enter, Mods::default(), None, &handles),
+            Answered::Open
+        );
+        assert_eq!(
+            bar.note.as_deref(),
+            Some("That file is there: Enter again replaces it.")
+        );
+        assert!(
+            matches!(
+                bar.key(Key::Enter, Mods::default(), None, &handles),
+                Answered::Chose(_)
+            ),
+            "the second Enter at the same place"
+        );
+        // Another place is asked about on its own.
+        std::fs::write(dir.join("other.txt"), b"theirs").unwrap();
+        let mut bar = PanelBar::new(panel.clone());
+        bar.paste(&dir.join("there.txt").to_string_lossy());
+        bar.key(Key::Enter, Mods::default(), None, &handles);
+        bar.paste(&dir.join("other.txt").to_string_lossy());
+        assert_eq!(
+            bar.key(Key::Enter, Mods::default(), None, &handles),
+            Answered::Open,
+            "an Enter at another place is not the answer to the question about this one"
+        );
+        // A folder that has the name the page proposes is not a place: the name is taken from it.
+        std::fs::create_dir_all(dir.join("folder").join("x.txt")).unwrap();
+        let mut bar = PanelBar::new(panel);
+        bar.paste(&dir.join("folder").to_string_lossy());
+        assert_eq!(
+            bar.key(Key::Enter, Mods::default(), None, &handles),
+            Answered::Open
+        );
+        assert_eq!(bar.note.as_deref(), Some("That is a folder."));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

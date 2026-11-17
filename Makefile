@@ -22,6 +22,7 @@ check:
 	@for name in LICENSE NOTICE; do for dir in sdk/typescript host/rust wire program kit/view kit/editor kit/sandbox kit/drive host/tui cli; do cmp -s $$name $$dir/$$name || { echo "check: $$dir/$$name is not the repository's $$name"; exit 1; }; done; done
 	@for dir in kit/sandbox; do cmp -s kit/wit/view.wit $$dir/wit/view.wit || { echo "check: $$dir/wit/view.wit is not the interface in kit/wit/view.wit (a published crate cannot read outside itself, so it carries a copy: cp kit/wit/view.wit $$dir/wit/view.wit)"; exit 1; }; done
 	@diff -r kit/luau/licenses kit/sandbox/licenses >/dev/null || { echo "check: kit/sandbox/licenses is not a copy of kit/luau/licenses (the crate carries the licences of what is built into its interpreter)"; exit 1; }
+	@grep -q '^license = "Apache-2.0 AND OFL-1.1"$$' kit/drive/Cargo.toml && ls kit/drive/fonts/*OFL* >/dev/null 2>&1 && ls kit/drive/fonts/Inter-LICENSE.txt >/dev/null 2>&1 || { echo "check: kit/drive carries faces under the SIL OFL 1.1 (kit/drive/fonts) and the licence files that go with them: its license has to say Apache-2.0 AND OFL-1.1"; exit 1; }
 	$(MAKE) --no-print-directory audit
 	npx tsc -b
 	cargo fmt --all -- --check

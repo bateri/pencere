@@ -24,6 +24,9 @@ pub(crate) struct Paper<'a> {
     pub scale: f32,
     pub cell: (f32, f32),
     pub window: Rect,
+    /// How far down the strip the page has along the foot of the window starts, pixels ([`foot_of`]);
+    /// the window's bottom where it has none.
+    pub foot: f32,
 }
 
 impl Paper<'_> {
@@ -50,6 +53,14 @@ impl Paper<'_> {
             f32::from(cols) * self.cell.0,
             f32::from(rows) * self.cell.1,
         )
+    }
+
+    /// `row` (the bottom row of cells, where a bar stands) taken up to the top of the page's strip at
+    /// the foot where that stands higher than the row: the ground of a bar covers the strip whole, and
+    /// no edge of it is left to be seen over the bar.
+    pub(crate) fn over_foot(&self, row: Rect) -> Rect {
+        let top = row.y.min(self.foot);
+        Rect::new(row.x, top, row.w, (row.bottom() - top).max(row.h))
     }
 
     /// How wide a line is, pixels: a hairline of the page at its scale.
@@ -97,6 +108,37 @@ impl Paper<'_> {
     pub(crate) fn centred(&self, font: &Font, top: f32, height: f32) -> f32 {
         top + (height - self.line(font)) / 2.0
     }
+}
+
+/// The most rows of cells a strip along the foot of the window is, to be one: a status line, not the
+/// page's own ground.
+const MOST_FOOT_ROWS: f32 = 3.0;
+
+/// How far down the strip the page has along the foot of the window starts, pixels: the top of the
+/// highest box of the page's `items` that goes across the whole window, ends at its foot and is no
+/// more than [`MOST_FOOT_ROWS`] of `row` (a row of cells) high; the top of the last row of cells where
+/// there is none, or none that stands higher. A status line a page draws is such a box, and is higher
+/// than a row of cells as often as not: what a bar of the host stands over has to cover it.
+pub(crate) fn foot_of(items: &[Paint], window: Rect, row: f32) -> f32 {
+    let mut top = window.bottom() - row;
+    for item in items {
+        let Paint::Quad(quad) = item else {
+            continue;
+        };
+        if quad.fill.is_none() && quad.gradient.is_none() {
+            continue;
+        }
+        let seen = quad.rect.intersect(quad.clip);
+        if seen.w <= 0.0 || seen.h <= 0.0 {
+            continue;
+        }
+        let across = seen.x <= window.x + 1.0 && seen.right() >= window.right() - 1.0;
+        let at_foot = seen.bottom() >= window.bottom() - 1.0;
+        if across && at_foot && seen.h <= MOST_FOOT_ROWS * row && seen.y < top {
+            top = seen.y;
+        }
+    }
+    top.max(window.y)
 }
 
 /// The fields of the page, drawn over their rooms: each its text, or its hint dimmed where it has

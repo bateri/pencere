@@ -118,7 +118,7 @@ use serde_json::Value;
 pub use app::{App, DEV_VARIABLE, build};
 pub use bundle::{Bundle, BundleError, File};
 pub use control::{CloseResult, HandOff, HandOffResult, ReopenResult, ViewControl};
-pub use conversation::{Attached, Conversation, Lent, Said};
+pub use conversation::{Attached, Conversation, Lent, Reading, Said, Writing};
 pub use files::{
     FileError, MAX_ATTACHED_FILE, MAX_ATTACHED_FILES, MAX_ATTACHED_TOTAL, MAX_PIECE, safe_name,
 };

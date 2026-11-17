@@ -24,7 +24,11 @@ mod chrome;
 mod chrome_tests;
 mod color;
 mod field;
+mod files;
+#[cfg(test)]
+mod files_tests;
 mod input;
+mod link;
 mod live;
 mod memory;
 mod output;

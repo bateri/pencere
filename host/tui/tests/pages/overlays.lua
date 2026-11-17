@@ -1,6 +1,6 @@
 -- A page for the tests of what a screen shows over a page: a menu, the panels, a link, and an
 -- editor. Every one is asked for by a key (F1 a menu, F2 a link, F4 the Open panel, F5 the Save
--- panel) and what the person did with it is written on the page.
+-- panel, F8 and F9 links that are not for a browser) and what the person did with it is written on the page.
 
 local b = pencere
 
@@ -39,6 +39,11 @@ return {
 				return { pick = { multiple = false } }
 			elseif event.key == "f5" then
 				return { save = { name = "out.txt" } }
+			elseif event.key == "f8" then
+				-- Addresses the host does not open: not `http` or `https`.
+				return { link = "javascript:alert(1)" }
+			elseif event.key == "f9" then
+				return { link = "file:///etc/passwd" }
 			end
 		elseif event.type == "menu" then
 			note = "picked " .. event.entry.title
