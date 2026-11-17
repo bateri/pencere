@@ -805,6 +805,137 @@ fn the_caret_blinks_as_the_editors_options_say_and_is_what_they_say_away_from_th
     assert_eq!(rig.page.wake_at(), None);
 }
 
+/// A page the module makes again that is the page it made is not laid out again: what a reply or a
+/// timer that changed nothing the page shows asks for is a page, and the layout the page has is its
+/// own. A page that shows what changed is.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
+fn a_page_made_again_that_is_the_page_it_was_is_not_laid_out_again() {
+    let page = |shows: &str| {
+        format!(
+            r#"local presses = 0
+return {{
+    render = function()
+        return pencere.div():size_full()
+            :child(pencere.text({shows}))
+            :child(pencere.div():h(40):w(100))
+    end,
+    handle = function(event)
+        if event.type == "key" then
+            presses = presses + 1
+        end
+        return true
+    end,
+}}"#
+        )
+    };
+    let mut rig = script_rig(&page(r#""the same""#));
+    rig.page.frame(frame_at(0.0));
+    rig.first();
+    let shown = rig.settle();
+    let (taken, laid) = rig.page.counts();
+    rig.press_key('a');
+    rig.press_key('b');
+    let after = rig.settle();
+    let (taken_after, laid_after) = rig.page.counts();
+    assert!(taken_after > taken, "the page was made again");
+    assert_eq!(laid_after, laid, "and not laid out again");
+    assert_eq!(after, shown, "what is drawn is what was");
+    // The layout it did not do is the one it would: laid out anew (the host's measure said again),
+    // the page is the same.
+    rig.page.set_measure(Box::new(Even));
+    assert_eq!(rig.settle(), shown);
+    assert!(rig.page.counts().1 > laid_after, "that did lay it out");
+    // So is motion reduced: a spinner stands still when it is, and runs when it is not.
+    let laid_before = rig.page.counts().1;
+    rig.settle_at(FrameAt {
+        reduce_motion: true,
+        ..frame_at(0.0)
+    });
+    assert!(
+        rig.page.counts().1 > laid_before,
+        "laid out for motion reduced"
+    );
+
+    // A page that shows the key is laid out for each page the key makes.
+    let mut rig = script_rig(&page("tostring(presses)"));
+    rig.page.frame(frame_at(0.0));
+    rig.first();
+    let shown = rig.settle();
+    let (_, laid) = rig.page.counts();
+    rig.press_key('a');
+    let after = rig.settle();
+    assert!(rig.page.counts().1 > laid, "laid out");
+    assert_ne!(after, shown);
+}
+
+/// A letter typed into an editor is told the page as the change of its text and the move of its
+/// carets, and it is one page for both, not one for each: the page the module makes (and the host lays
+/// out and draws) is the one that shows what both said, the one a page made at once would be.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
+fn a_letter_typed_into_an_editor_is_one_page_that_shows_what_both_events_said() {
+    for pattern in [
+        "local said = {}",
+        "return pencere.div():size_full()",
+        "pencere.text(table.concat(said, \"|\"))",
+        "elseif event.type == \"edit\" then",
+    ] {
+        assert!(EDITOR_PAGE.contains(pattern), "the page has {pattern}");
+    }
+    let counting = EDITOR_PAGE
+        .replace("local said = {}", "local said = {}\nlocal renders = 0")
+        .replace(
+            "return pencere.div():size_full()",
+            "renders = renders + 1\n        return pencere.div():size_full()",
+        )
+        .replace(
+            "pencere.text(table.concat(said, \"|\"))",
+            "pencere.text(table.concat(said, \"|\") .. \" renders \" .. renders)",
+        )
+        .replace(
+            "elseif event.type == \"edit\" then",
+            "elseif event.type == \"selection\" then\n            note(\"selection\")\n        elseif event.type == \"edit\" then",
+        );
+    // What the page says and how many times it was made, from the words of the page.
+    let shown = |rig: &Rig| {
+        let words = page_words(&rig.page).join(" ");
+        let (said, renders) = words.rsplit_once(" renders ").expect("the render count");
+        (
+            said.to_owned(),
+            renders.trim().parse::<u32>().expect("a count"),
+        )
+    };
+    let mut rig = loaded(&counting);
+    let (_, before) = shown(&rig);
+    let made = rig.page.module().renders();
+    assert_eq!(
+        rig.page.key(Key::Character('x'), Mods::default()),
+        Route::Type
+    );
+    rig.page.editors().type_text("x");
+    rig.settle();
+    let (said, after) = shown(&rig);
+    assert_eq!(after - before, 1, "one page for the letter: {said}");
+    assert_eq!(
+        rig.page.module().renders() - made,
+        1,
+        "and the module made no other that the page did not take"
+    );
+    assert!(
+        said.ends_with("edit person xhello\nworld|selection"),
+        "the page shows both: {said}"
+    );
+    // A page made at once is the same page.
+    rig.page
+        .module()
+        .render(pencere_view::Size::new(800.0, 600.0), 0.0, false);
+    rig.settle();
+    let (again, last) = shown(&rig);
+    assert_eq!(last - after, 1);
+    assert_eq!(again, said);
+}
+
 /// A caret goes from a place to another as the editor's `motion` says, on the frames' clock: at once
 /// (`snap`), over 0.18 seconds (`ease`) or as a spring with no overshoot; the page is not asked for a
 /// frame of its own while it does, the caret is lit, and with Reduce Motion it is at its place at once.

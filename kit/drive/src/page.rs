@@ -189,11 +189,15 @@ struct State {
     /// The page as it was last laid out: what a key is asked against, for the command it does,
     /// and what the wheel moves a box on.
     laid: Option<Arc<Laid>>,
-    /// The viewport (points) and scale `laid` is for.
-    laid_for: Option<(Size, f32)>,
+    /// The viewport (points), scale and whether motion is reduced `laid` is for.
+    laid_for: Option<(Size, f32, bool)>,
     /// The page has to be laid out again (a new page, an image's size): until it is, a frame for
     /// what only the scrolling changed moves the boxes of the page last laid out.
     fresh: bool,
+    /// How many pages the module has handed out that this took, and how many times the page was
+    /// laid out: what a test counts.
+    #[cfg(test)]
+    counts: (usize, usize),
     /// How far the host has the page's boxes scrolled.
     scrolls: HostScrolls,
     /// The scrolls the module asked for that the next frame does.
@@ -428,6 +432,8 @@ impl Page {
                 laid: None,
                 laid_for: None,
                 fresh: true,
+                #[cfg(test)]
+                counts: (0, 0),
                 scrolls,
                 asks: Vec::new(),
                 animating: false,
@@ -617,7 +623,7 @@ impl Page {
                     return Some(input);
                 };
                 let begins = if held.draggable {
-                    state.laid_for.is_some_and(|(size, _)| {
+                    state.laid_for.is_some_and(|(size, _, _)| {
                         at.x < 0.0 || at.y < 0.0 || at.x > size.w || at.y > size.h
                     })
                 } else {
@@ -1161,6 +1167,12 @@ impl Page {
         self.images.as_ref()
     }
 
+    /// The pages the page took from its module, and the times it laid itself out.
+    #[cfg(test)]
+    pub(crate) fn counts(&self) -> (usize, usize) {
+        self.state.counts
+    }
+
     /// The module the page is: what a host that drives a page by hand waits for
     /// ([`Module::flush`]). Telling it anything past the drive is the host's own business.
     pub fn module(&self) -> &Module {
@@ -1421,6 +1433,40 @@ impl State {
         self.module.event_by_key(event, key, mods);
     }
 
+    /// What the editors said, told the module in the order they said it. What is the editors' own
+    /// news of one act (the text changed, the carets moved, what is in view, what a search found)
+    /// goes as one command, so that the page is made once for it, not once for each: a letter
+    /// typed is a change and a move of the carets. Any other (the keyboard's, an editor made,
+    /// the pointer over a gutter or a word) is told alone, as ever: it is the page's to answer from
+    /// the page that was made before it, and it ends the run before it.
+    fn tell_editors(&mut self, events: Vec<Event>) {
+        let mut run = Vec::new();
+        for event in events {
+            if matches!(
+                event,
+                Event::Edit { .. }
+                    | Event::Selection { .. }
+                    | Event::Viewport { .. }
+                    | Event::EditorRefused { .. }
+                    | Event::Found { .. }
+            ) {
+                run.push(event);
+            } else {
+                self.party(std::mem::take(&mut run));
+                self.event(event);
+            }
+        }
+        self.party(run);
+    }
+
+    /// The events of one act of the editors, told the module as one ([`Module::party`]).
+    fn party(&mut self, events: Vec<Event>) {
+        if let Some(told) = &mut self.told {
+            told.extend(events.iter().cloned());
+        }
+        self.module.party(events);
+    }
+
     /// Takes what the module has put out into what the page keeps. `building`: a frame is being
     /// laid out and drawn from what is taken, so it is that frame that shows it — the host is not
     /// told to draw another for it (the wake that came with it finds nothing new to say). The drain,
@@ -1428,10 +1474,20 @@ impl State {
     fn sync(&mut self, building: bool, images: Option<&Images>) {
         let update = self.module.poll();
         if let Some(frame) = update.frame {
-            self.root = Some(frame.root);
+            #[cfg(test)]
+            {
+                self.counts.0 += 1;
+            }
+            // A page made again that is the page it was (what a reply that changed nothing the
+            // page shows, a timer that fired, asks) is not laid out again: the layout it has is its
+            // own. What lays out differently with the same page (an image's size, the host's
+            // measure, the room an editor asked for) says so itself.
+            if self.root.as_ref() != Some(&frame.root) {
+                self.root = Some(frame.root);
+                self.fresh = true;
+            }
             self.animating = frame.animating;
             self.draw_at = frame.wake_at;
-            self.fresh = true;
             self.redraw |= !building;
         }
         self.asks.extend(update.asks);
@@ -1536,9 +1592,7 @@ impl State {
         let anything = !told.is_empty();
         if !told.events.is_empty() {
             self.module.texts(told.texts);
-            for event in told.events {
-                self.event(event);
-            }
+            self.tell_editors(told.events);
         }
         self.asks.extend(told.scrolls);
         let copied = !told.copied.is_empty();
@@ -1608,7 +1662,7 @@ impl State {
         self.scrolls.ask(asks);
         // Only the scrolling changed: the boxes move on the page as it was laid out.
         let still = !self.fresh
-            && self.laid_for == Some((size, scale))
+            && self.laid_for == Some((size, scale, at.reduce_motion))
             && !self.motions.moving()
             && !self.scrolls.scrolls.zooming();
         let cached = self.laid.clone().filter(|_| still);
@@ -1677,7 +1731,7 @@ impl State {
         if !starting {
             self.module.lay_out(Arc::clone(&laid));
             self.laid = Some(Arc::clone(&laid));
-            self.laid_for = Some((size, scale));
+            self.laid_for = Some((size, scale, at.reduce_motion));
             self.fresh = false;
             // Where the boxes went (a spring, a glide, an ask, a list that got shorter): the page
             // builds what came into view.
@@ -1714,6 +1768,10 @@ impl State {
         at: FrameAt,
         measure: &mut dyn Measure,
     ) -> Laid {
+        #[cfg(test)]
+        {
+            self.counts.1 += 1;
+        }
         let starting = root.is_none();
         let mut root = root.unwrap_or_else(starting_line);
         self.scrolls.scrolls.advance_zoom(at.now);

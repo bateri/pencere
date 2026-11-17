@@ -8,6 +8,9 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **`Module::party` and `Module::renders`**: the events of one act of the editors (a letter typed is a
+  change and a move of the carets) are told as one command, each handled and answered, the page made
+  once after the last; `renders` counts the pages the module made.
 - **A page says how large its text is to be drawn, and what an element carries**: a reply's
   `text_size = points` (a whole number, below 0 for smaller; the later of two replies in one answer
   stands), `element:carry({ text = | path =, url = })` and the `carried` event

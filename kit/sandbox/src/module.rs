@@ -102,6 +102,9 @@ enum Command {
     /// What the person did, and for an event a key did (a command the page bound it to), whether
     /// the key is the system's copy or cut ([`copy_key`]).
     Event(Event, Option<bool>),
+    /// What the editors said of themselves after one act (their text changed, their carets moved):
+    /// each is handled and answered in its turn, the page is made once, after the last.
+    Party(Vec<Event>),
     Message(String),
     /// The program has read enough that the module may say what it kept.
     Room,
@@ -139,6 +142,8 @@ struct Mailbox {
     arrived: Condvar,
     /// The application has been woken and has not taken what is waiting yet.
     woken: AtomicBool,
+    /// How many pages the module has made ([`Module::renders`]).
+    renders: AtomicU64,
     /// Cuts the call the module is in, once the application lets the module go
     /// ([`Runner::interrupter`]).
     interrupt: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
@@ -260,6 +265,21 @@ impl Module {
         let _ = self.commands.send(Command::Event(event, None));
     }
 
+    /// Tells the module what the editors said of themselves after one act, as one command: the
+    /// events are handled in order and each is answered, but the page is made once, after the last
+    /// (it is the page for all of them), where each told on its own could be made for the first
+    /// before the module took the second. They have nothing of the page last made to read:
+    /// an event that does is told with [`Module::event`]. Returns at once.
+    pub fn party(&self, events: Vec<Event>) {
+        debug_assert!(
+            events.iter().all(|event| !matches!(event, Event::Input(_))),
+            "what the person did is told alone: {events:?}"
+        );
+        if !events.is_empty() {
+            let _ = self.commands.send(Command::Party(events));
+        }
+    }
+
     /// Tells the module an event that a key did: the command the page bound `key` (held with
     /// `mods`) to. The page is told the command and nothing of the key, as for [`Module::event`], but
     /// the key says whose word the pasteboard has in the answer: a command the person asked for
@@ -337,6 +357,12 @@ impl Module {
             })
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         made_for(&waiting)
+    }
+
+    /// How many pages the module has made since it started: each time it asked its page for one,
+    /// whether the application took it or a newer one took its place.
+    pub fn renders(&self) -> u64 {
+        self.mailbox.renders.load(Ordering::Relaxed)
     }
 
     /// Waits until the module has done everything posted to it before this call, and put out what
@@ -422,7 +448,25 @@ struct Post<'a> {
 }
 
 impl Post<'_> {
+    /// The page, made by `runner`: counted.
+    fn render<R: Runner>(
+        &self,
+        runner: &mut R,
+        size: Size,
+        now: f64,
+        reduce_motion: bool,
+    ) -> Result<Frame, Fault> {
+        self.mailbox.renders.fetch_add(1, Ordering::Relaxed);
+        runner.render(size, now, reduce_motion)
+    }
+
     fn put(&self, frame: Option<(Frame, Size)>, answer: Option<Answer>) {
+        self.put_all(frame, answer.into_iter().collect());
+    }
+
+    /// The page and the answers that came with it, as one: the application is woken for all of
+    /// them, and takes them together.
+    fn put_all(&self, frame: Option<(Frame, Size)>, answers: Vec<Answer>) {
         {
             let mut waiting = self
                 .mailbox
@@ -434,9 +478,7 @@ impl Post<'_> {
                 waiting.frame_size = Some(size);
                 self.mailbox.arrived.notify_all();
             }
-            if let Some(answer) = answer {
-                waiting.replies.push(answer);
-            }
+            waiting.replies.extend(answers);
         }
         self.wake();
     }
@@ -651,6 +693,7 @@ fn run<R: Runner>(
         while let Ok(more) = inbox.try_recv() {
             batch.push(more);
         }
+        let (batch, partial) = unfold(batch);
         // The program said something that changed the page: one page for all it said in this
         // batch, made after the last of it (a program that pushes fast does not make the
         // module build a page for every push).
@@ -665,10 +708,17 @@ fn run<R: Runner>(
         let mut scrolled: Vec<Scrolled> = Vec::new();
         // The last mark of the application's in the batch: come to once the batch is done.
         let mut marked = None;
+        // An event of what the editors said in one act asked for the page, and the last of them
+        // has not been handled yet.
+        let mut party_wants = false;
+        // What the events of such an act answered, until the last of them is.
+        let mut answers: Vec<Answer> = Vec::new();
         for (at, command) in batch.iter().enumerate() {
             let later = batch.get(at + 1..).unwrap_or_default();
             match command {
                 Command::Stop => return Ok(()),
+                // Laid out as its events before the commands are gone through.
+                Command::Party(_) => {}
                 Command::Mark(mark) => marked = Some(*mark),
                 Command::Laid(laid) => runner.lay_out(Arc::clone(laid)),
                 Command::Texts(texts) => runner.texts(texts.clone()),
@@ -695,7 +745,7 @@ fn run<R: Runner>(
                     wakes.place(asked.now, post);
                     settled = 0;
                     resettled = false;
-                    let frame = runner.render(*size, *now, *reduce_motion)?;
+                    let frame = post.render(runner, *size, *now, *reduce_motion)?;
                     let frame = wakes.frame(frame, clock(last, program), post);
                     post.say(runner.take_sent(), runner.take_asks());
                     post.put(Some((frame, *size)), None);
@@ -815,7 +865,14 @@ fn run<R: Runner>(
                     let person = by_person(&event, *by_key);
                     let reply = wakes.reply(reply, clock(last, program), post);
                     post.say(runner.take_sent(), runner.take_asks());
-                    let frame = match (reply.redraw, last) {
+                    // Of what the editors said of themselves in one act, the page is made once, for
+                    // the last: what the first changed it is for the last to show.
+                    let unfinished = partial.get(at).copied().unwrap_or(false);
+                    // Taken whatever this one says: what a party asked for is for the page it is the
+                    // last of, not for what follows it.
+                    let party_asked = std::mem::take(&mut party_wants);
+                    let wants = reply.redraw || party_asked;
+                    let frame = match (wants, last) {
                         // The same key again is what it handles next (one held down, or pressed
                         // over and over, faster than the page is made): the page is made once, after
                         // the last of the run, as it is for what the program says.
@@ -823,12 +880,16 @@ fn run<R: Runner>(
                             owed = true;
                             None
                         }
+                        (true, Some(_)) if unfinished => {
+                            party_wants = true;
+                            None
+                        }
                         (true, Some(asked)) => {
                             // This page is what the events before it changed too, and a settle.
                             owed = false;
                             resettled = false;
                             let frame =
-                                runner.render(asked.size, asked.now, asked.reduce_motion)?;
+                                post.render(runner, asked.size, asked.now, asked.reduce_motion)?;
                             let frame = wakes.frame(frame, clock(last, program), post);
                             post.say(runner.take_sent(), runner.take_asks());
                             Some((frame, asked.size))
@@ -853,14 +914,16 @@ fn run<R: Runner>(
                                 | Input::Pressure { .. }
                         ) | Event::Pointer { .. }
                     );
-                    post.put(
-                        frame,
-                        Some(Answer {
-                            reply,
-                            pointer,
-                            person,
-                        }),
-                    );
+                    answers.push(Answer {
+                        reply,
+                        pointer,
+                        person,
+                    });
+                    // The answers of a party go out with its page: a reply may ask for what only
+                    // that page has (a field, an editor), and the application reads them with it.
+                    if !unfinished {
+                        post.put_all(frame, std::mem::take(&mut answers));
+                    }
                 }
                 Command::Message(text) => {
                     settled = 0;
@@ -915,7 +978,7 @@ fn run<R: Runner>(
         }
         if owed && let Some(asked) = last {
             let now = asked.since(program);
-            let frame = runner.render(asked.size, now, asked.reduce_motion)?;
+            let frame = post.render(runner, asked.size, now, asked.reduce_motion)?;
             // The page was made for `now`: what it is made again for next (a hover, a key) is no
             // earlier, and the time that passes from here is counted from here.
             last = Some(Asked {
@@ -929,7 +992,7 @@ fn run<R: Runner>(
         } else if resettled && let Some(asked) = last {
             // Nothing else made the page: it is made for the settle, at the time it was made for
             // last (the same frame, laid out again).
-            let frame = runner.render(asked.size, asked.now, asked.reduce_motion)?;
+            let frame = post.render(runner, asked.size, asked.now, asked.reduce_motion)?;
             let frame = wakes.frame(frame, clock(last, program), post);
             post.say(runner.take_sent(), runner.take_asks());
             post.put(Some((frame, asked.size)), None);
@@ -939,6 +1002,34 @@ fn run<R: Runner>(
             post.reached(mark);
         }
     }
+}
+
+/// The commands of a batch with each [`Command::Party`] laid out as the events it holds, and for
+/// each command whether it is one of a party that is not the last of it: what the page is not made
+/// for yet.
+fn unfold(batch: Vec<Command>) -> (Vec<Command>, Vec<bool>) {
+    if !batch.iter().any(|c| matches!(c, Command::Party(_))) {
+        let unfinished = vec![false; batch.len()];
+        return (batch, unfinished);
+    }
+    let mut commands = Vec::with_capacity(batch.len());
+    let mut unfinished = Vec::with_capacity(batch.len());
+    for command in batch {
+        match command {
+            Command::Party(events) => {
+                let count = events.len();
+                for (index, event) in events.into_iter().enumerate() {
+                    commands.push(Command::Event(event, None));
+                    unfinished.push(index + 1 < count);
+                }
+            }
+            other => {
+                commands.push(other);
+                unfinished.push(false);
+            }
+        }
+    }
+    (commands, unfinished)
 }
 
 /// Whether `event` is a key that moves through what the page shows (an arrow, a page key, home or
@@ -1869,6 +1960,84 @@ mod tests {
             .count();
         // The first page is the held one's.
         assert_eq!(renders - 1, 3);
+    }
+
+    /// The log of a module that was held in its first page while `told` told it what it was
+    /// told: what it did, from its second page on.
+    fn after_the_first_page(told: impl FnOnce(&Module)) -> (Vec<String>, usize) {
+        let (open, gate) = mpsc::channel();
+        let rig = rig(Some(gate), None, false);
+        rig.module.render(Size::new(10.0, 10.0), 1.0, false);
+        told(&rig.module);
+        open.send(()).unwrap();
+        assert!(rig.module.flush(Duration::from_secs(5)));
+        let answers = rig.module.poll().replies.len();
+        let log = rig.log();
+        let first = log.iter().position(|line| line.starts_with("render"));
+        let log = log
+            .into_iter()
+            .skip(first.map_or(0, |at| at + 1))
+            .filter(|line| line.starts_with("render") || line.starts_with("handle"))
+            .map(|line| line.chars().take(20).collect())
+            .collect();
+        (log, answers)
+    }
+
+    #[test]
+    fn what_the_editors_said_in_one_act_is_one_page_after_the_last_and_each_is_answered() {
+        let (log, answers) = after_the_first_page(|module| {
+            module.party(vec![typed("a"), typed("b"), typed("c")]);
+        });
+        assert_eq!(
+            log,
+            [
+                "handle Text { field:",
+                "handle Text { field:",
+                "handle Text { field:",
+                "render 10 1"
+            ]
+        );
+        assert_eq!(answers, 3, "an answer for each");
+        // Each told on its own is a page each: the page after one is of what it changed.
+        let (log, answers) = after_the_first_page(|module| {
+            for words in ["a", "b", "c"] {
+                module.event(typed(words));
+            }
+        });
+        assert_eq!(log.iter().filter(|l| l.starts_with("render")).count(), 3);
+        assert_eq!(answers, 3);
+    }
+
+    #[test]
+    fn a_page_the_first_of_a_party_asked_for_is_made_though_the_last_does_not_ask() {
+        let (log, _) = after_the_first_page(|module| {
+            module.party(vec![typed("a"), Event::Focus(None)]);
+        });
+        assert_eq!(log.len(), 3, "{log:?}");
+        assert!(log[2].starts_with("render"), "after the last: {log:?}");
+        // None of them asks: none is made.
+        let (log, answers) = after_the_first_page(|module| {
+            module.party(vec![Event::Focus(None), Event::Focus(None)]);
+        });
+        assert!(log.iter().all(|line| line.starts_with("handle")), "{log:?}");
+        assert_eq!(answers, 2);
+        // What asks next is not owed what a party asked: a page for the party, one for the key.
+        let (log, _) = after_the_first_page(|module| {
+            module.party(vec![typed("a"), Event::Focus(None)]);
+            module.event(typed("b"));
+        });
+        assert_eq!(log.iter().filter(|l| l.starts_with("render")).count(), 2);
+        // What a party asked for is the page for it, once: what comes after it in the batch, and does
+        // not ask, is not made a page for.
+        let (log, _) = after_the_first_page(|module| {
+            module.party(vec![typed("a"), typed("b")]);
+            module.event(Event::Focus(None));
+        });
+        assert_eq!(
+            log.iter().filter(|l| l.starts_with("render")).count(),
+            1,
+            "{log:?}"
+        );
     }
 
     fn wheel(x: f32, dy: f32) -> Event {
