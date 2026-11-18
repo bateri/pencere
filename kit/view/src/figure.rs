@@ -37,6 +37,13 @@ pub struct Path {
     pub segments: Vec<Segment>,
     pub fill: Option<Color>,
     pub stroke: Option<Stroke>,
+    /// Drawn with no smoothing: a pixel is the path's where its middle is inside it (or under its
+    /// line), and is otherwise not touched. A point of the page is seldom a whole number of pixels
+    /// (a host draws a page as large as its own text is to the kit's), so the edges of shapes laid
+    /// on a grid of points fall between pixels: smoothed, each such edge is a blurred pixel and two
+    /// shapes that touch leave a faint seam; crisp, they are whole pixels, some a pixel wider than
+    /// others. A line thinner than a pixel may not be drawn at all.
+    pub crisp: bool,
 }
 
 /// A path with no steps yet.
@@ -45,6 +52,7 @@ pub fn path() -> Path {
         segments: Vec::new(),
         fill: None,
         stroke: None,
+        crisp: false,
     }
 }
 
@@ -162,6 +170,14 @@ impl Path {
         self
     }
 
+    /// Whether the path is drawn with no smoothing, its pixels whole ([`Path::crisp`]): dots of a
+    /// dithered fill, pixel art, the bars of a chart that are to meet without a seam.
+    #[must_use]
+    pub fn crisp(mut self, on: bool) -> Self {
+        self.crisp = on;
+        self
+    }
+
     /// The same path turned `degrees` clockwise about `center`, its own points.
     #[must_use]
     pub(crate) fn turned(mut self, degrees: f32, center: Point) -> Self {
@@ -199,6 +215,7 @@ impl Path {
                 color: stroke.color.faded(opacity),
                 ..stroke
             }),
+            crisp: self.crisp,
         }
     }
 }

@@ -220,12 +220,14 @@ end
 --   pencere.path():move_to(0, 10):line_to(20, 4):stroke(1.5, "accent")
 --   pencere.path():arc(12, 12, 9, 0, 270):stroke(3, "accent")       -- a ring three quarters full
 --   pencere.path():rect(0, 0, 8, 20):fill("raised3")
+--   pencere.path():rect(0, 0, 2, 2):fill("accent"):crisp()           -- a dot of whole pixels
 local Path = {}
 Path.__index = Path
 pencere.Path = Path
 
 function pencere.path()
-	-- How it is drawn lives in a table of its own: `fill` and `stroke` are the methods' names too.
+	-- How it is drawn lives in a table of its own: `fill`, `stroke` and `crisp` are the methods'
+	-- names too.
 	return setmetatable({ segments = {}, paint = {} }, Path)
 end
 
@@ -290,6 +292,12 @@ function Path:stroke(width, color)
 	return self
 end
 
+-- Drawn with no smoothing, its pixels whole: the dots of a dithered fill, pixel art.
+function Path:crisp(...)
+	self.paint.crisp = told(...)
+	return self
+end
+
 -- A box with paths drawn in it. It has no size of its own: `:size(w, h)` gives it one.
 function pencere.canvas(paths)
 	if type(paths) ~= "table" then
@@ -300,7 +308,12 @@ function pencere.canvas(paths)
 		if getmetatable(path) ~= Path then
 			refuse("path " .. index .. " of pencere.canvas is not a pencere.path")
 		end
-		plain[index] = { segments = path.segments, fill = path.paint.fill, stroke = path.paint.stroke }
+		plain[index] = {
+			segments = path.segments,
+			fill = path.paint.fill,
+			stroke = path.paint.stroke,
+			crisp = path.paint.crisp,
+		}
 	end
 	local element = make("canvas")
 	element.paths = plain

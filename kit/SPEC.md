@@ -135,7 +135,7 @@ The builders return the element:
 
 A builder that says a thing is so or not (`wrap`, `hidden`, `no_shrink`, `absolute`, `overlay`, `clip`,
 `scroll`, `italic`, `underline`, `strike`, `truncate`, `focusable`, `focused`, `checked`, `selected`,
-`expanded`, `disabled`, and a part's `bold`, `italic`, `underline`, `strike`) turns it on when it is
+`expanded`, `disabled`, a part's `bold`, `italic`, `underline`, `strike`, and a path's `crisp`) turns it on when it is
 called with nothing, and is otherwise what it is given: `false` and `nil` are off, so that
 `:selected(row.chosen)` with nothing in the field is not selected. `italic(false)`, `underline(false)`
 and `strike(false)` take back what the element would inherit. `hidden(false)`, `no_shrink(false)`,
@@ -213,8 +213,15 @@ top-left corner. A path (`pencere.path()`) is steps — `move_to(x, y)`, `line_t
 `quad_to(cx, cy, x, y)`, `cubic_to(ax, ay, bx, by, x, y)`, `close()`, and `rect(x, y, w, h)`,
 `arc(cx, cy, r, from, to)` (degrees clockwise from the top: a ring that fills), `circle(cx, cy, r)`
 made of them — with a colour inside it (`fill`: where a line out of a point crosses the path an odd
-number of times) and a line along it (`stroke(width, color)`, round where it turns and ends). The
-canvas has no size of its own; its style gives it one.
+number of times) and a line along it (`stroke(width, color)`, round where it turns and ends). A path
+is drawn smoothed at its edges; a **crisp** one (`crisp()`) is not: a pixel is the path's where its
+middle is inside it (or under its line) and is otherwise untouched. A host draws a point of the page
+as large as its own text is to the kit's (Section 4), seldom a whole number of pixels, so the edges
+of shapes laid on a grid of points fall between pixels: smoothed, each such edge is a pixel of part
+colour and two shapes that touch leave a faint seam; crisp, the pixels are whole and the shapes meet,
+some a pixel wider than others. It is for dots of a dithered fill, pixel art and bars that are to
+meet; a line thinner than a pixel may not be drawn at all. The canvas has no size of its own; its
+style gives it one.
 
 A **command** (`command(id, title, keys, enabled)`) is something the page can be told to do: the host
 lists it by its `title` where a person looks for what can be done (its command palette, its menus),

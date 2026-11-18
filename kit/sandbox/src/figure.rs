@@ -3,7 +3,7 @@
 //!
 //! The colours are the host's to say (a role in its theme, a value's form for it); everything else
 //! — how a curve is followed, how wide a line is and how its ends and turns are drawn, which parts
-//! of a path that crosses itself are inside — is this.
+//! of a path that crosses itself are inside, whether its edges are smoothed — is this.
 
 use std::hash::{Hash, Hasher};
 
@@ -53,7 +53,7 @@ pub fn draw_figure(figure: &Figure, resolve: impl FnMut(Color) -> [f32; 4]) -> O
         if let Some(rgba) = part.fill {
             pixmap.fill_path(
                 &part.shape,
-                &paint(rgba),
+                &paint(rgba, part.crisp),
                 FillRule::EvenOdd,
                 transform,
                 None,
@@ -66,7 +66,13 @@ pub fn draw_figure(figure: &Figure, resolve: impl FnMut(Color) -> [f32; 4]) -> O
                 line_join: LineJoin::Round,
                 ..Stroke::default()
             };
-            pixmap.stroke_path(&part.shape, &paint(rgba), &stroke, transform, None);
+            pixmap.stroke_path(
+                &part.shape,
+                &paint(rgba, part.crisp),
+                &stroke,
+                transform,
+                None,
+            );
         }
     }
     Some(Bitmap::new(key.id, key.width, key.height, pixmap.take()))
@@ -83,6 +89,7 @@ struct Part {
     shape: resvg::tiny_skia::Path,
     fill: Option<[f32; 4]>,
     line: Option<([f32; 4], f32)>,
+    crisp: bool,
 }
 
 fn planned(figure: &Figure, mut resolve: impl FnMut(Color) -> [f32; 4]) -> Option<Plan> {
@@ -127,7 +134,15 @@ fn planned(figure: &Figure, mut resolve: impl FnMut(Color) -> [f32; 4]) -> Optio
             })
         });
         if fill.is_some() || line.is_some() {
-            parts.push(Part { shape, fill, line });
+            // The same steps drawn crisp are other pixels: a host holding the smoothed ones draws
+            // again.
+            path.crisp.hash(&mut hasher);
+            parts.push(Part {
+                shape,
+                fill,
+                line,
+                crisp: path.crisp,
+            });
         }
     }
     (!parts.is_empty()).then(|| Plan {
@@ -187,7 +202,9 @@ fn hash_rgba(rgba: [f32; 4], hasher: &mut impl Hasher) {
     }
 }
 
-fn paint(rgba: [f32; 4]) -> Paint<'static> {
+/// The paint of a colour: smoothed at its edges, or, `crisp`, each pixel the path's where its middle
+/// is inside it and untouched where it is not.
+fn paint(rgba: [f32; 4], crisp: bool) -> Paint<'static> {
     let clamp = |value: f32| {
         if value.is_finite() {
             value.clamp(0.0, 1.0)
@@ -202,7 +219,7 @@ fn paint(rgba: [f32; 4]) -> Paint<'static> {
         channel(clamp(rgba[2])),
         channel(clamp(rgba[3])),
     );
-    paint.anti_alias = true;
+    paint.anti_alias = !crisp;
     paint
 }
 
@@ -297,6 +314,52 @@ mod tests {
         let mut no_room = drawn;
         no_room.rect.h = 0.0;
         assert_eq!(figure_key(&no_room, solid), None);
+    }
+
+    /// At a scale where a point is not a whole number of pixels, the edges of a square fall between
+    /// pixels: smoothed, those pixels are part colour; crisp, every pixel is the colour or nothing,
+    /// and squares that touch leave no seam between them.
+    #[test]
+    fn a_crisp_path_is_whole_pixels_where_a_smooth_one_is_blurred_at_its_edges() {
+        let scale = 2.08;
+        let dots = |crisp: bool| {
+            (0..4)
+                .map(|at| {
+                    #[allow(clippy::cast_precision_loss)]
+                    let x = 1.0 + 2.0 * at as f32;
+                    path()
+                        .rect(x, 1.0, 2.0, 2.0)
+                        .fill(Role::Accent)
+                        .crisp(crisp)
+                })
+                .collect::<Vec<_>>()
+        };
+        let partial = |bitmap: &Bitmap| {
+            bitmap
+                .pixels()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|p| p[3] != 0 && p[3] != 255)
+                .count()
+        };
+        let smooth = draw_figure(&figure(dots(false), scale), solid).expect("drawn");
+        let crisp = draw_figure(&figure(dots(true), scale), solid).expect("drawn");
+        assert!(partial(&smooth) > 0, "the smooth edges are blurred");
+        assert_eq!(partial(&crisp), 0, "every crisp pixel is whole");
+        // The four dots meet: along the row through their middle, from the first's left edge to the
+        // last's right edge, no pixel is empty.
+        let row = (2.0 * scale) as u32;
+        let (from, to) = ((1.0 * scale).ceil() as u32, (9.0 * scale).floor() as u32);
+        for x in from..to {
+            assert_eq!(pixel(&crisp, x, row), [255, 0, 0, 255], "pixel {x}");
+        }
+        // Crisp is another bitmap, so that a host holding the smooth one draws again.
+        assert_ne!(smooth.id, crisp.id);
+        assert_ne!(
+            figure_key(&figure(dots(false), scale), solid),
+            figure_key(&figure(dots(true), scale), solid)
+        );
     }
 
     #[test]

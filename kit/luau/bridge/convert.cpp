@@ -740,7 +740,8 @@ pencere_view_types_point_t point_at(lua_State* L, int step, int from) {
 }
 
 // The paths of a canvas at `list`: each `{ segments = { {"move", x, y}, {"line", x, y},
-// {"quad", cx, cy, x, y}, {"cubic", ax, ay, bx, by, x, y}, {"close"} }, fill =, stroke = }`.
+// {"quad", cx, cy, x, y}, {"cubic", ax, ay, bx, by, x, y}, {"close"} }, fill =, stroke =,
+// crisp = }`.
 pencere_view_types_slice_t paths_at(lua_State* L, int list, Arenas& arenas) {
     static const char* const kSteps[] = {"move", "line", "quad", "cubic", "close"};
     size_t count = (size_t)lua_objlen(L, list);
@@ -813,6 +814,7 @@ pencere_view_types_slice_t paths_at(lua_State* L, int list, Arenas& arenas) {
             lua_pop(L, 1);
         }
         lua_pop(L, 1);
+        out.crisp = flag(L, path, "crisp");
         made.push_back(out);
         lua_pop(L, 1);
     }
