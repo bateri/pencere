@@ -15,7 +15,9 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
 - **Only what changed is sent.** The window is one picture; a key or a wheel turn sends the rectangles
   that changed, and a picture is sent once and then only placed.
 - **A band is drawn in the columns that changed.** A key changes a part of a line and of the status
-  bar, and only those columns are drawn and compared, not the width of the window.
+  bar, and only those columns are drawn and compared, not the width of the window. So is a part of
+  the page that scrolls beside what stands still (the files of a sidebar, the lines of an editor): its
+  rows are moved and drawn in its own columns.
 - **Frames are made in memory kept from one to the next.** The bands, their mask and the deflate's
   state are not asked of the system again for each frame, and only the rectangles sent are copied.
 - **The page's keys.** A ⌘ key with a letter is `Ctrl+Shift` and the letter, and a sign that

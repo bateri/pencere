@@ -26,6 +26,11 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
   the editor wraps, to count its rows: the lines are walked once (a document the page has put widgets
   in still looks its lines up when it wraps).
 
+- A key typed in a long document no longer walks every line of it to find the longest (what the width
+  of the content is made of): the length of the longest line is kept from one change to the next, and
+  the lines are walked again only when a change shortens the longest line itself or touches many
+  lines. Where the editor wraps, the rows are still counted line by line.
+
 ## [0.4.1] - 2026-11-05
 
 ### Changed

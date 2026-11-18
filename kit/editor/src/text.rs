@@ -3,6 +3,7 @@
 //! characters; the page counts in bytes of UTF-8, and the two are turned into one another here.
 
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::fmt;
 
 use pencere_view::edit::{Refusal, TextSnapshot};
@@ -17,6 +18,9 @@ thread_local! {
     /// [`Text::line_of`], and so every `line_end` and `line`): what the tests of a pass over the
     /// lines of a document so count its searches by.
     pub(crate) static LINE_SEARCHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// How many times this thread walked every line of a text to find the longest ([`Text::longest_line`]
+    /// where it did not already know): what the tests of the width of a long document count by.
+    pub(crate) static LONGEST_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// The text of a document. Places are characters (code points), as the editor holds them; the
@@ -25,7 +29,15 @@ thread_local! {
 #[derive(Clone, Default)]
 pub(crate) struct Text {
     rope: Rope,
+    /// How many characters the longest line has, where that is known: a change keeps it known
+    /// where it can say what it became ([`Text::replace`]), and where it cannot the next
+    /// [`Text::longest_line`] walks the lines again.
+    longest: Cell<Option<usize>>,
 }
+
+/// A change that touches more lines than this does not say what became of the longest line: the
+/// walk that finds it is cheaper than looking up each of the lines it touched.
+const TOUCHED: usize = 64;
 
 impl fmt::Debug for Text {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -40,6 +52,7 @@ impl Text {
     pub fn new(text: &str) -> Self {
         Self {
             rope: Rope::from_str(text),
+            longest: Cell::new(None),
         }
     }
 
@@ -130,15 +143,40 @@ impl Text {
     }
 
     /// How many characters the longest line has, its `\n` not counted: what `line_end - line_start`
-    /// says of each line, found in one pass over the rope's lines and not by a search for each.
+    /// says of each line. Kept from one change to the next where a change can say what it did to it
+    /// ([`Text::replace`]); otherwise found in one pass over the rope's lines and not by a search for
+    /// each.
     pub fn longest_line(&self) -> usize {
+        if let Some(longest) = self.longest.get() {
+            return longest;
+        }
+        #[cfg(test)]
+        LONGEST_SCANS.with(|scans| scans.set(scans.get() + 1));
         let last = self.len_lines().saturating_sub(1);
-        self.rope
+        let longest = self
+            .rope
             .lines()
             .enumerate()
             .map(|(line, text)| text.len_chars() - usize::from(line < last))
             .max()
-            .unwrap_or(0)
+            .unwrap_or(0);
+        self.longest.set(Some(longest));
+        longest
+    }
+
+    /// How many characters the longest of the lines `first..=last` has, or `None` where they are
+    /// more than a change is let to look up ([`TOUCHED`]).
+    fn longest_of(&self, first: usize, last: usize) -> Option<usize> {
+        let last = last.min(self.len_lines().saturating_sub(1));
+        if last.saturating_sub(first) >= TOUCHED {
+            return None;
+        }
+        Some(
+            (first..=last)
+                .map(|line| self.line_end(line) - self.line_start(line))
+                .max()
+                .unwrap_or(0),
+        )
     }
 
     /// The text of every line, without its `\n`, in one pass over the rope's lines: what `line` gives
@@ -146,6 +184,16 @@ impl Text {
     pub fn lines(&self) -> impl Iterator<Item = Cow<'_, str>> {
         let last = self.len_lines().saturating_sub(1);
         self.rope.lines().enumerate().map(move |(line, text)| {
+            // A line in one piece of the rope is that piece less its `\n`: not cut out of the tree
+            // again, which costs a descent of it for each line of the document.
+            if let Some(whole) = text.as_str() {
+                let whole = if line < last {
+                    whole.strip_suffix('\n').unwrap_or(whole)
+                } else {
+                    whole
+                };
+                return Cow::Borrowed(whole);
+            }
             let text = if line < last {
                 text.slice(..text.len_chars() - 1)
             } else {
@@ -181,10 +229,33 @@ impl Text {
         if from > to || to > self.len_chars() {
             return false;
         }
+        // The lines the change touches are those the range is in; the others are as long after it
+        // as before. Where the longest line is not one of the touched, it is still there; where it
+        // is, it is still the longest if a touched line is now as long as it was. The text before
+        // `from` is as it was after the change, so the first touched line is the same line.
+        let first = self.line_of(from);
+        let was = self.longest.get().and_then(|longest| {
+            self.longest_of(first, self.line_of(to))
+                .map(|touched| (longest, touched))
+        });
+        self.longest.set(None);
         if from < to && self.rope.try_remove(from..to).is_err() {
             return false;
         }
-        insert.is_empty() || self.rope.try_insert(from, insert).is_ok()
+        if !insert.is_empty() && self.rope.try_insert(from, insert).is_err() {
+            return false;
+        }
+        if let Some((longest, touched)) = was {
+            let breaks = insert.matches('\n').count();
+            if let Some(now) = self.longest_of(first, first + breaks) {
+                if touched < longest {
+                    self.longest.set(Some(longest.max(now)));
+                } else if now >= longest {
+                    self.longest.set(Some(now));
+                }
+            }
+        }
+        true
     }
 
     pub fn snapshot(&self, version: u64) -> Snapshot {
@@ -296,6 +367,7 @@ impl TextSnapshot for Snapshot {
         let (from, to) = crate::segments::run_at(
             &Text {
                 rope: self.rope.clone(),
+                longest: Cell::new(None),
             },
             at,
         );

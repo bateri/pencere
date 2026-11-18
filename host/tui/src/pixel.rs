@@ -18,6 +18,7 @@
 //! looked for in what was drawn (`Pixel::moved`). A terminal that refuses the edit is sent the bands
 //! as pictures of their own over the window, and the whole window again after [`MOST_LAID`] of them.
 
+use std::collections::HashSet;
 use std::fmt::Write as _;
 
 use miniz_oxide::deflate::core::{
@@ -621,22 +622,6 @@ impl Pixel {
                     (top, rows + below),
                     most,
                 );
-                // A tall rectangle may be rows that moved, which the two lists say of their text and
-                // which are looked for in the strip across the picture: where they say it, and the
-                // columns were a part, the strip is drawn again whole.
-                let tall = LEAST_MOVE_CELLS * self.cell.1 * 2;
-                #[allow(clippy::cast_precision_loss)]
-                let line = 2.0 * self.cell.1 as f32;
-                if columns.is_some()
-                    && moving
-                    && self.compose
-                    && areas.iter().any(|area| {
-                        area.h >= tall && !shifts_of(&shown.frame, frame, area, line).is_empty()
-                    })
-                {
-                    columns = None;
-                    continue;
-                }
                 break (Some(pixels), left, across, areas);
             };
             let Some(pixels) = pixels else {
@@ -673,8 +658,18 @@ impl Pixel {
             }
             // What moved (a page that scrolled) is copied, within what the terminal holds; what
             // is left to differ after that is sent.
-            let moved = if moving && self.compose && columns.is_none() {
-                self.moved(out, shown, pixels, past, top, &areas, frame, written)
+            let moved = if moving && self.compose {
+                self.moved(
+                    out,
+                    shown,
+                    pixels,
+                    past,
+                    (left, across),
+                    top,
+                    &areas,
+                    frame,
+                    written,
+                )
             } else {
                 false
             };
@@ -715,13 +710,15 @@ impl Pixel {
     }
 
     /// In what columns the bands `first`..`first + count` of the window are not what they were, as
-    /// far as the two lists say: where an item is not what it was in the other (the pair at the same
-    /// place in the lists of the band; what has no pair, in the longer one), the columns the two reach
-    /// are not. What is outside them is drawn by the same items in the same order in both, so it is
-    /// what the terminal holds. None where they are most of the window's width, where an item reaches
-    /// across it (a shadow's blur), or where none is known: the strip is the width of the picture
-    /// (and so it is where a shadow that no item changed reaches it: it is blurred over the width, and
-    /// the part is refused by what draws it).
+    /// far as the two lists say: the items of a band that the two lists have the same at their start,
+    /// and the same at their end, are what they were; of the ones between, the pair at the same place
+    /// that is not the same (all of them, where the two lists have not as many between them: what was put
+    /// in or taken out moved the ones after it) are not, and the columns they reach are not. What is
+    /// outside those is drawn by the same items in the same order in both, so it is what the terminal
+    /// holds. None where they are most of the window's width, where an item reaches across it (a
+    /// shadow's blur), or where none is known: the strip is the width of the picture (and so it is where
+    /// a shadow that no item changed reaches it: it is blurred over the width, and the part is refused
+    /// by what draws it).
     fn columns_of(
         &self,
         old: &Frame,
@@ -732,30 +729,41 @@ impl Pixel {
     ) -> Option<(u32, u32)> {
         let mut span: Option<(f32, f32)> = None;
         // An item that reaches more than one band of the strip is looked at once.
-        let mut seen: Vec<(bool, usize)> = Vec::new();
+        let mut seen: HashSet<(bool, usize)> = HashSet::new();
         for band in first..first + count {
             let (was, now) = (old.bands.get(band)?, new.bands.get(band)?);
-            for at in 0..was.len().max(now.len()) {
-                let (a, b) = (
-                    was.get(at).map(|&n| n as usize),
-                    now.get(at).map(|&n| n as usize),
-                );
-                if let (Some(a), Some(b)) = (a, b)
-                    && old.list.items.get(a) == new.list.items.get(b)
+            let same = |(&a, &b): (&u32, &u32)| {
+                let (a, b) = (a as usize, b as usize);
+                old.list.items.get(a) == new.list.items.get(b)
                     && old.ready.get(a) == new.ready.get(b)
-                {
-                    continue;
-                }
-                for (frame, n) in [(old, a), (new, b)] {
-                    let Some(n) = n else {
-                        continue;
-                    };
-                    let key = (std::ptr::eq(frame, new), n);
-                    if seen.contains(&key) {
+            };
+            let head = was.iter().zip(now).take_while(|&pair| same(pair)).count();
+            let tail = was
+                .iter()
+                .rev()
+                .zip(now.iter().rev())
+                .take(was.len().min(now.len()) - head)
+                .take_while(|&pair| same(pair))
+                .count();
+            let (Some(was), Some(now)) = (
+                was.get(head..was.len() - tail),
+                now.get(head..now.len() - tail),
+            ) else {
+                return None;
+            };
+            // Between them, as many items in the two lists are the pairs at the same places; where
+            // there are more in the one, what was put in or taken out moved the ones after it, and
+            // they are all not what they were.
+            let paired = was.len() == now.len();
+            for (frame, items) in [(old, was), (new, now)] {
+                for (at, &n) in items.iter().enumerate() {
+                    if paired && was.get(at).zip(now.get(at)).is_some_and(same) {
                         continue;
                     }
-                    seen.push(key);
-                    let Some(item) = frame.list.items.get(n) else {
+                    if !seen.insert((std::ptr::eq(frame, new), n as usize)) {
+                        continue;
+                    }
+                    let Some(item) = frame.list.items.get(n as usize) else {
                         continue;
                     };
                     if let Some((left, right)) = across(item, &self.fonts) {
@@ -766,14 +774,52 @@ impl Pixel {
             }
         }
         let (left, right) = span?;
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let (left, right) = (
-            left.floor().max(0.0) as u32,
-            (right.ceil().max(0.0) as u32).min(width),
-        );
-        // Most of the width is not worth the other cut.
-        (right > left && u64::from(right - left) * 8 <= u64::from(width) * 7)
-            .then_some((left, right))
+        whole_columns(left, right, width)
+    }
+
+    /// The columns the rows of a strip of a frame that scrolled are drawn in, `rows` of them from `top`,
+    /// after the rows of the frame before it were copied in `copied`: where what draws beside the
+    /// columns (an item that is not wholly inside them) is the same, one for one and in the same order,
+    /// in every band the rows are in, nothing outside the columns and what is inside them reaches
+    /// changed, and they are the columns of the copies and of the ink of what is inside them, in the
+    /// two frames. None where it is not so, or where they are most of the window's width: the strip is
+    /// the width of the picture.
+    fn columns_beside(
+        &self,
+        old: &Frame,
+        new: &Frame,
+        copied: (u32, u32),
+        (top, rows): (u32, u32),
+        size: (u32, u32),
+    ) -> Option<(u32, u32)> {
+        let cell = self.cell.1;
+        let last = top.checked_add(rows.checked_sub(1)?)?;
+        #[allow(clippy::cast_precision_loss)]
+        let (from, to, width) = (copied.0 as f32, copied.1 as f32, size.0 as f32);
+        let (mut left, mut right) = (from, to);
+        let mut seen: HashSet<(bool, usize)> = HashSet::new();
+        for band in (top / cell) as usize..=(last / cell) as usize {
+            if !unchanged_outside(old, new, band, (from, to), width) {
+                return None;
+            }
+            for frame in [old, new] {
+                for &n in frame.bands.get(band)? {
+                    if !seen.insert((std::ptr::eq(frame, new), n as usize)) {
+                        continue;
+                    }
+                    let Some(item) = frame.list.items.get(n as usize) else {
+                        continue;
+                    };
+                    if beside(item, (from, to), width) {
+                        continue;
+                    }
+                    if let Some((l, r)) = across(item, &self.fonts) {
+                        (left, right) = (left.min(l), right.max(r));
+                    }
+                }
+            }
+        }
+        whole_columns(left, right, size.0)
     }
 
     /// The rectangles of the rows `top`..`top + rows` whose pixels are not what `held` (`width` pixels
@@ -868,7 +914,8 @@ impl Pixel {
 
     /// Tells the terminal to copy the rows of the rectangles `areas` that are rows it holds a little
     /// further down or up, as far as the page's own items say they moved; the copies are made in
-    /// what is kept of the window (`shown.held`) too. Whether any was.
+    /// what is kept of the window (`shown.held`) too. Whether any was. `pixels` is the strip of the
+    /// rows from `top`, `across` pixels each from the column `left`.
     #[allow(clippy::too_many_arguments)]
     fn moved(
         &mut self,
@@ -876,6 +923,7 @@ impl Pixel {
         shown: &mut Shown,
         pixels: &[u8],
         size: (u32, u32),
+        strip: (u32, u32),
         top: u32,
         areas: &[Area],
         new: &Frame,
@@ -893,7 +941,7 @@ impl Pixel {
             if shifts.is_empty() {
                 continue;
             }
-            let mut found = spans(&shown.held, pixels, width, top, area, &shifts, least);
+            let mut found = spans(&shown.held, pixels, width, strip, top, area, &shifts, least);
             if shifts.first().is_some_and(|shift| *shift < 0) {
                 found.reverse();
             }
@@ -1102,15 +1150,15 @@ impl Pixel {
                 written,
             );
         }
-        // What the copies left is drawn across the picture: they were made in columns the lists of
-        // the two frames do not say anything of.
+        // What the copies left is drawn in the columns of the copies and of what is inside them, where
+        // what is beside them is the same in the two frames; across the picture where it is not.
         let strips: Vec<Strip> = plan
             .strips
             .iter()
             .map(|&(top, rows)| Strip {
                 top,
                 rows,
-                columns: None,
+                columns: self.columns_beside(&shown.frame, frame, plan.columns, (top, rows), size),
             })
             .collect();
         self.bands(out, shown, size, frame, images, &strips, false, written);
@@ -1176,6 +1224,26 @@ impl Pixel {
     }
 }
 
+/// The pixel columns `left` to `right` (rounded outwards, cut to a picture `width` across) a strip is
+/// drawn in, or `None` where there are none or they are most of the width: that is not worth the
+/// other cut, and the strip is the width of the picture. The two ways of choosing columns, the
+/// typed frame's and the scrolled frame's, share it so that they cut alike.
+fn whole_columns(left: f32, right: f32, width: u32) -> Option<(u32, u32)> {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let (left, right) = (
+        left.floor().max(0.0) as u32,
+        (right.ceil().max(0.0) as u32).min(width),
+    );
+    (right > left && u64::from(right - left) * 8 <= u64::from(width) * 7).then_some((left, right))
+}
+
+/// Whether `item` may draw beside the columns `columns` of a window `width` across: what is past the
+/// window's edges is not drawn, so the columns are cut to them too.
+fn beside(item: &Paint, columns: (f32, f32), width: f32) -> bool {
+    let (left, right) = spread(item);
+    left.max(0.0) < columns.0 || right.min(width) > columns.1
+}
+
 /// Whether what reaches the band `band` and is not wholly inside the columns (what is drawn in the
 /// columns beside them too) is the same in `new` as in `old`: where it is, the band's pixels outside
 /// the columns are what they were.
@@ -1186,22 +1254,22 @@ fn unchanged_outside(
     columns: (f32, f32),
     width: f32,
 ) -> bool {
-    let beside = |frame: &Frame, band: &[u32]| -> Vec<u32> {
+    let beside_of = |frame: &Frame, band: &[u32]| -> Vec<u32> {
         band.iter()
             .copied()
             .filter(|&n| {
-                frame.list.items.get(n as usize).is_some_and(|item| {
-                    // What is past the window's edges is not drawn: the columns are cut to them too.
-                    let (left, right) = spread(item);
-                    left.max(0.0) < columns.0 || right.min(width) > columns.1
-                })
+                frame
+                    .list
+                    .items
+                    .get(n as usize)
+                    .is_some_and(|item| beside(item, columns, width))
             })
             .collect()
     };
     let (Some(was), Some(now)) = (old.bands.get(band), new.bands.get(band)) else {
         return false;
     };
-    let (was, now) = (beside(old, was), beside(new, now));
+    let (was, now) = (beside_of(old, was), beside_of(new, now));
     was.len() == now.len()
         && was.iter().zip(&now).all(|(&a, &b)| {
             let (a, b) = (a as usize, b as usize);
@@ -1633,13 +1701,16 @@ struct Span {
     shift: i32,
 }
 
-/// The spans of the rows of `area` (of a strip of rows from `top`, of a window `width` across) that
-/// are, to the pixel, rows `held` has further down or up by one of `shifts`. A span is as long as one
-/// of them goes on matching, and is kept if it is `least` rows or more, and changes as many.
+/// The spans of the rows of `area` (of a strip of rows from `top`, `across` pixels each from the
+/// column `left`, of a window `width` across) that are, to the pixel, rows `held` has further down or
+/// up by one of `shifts`. A span is as long as one of them goes on matching, and is kept if it is
+/// `least` rows or more, and changes as many.
+#[allow(clippy::too_many_arguments)]
 fn spans(
     held: &[u8],
     strip: &[u8],
     width: usize,
+    (left, across): (u32, u32),
     top: u32,
     area: &Area,
     shifts: &[i32],
@@ -1647,13 +1718,17 @@ fn spans(
 ) -> Vec<Span> {
     let height = held.len() / (width * 4).max(1);
     let (x, w) = (area.x as usize * 4, area.w as usize * 4);
+    let in_strip = (area.x.saturating_sub(left) as usize * 4, w);
     fn row_at(pixels: &[u8], row: usize, width: usize, (x, w): (usize, usize)) -> Option<&[u8]> {
         let from = row * width * 4 + x;
         pixels.get(from..from + w)
     }
     macro_rules! row_of {
-        ($pixels:expr, $row:expr) => {
-            row_at($pixels, $row, width, (x, w))
+        (held, $row:expr) => {
+            row_at(held, $row, width, (x, w))
+        };
+        (strip, $row:expr) => {
+            row_at(strip, $row, across as usize, in_strip)
         };
     }
     let mut found: Vec<Span> = Vec::new();

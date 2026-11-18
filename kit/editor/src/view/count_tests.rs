@@ -8,7 +8,7 @@ use pencere_view::{Font, Measure, Metrics, Rect};
 
 use super::View;
 use crate::buffer::Buffer;
-use crate::text::LINE_SEARCHES;
+use crate::text::{LINE_SEARCHES, LONGEST_SCANS, Text};
 
 /// A view of a room 200 wide, that wraps where `wrap` says.
 fn view_of(wrap: bool) -> View {
@@ -170,4 +170,134 @@ fn the_widest_line_is_counted_again_for_the_text_after_a_change() {
         .expect("the change");
     view.count(&buffer);
     assert_eq!(view.widest.map(|(_, chars)| chars), Some(5));
+}
+
+/// A document of `lines` lines of code with a letter typed into it, and how many times every line of
+/// the text was walked, after that, to find the widest.
+fn scans_after_a_key(lines: usize, wrap: bool) -> usize {
+    let mut buffer = Buffer::new(&"let x = 1;\n".repeat(lines)).expect("a document");
+    let mut view = view_of(wrap);
+    view.count(&buffer);
+    let base = buffer.version();
+    buffer
+        .change(base, vec![Change::new(4, 4, "y")], 0.0)
+        .expect("the change");
+    let before = LONGEST_SCANS.with(Cell::get);
+    view.count(&buffer);
+    LONGEST_SCANS.with(Cell::get) - before
+}
+
+#[test]
+fn counting_the_rows_again_after_a_key_does_not_walk_every_line_to_find_the_widest() {
+    for wrap in [false, true] {
+        for lines in [20, 2500] {
+            let walks = scans_after_a_key(lines, wrap);
+            assert_eq!(walks, 0, "wrap {wrap}, {lines} lines: {walks} walks");
+        }
+    }
+}
+
+/// How many characters the longest line of `text` has, each line from its start to its end.
+fn longest_by_places(text: &Text) -> usize {
+    (0..text.len_lines())
+        .map(|line| text.line_end(line) - text.line_start(line))
+        .max()
+        .unwrap_or(0)
+}
+
+#[test]
+fn the_longest_line_is_what_the_lines_say_after_any_change_that_the_text_is_given() {
+    // What is put in, now and then a line break, a pair of them, a letter of two bytes, and a line
+    // longer than any a document has.
+    let pieces = [
+        "",
+        "a",
+        "bc",
+        "\n",
+        "xyz\n",
+        "\u{e9}",
+        "\r\n",
+        "a line that is longer than every one the document has, by far, or so it seems",
+        "\n\n",
+        "\u{f1}\n\u{f6}",
+    ];
+    let mut state = 0x2545_f491_4f6c_dd1d_u64;
+    let mut next = move |below: usize| {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        ((state >> 33) as usize) % below.max(1)
+    };
+    let mut text = Text::new(&"let x = 1;\n".repeat(200));
+    let walks_before = LONGEST_SCANS.with(Cell::get);
+    for step in 0..3000 {
+        // Known before the change, in most steps (the walk is the other way to know it).
+        if next(8) != 0 {
+            text.longest_line();
+        }
+        let length = text.len_chars();
+        let from = next(length + 1);
+        // Mostly small, now and then a hundred lines or more.
+        let reach = if next(40) == 0 { 1500 } else { 14 };
+        let to = (from + next(reach + 1)).min(length);
+        let insert = pieces[next(pieces.len())];
+        assert!(text.replace(from, to, insert), "step {step}");
+        assert_eq!(
+            text.longest_line(),
+            longest_by_places(&text),
+            "step {step}: {from}..{to} became {insert:?}"
+        );
+    }
+    // Most changes are said what they did to the longest line: the lines were walked for a few.
+    let walks = LONGEST_SCANS.with(Cell::get) - walks_before;
+    assert!(walks < 1500, "{walks} walks in 3000 changes");
+}
+
+#[test]
+fn a_change_that_shortens_the_only_longest_line_walks_the_lines_to_find_the_next() {
+    let mut text = Text::new("ab\ncdefg\nhi");
+    assert_eq!(text.longest_line(), 5);
+    let before = LONGEST_SCANS.with(Cell::get);
+    // Another line, shorter than the longest: no walk.
+    assert!(text.replace(0, 0, "x"));
+    assert_eq!(text.longest_line(), 5);
+    assert_eq!(LONGEST_SCANS.with(Cell::get) - before, 0);
+    // The longest, made shorter than the next: a walk.
+    assert!(text.replace(4, 8, ""));
+    assert_eq!(text.longest_line(), 3);
+    assert_eq!(LONGEST_SCANS.with(Cell::get) - before, 1);
+}
+
+#[test]
+fn the_text_of_every_line_is_what_each_line_says_of_its_own() {
+    // Lines in one piece of the rope, lines that run over several (a line of thousands of letters),
+    // a document that ends with a line break, and one that has none, line breaks of both kinds, and
+    // letters of more than a byte.
+    let long = "x\u{e9}".repeat(3000);
+    let big = format!("{long}\n{}\nshort\n{long}", "y".repeat(5000));
+    for document in [
+        "",
+        "\n",
+        "a",
+        "a\n",
+        "a\nb",
+        "a\r\nb\r\n\r\n",
+        "\u{f1}\n\u{f6}\u{f6}\n\n\n",
+        big.as_str(),
+    ] {
+        let text = Text::new(document);
+        let lines: Vec<String> = text.lines().map(|line| line.into_owned()).collect();
+        let by_places: Vec<String> = (0..text.len_lines()).map(|line| text.line(line)).collect();
+        assert_eq!(
+            lines,
+            by_places,
+            "{:?}",
+            document.chars().take(40).collect::<String>()
+        );
+    }
+    let mut text = Text::new(&"let x = 1;\n".repeat(900));
+    text.replace(5, 5, &"w".repeat(4000));
+    let lines: Vec<String> = text.lines().map(|line| line.into_owned()).collect();
+    let by_places: Vec<String> = (0..text.len_lines()).map(|line| text.line(line)).collect();
+    assert_eq!(lines, by_places);
 }

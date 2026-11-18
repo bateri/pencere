@@ -5,7 +5,7 @@
 
 use pencere_drive::shot::{Fonts, Palette, raster};
 use pencere_view::{
-    Border, Color, DrawList, Family, Font, Paint, Point, Quad, Rect, Role, Run, Shadow,
+    Border, Color, DrawList, Family, Font, Paint, Picture, Point, Quad, Rect, Role, Run, Shadow,
 };
 
 use crate::pixel::{Pixel, Written};
@@ -147,14 +147,23 @@ fn compare_within(window: &Window, pixel: &Pixel, list: &DrawList, what: &str, s
     let drawn = raster(list, size, pixel.fonts(), None, Palette::Dark).expect("a picture");
     let want = padded(drawn.rgba(), size, CELL);
     let shown = window.shows(extent(size), CELL);
-    let wrong = shown
+    let across = extent(size).0 as usize;
+    let wrong: Vec<usize> = shown
         .chunks(4)
         .zip(want.chunks(4))
-        .filter(|(a, b)| a.iter().zip(*b).any(|(p, q)| p.abs_diff(*q) > slack))
-        .count();
-    assert_eq!(
-        wrong, 0,
-        "{what}: {wrong} pixels of the window are not the list drawn anew"
+        .enumerate()
+        .filter(|(_, (a, b))| a.iter().zip(*b).any(|(p, q)| p.abs_diff(*q) > slack))
+        .map(|(at, _)| at)
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "{what}: {} pixels of the window are not the list drawn anew, the first at (x, y) {:?}",
+        wrong.len(),
+        wrong
+            .iter()
+            .take(6)
+            .map(|at| (at % across, at / across))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -1620,4 +1629,336 @@ fn pages_typed_in_for_a_long_time_are_the_list_drawn_anew_at_every_frame() {
             compare(&window, &pixel, &list, &what);
         }
     }
+}
+
+// A part of a page that scrolls (a list beside a page that stands still, a room beside a side that
+// does) is drawn in its own columns: what the strips of a scroll leave to draw is not the width of the
+// window.
+
+/// A list at the left of a page that stands still, in a window of 600 × 400 pixels: the list is the
+/// 130 pixels at the left, and scrolls; what is beside it (a tab strip, lines of text, a status bar)
+/// is the same in every frame but where `beside` says another thing.
+#[derive(Clone, Copy)]
+struct Listing {
+    scroll: f32,
+    /// How many pixels a row is below the one before it.
+    row: f32,
+    /// The row whose ground is the selection's.
+    selected: Option<usize>,
+    /// The list goes down to the foot of the window.
+    foot: bool,
+    /// The bar at the list's right edge, and where it is is the scroll's.
+    bar: bool,
+    /// What the line of the page beside the list says: another thing is a change beside it.
+    beside: u32,
+    /// A part of the page beside the list has a shadow (blurred over the width of the picture).
+    shadowed: bool,
+    /// A row has a picture (an icon) where it has a square: a list of pictures does not slide by
+    /// the pairing of its items (`pencere_drive::shot::slide` pairs only boxes and words).
+    icons: bool,
+}
+
+impl Listing {
+    fn at(scroll: f32, row: f32) -> Self {
+        Self {
+            scroll,
+            row,
+            selected: Some(3),
+            foot: false,
+            bar: true,
+            beside: 0,
+            shadowed: false,
+            icons: false,
+        }
+    }
+
+    fn list(&self) -> DrawList {
+        let window = Rect::new(0.0, 0.0, 600.0, 400.0);
+        let height = if self.foot { 360.0 } else { 300.0 };
+        let list = Rect::new(0.0, 40.0, 130.0, height);
+        let page = Rect::new(130.0, 40.0, 470.0, 360.0);
+        let mut items = vec![
+            box_in(window, Role::Background.solid(), 0.0, window),
+            box_in(
+                Rect::new(0.0, 0.0, 600.0, 40.0),
+                Role::Raised(2).solid(),
+                0.0,
+                window,
+            ),
+            words_in(140.0, 8.0, "a tab strip that stands still", window, false),
+            box_in(list, Role::Raised(1).solid(), 0.0, list),
+            box_in(page, Role::Raised(2).solid(), 0.0, page),
+        ];
+        if self.shadowed {
+            items.push(Paint::Quad(Quad {
+                rect: Rect::new(300.0, 120.0, 120.0, 60.0),
+                radii: [6.0; 4],
+                fill: Some(Role::Raised(3).solid()),
+                gradient: None,
+                border: None,
+                shadow: Some(Shadow {
+                    dx: 0.0,
+                    dy: 4.0,
+                    blur: 12.0,
+                    color: Role::Shadow.alpha(0.5),
+                }),
+                clip: page,
+            }));
+        }
+        for k in 0..16 {
+            items.push(words_in(
+                140.0,
+                50.0 + k as f32 * 20.0,
+                &format!("{} {}", code_line(k), if k == 5 { self.beside } else { 0 }),
+                page,
+                false,
+            ));
+        }
+        for n in 0..200 {
+            let y = list.y + 4.0 + n as f32 * self.row - self.scroll;
+            if y + self.row <= list.y || y >= list.bottom() {
+                continue;
+            }
+            if self.selected == Some(n) {
+                items.push(box_in(
+                    Rect::new(2.0, y, 126.0, self.row),
+                    Role::Selection.solid(),
+                    0.0,
+                    list,
+                ));
+            }
+            // Square: the corners of a rounded box that a clip's edge nearly meets are drawn another
+            // way in a strip than in the window (a few levels, which a later whole frame mends:
+            // `columns_drawn_alone_are_the_columns_of_the_rows_drawn_across_the_picture`).
+            if self.icons {
+                let rect = Rect::new(8.0, y + 4.0, 10.0, 10.0);
+                items.push(Paint::Image(Picture {
+                    src: "icon.svg".to_owned(),
+                    page: 1,
+                    rect,
+                    crop: Rect::new(0.0, 0.0, 1.0, 1.0),
+                    shown: Rect::new(0.0, 0.0, 1.0, 1.0),
+                    tint: None,
+                    opacity: 1.0,
+                    radii: [0.0; 4],
+                    clip: list,
+                    turn: 0.0,
+                }));
+            } else {
+                items.push(box_in(
+                    Rect::new(8.0, y + 4.0, 10.0, 10.0),
+                    Role::Accent.solid(),
+                    0.0,
+                    list,
+                ));
+            }
+            items.push(words_in(24.0, y, &format!("file_{n}.rs"), list, false));
+        }
+        if self.bar {
+            items.push(box_in(
+                Rect::new(124.0, list.y + self.scroll * 0.3, 6.0, 24.0),
+                Role::Accent.solid(),
+                0.0,
+                list,
+            ));
+        }
+        items.push(words_in(
+            140.0,
+            380.0,
+            &format!("a status bar {}", self.beside),
+            window,
+            false,
+        ));
+        DrawList { items }
+    }
+}
+
+/// `before` then `after`, the second made of the first: what the terminal shows is `after` drawn anew
+/// (within `slack`), and the pixels drawn for it (`rastered`) are less than a `share`th of the strips
+/// across the picture (any, where `share` is 0).
+fn scrolled_listing(
+    before: &Listing,
+    after: &Listing,
+    share: u64,
+    slack: u8,
+    what: &str,
+) -> Written {
+    let (mut window, mut pixel) = (Window::default(), scroller(true));
+    send(&mut window, &mut pixel, before.list());
+    let list = after.list();
+    let written = send(&mut window, &mut pixel, list.clone());
+    compare_within(&window, &pixel, &list, what, slack);
+    assert!(!written.whole, "{what}: the window is not sent whole");
+    assert!(!written.copies.is_empty(), "{what}: rows are copied");
+    let full = across_the_picture(&written, &pixel);
+    assert!(
+        share == 0 || written.rastered * share < full,
+        "{what}: {} pixels drawn of {full} across the picture: {:?}",
+        written.rastered,
+        written.bands
+    );
+    written
+}
+
+#[test]
+fn a_list_that_scrolls_beside_a_page_that_stands_still_draws_the_columns_of_the_list() {
+    for row in [20.0, 21.6013, 17.3571] {
+        for by in [row, 3.0 * row, -3.0 * row, 2.0 * row + 0.4137, -40.0] {
+            for foot in [false, true] {
+                let page = |scroll: f32| {
+                    let mut page = Listing::at(scroll, row);
+                    page.foot = foot;
+                    page
+                };
+                let what = format!("{row} a row, by {by}, to the foot: {foot}");
+                scrolled_listing(&page(200.0), &page(200.0 + by), 3, 1, &what);
+            }
+        }
+    }
+}
+
+#[test]
+fn a_list_of_pictures_that_scrolls_beside_a_page_that_stands_still_draws_the_columns_of_the_list() {
+    // The icons of a tree's rows are pictures: such a list is not slid by the pairing of its items,
+    // it is scrolled by the pictures of the frames, and is drawn in the columns that changed.
+    for row in [20.0, 21.6013] {
+        for by in [row, 3.0 * row, -3.0 * row, 2.0 * row + 0.4137] {
+            let page = |scroll: f32| {
+                let mut page = Listing::at(scroll, row);
+                page.icons = true;
+                page
+            };
+            let what = format!("{row} a row of pictures, by {by}");
+            scrolled_listing(&page(200.0), &page(200.0 + by), 3, 1, &what);
+        }
+    }
+}
+
+#[test]
+fn a_list_that_scrolls_with_nothing_but_its_lines_in_the_frame_has_no_bar_or_selection_to_draw() {
+    let page = |scroll: f32| {
+        let mut page = Listing::at(scroll, 20.0);
+        page.selected = None;
+        page.bar = false;
+        page
+    };
+    for by in [60.0, -60.0, 20.0] {
+        let what = format!("by {by}");
+        scrolled_listing(&page(200.0), &page(200.0 + by), 4, 0, &what);
+    }
+}
+
+#[test]
+fn a_list_that_scrolls_while_what_is_beside_it_changes_is_the_list_drawn_anew() {
+    for foot in [false, true] {
+        for by in [60.0, -40.0] {
+            let page = |scroll: f32, beside: u32| {
+                let mut page = Listing::at(scroll, 20.0);
+                page.foot = foot;
+                page.beside = beside;
+                page
+            };
+            let what = format!("by {by}, to the foot: {foot}");
+            scrolled_listing(&page(200.0, 0), &page(200.0 + by, 1), 0, 1, &what);
+        }
+    }
+}
+
+#[test]
+fn a_list_that_scrolls_beside_a_shadow_is_the_list_drawn_anew() {
+    let page = |scroll: f32| {
+        let mut page = Listing::at(scroll, 20.0);
+        page.shadowed = true;
+        page
+    };
+    for by in [60.0, -40.0] {
+        let what = format!("by {by}");
+        scrolled_listing(&page(200.0), &page(200.0 + by), 0, 1, &what);
+    }
+}
+
+#[test]
+fn a_room_that_scrolls_beside_a_side_draws_the_columns_of_the_room() {
+    // The room of the editor (130 to 600 of 600 pixels) is not the width of the window.
+    for (row, by) in [(21.6013, 3.0 * 21.6013), (20.0, 40.0), (20.0, -60.0)] {
+        let page = |scroll: f32| {
+            let mut page = Editor::at(scroll, row);
+            page.selection = false;
+            page.caret = false;
+            page
+        };
+        let (mut window, mut pixel) = (Window::default(), scroller(true));
+        send(&mut window, &mut pixel, page(150.0).list());
+        let list = page(150.0 + by).list();
+        let written = send(&mut window, &mut pixel, list.clone());
+        let what = format!("{row} a row, by {by}");
+        compare_within(&window, &pixel, &list, &what, 1);
+        assert!(!written.copies.is_empty(), "{what}: rows are copied");
+        let full = across_the_picture(&written, &pixel);
+        assert!(
+            written.rastered * 10 < full * 9,
+            "{what}: {} pixels drawn of {full} across the picture: {:?}",
+            written.rastered,
+            written.bands
+        );
+    }
+}
+
+#[test]
+fn lists_scrolled_by_parts_of_pixels_with_the_ground_and_the_bar_moving_are_the_list_drawn_anew() {
+    let mut seed = 11_u32;
+    let mut next = |most: u32| {
+        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (seed >> 8) % most
+    };
+    let (mut narrow, mut across) = (0_u64, 0_u64);
+    for variant in 0..6 {
+        let row = [21.6013, 20.0, 17.3571, 24.4137, 19.0, 22.2531][variant];
+        let (mut window, mut pixel) = (Window::default(), scroller(true));
+        let flags = |scroll: f32, selected: usize, beside: u32| {
+            let mut page = Listing::at(scroll, row);
+            page.selected = (selected != 0).then_some(selected);
+            page.bar = variant != 2;
+            page.foot = variant % 2 == 1;
+            page.beside = beside;
+            page.icons = variant >= 3;
+            page
+        };
+        let mut at = 120.0 + next(1000) as f32 / 31.0;
+        let mut selected = 3;
+        let mut beside = 0;
+        send(&mut window, &mut pixel, flags(at, selected, beside).list());
+        for step in 0..16 {
+            let by = match next(4) {
+                0 => row,
+                1 => (1 + next(6)) as f32 * row,
+                2 => next(3000) as f32 / 97.0,
+                _ => 3.0 * row + next(1000) as f32 / 331.0,
+            };
+            at = (at + if next(3) == 0 { -by } else { by }).max(0.0);
+            if next(4) == 0 {
+                selected = next(12) as usize;
+            }
+            if next(6) == 0 {
+                beside += 1;
+            }
+            let list = flags(at, selected, beside).list();
+            let written = send(&mut window, &mut pixel, list.clone());
+            compare_within(
+                &window,
+                &pixel,
+                &list,
+                &format!("variant {variant}, step {step}, scrolled to {at} at {row} a row"),
+                1,
+            );
+            if !written.copies.is_empty() {
+                narrow += written.rastered;
+                across += across_the_picture(&written, &pixel);
+            }
+        }
+    }
+    assert!(
+        narrow * 2 < across,
+        "{narrow} pixels drawn of {across} across the picture"
+    );
 }
