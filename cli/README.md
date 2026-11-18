@@ -73,7 +73,10 @@ follow a release signed with another key. `--key FILE` or `PENCERE_SIGNING_KEY` 
 `pencere dist VERSION` makes the executable of every target as `pencere build` does (a Lua app), or
 takes the ones you have made: `--files DIR` names a directory that has `<name>-<version>-<target>`
 for each target, which is how a Rust program is released, since each target is built on its own
-machine. The files, `SHA256SUMS`, `app.json` and `app.json.sig` are written to `dist/` (to `DIR`,
+machine. A target may have a second file, `<name>-no-terminal-<version>-<target>`, the program
+built without a terminal in it (smaller, for a terminal that draws the page itself): `SHA256SUMS`
+names both, and `app.json` names the one without a terminal for the target, the only one otherwise.
+The files, `SHA256SUMS`, `app.json` and `app.json.sig` are written to `dist/` (to `DIR`,
 with `--files`). What the release needs, the protocol versions and the kinds of view, is not typed:
 `dist` starts the file of this machine's target on a pty of its own, in an empty folder with a home
 of its own, reads the `hello` the program sends as it starts and ends it. `--describe-args` gives

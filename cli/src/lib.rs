@@ -69,8 +69,11 @@ usage:
                                              signed app.json (what the app needs is asked of the
                                              program itself) beside the files of every target,
                                              in dist/ or in DIR (--files: the files
-                                             <name>-<version>-<target> already there; a Rust
-                                             program is built on each target's own machine);
+                                             <name>-<version>-<target> already there, and
+                                             <name>-no-terminal-<version>-<target>, the program
+                                             without a terminal in it, which app.json names where
+                                             there is one; a Rust program is built on each
+                                             target's own machine);
                                              --opens says that the program takes a path of a
                                              file, of a folder or of both as its last argument;
                                              nothing is uploaded

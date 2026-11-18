@@ -2,6 +2,12 @@
 //! each target, and writes beside them `SHA256SUMS`, the `app.json` that names the release
 //! (`spec/draft/apps.md`) and its signature. It uploads nothing: that is the author's.
 //!
+//! A release may have two files for a target, the program with a terminal in it
+//! (`<name>-<version>-<target>`) and the one without (`<name>-no-terminal-<version>-<target>`, which
+//! is smaller). `SHA256SUMS` names them all; `app.json` names one file for a target, the one
+//! without a terminal where there is one, since a terminal that reads the release draws the page
+//! itself.
+//!
 //! What the release says it needs, `protocol` and `views`, is not written by the author: the
 //! program says it, in the `hello` it sends as it starts. The file of this machine's target is
 //! started on a pty of its own, in an empty folder with a home of its own, the first `hello` is
@@ -153,11 +159,13 @@ pub fn command(args: &[String]) -> ExitCode {
     }
 }
 
-/// One file of the release: its target, its name in the directory and its digest.
+/// One file of the release: its target, its name in the directory, its digest and whether the
+/// program has a terminal in it.
 struct Built {
     target: String,
     file: String,
     sha256: String,
+    terminal: bool,
 }
 
 fn run(options: &Options) -> Result<String, String> {
@@ -222,7 +230,9 @@ fn run(options: &Options) -> Result<String, String> {
         None if cargo => {
             return Err(
                 "a Rust program is built on the machine of each of its targets: build them, put \
-                 <name>-<version>-<target> for each in a directory and name it with --files"
+                 <name>-<version>-<target> for each (and <name>-no-terminal-<version>-<target>, \
+                 the program without a terminal in it, where the release has one) in a directory \
+                 and name it with --files"
                     .to_owned(),
             );
         }
@@ -244,7 +254,7 @@ fn run(options: &Options) -> Result<String, String> {
                     terminal: Some(true),
                     out: Some(&out),
                 })?;
-                built.push(describe_file(target, &file, &out)?);
+                built.push(describe_file(target, &file, &out, true)?);
             }
             (directory, built)
         }
@@ -254,13 +264,15 @@ fn run(options: &Options) -> Result<String, String> {
         sums.push_str(&format!("{}  {}\n", entry.sha256, entry.file));
     }
     write(&directory.join("SHA256SUMS"), sums.as_bytes())?;
+    // What `app.json` names, and so what is asked what the release needs: one file for a target.
+    let named = named(&built);
 
     let program = match &options.describe_with {
         Some(file) => file
             .canonicalize()
             .map_err(|why| format!("{}: {why}", file.display()))?,
         None => {
-            let own = built
+            let own = named
                 .iter()
                 .find(|entry| entry.target == OWN)
                 // A Linux machine of the GNU library starts the static program of its own
@@ -268,7 +280,7 @@ fn run(options: &Options) -> Result<String, String> {
                 .or_else(|| {
                     let arch = OWN.strip_suffix("-unknown-linux-gnu")?;
                     let musl = format!("{arch}-unknown-linux-musl");
-                    built.iter().find(|entry| entry.target == musl)
+                    named.iter().find(|entry| entry.target == musl)
                 })
                 .ok_or_else(|| {
                     format!(
@@ -322,7 +334,7 @@ fn run(options: &Options) -> Result<String, String> {
         &base,
     )?;
 
-    let text = app_json(&name, options, &hello, &public, &base, &built, &previous);
+    let text = app_json(&name, options, &hello, &public, &base, &named, &previous);
     let signature = format!("{}\n", signature_text(&signing, text.as_bytes()));
     write(&directory.join("app.json"), text.as_bytes())?;
     write(&directory.join("app.json.sig"), signature.as_bytes())?;
@@ -348,40 +360,71 @@ fn run(options: &Options) -> Result<String, String> {
 }
 
 /// The digest of the file at `path`, as an entry of the release.
-fn describe_file(target: &str, file: &str, path: &Path) -> Result<Built, String> {
+fn describe_file(target: &str, file: &str, path: &Path, terminal: bool) -> Result<Built, String> {
     let bytes = fs::read(path).map_err(|why| format!("{}: {why}", path.display()))?;
     Ok(Built {
         target: target.to_owned(),
         file: file.to_owned(),
         sha256: sha256_hex(&bytes),
+        terminal,
     })
 }
 
-/// The files `<name>-<version>-<target>` in `dir`, one per target, by target.
+/// The files `<name>-<version>-<target>` (the program with a terminal in it) and
+/// `<name>-no-terminal-<version>-<target>` (the one without) in `dir`, by target and the one with a
+/// terminal first. A target may have either or both.
 fn collect(dir: &Path, name: &str, version: &str) -> Result<Vec<Built>, String> {
-    let prefix = format!("{name}-{version}-");
+    let with_terminal = format!("{name}-{version}-");
+    let without = format!("{name}-no-terminal-{version}-");
     let mut found = Vec::new();
     let entries = fs::read_dir(dir).map_err(|why| format!("{}: {why}", dir.display()))?;
     for entry in entries {
         let entry = entry.map_err(|why| format!("{}: {why}", dir.display()))?;
         let path = entry.path();
         let file = entry.file_name().to_string_lossy().into_owned();
-        let Some(target) = file.strip_prefix(&prefix) else {
+        // A version starts with a digit, so a name is of one kind only.
+        let (target, terminal) = if let Some(target) = file.strip_prefix(&with_terminal) {
+            (target, true)
+        } else if let Some(target) = file.strip_prefix(&without) {
+            (target, false)
+        } else {
             continue;
         };
         if !path.is_file() || !apps::is_target(target) {
             continue;
         }
-        found.push(describe_file(target, &file, &path)?);
+        found.push(describe_file(target, &file, &path, terminal)?);
     }
-    found.sort_by(|a, b| a.target.cmp(&b.target));
+    found.sort_by(|a, b| {
+        a.target
+            .cmp(&b.target)
+            .then_with(|| b.terminal.cmp(&a.terminal))
+    });
     if found.is_empty() {
         return Err(format!(
-            "{} has no file named {prefix}<target>",
+            "{} has no file named {with_terminal}<target> or {without}<target>",
             dir.display()
         ));
     }
     Ok(found)
+}
+
+/// The file `app.json` names for each target: the one without a terminal in it where the release
+/// has one (a terminal that reads the release draws the page itself), the only one otherwise.
+/// `built` is by target.
+fn named(built: &[Built]) -> Vec<&Built> {
+    let mut named: Vec<&Built> = Vec::new();
+    for entry in built {
+        match named.last_mut() {
+            Some(last) if last.target == entry.target => {
+                if last.terminal && !entry.terminal {
+                    *last = entry;
+                }
+            }
+            _ => named.push(entry),
+        }
+    }
+    named
 }
 
 fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -479,14 +522,15 @@ fn views_json(views: &[ViewOffer]) -> String {
     serde_json::to_string(views).unwrap_or_default()
 }
 
-/// The text of the `app.json`, the members in the order the specification lists them.
+/// The text of the `app.json`, the members in the order the specification lists them; `built` is the
+/// file named for each target.
 fn app_json(
     name: &str,
     options: &Options,
     hello: &Hello,
     key: &str,
     base: &str,
-    built: &[Built],
+    built: &[&Built],
     previous: &[Previous],
 ) -> String {
     let mut out = String::from("{\n");

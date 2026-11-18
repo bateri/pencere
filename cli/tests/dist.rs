@@ -690,3 +690,216 @@ fn a_kind_that_is_not_one_of_the_two_is_not_taken_for_opens() {
     assert!(!release.join("app.json").exists());
     let _ = fs::remove_dir_all(&home);
 }
+
+/// The bytes of the file with a terminal in it of `target`.
+fn terminal_bytes(target: &str) -> String {
+    format!("the program with a terminal for {target}")
+}
+
+/// The bytes of the file of `target` that has none.
+fn small_bytes(target: &str) -> String {
+    format!("the program without one for {target}")
+}
+
+/// A directory with the files of a release of `demopen` that are the kinds `entries` say for each
+/// target, `(target, with a terminal, without one)`: `demopen-<version>-<target>` and
+/// `demopen-no-terminal-<version>-<target>`, each of bytes of its own. An older release's file of
+/// the small kind lies beside them: it is not of this release.
+fn kinds(dir: &Path, version: &str, entries: &[(&str, bool, bool)]) -> PathBuf {
+    let out = dir.join("release");
+    let _ = fs::remove_dir_all(&out);
+    fs::create_dir_all(&out).expect("a directory");
+    for (target, terminal, small) in entries {
+        if *terminal {
+            fs::write(
+                out.join(format!("demopen-{version}-{target}")),
+                terminal_bytes(target),
+            )
+            .expect("a file");
+        }
+        if *small {
+            fs::write(
+                out.join(format!("demopen-no-terminal-{version}-{target}")),
+                small_bytes(target),
+            )
+            .expect("a file");
+        }
+    }
+    fs::write(
+        out.join("demopen-no-terminal-0.0.1-aarch64-apple-darwin"),
+        "an older one",
+    )
+    .expect("a file");
+    out
+}
+
+#[test]
+fn a_release_of_both_kinds_has_every_file_in_the_sums_and_the_small_one_in_the_app_json() {
+    let home = directory("both-kinds");
+    let key = home.join("signing.key");
+    write_key(&key, 0);
+    let targets = [
+        "aarch64-apple-darwin",
+        "aarch64-unknown-linux-musl",
+        "x86_64-unknown-linux-musl",
+    ];
+    let entries = targets.map(|target| (target, true, true));
+    let release = kinds(&home, "0.6.0", &entries);
+    let hello = program(&home, "demopen-hello", LUA_03);
+    let args = release_args(&release, &hello, "0.6.0", "none");
+    let (code, said, why) = run_dist(&home, &args, &key);
+    assert_eq!(code, 0, "{why}");
+    assert!(said.contains("6 files"), "{said}");
+
+    // Every file the release has is in the sums, the target's first and then the one without a
+    // terminal; the older release's file is not.
+    let sums = fs::read_to_string(release.join("SHA256SUMS")).expect("sums");
+    let mut expected = String::new();
+    for target in targets {
+        expected.push_str(&format!(
+            "{}  demopen-0.6.0-{target}\n{}  demopen-no-terminal-0.6.0-{target}\n",
+            sha256(terminal_bytes(target).as_bytes()),
+            sha256(small_bytes(target).as_bytes()),
+        ));
+    }
+    assert_eq!(sums, expected);
+
+    // The address of each target is the small file: the terminal that reads the release installs it.
+    let manifest = written(&release);
+    assert_eq!(manifest.files.len(), 3);
+    for target in targets {
+        let entry = &manifest.files[target];
+        assert_eq!(
+            entry.url,
+            format!("file:///somewhere/demopen-no-terminal-0.6.0-{target}")
+        );
+        assert_eq!(entry.sha256, sha256(small_bytes(target).as_bytes()));
+    }
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
+fn a_target_without_the_small_file_is_listed_with_the_one_it_has() {
+    let home = directory("mixed-kinds");
+    let key = home.join("signing.key");
+    write_key(&key, 0);
+    let release = kinds(
+        &home,
+        "0.6.0",
+        &[
+            ("aarch64-apple-darwin", true, true),
+            ("aarch64-unknown-linux-musl", true, false),
+            ("x86_64-unknown-linux-musl", false, true),
+        ],
+    );
+    let hello = program(&home, "demopen-hello", LUA_03);
+    let args = release_args(&release, &hello, "0.6.0", "none");
+    let (code, said, why) = run_dist(&home, &args, &key);
+    assert_eq!(code, 0, "{why}");
+    assert!(said.contains("4 files"), "{said}");
+
+    let sums = fs::read_to_string(release.join("SHA256SUMS")).expect("sums");
+    let names: Vec<&str> = sums
+        .lines()
+        .map(|line| line.split_once("  ").expect("a digest and a name").1)
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "demopen-0.6.0-aarch64-apple-darwin",
+            "demopen-no-terminal-0.6.0-aarch64-apple-darwin",
+            "demopen-0.6.0-aarch64-unknown-linux-musl",
+            "demopen-no-terminal-0.6.0-x86_64-unknown-linux-musl",
+        ]
+    );
+
+    let manifest = written(&release);
+    assert_eq!(manifest.files.len(), 3);
+    let wanted = [
+        (
+            "aarch64-apple-darwin",
+            "demopen-no-terminal-0.6.0-aarch64-apple-darwin",
+            small_bytes("aarch64-apple-darwin"),
+        ),
+        (
+            "aarch64-unknown-linux-musl",
+            "demopen-0.6.0-aarch64-unknown-linux-musl",
+            terminal_bytes("aarch64-unknown-linux-musl"),
+        ),
+        (
+            "x86_64-unknown-linux-musl",
+            "demopen-no-terminal-0.6.0-x86_64-unknown-linux-musl",
+            small_bytes("x86_64-unknown-linux-musl"),
+        ),
+    ];
+    for (target, file, bytes) in wanted {
+        let entry = &manifest.files[target];
+        assert_eq!(entry.url, format!("file:///somewhere/{file}"), "{target}");
+        assert_eq!(entry.sha256, sha256(bytes.as_bytes()), "{target}");
+    }
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
+fn the_program_asked_what_the_release_needs_is_the_file_the_app_json_names() {
+    let home = directory("asked-kind");
+    let key = home.join("signing.key");
+    write_key(&key, 0);
+    // The target of this machine, or the static one of its architecture where it is a GNU Linux.
+    let own = env!("PENCERE_TARGET");
+    let target = match own.strip_suffix("-unknown-linux-gnu") {
+        Some(arch) => format!("{arch}-unknown-linux-musl"),
+        None => own.to_owned(),
+    };
+    // The two files say something else each, as the two builds of an app may not need the same.
+    let terminal = program(&home, "terminal-hello", LUA_04);
+    let small = program(&home, "small-hello", LUA_03);
+    let release = home.join("release");
+    fs::create_dir_all(&release).expect("a directory");
+    fs::copy(&terminal, release.join(format!("demopen-0.6.0-{target}"))).expect("a file");
+    fs::copy(
+        &small,
+        release.join(format!("demopen-no-terminal-0.6.0-{target}")),
+    )
+    .expect("a file");
+
+    let mut args = release_args(&release, &small, "0.6.0", "none");
+    args.drain(6..8);
+    assert!(!args.iter().any(|arg| arg == "--describe-with"), "{args:?}");
+    let (code, _, why) = run_dist(&home, &args, &key);
+    assert_eq!(code, 0, "{why}");
+
+    let manifest = written(&release);
+    assert_eq!(manifest.views[0].versions, ["0.3"]);
+    assert!(
+        manifest.files[target.as_str()]
+            .url
+            .contains("demopen-no-terminal-"),
+        "{:?}",
+        manifest.files
+    );
+    assert!(home.join("small-hello.record").exists());
+    assert!(!home.join("terminal-hello.record").exists());
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
+fn a_directory_with_no_file_of_the_release_says_both_names_it_looked_for() {
+    let home = directory("no-files");
+    let key = home.join("signing.key");
+    write_key(&key, 0);
+    let release = home.join("release");
+    fs::create_dir_all(&release).expect("a directory");
+    fs::write(release.join("demopen-0.5.0-aarch64-apple-darwin"), "older").expect("a file");
+    let hello = program(&home, "demopen-hello", LUA_03);
+    let args = release_args(&release, &hello, "0.6.0", "none");
+    let (code, _, said) = run_dist(&home, &args, &key);
+    assert_eq!(code, 1, "{said}");
+    assert!(
+        said.contains("demopen-0.6.0-<target>")
+            && said.contains("demopen-no-terminal-0.6.0-<target>"),
+        "{said}"
+    );
+    assert!(!release.join("app.json").exists());
+    let _ = fs::remove_dir_all(&home);
+}
