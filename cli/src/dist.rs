@@ -260,6 +260,13 @@ fn run(options: &Options) -> Result<String, String> {
             let own = built
                 .iter()
                 .find(|entry| entry.target == OWN)
+                // A Linux machine of the GNU library starts the static program of its own
+                // architecture, which is the one an app is made for there (musl).
+                .or_else(|| {
+                    let arch = OWN.strip_suffix("-unknown-linux-gnu")?;
+                    let musl = format!("{arch}-unknown-linux-musl");
+                    built.iter().find(|entry| entry.target == musl)
+                })
                 .ok_or_else(|| {
                     format!(
                         "there is no file for {OWN}, the target of this machine, to ask what the \

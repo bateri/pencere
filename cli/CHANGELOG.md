@@ -6,6 +6,12 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ## [Unreleased]
 
+### Fixed
+
+- **`pencere dist` works on a Linux machine with the GNU library**: it asks the app what it needs by
+  starting the app's Linux file for the machine's architecture, which runs there too, instead of
+  stopping with "there is no file for x86_64-unknown-linux-gnu".
+
 ### Added
 
 - **`pencere test` drives a drag out of the view and reads the text size**: `locator:drag_out(x, y)`
