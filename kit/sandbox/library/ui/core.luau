@@ -727,13 +727,30 @@ function Ctx:_cursor()
 	return nil
 end
 
+-- Every reply to the pointer says its shape, and one that says none is the arrow: the shape a
+-- component asks for is said at each input of the pointer over it, not only when it changes. Where
+-- none asks, the arrow is said once, as the pointer leaves the one that did (what the page says
+-- of its own is the page's). `self.cursor` is the shape a component asks for now, nil where none.
 function Ctx:_pointer_shape(out)
 	local shape = self:_cursor()
-	if shape ~= self.cursor then
-		self.cursor = shape
+	if shape ~= nil or shape ~= self.cursor then
 		out.reply = merge(out.reply, { cursor = shape or "arrow" })
 	end
+	self.cursor = shape
 end
+
+-- The inputs of the pointer besides a move, a leave, a press and a release (which say the shape
+-- where they are handled): their reply is the pointer's too.
+local OTHER_POINTER_INPUTS = {
+	wheel = true,
+	extra_press = true,
+	extra_release = true,
+	magnify = true,
+	smart_magnify = true,
+	rotate = true,
+	swipe = true,
+	pressure = true,
+}
 
 local EDITOR_EVENTS = {
 	edit = true,
@@ -956,6 +973,8 @@ function Ctx:handle(event)
 				end
 			end
 		end
+	elseif OTHER_POINTER_INPUTS[kind] then
+		self:_pointer_shape(out)
 	end
 	return out.reply, out.actions, out.taken
 end

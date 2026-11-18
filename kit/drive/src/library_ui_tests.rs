@@ -1717,6 +1717,46 @@ fn a_split_is_dragged_held_between_its_limits_and_sized_with_the_arrow_keys() ->
     Ok(())
 }
 
+/// Every reply to the pointer says its shape, and one that says none is the arrow: the shape a
+/// component asks for is said at each move over it, at a press and a release there and at a turn of
+/// the wheel, not only when the pointer comes onto it.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_shape_a_component_asks_for_is_said_at_each_input_of_the_pointer_over_it() -> Result<(), Error>
+{
+    use pencere_view::{Button, Cursor, Input, Mods, Point};
+    let mut page = open(SPLIT)?;
+    let handle = accessible(&page, "side/handle").rect;
+    let at = |y: f32| Point::new(handle.x + handle.w / 2.0, y);
+    for (step, y) in [180.0, 200.0, 220.0].into_iter().enumerate() {
+        page.move_to(at(y))?;
+        assert_eq!(page.cursor(), Some(Cursor::ResizeHorizontal), "move {step}");
+    }
+    page.pointer(Input::Press {
+        at: at(220.0),
+        button: Button::Left,
+        mods: Mods::default(),
+        count: 1,
+    })?;
+    assert_eq!(page.cursor(), Some(Cursor::ResizeHorizontal), "pressed");
+    page.pointer(Input::Release {
+        at: at(220.0),
+        button: Button::Left,
+        mods: Mods::default(),
+    })?;
+    assert_eq!(page.cursor(), Some(Cursor::ResizeHorizontal), "let go");
+    page.wheel_at(at(220.0), 0.0, -1.0)?;
+    assert_eq!(
+        page.cursor(),
+        Some(Cursor::ResizeHorizontal),
+        "the wheel turned"
+    );
+    // Off it, the arrow.
+    page.move_to(Point::new(handle.x + 120.0, 220.0))?;
+    assert_eq!(page.cursor(), Some(Cursor::Arrow), "off the handle");
+    Ok(())
+}
+
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_split_that_is_narrow_gives_its_sized_pane_as_a_drawer_over_the_other() -> Result<(), Error> {

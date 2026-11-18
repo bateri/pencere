@@ -117,6 +117,10 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Fixed
 
+- **The pointer keeps the shape a component of the library asks for.** A split's handle or a
+  column's edge showed the resize pointer only as the pointer came onto it, and the arrow at the
+  next move, press or turn of the wheel. Every reply to the pointer says its shape now, as the
+  kit's spec says.
 - **A long list of the script is built for the window it has, not for the page's**
   (`pencere.Built`, and so `box:list`, as `pencere-view`'s `Built`): a list laid out in a window
   less than three quarters of the one its rows were built for is built again for it, once.

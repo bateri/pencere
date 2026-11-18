@@ -624,7 +624,7 @@ at a ⌘-click). A press in an editor is the editor's as well: it puts the caret
 `mods` is `{ shift =, control =, alt =, command = }`. A reply is `nil` (nothing changed), `true` or
 `false` (a frame is worth drawing or not), or a table: `redraw`, `close`, `copy` (text for the
 pasteboard; a host that keeps programs from its pasteboard, a terminal's `osc52 = "off"`, is told whether the person asked for it and writes it only if they did: a reply to a press or its release, a pick in a menu or a command the host's list asked for, and of the keys only the system's copy and cut, ⌘C and ⌘X (so also a command a key did: a page's command bound to ⌘C is the person's, one bound to any other key is not); not a reply to another key, to a message of the program, to a wake or to the room, whatever the page made the key do), `cursor` (`"arrow"`, `"pointer"`, `"text"`, `"resize_horizontal"`, `"resize_vertical"`,
-`"not_allowed"`, `"grab"`, `"grabbing"` or `"crosshair"`), `keyboard` (`"page"` or `{ field = name }`),
+`"not_allowed"`, `"grab"`, `"grabbing"` or `"crosshair"`; every reply to an input of the pointer says it, and one that says none, `nil` too, is the arrow: no shape is kept from an earlier reply, so a page that asks for one says it again at each move, press, release and turn of the wheel over what it is for), `keyboard` (`"page"` or `{ field = name }`),
 `fill` (`{ [name] = text }`, or `{ [name] = { text =, select = } }`: what fields are to hold from now
 on, and what is selected in them; `select` is `{ from =, to = }`, bytes from 1 (Section 2.7) in either order,
 past the end the end (an end inside a character is where the character starts: a reply cannot be
