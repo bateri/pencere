@@ -226,6 +226,14 @@ export const APART = [
     "a tool run from a checkout of the repository: the libraries' documents lead to it there",
   ],
   ["wire/README.md", "a crate a host and a program take through their own libraries"],
+  [
+    "host/tui/README.md",
+    "a crate a program links to draw its page in a terminal that hosts no view: its program leads to it",
+  ],
+  [
+    "kit/drive/fonts/README.md",
+    "where the faces the drawing layer carries come from, and their licenses",
+  ],
   ["kit/*/README.md", "the crates inside the kit, for who works on it"],
   ["kit/editor/fixtures/README.md", "the fixtures of the editor's tests"],
   ["spec/draft/fixtures/README.md", "the fixtures of the wire, for who implements it"],
