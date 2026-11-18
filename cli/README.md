@@ -78,10 +78,11 @@ built without a terminal in it (smaller, for a terminal that draws the page itse
 names both, and `app.json` names the one without a terminal for the target, the only one otherwise.
 The files, `SHA256SUMS`, `app.json` and `app.json.sig` are written to `dist/` (to `DIR`,
 with `--files`). What the release needs, the protocol versions and the kinds of view, is not typed:
-`dist` starts the file of this machine's target on a pty of its own, in an empty folder with a home
-of its own, reads the `hello` the program sends as it starts and ends it. `--describe-args` gives
-a program that needs arguments to start the ones it needs, and `--describe-with FILE` names another
-program to ask when this machine's target has no file.
+`dist` starts the file of this machine's target (the one `app.json` names for it: the one without a
+terminal where there is one) on a pty of its own, in an empty folder with a home of its own, reads
+the `hello` the program sends as it starts and ends it. `--describe-args` gives a program that needs
+arguments to start the ones it needs, and `--describe-with FILE` names another program to ask when
+this machine's target has no file.
 
 `--opens file,folder` says in `app.json` that the program takes the path of a file, of a folder or
 of both as its last argument, with `+LINE` before a file's path when a line is meant, so that a

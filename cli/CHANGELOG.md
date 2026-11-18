@@ -10,7 +10,8 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 - **`pencere dist --files` takes the program without a terminal too**: a directory may have
   `<name>-no-terminal-<version>-<target>` beside `<name>-<version>-<target>`; `SHA256SUMS` names both
-  and `app.json` names the one without a terminal for a target that has it (the only file otherwise).
+  and `app.json` names the one without a terminal for a target that has it (the only file otherwise);
+  that file is the one `dist` starts to ask what the release needs.
 
 ### Fixed
 
