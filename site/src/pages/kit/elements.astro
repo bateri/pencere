@@ -1,0 +1,42 @@
+---
+import Kit from "../../layouts/Kit.astro";
+import CodeBlock from "../../components/CodeBlock.astro";
+import Shot from "../../components/Shot.astro";
+import catalog from "../../data/catalog.json";
+import { elements } from "../../lib/project.js";
+
+// What an element is, as the page API says it (src/lib/project.js).
+const { says } = elements();
+---
+<Kit
+  title="Elements: the pencere kit"
+  description="The elements a page of the pencere kit is made of: boxes, text, pictures, paths, sparklines and the editor of text."
+  path="kit/elements"
+>
+  <header>
+    <h1>Elements</h1>
+    <p class="lead" set:html={says} />
+  </header>
+
+  <div id="elements">
+    {
+      catalog.elements.map((element) => (
+        <section class="element" id={element.name}>
+          <h2><code>{element.constructor}</code></h2>
+          <p set:html={element.doc} />
+          {element.demo && (
+            <div class="element__pair">
+              <Shot name={`elements/${element.name}`} width={element.demo.width} height={element.demo.height} alt={`What ${element.constructor} draws`} />
+              <CodeBlock code={element.demo.code} />
+            </div>
+          )}
+        </section>
+      ))
+    }
+  </div>
+
+  <h2>The builders</h2>
+  <div class="prose">
+    <p>What every element takes is in one table of <a href="/kit/spec#21-elements">the page API</a>, by what it is for.</p>
+  </div>
+</Kit>

@@ -1,0 +1,30 @@
+---
+// The examples: the apps under examples/ in the repository, each with the sentence its own README
+// opens with (src/lib/project.js), and a link to it there. Nothing of an example is said here.
+import Kit from "../../layouts/Kit.astro";
+import { REPO } from "../../lib/code.js";
+import { examples } from "../../lib/project.js";
+---
+<Kit
+  title="Examples: pencere"
+  description="The example apps of the pencere repository: programs with a view, in Lua, TypeScript and Rust, to read and to run."
+  path="kit/examples"
+>
+  <header>
+    <h1>Examples</h1>
+    <p class="lead">Apps in the repository, to read and to run. Each line leads to the app there, where its README says how it is run.</p>
+  </header>
+
+  <ul class="modules">
+    {
+      examples().map((example) => (
+        <li>
+          <a class="modules__go" href={`${REPO}/tree/main/examples/${example.name}`}>
+            <b>{example.name}</b>
+            <span set:html={example.says} />
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+</Kit>

@@ -1,0 +1,14 @@
+{
+  // The site as Cloudflare serves it: the files `astro build` makes in dist/, and nothing that
+  // runs. A push to main builds and deploys it (Cloudflare's own build, connected to the
+  // repository, with this directory as its root): `npm run build`, then `npx wrangler deploy`.
+  "name": "pencere-site",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./dist",
+    // kit.html is served at /kit (the default handling of HTML), and a path with no file gets
+    // 404.html with the status 404.
+    "not_found_handling": "404-page",
+  },
+  "routes": [{ "pattern": "pencere.dev", "custom_domain": true }],
+}

@@ -1,0 +1,15 @@
+---
+import { Code } from "astro:components";
+import { theme } from "../lib/code.js";
+
+interface Props {
+  code: string;
+  lang?: string;
+  name?: string;
+}
+const { code, lang = "lua", name } = Astro.props;
+---
+<div class="code">
+  {name && <div class="code__name">{name}</div>}
+  <Code code={code} lang={lang as any} theme={theme} />
+</div>

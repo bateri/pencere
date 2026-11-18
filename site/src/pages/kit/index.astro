@@ -1,0 +1,75 @@
+---
+import { library, layers } from "../../lib/project.js";
+import Kit from "../../layouts/Kit.astro";
+import CodeBlock from "../../components/CodeBlock.astro";
+import Shot from "../../components/Shot.astro";
+import catalog from "../../data/catalog.json";
+
+const counter = catalog.pages["kit/counter"];
+// What the library is and what the kit's layers are, in the words of the kit's own documents
+// (src/lib/project.js).
+const { says } = library();
+const parts = layers();
+---
+<Kit
+  title="The kit: pencere"
+  description="What a terminal draws a view of kind lua with, in its own font and theme, and what a page is written with."
+  path="kit"
+>
+  <header>
+    <h1>The kit</h1>
+    <p class="lead">
+      A view of kind <code>lua</code> is a script the terminal runs in a sandbox and draws itself, in its own font and its
+      own theme. The kit is what it is written with: elements and their layout, an editor of text, and a library of
+      components.
+    </p>
+    <p class="doc__go"><a class="go go--main" href="/kit/start">Start an app</a><a class="go" href="/kit/spec">The page API in full</a></p>
+  </header>
+
+  <h2>A page</h2>
+  <div class="prose">
+    <p>
+      A script returns the page: a table of the functions the terminal calls. <code>render</code> makes the elements when
+      the terminal draws, and <code>handle</code> answers what the person did. This one counts what a button is pressed;
+      the picture is of it after two presses.
+    </p>
+  </div>
+  <div class="stage" style="margin-top:20px">
+    <Shot name="kit/counter" width={counter.width} height={counter.height} alt="A page that says it was pressed 2 times, with a Press and a Reset button" />
+  </div>
+  <div style="margin-top:16px">
+    <CodeBlock code={counter.code} name="src/view/page.lua" />
+  </div>
+
+  <h2>What it is made of</h2>
+  <div class="split-2">
+    <a class="kind" href="/kit/elements" style="color:inherit;text-decoration:none">
+      <h3>{catalog.elements.length} elements</h3>
+      <p>{catalog.elements.map((element, i) => <>{i > 0 && ", "}<code>{element.name}</code></>)}</p>
+    </a>
+    <a class="kind" href="/kit/components" style="color:inherit;text-decoration:none">
+      <h3>{catalog.components.length} components</h3>
+      <p>{catalog.groups.join(", ")}</p>
+    </a>
+  </div>
+
+  <h2>Where a part goes</h2>
+  <div class="prose">
+    <p set:html={parts.says} />
+  </div>
+  <ol class="layers" style="margin-top:20px">
+    {parts.layers.toReversed().map((layer) => <li><div><b set:html={layer.name} />{layer.how && <small set:html={layer.how} />}</div><span set:html={layer.goes} /></li>)}
+  </ol>
+  <div class="prose" style="margin-top:16px">
+    <p>The rule of each layer is in <a href="/host/kit#where-a-part-of-the-kit-goes">the kit's own document</a>.</p>
+  </div>
+
+  <h2>The library</h2>
+  <div class="prose">
+    <p set:html={says} />
+    <p>
+      Its modules are listed in <a href="/kit/library">the library</a>, and everything a page can do is said in full in
+      <a href="/kit/spec">the page API</a>.
+    </p>
+  </div>
+</Kit>

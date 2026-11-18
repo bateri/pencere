@@ -4512,3 +4512,52 @@ fn on_a_mac_ctrl_is_what_it_was_and_command_is_the_main_modifier() {
         assert_eq!(host.ranges(), vec![Range::new(0, 18)]);
     }
 }
+
+/// A line that wraps into more rows than the room has, scrolled partly above the room, leaves the
+/// lines below it drawn: at every place the room is scrolled to, each of its rows shows text, until
+/// the document ends.
+#[test]
+fn a_wrapped_line_scrolled_above_the_room_leaves_the_lines_below_it_drawn() {
+    let options = EditorOptions {
+        wrap: true,
+        ..plain()
+    };
+    let mut host =
+        Host::new(move || div().child(div().editor(EDITOR, options.clone()).size(400.0, 200.0)));
+    let mut text = String::new();
+    for n in 0..5 {
+        text.push_str(&format!("before {n}\n"));
+    }
+    // Nineteen rows of the room's width: more than the ten it shows.
+    text.push_str(&"aaaa ".repeat(200));
+    text.push('\n');
+    for n in 0..20 {
+        text.push_str(&format!("after {n}\n"));
+    }
+    host.load(&text);
+    // The room is 200 high with 4 of padding: scrolled by whole rows, eleven rows show some of
+    // themselves (a part of one at the top), until the last row is at the room's bottom (the content
+    // is 44 rows and the padding, 888 high: it scrolls 688).
+    for step in 1..=34 {
+        let y = step as f32 * 20.0;
+        host.scrolls.ask(pencere_view::ScrollTo {
+            id: EDITOR,
+            x: None,
+            y: Some(y),
+            animate: false,
+            zoom: None,
+            at: None,
+        });
+        host.frame();
+        host.frame();
+        let mut shown: Vec<i32> = host
+            .texts()
+            .iter()
+            .filter(|(_, at, _)| at.y > -ROW && at.y < 200.0)
+            .map(|(_, at, _)| at.y.round() as i32)
+            .collect();
+        shown.sort_unstable();
+        shown.dedup();
+        assert_eq!(shown.len(), 11, "scrolled {y}: rows drawn at {shown:?}");
+    }
+}

@@ -1,0 +1,38 @@
+# The site (site/) built on every push to main and every pull request: the catalogue is made, the
+# site and the repository are checked against each other (site/scripts/check.mjs), and the pages
+# are built. Nothing is deployed here: Cloudflare builds and deploys main itself, from the same
+# commands, so this run is where a commit that breaks the site shows red beside the gate's.
+#
+# It runs whatever the commit touched: the pages read the README, the specifications, the
+# packages' documents, the command's templates and the kit's library, so a change to any of them
+# is a change to the site.
+name: site
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: site/.node-version
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - run: npm ci
+      - run: npm run build

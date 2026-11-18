@@ -1,0 +1,959 @@
+---
+// The first scene of the home page. A dark room, its wall next to black, a display on it. The warm light of a window
+// comes up out of the dark as the page opens, lies on the wall and the glass and moves across them, slowly, as it does while a day passes, and
+// the leaves outside move in it all the time. In the shade the display shows what a terminal shows
+// for the job: a process viewer, then git's account of a changed file, as text, in grey. Where the light lies on the glass it
+// shows the same job as a program's interface: toppen, then textpen, in colour, on glass that the light has lifted. Both are alive.
+// The room is the made picture of /lab/hero-screen with its own light taken out of it, its stand and
+// desk painted out and the stains of its wall damped, then brought down to the dark; the light is
+// the light on the bare wall of /lab/hero-light, as a shape; the moving shadows are the film of
+// leaves on a wall that /lab/light used. Nothing on the glass is a capture: the interfaces are the
+// mockups of the bateri landing page, drawn with real elements, and the terminal screens are set as
+// text from the same sample data.
+// The page that shows it gives its body the class hero-scene, which carries the scene's colours and sizes.
+import "@fontsource-variable/instrument-sans";
+import "@fontsource-variable/jetbrains-mono";
+import "../styles/pens.css";
+
+interface Props {
+  /** Where "See how it works" goes: the part of the home page under the scene. */
+  how?: string;
+}
+const { how = "#how" } = Astro.props;
+const ROOM = "A display on the wall of a dark room. The warm light of a window lies across the wall and across the display, with the shadows of the window's bars and of leaves in it, and moves slowly across them. In the shade the display shows a terminal's text; in the light, a program's interface.";
+---
+<section class="scene">
+  <div class="scene__stage" data-pair="top">
+    <img class="scene__room" src="/scene/scene-dark.webp" width="2688" height="1520" alt={ROOM} />
+    <div class="scene__lit" aria-hidden="true">
+      <img class="scene__room scene__room--lit" src="/scene/scene-warm.webp" width="2688" height="1520" alt="" />
+      <div class="scene__shade">
+        <video class="scene__leaves" src="/scene/leaves.mp4" poster="/scene/leaves.jpg" muted loop playsinline autoplay></video>
+      </div>
+    </div>
+    <div class="scene__glass scene__dark" data-terms aria-hidden="true" inert></div>
+    <div class="scene__glass scene__show" aria-hidden="true">
+      <div class="scene__app" data-apps inert></div>
+    </div>
+    <div class="scene__glass scene__bar" aria-hidden="true">
+      <div class="scene__tabs">
+        <span class="is-on"><svg viewBox="0 0 22 18" aria-hidden="true"><rect x="0.75" y="0.75" width="20.5" height="16.5" rx="5" /><path d="M6.5 6l3 3-3 3M12 12.4h4" /></svg>~/shop</span>
+        <b>+</b>
+      </div>
+    </div>
+    <div class="scene__fall" aria-hidden="true"></div>
+  </div>
+  <div class="scene__say">
+    <p class="scene__name"><b>pencere</b> is an open protocol for terminals.</p>
+    <h1>Let some light into your terminal.</h1>
+    <p class="scene__lead">
+      It lets a program show a real interface in the pane it runs in, on your machine or on a server over plain
+      ssh.
+    </p>
+    <div class="scene__go">
+      <a class="scene__main" href={how}>See how it works</a>
+      <a href="/spec">Read the specification</a>
+    </div>
+  </div>
+  <div class="scene__key" data-pair="top">
+    <div>
+      <span class="scene__side">In the shade</span>
+      <span><span data-pair="top"><b>htop</b>, a terminal's text</span><span data-pair="text"><b>git diff</b>, a terminal's text</span></span>
+    </div>
+    <p class="scene__hint" aria-hidden="true">Move the pointer across the display</p>
+    <div>
+      <span class="scene__side">In the light</span>
+      <span><span data-pair="top"><b>toppen</b>, the same job with an interface</span><span data-pair="text"><b>textpen</b>, the same job with an interface</span></span>
+    </div>
+  </div>
+</section>
+<script>
+  import { toppen } from "../scripts/pens/toppen.js";
+  import { textpen } from "../scripts/pens/textpen.js";
+  import { htop, gitdiff } from "../scripts/terms.js";
+
+const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const asked = new URLSearchParams(location.search);
+  const stage = document.querySelector<HTMLElement>(".scene__stage")!;
+  const apps = stage.querySelector<HTMLElement>("[data-apps]")!;
+  const terms = stage.querySelector<HTMLElement>("[data-terms]")!;
+  const leaves = stage.querySelector<HTMLVideoElement>(".scene__leaves")!;
+  const key = document.querySelector<HTMLElement>(".scene__key")!;
+
+  // Two pairs: what the terminal shows for a job, and the program that does it with an interface.
+  // Each interface is laid out for a pane of its own width, small enough that its text can be read
+  // on the glass: toppen as it is in a pane under 900 wide, textpen with room for two files.
+  // On a phone the display is seen from close by and the panes are narrower still.
+  const pairs = [
+    { name: "top", wide: 880, close: 700, app: toppen(), term: htop() },
+    { name: "text", wide: 1040, close: 720, app: textpen({ compare: true }), term: gitdiff() },
+  ];
+  const phone = matchMedia("(max-width: 600px)");
+  for (const pair of pairs) {
+    pair.app.dataset.pair = pair.term.dataset.pair = pair.name;
+    apps.append(pair.app);
+    terms.append(pair.term);
+  }
+
+  // The interface is laid out at its own width, as tall as the glass leaves it under the terminal's
+  // tab strip, and brought to the glass's size.
+  const glass = apps.parentElement!;
+  const strip = stage.querySelector<HTMLElement>(".scene__tabs")!;
+  let at = 0;
+  const fit = () => {
+    const wide = phone.matches ? pairs[at].close : pairs[at].wide, k = glass.clientWidth / wide;
+    if (!k) return;
+    apps.style.width = `${wide}px`;
+    apps.style.height = `${Math.round((glass.clientHeight - strip.offsetHeight) / k)}px`;
+    apps.style.setProperty("--k", String(k));
+  };
+  new ResizeObserver(fit).observe(glass);
+
+  // The screens run once the light is up: while it comes up the terminal is shown whole, and a part
+  // of that is a copy, which must not fall behind.
+  let lit = false;
+  let running = false; // while the scene is seen: see the clock below
+  const show = (i: number) => {
+    at = i;
+    stage.dataset.pair = key.dataset.pair = pairs[i].name;
+    fit();
+    pairs.forEach((pair, n) => {
+      const on = n === i && lit && running;
+      for (const part of [pair.app, pair.term] as any[]) on ? part.start?.() : part.stop?.();
+    });
+  };
+  // ?pair=text opens on the second pair, for looking at it without the wait.
+  show(Math.max(0, pairs.findIndex((pair) => pair.name === asked.get("pair"))));
+
+  // Where the light is on its way across the room: 0 with its left side in the middle of the glass,
+  // more to the left of that. The masks are given their place in pixels and nothing else is touched:
+  // a custom property that changed each frame made WebKit ask for the masks' pictures again each
+  // frame, and draw nothing. The two layers on the glass begin where the glass does.
+  // A place is written only when it has moved by half a pixel. Each time one is written the browser
+  // draws the whole room again, and the light, on its own, moves a few pixels in a second: written
+  // sixty times a second it kept a third of a processor busy for moves no eye can see.
+  const STEP = 0.5;
+  const GX = 0.3393, GY = 0.0933;
+  const masks: [HTMLElement, number, number][] = [
+    [stage.querySelector<HTMLElement>(".scene__lit")!, 0, 0],
+    [stage.querySelector<HTMLElement>(".scene__show")!, -GX, -GY],
+    [stage.querySelector<HTMLElement>(".scene__dark")!, -GX, -GY],
+  ];
+  // The film of the leaves drifts from side to side under the light, by 3% of its own width (it is
+  // 1.8 rooms wide) each way, slow at both ends, 38 seconds a way. It is put in its place the same
+  // way: as a stylesheet's animation it had the room drawn sixty times a second too. Each of the two
+  // is written when it has moved itself, not when the other has: a mask's move costs WebKit several
+  // times what the film's does.
+  const SWAY = 38_000;
+  let wide = stage.offsetWidth;
+  let sun = 0.3, film = 0; // where the light is, and how long the film has drifted
+  let drawn = NaN, swayed = NaN; // where the two were last put
+  const put = (anyway = false) => {
+    const x = wide * (-0.066 - 0.32 * sun), f = 0.03 * 1.8 * wide * Math.cos((Math.PI * film) / SWAY);
+    if (anyway || Math.abs(x - drawn) >= STEP) {
+      drawn = x;
+      for (const [el, dx, dy] of masks) {
+        const place = `${(x + wide * dx).toFixed(2)}px ${(wide * (-0.065 + dy)).toFixed(2)}px`;
+        el.style.setProperty("-webkit-mask-position", place);
+        el.style.setProperty("mask-position", place);
+      }
+    }
+    if (anyway || Math.abs(f - swayed) >= STEP) {
+      swayed = f;
+      leaves.style.transform = `translateX(${f.toFixed(1)}px)`;
+    }
+  };
+  const light = (to: number) => {
+    sun = to;
+    put(true);
+  };
+  // The light's left side in the masks' picture is the line x = 814.5 - 0.1774 y, of a picture 1344
+  // wide that is shown 1.3 rooms wide. This is where the light must be for that side to pass through a
+  // place in the room.
+  const lightAt = (x: number, y: number) => {
+    const scale = (1.3 * wide) / 1344;
+    const left = x - 814.5 * scale + 0.1774 * (y + 0.065 * wide);
+    return (-0.066 - left / wide) / 0.32;
+  };
+  // One clock for all that moves by itself. It runs while the scene is seen and stops when the scene
+  // is scrolled out of view or its tab is put away, with the film, the screens and their change.
+  let raf = 0, last = 0, swap = 0;
+  let follow: ((passed: number) => void) | null = null; // the light's own way, once it is up
+  const tick = (now: number) => {
+    const passed = Math.min(now - (last || now), 50); // a tab that was away does not leap
+    last = now;
+    film += passed;
+    follow?.(passed);
+    put();
+    raf = requestAnimationFrame(tick);
+  };
+  let inView = true;
+  const rouse = () => {
+    const on = !still && inView && !document.hidden;
+    if (on === running) return;
+    running = on;
+    if (on) {
+      leaves.play().catch(() => {});
+      last = 0;
+      raf = requestAnimationFrame(tick);
+      // Both screens change at one instant, under a short dip to the dark glass.
+      swap = window.setInterval(() => {
+        stage.classList.add("is-dip");
+        key.classList.add("is-dip");
+        setTimeout(() => {
+          show((at + 1) % pairs.length);
+          stage.classList.remove("is-dip");
+          key.classList.remove("is-dip");
+        }, 420);
+      }, 21000);
+    } else {
+      leaves.pause();
+      cancelAnimationFrame(raf);
+      clearInterval(swap);
+    }
+    show(at);
+  };
+
+  if (still) {
+    // Nothing moves: the stylesheet has the light where both screens are there to see.
+    leaves.removeAttribute("autoplay");
+    leaves.pause();
+    stage.classList.add("is-lit");
+  } else {
+    new ResizeObserver(() => {
+      wide = stage.offsetWidth;
+      put(true);
+    }).observe(stage);
+    new IntersectionObserver(([seen]) => {
+      inView = seen.isIntersecting;
+      rouse();
+    }).observe(stage);
+    document.addEventListener("visibilitychange", rouse);
+  }
+
+  if (still) {
+    // The stylesheet's business.
+  } else if (asked.has("sun")) {
+    // ?sun=0.5 holds the light where it is asked to be, for looking at one moment of it.
+    light(Number(asked.get("sun")));
+    stage.classList.add("is-lit");
+    rouse();
+  } else {
+    // One light, and three things that say where it should be. The page opens on the dark room: the
+    // light is where it will be, but there is none of it yet, and the display shows the terminal's
+    // text from side to side. Then the light comes up, as a room's does when a curtain is opened, in
+    // under two seconds, and where it lies the terminal's text goes out and the interface comes in.
+    // The light is not moved for this: the stylesheet brings it up, and takes away the copy of the
+    // terminal's text that filled the part of the glass the light is on. From there the light goes to and
+    // fro as a day's light does, slow at both ends, 64 seconds each way, and turns while the terminal's
+    // text is still a column that can be read, so the shade is always at the left and the light at the
+    // right, as the words under the display say. And while a mouse is over the display the light's
+    // side follows it, so the two screens can be looked into by hand. The light goes after where it
+    // should be, never jumps to it.
+    // On a phone, where only the display's left three quarters are in view, everything is further in.
+    // FIRST is the stylesheet's --sun. WAIT is how long the dark room is looked at, OPEN how long the
+    // light takes to come up (the stylesheet's --open).
+    const DAY = 128_000, FROM = phone.matches ? 0.2 : 0, TO = 0.6, FIRST = phone.matches ? 0.35 : 0.3;
+    const WAIT = 320, OPEN = 1800;
+    const OUT = phone.matches ? -0.5 : -0.95, FAR = 0.65, AHEAD = 0.03;
+    const begin = Math.acos(1 - (2 * (FIRST - FROM)) / (TO - FROM));
+    const day = (ms: number) => FROM + (TO - FROM) * (0.5 - 0.5 * Math.cos(begin + (ms / DAY) * 2 * Math.PI));
+    let near = FIRST; // where the light is going by way of
+    let hand: number | null = null; // where the mouse asks it to be
+    let clock = 0;
+
+    const turn = (passed: number) => {
+      clock += passed;
+      const aim = hand ?? day(clock);
+      const ease = 1 - Math.exp(-passed / (hand === null ? 420 : 90));
+      near += (aim - near) * ease;
+      sun += (near - sun) * ease;
+    };
+
+    // The terminal's text for the rest of the glass, while the room is dark: a copy of what the
+    // display's left part shows, seen through the shape that the terminal's own shape leaves.
+    const ghost = document.createElement("div");
+    ghost.className = "scene__glass scene__ghost";
+    ghost.setAttribute("aria-hidden", "true");
+    ghost.inert = true;
+    ghost.append(pairs[at].term.cloneNode(true));
+    terms.after(ghost);
+    light(FIRST);
+    rouse();
+
+    // The mouse: only one that hovers, and only once it has really moved (a browser reports a mouse
+    // at rest when the page under it changes).
+    const scene = stage.parentElement!;
+    const hovers = matchMedia("(hover: hover) and (pointer: fine)");
+    const says = () => scene.classList.toggle("can-move", hovers.matches);
+    hovers.addEventListener("change", says);
+    says();
+    let seen = "";
+    scene.addEventListener("pointermove", (ev) => {
+      const where = `${ev.clientX},${ev.clientY}`;
+      const moved = seen !== "" && seen !== where;
+      seen = where;
+      if (!moved || !hovers.matches || ev.pointerType !== "mouse") return;
+      const pane = glass.getBoundingClientRect(), room = stage.getBoundingClientRect();
+      const over = ev.clientX >= pane.left && ev.clientX <= pane.right && ev.clientY >= pane.top && ev.clientY <= pane.bottom;
+      // The light's side goes a little ahead of the mouse, so that the mouse is in the light.
+      hand = over ? Math.min(FAR, Math.max(OUT, lightAt(ev.clientX - room.left - AHEAD * room.width, ev.clientY - room.top))) : null;
+      if (over) scene.classList.add("has-moved");
+    });
+    scene.addEventListener("pointerleave", () => (hand = null));
+
+    // It begins once there is something to light: the room's two pictures and the masks' four.
+    const ready = [
+      ...[...stage.querySelectorAll("img")].map((img) => img.decode().catch(() => {})),
+      ...["light", "glass-view", "glass-term", "glass-rest"].map((name) => {
+        const img = new Image();
+        img.src = `/scene/${name}.webp`;
+        return img.decode().catch(() => {});
+      }),
+    ];
+    Promise.race([Promise.all(ready), new Promise((done) => setTimeout(done, 2500))]).then(() => {
+      setTimeout(() => stage.classList.add("is-lit"), WAIT);
+      setTimeout(() => {
+        ghost.remove();
+        lit = true;
+        follow = turn;
+        show(at);
+      }, WAIT + OPEN + 60);
+    });
+  }
+</script>
+<style is:global>
+  body.hero-scene {
+    --ground: #040404;
+    --ink: #f3f3f1;
+    --muted: #9c9c98;
+    --font: "Instrument Sans Variable", ui-sans-serif, system-ui, sans-serif;
+    --mono: "JetBrains Mono Variable", ui-monospace, monospace;
+    --gutter: clamp(20px, 4.4vw, 64px);
+    /* The picture covers the screen; this is the width it is shown at, and how far it is pushed
+       past the right edge, so that the display stands near that edge. */
+    --w: max(103.7vw, 177.78svh);
+    --past: min(0.035 * var(--w), var(--w) - 100vw);
+  }
+  body.hero-scene .hn {
+    position: absolute;
+    inset: 0 0 auto;
+    justify-content: flex-start;
+    gap: clamp(28px, 4vw, 56px);
+  }
+  .scene {
+    position: relative;
+    min-height: 100svh;
+    display: grid;
+    align-items: center;
+    padding: 96px var(--gutter) clamp(40px, 8vh, 96px);
+    overflow: hidden;
+  }
+  /* On a very wide page the picture is taller than the hero, so the hero's own end goes into the
+     ground as well. The words lie above it. */
+  .scene::after {
+    content: "";
+    position: absolute;
+    z-index: 1;
+    inset: auto 0 0;
+    height: 9svh;
+    background: linear-gradient(
+      color-mix(in srgb, var(--ground) 0%, transparent),
+      color-mix(in srgb, var(--ground) 6%, transparent) 15%,
+      color-mix(in srgb, var(--ground) 24%, transparent) 32%,
+      color-mix(in srgb, var(--ground) 50%, transparent) 50%,
+      color-mix(in srgb, var(--ground) 76%, transparent) 68%,
+      color-mix(in srgb, var(--ground) 94%, transparent) 85%,
+      var(--ground)
+    );
+    pointer-events: none;
+  }
+  .scene__say,
+  .scene__key {
+    z-index: 2;
+  }
+  .scene__stage {
+    /* Where the light is on its way across the room: 0 with its left side in the middle of the glass,
+       more to the left of that, less to the right. Here it is where the page opens (the script's
+       FIRST): the light is there, and comes up out of the dark. The script moves it on from there. */
+    --sun: 0.3;
+    /* How long the light takes to come up as the page opens (the script's OPEN). */
+    --open: 1.8s;
+    /* Where the light's shape stands in the room: it is 1.3 pictures wide and starts above it. */
+    --x: calc(var(--w) * (-0.066 - 0.32 * var(--sun)));
+    --y: calc(var(--w) * -0.065);
+    /* Where the display's glass begins in the room. */
+    --gx: calc(var(--w) * 0.3393);
+    --gy: calc(var(--w) * 0.0933);
+    position: absolute;
+    right: calc(-1 * var(--past));
+    /* A little under the middle, but never so low that the page shows above the picture. */
+    top: min(54%, var(--w) * 0.2827);
+    width: var(--w);
+    aspect-ratio: 2688 / 1520;
+    transform: translateY(-50%);
+  }
+  .scene__room {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  /* The room where the window's light lies: the same picture, lit, and everything the light is on.
+     The shape is the light of a window on a bare wall. */
+  .scene__lit {
+    position: absolute;
+    inset: 0;
+    /* The picture of the mask and where it stands are given apart. Given in one line, WebKit asks
+       for the picture again each time the place changes, and draws nothing while it waits. */
+    -webkit-mask-image: url("/scene/light.webp");
+    mask-image: url("/scene/light.webp");
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: calc(var(--w) * 1.3) auto;
+    mask-size: calc(var(--w) * 1.3) auto;
+    -webkit-mask-position: var(--x) var(--y);
+    mask-position: var(--x) var(--y);
+  }
+  .scene__room--lit {
+    position: absolute;
+    inset: 0;
+  }
+  /* The page opens on the dark room. The light comes up when the script says the room is lit. As it
+     does, the terminal's text on the rest of the glass (a copy, put there by the script for this)
+     goes out first and the interface comes in after it, so that the two are not read over each
+     other for long. */
+  .scene__lit {
+    transition: opacity var(--open) cubic-bezier(0.45, 0, 0.25, 1);
+  }
+  .scene__ghost {
+    transition: opacity calc(var(--open) * 0.55) cubic-bezier(0.45, 0, 0.6, 1);
+  }
+  .scene__show {
+    transition: opacity calc(var(--open) * 0.65) cubic-bezier(0.3, 0, 0.25, 1) calc(var(--open) * 0.35);
+  }
+  .scene__stage:not(.is-lit) .scene__lit,
+  .scene__stage:not(.is-lit) .scene__show,
+  .scene__stage.is-lit .scene__ghost {
+    opacity: 0;
+  }
+  .scene__ghost {
+    -webkit-mask-image: url("/scene/glass-rest.webp");
+    mask-image: url("/scene/glass-rest.webp");
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: calc(var(--w) * 1.3) auto;
+    mask-size: calc(var(--w) * 1.3) auto;
+    -webkit-mask-position: calc(var(--x) - var(--gx)) calc(var(--y) - var(--gy));
+    mask-position: calc(var(--x) - var(--gx)) calc(var(--y) - var(--gy));
+  }
+  /* Under the display the wall goes into the page's ground: slowly at first and slowly at the end,
+     so that the eye finds no edge. */
+  .scene__fall {
+    --g: var(--ground);
+    position: absolute;
+    inset: 78% 0 0;
+    background: linear-gradient(
+      color-mix(in srgb, var(--g) 0%, transparent),
+      color-mix(in srgb, var(--g) 3%, transparent) 5.6%,
+      color-mix(in srgb, var(--g) 10%, transparent) 11.2%,
+      color-mix(in srgb, var(--g) 22%, transparent) 16.8%,
+      color-mix(in srgb, var(--g) 35%, transparent) 22.4%,
+      color-mix(in srgb, var(--g) 50%, transparent) 28%,
+      color-mix(in srgb, var(--g) 65%, transparent) 33.6%,
+      color-mix(in srgb, var(--g) 78%, transparent) 39.2%,
+      color-mix(in srgb, var(--g) 90%, transparent) 44.8%,
+      color-mix(in srgb, var(--g) 97%, transparent) 50.4%,
+      var(--g) 56%
+    );
+    pointer-events: none;
+  }
+  /* The terminal's text: everything on the glass left of the light's left side. It does not end in a
+     line: along that side there is a soft band, as light's own edge is soft, in which the text goes
+     out before the side and the interface comes in after it, so that the two are never read over
+     each other. The shape has the light's size and place. */
+  .scene__dark {
+    -webkit-mask-image: url("/scene/glass-term.webp");
+    mask-image: url("/scene/glass-term.webp");
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: calc(var(--w) * 1.3) auto;
+    mask-size: calc(var(--w) * 1.3) auto;
+    -webkit-mask-position: calc(var(--x) - var(--gx)) calc(var(--y) - var(--gy));
+    mask-position: calc(var(--x) - var(--gx)) calc(var(--y) - var(--gy));
+  }
+  /* The leaves outside, moving: their shadows darken what the window's light lies on, the wall and
+     the glass. What the glass shows is its own light and comes after them. They drift, slowly. */
+  .scene__shade {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    background: #fff;
+    mix-blend-mode: multiply;
+  }
+  .scene__leaves {
+    position: absolute;
+    left: -8%;
+    top: -30%;
+    width: 180%;
+    height: 180%;
+    object-fit: cover;
+    opacity: 0.72;
+    filter: grayscale(1) brightness(1.55) contrast(1.2);
+    /* It drifts from here, slowly: the script moves it. */
+    transform: translateX(3%);
+  }
+  /* The light's own grey on the glass is held back a little, so that what the glass shows is read
+     in it, but the glass in the light is plainly lighter than the glass in the shade. */
+  .scene__shade::after {
+    content: "";
+    position: absolute;
+    left: 33.93%;
+    top: 16.5%;
+    width: 59.26%;
+    height: 59.74%;
+    background: rgb(0 0 0 / 0.2);
+  }
+  /* The display's glass, where it is in the picture. The two layers that show something on it are no
+     larger than it, and their masks are set back by where it stands (--gx, --gy), so that they keep
+     the place in the room that the light's mask has. */
+  .scene__glass {
+    --shown: calc(0.5926 * var(--w));
+    /* How tall the terminal's tab strip is, at the top of the glass. */
+    --bar: calc(var(--shown) * var(--bar-of, 40) / 1280);
+    position: absolute;
+    left: 33.93%;
+    top: 16.5%;
+    width: 59.26%;
+    height: 59.74%;
+    overflow: hidden;
+  }
+  /* What the glass shows in the light is light, and is added to the light that lies on it. It has the
+     light's shape, but a plainer one than the wall has: its left side is one straight, soft band,
+     after the terminal's text has gone out, and inside its outline the shadows of the bars and the
+     leaves take away only a quarter, so that it is read under them. */
+  .scene__show {
+    /* The lit glass is not black: the interface's own ground is lifted, warm as the light is, here
+       and under the tab strip. The room's only colour is the light's warmth and what the glass shows in it. */
+    --lift: #1c1a16;
+    background: var(--lift);
+    mix-blend-mode: screen;
+    -webkit-mask-image: url("/scene/glass-view.webp");
+    mask-image: url("/scene/glass-view.webp");
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: calc(var(--w) * 1.3) auto;
+    mask-size: calc(var(--w) * 1.3) auto;
+    -webkit-mask-position: calc(var(--x) - var(--gx)) calc(var(--y) - var(--gy));
+    mask-position: calc(var(--x) - var(--gx)) calc(var(--y) - var(--gy));
+  }
+  .scene__glass > *,
+  .scene__app > * {
+    transition: opacity 0.4s ease;
+  }
+  .scene__stage.is-dip .scene__app > *,
+  .scene__stage.is-dip [data-terms] > * {
+    opacity: 0;
+  }
+  .scene__stage[data-pair="top"] [data-pair="text"],
+  .scene__stage[data-pair="text"] [data-pair="top"] {
+    display: none;
+  }
+  /* The terminal's tab strip, along the top of the glass, in the shade and in the light alike: what
+     is under it, text or an interface, is in a terminal's pane. It is a plain strip, no one
+     terminal's: one tab with a prompt on its tile, named as a shell names it. It is not masked, so
+     it runs unbroken across the edge where the two screens meet. */
+  .scene__bar {
+    pointer-events: none;
+  }
+  .scene__tabs {
+    display: flex;
+    align-items: center;
+    gap: 0.45em;
+    height: var(--bar);
+    padding: 0 0.6em;
+    border-bottom: 1px solid rgb(255 255 255 / 0.1);
+    color: #a2a4aa;
+    font: 500 calc(var(--bar) * 0.4) / 1 var(--mono);
+    white-space: nowrap;
+  }
+  .scene__tabs span {
+    display: flex;
+    align-items: center;
+    gap: 0.55em;
+    height: 74%;
+    padding: 0 0.95em 0 0.5em;
+    border-radius: 0.7em;
+  }
+  .scene__tabs .is-on {
+    background: rgb(255 255 255 / 0.11);
+    color: #eceded;
+  }
+  .scene__tabs svg {
+    width: 1.6em;
+    height: 1.3em;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .scene__tabs rect {
+    fill: rgb(255 255 255 / 0.09);
+    stroke: none;
+  }
+  .scene__tabs b {
+    padding: 0 0.6em;
+    font-weight: 400;
+    font-size: 1.25em;
+  }
+  /* The interface, at its own size (the script gives it), brought to the glass's, under the strip. */
+  .scene__app {
+    position: absolute;
+    left: 0;
+    top: var(--bar);
+    transform-origin: 0 0;
+    transform: scale(var(--k, 1));
+    pointer-events: none;
+  }
+  .scene__app .pn {
+    inset: 0;
+    /* A mockup comes in with a short animation of its own. Here the screens change under a dip, and
+       in WebKit that animation never starts on this glass, which leaves the interface unseen. */
+    animation: none;
+    --bt-bg: var(--lift);
+    /* In the light the display is turned up. */
+    filter: saturate(1.35) brightness(1.14);
+  }
+  /* At these sizes: the count stays on one line, and the editor's tree takes its narrow width, which
+     leaves the two files room for their lines. */
+  .scene__app .tp-count {
+    white-space: nowrap;
+  }
+  /* The monitor is shown with less of itself than its own page shows, so that the glass is read at a
+     glance: three of its five cards, its table with the running processes' state in the table's quiet
+     grey, and no line of keys under it. */
+  .scene__app .tp-cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .scene__app .tp-card:nth-child(n + 4),
+  .scene__app .pn--top .pn-keys {
+    display: none;
+  }
+  .scene__app .tp-tr .pn-ok {
+    color: var(--bt-dim);
+  }
+  .scene__app .tx-in {
+    grid-template-columns: 186px minmax(0, 1fr);
+  }
+
+  /* The terminal's screens: text on the glass, at the size the interface's own text has. */
+  .tm {
+    position: absolute;
+    inset: var(--bar) 0 0;
+    margin: 0;
+    padding: calc(var(--shown) * 6 / 1280) calc(var(--shown) * 8 / 1280);
+    overflow: hidden;
+    color: #c8c9cc;
+    font-family: var(--mono);
+    font-size: calc(var(--shown) * var(--tm-of, 15) / 1280);
+    line-height: 1.42;
+    font-variant-ligatures: none;
+    white-space: pre;
+    pointer-events: none;
+    /* In the shade the display is turned down and has no colour at all, but it is still read. */
+    opacity: 0.56;
+    filter: grayscale(1);
+  }
+  .tm b {
+    font-weight: 600;
+    color: #e6e7ea;
+  }
+  .tm-c {
+    color: #79b3b3;
+  }
+  .tm-g {
+    color: #8bb58b;
+  }
+  .tm-r {
+    color: #d16d6a;
+  }
+  .tm-q {
+    color: #7b7e86;
+  }
+  .tm-head,
+  .tm-sel {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    vertical-align: top;
+    color: #0b0c0e;
+  }
+  .tm-head {
+    background: #8bb58b;
+  }
+  .tm-sel {
+    background: #79b3b3;
+  }
+  .tm-foot {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 0 calc(var(--shown) * 8 / 1280);
+    overflow: hidden;
+    background: #000;
+  }
+  .tm-key {
+    background: #79b3b3;
+    color: #0b0c0e;
+  }
+  .tm-cur {
+    background: #c8c9cc;
+    color: #000;
+    animation: tm-blink 1.1s steps(1, end) infinite;
+  }
+  @keyframes tm-blink {
+    50% {
+      background: none;
+      color: inherit;
+    }
+  }
+
+  /* The words take the wall left of the display, whose frame begins 66.4% of the picture from the
+     picture's right edge. One family, four sizes: the name, the sentence, what it is, where to go. */
+  .scene__say {
+    position: relative;
+    container-type: inline-size;
+    width: calc(100vw + var(--past) - 0.6644 * var(--w) - var(--gutter) - 2.4vw);
+    margin-bottom: clamp(24px, 7vh, 72px);
+  }
+  .scene__name {
+    margin: 0 0 clamp(14px, 2.4vh, 22px);
+    font-size: 15px;
+    line-height: 1.3;
+    letter-spacing: -0.003em;
+    color: var(--muted);
+  }
+  .scene__name b {
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .scene h1 {
+    margin: 0 0 0 -0.035em;
+    font-weight: 480;
+    font-size: clamp(32px, 16cqw, 76px);
+    line-height: 0.97;
+    letter-spacing: -0.042em;
+  }
+  .scene__lead {
+    margin: clamp(18px, 3vh, 28px) 0 0;
+    max-width: 26.5rem;
+    font-size: clamp(16px, 1.22vw, 18px);
+    line-height: 1.52;
+    letter-spacing: -0.008em;
+    color: #c4c4c0;
+    text-wrap: pretty;
+  }
+  .scene__go {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 24px;
+    margin-top: clamp(22px, 3.6vh, 34px);
+    font-size: 15px;
+    font-weight: 560;
+    letter-spacing: -0.005em;
+  }
+  .scene__go a {
+    text-underline-offset: 5px;
+    text-decoration-thickness: 1px;
+    text-decoration-color: rgba(243, 243, 241, 0.4);
+    transition: text-decoration-color 0.15s ease;
+  }
+  .scene__go a:hover {
+    text-decoration-color: currentColor;
+  }
+  .scene__go a:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 3px;
+  }
+  .scene__go .scene__main {
+    padding: 12px 19px 13px;
+    border-radius: 999px;
+    background: var(--ink);
+    color: #111;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background 0.15s ease;
+  }
+  .scene__go .scene__main:hover {
+    background: #fff;
+  }
+  /* What the display is showing, in words, under its two lower corners: the shade's at the left, the
+     light's at the right, as they lie on the glass. They change with the display. The display's frame
+     begins 0.3348 of the picture from the picture's left and ends 0.9368 from it; its lower edge is
+     0.157 of the picture's width under the picture's middle. */
+  .scene__key {
+    position: absolute;
+    left: calc(100% + var(--past) - var(--w) * 0.6652);
+    top: calc(min(54%, var(--w) * 0.2827) + var(--w) * 0.157 + clamp(16px, 2.6vh, 26px));
+    width: calc(var(--w) * 0.602);
+    display: flex;
+    justify-content: space-between;
+    gap: 24px;
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.35;
+    color: #c9c9c5;
+    /* The right one lies where the window's light can be on the wall. */
+    text-shadow: 0 0 3px rgb(0 0 0 / 0.55), 0 1px 16px rgb(0 0 0 / 0.75);
+    transition: opacity 0.4s ease;
+  }
+  .scene__key.is-dip {
+    opacity: 0;
+  }
+  .scene__key > div {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75em;
+    white-space: nowrap;
+  }
+  .scene__side {
+    color: #9a9a95;
+  }
+  /* Between the two, for a mouse: the light can be moved by hand. It is there only where the script
+     follows the mouse, and goes once the light has been moved. */
+  .scene__hint {
+    display: none;
+    margin: 0;
+    color: #8d8d88;
+    white-space: nowrap;
+    transition: opacity 0.6s ease;
+  }
+  /* Only where the row is long enough for three: it is 0.602 of the picture's width. */
+  @media (min-width: 1346px), (min-height: 785px) {
+    .scene.can-move .scene__hint {
+      display: block;
+    }
+  }
+  .scene.has-moved .scene__hint {
+    opacity: 0;
+  }
+  .scene__key b {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: 0.93em;
+    color: var(--ink);
+  }
+  .scene__key[data-pair="top"] [data-pair="text"],
+  .scene__key[data-pair="text"] [data-pair="top"] {
+    display: none;
+  }
+
+  /* A narrow or upright page: the words first, then the display, as wide as the page. */
+  @media (max-width: 860px), (max-aspect-ratio: 3/2) {
+    body.hero-scene {
+      --w: 156vw;
+    }
+    .scene {
+      align-items: start;
+      padding-top: 88px;
+      padding-bottom: 0;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto auto 1fr;
+    }
+    .scene__say {
+      width: auto;
+      container-type: normal;
+    }
+    .scene h1 {
+      font-size: clamp(38px, 10.6vw, 64px);
+    }
+    .scene__say {
+      margin-bottom: 0;
+    }
+    .scene::after {
+      content: none;
+    }
+    .scene__key {
+      position: static;
+      order: 2;
+      /* Here the words are on the dark ground, not on the lit wall. */
+      text-shadow: none;
+      display: grid;
+      gap: 6px;
+      width: auto;
+      margin-top: 26px;
+    }
+    .scene.can-move .scene__hint {
+      display: none;
+    }
+    .scene__key > div {
+      display: grid;
+      grid-template-columns: 6.6em auto;
+      gap: 0;
+      white-space: normal;
+    }
+    .scene__stage {
+      order: 3;
+      align-self: end;
+      position: relative;
+      right: auto;
+      top: auto;
+      transform: none;
+      margin: 8px 0 calc(var(--w) * -0.075) calc(-1 * var(--gutter) - 0.3356 * var(--w) + 4vw);
+    }
+    /* The picture's top edge goes into the page's ground. */
+    .scene__stage::after {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto;
+      height: 14%;
+      background: linear-gradient(var(--ground), transparent);
+      pointer-events: none;
+    }
+  }
+  /* A phone: the display is seen from close by, so that what it shows can be read. Its left edge is
+     in view and its right end is past the page's edge; the script keeps the light's edge in view. */
+  @media (max-width: 600px) {
+    body.hero-scene {
+      --w: 220vw;
+    }
+    .scene__glass {
+      --bar-of: 50;
+      --tm-of: 19;
+    }
+    .scene__stage {
+      --sun: 0.35;
+    }
+
+    .scene__stage {
+      margin: calc(var(--w) * -0.03) 0 calc(var(--w) * -0.075) calc(-1 * var(--gutter) - 0.3348 * var(--w) + 3vw);
+    }
+    /* The editor without its tree, as it is when the tree is closed: the two files take the pane. */
+    .scene__app .tx-in {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .scene__app .tx-side {
+      display: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    /* Nothing moves: the light rests where both screens are there to see, and is there at once. */
+    .scene__stage {
+      --sun: 0.3;
+    }
+    .scene__stage .scene__lit,
+    .scene__stage .scene__show {
+      opacity: 1;
+      transition: none;
+    }
+    .scene__leaves {
+      transform: none;
+    }
+    .tm-cur,
+    .tx-caret {
+      animation: none;
+    }
+  }
+</style>

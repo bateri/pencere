@@ -2376,6 +2376,12 @@ impl<P: Peer> Headless<P> {
             .collect()
     }
 
+    /// The pictures of the page, decoded: what a picture of the last frame's draw list is drawn
+    /// with ([`crate::shot::png`]).
+    pub fn images(&self) -> Option<&Images> {
+        self.page.images()
+    }
+
     /// The page as the module last made it.
     pub fn root(&self) -> Option<&Element> {
         self.page.root()
@@ -2412,6 +2418,11 @@ impl<P: Peer> Headless<P> {
             .fields
             .get(&Id::named(name))
             .map(|held| held.text.as_str())
+    }
+
+    /// What the host's field `id` holds, for a field known by its id alone ([`Headless::outline`]).
+    pub fn field_of(&self, id: Id) -> Option<&str> {
+        self.seen.fields.get(&id).map(|held| held.text.as_str())
     }
 
     /// What is selected in the host's field named `name`, characters from 0: the caret alone where

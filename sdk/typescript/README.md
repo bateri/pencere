@@ -4,10 +4,18 @@ Show a view in the terminal pane your program runs in.
 
 A program running in a terminal pane — on your machine, or on a server reached over plain
 ssh — can show a view of its own in that pane, the way a full-screen program takes the screen and
-gives it back when it ends. The view is a web page, or a WebAssembly component or a Lua script the
-terminal draws itself; whichever it is, it and your program talk in six small messages, carried in
-the terminal's own byte stream. This package is the program's side of that, as the
+gives it back when it ends. The view is a web page, or a Lua script the terminal draws itself;
+whichever it is, it and your program talk in six small messages, carried in the terminal's own byte
+stream. This package is the program's side of that, as the
 [specification](https://github.com/bateri/pencere/blob/main/spec/draft/pencere.md) defines it.
+
+```sh
+npm install @pencere/sdk
+```
+
+`pencere new <name> --lang ts` starts a project that uses it, with a web page for its view, or with
+a page of the kit (`--page lua`): the
+[`pencere` command](https://github.com/bateri/pencere/blob/main/cli/README.md).
 
 ```ts
 import { bundleFromDirectory, serve } from "@pencere/sdk";

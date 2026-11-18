@@ -1380,6 +1380,7 @@ fn kind_out(
                         width: share(stroke.width),
                         color: color_out(&stroke.color),
                     }),
+                    crisp: path.crisp,
                 });
             }
             Kind::Canvas(out)
@@ -4513,6 +4514,7 @@ mod tests {
                 width: -2.0,
                 color: accent(),
             }),
+            crisp: false,
         });
         let mut canvas = node(wit::Content::Canvas(wit::Slice { start: 0, len: 1 }), 0);
         canvas.style.overlay = true;
@@ -4654,6 +4656,7 @@ mod tests {
             segments: wit::Slice { start: 0, len: 3 },
             fill: None,
             stroke: None,
+            crisp: false,
         });
         let canvas = node(wit::Content::Canvas(wit::Slice { start: 0, len: 1 }), 0);
         assert!(matches!(

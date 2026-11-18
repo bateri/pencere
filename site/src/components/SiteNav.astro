@@ -1,0 +1,29 @@
+---
+// The site's navigation, the same on every page. On the home page it lies over the scene; on the
+// others it stands in the page's column (`column`), and says which part of the site this is (`path`).
+import Mark from "./Mark.astro";
+import { REPO } from "../lib/code.js";
+
+interface Props {
+  path?: string;
+  column?: boolean;
+}
+const { path = "", column = false } = Astro.props;
+const under = (prefix: string) => path === prefix || path.startsWith(`${prefix}/`);
+// The links are what a reader comes for. Start and the components are pages of the documentation
+// with links of their own, so Docs is every other page of it.
+const start = path === "kit/start";
+const components = under("kit/components");
+const here = { start, components, docs: (under("kit") || under("sdk")) && !start && !components, spec: under("spec") };
+const mark = (on: boolean) => (on ? "page" : undefined);
+---
+<header class:list={["hn", { "hn--column": column }]}>
+  <a class="hn__brand" href="/" aria-label="pencere, home"><Mark /> pencere</a>
+  <nav class="hn__links" aria-label="Site">
+    <a href="/kit/start" aria-current={mark(here.start)}>Start</a>
+    <a href="/kit" aria-current={mark(here.docs)}>Docs</a>
+    <a class="hn__wide" href="/kit/components" aria-current={mark(here.components)}>Components</a>
+    <a href="/spec" aria-current={mark(here.spec)}>Specification</a>
+    <a class="hn__wide" href={REPO}>GitHub</a>
+  </nav>
+</header>

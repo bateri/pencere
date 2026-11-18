@@ -1,0 +1,18 @@
+---
+// The site's footer, the same on every page.
+import Mark from "./Mark.astro";
+import { REPO } from "../lib/code.js";
+---
+<footer class="hf">
+  <a class="hn__brand" href="/" aria-label="pencere, home"><Mark /> pencere</a>
+  <p>Open source under the Apache License 2.0.</p>
+  <nav aria-label="Footer">
+    <a href="/kit/start">Start</a>
+    <a href="/kit">Docs</a>
+    <a href="/kit/components">Components</a>
+    <a href="/spec">Specification</a>
+    <a href="/kit/command">The pencere command</a>
+    <a href="/host">For terminals</a>
+    <a href={REPO}>GitHub</a>
+  </nav>
+</footer>

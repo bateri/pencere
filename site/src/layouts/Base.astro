@@ -1,0 +1,57 @@
+---
+// The document of every page but the home page: the site's ground, type and colours, its navigation
+// and its footer in the page's column.
+import "@fontsource-variable/instrument-sans";
+import "@fontsource-variable/jetbrains-mono";
+import "../styles/shell.css";
+import "../styles/site.css";
+// A document's styles are read here, after the site's, and not by the layout that uses them: a
+// stylesheet a page's own layout asks for is put before the shared ones when the site is built and
+// after them while it is watched, and the two then look different wherever both say something.
+import "../styles/spec.css";
+import Meta from "../components/Meta.astro";
+import SiteNav from "../components/SiteNav.astro";
+import SiteFoot from "../components/SiteFoot.astro";
+
+interface Props {
+  title: string;
+  description: string;
+  path?: string;
+}
+const { title, description, path = "" } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <Meta title={title} description={description} path={path} />
+    <meta name="theme-color" content="#040404" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body class="inner">
+    <a class="skip" href="#main">Skip to the content</a>
+    <SiteNav path={path} column />
+    <main id="main">
+      <slot />
+    </main>
+    <SiteFoot />
+    <script>
+      // The part of a page's side that scrolls says whether there is more of it above or below, so
+      // that its lines fade at that edge and at no other (styles/site.css, data-more).
+      for (const part of document.querySelectorAll<HTMLElement>(".side > .side__groups, .side > .side__scroll")) {
+        const say = () => {
+          const up = part.scrollTop > 2, down = part.scrollTop + part.clientHeight < part.scrollHeight - 2;
+          part.dataset.more = up && down ? "both" : up ? "up" : down ? "down" : "none";
+        };
+        part.addEventListener("scroll", say, { passive: true });
+        new ResizeObserver(say).observe(part);
+        if (part.firstElementChild) new ResizeObserver(say).observe(part.firstElementChild);
+        say();
+      }
+    </script>
+  </body>
+</html>

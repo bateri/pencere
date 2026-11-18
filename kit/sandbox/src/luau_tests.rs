@@ -1938,8 +1938,8 @@ fn a_script_says_texts_of_many_looks_canvases_overlays_commands_and_roles_as_the
                     pencere.span(" docs"):link("docs"):color("accent"),
                 }):wrap())
                 :child(pencere.canvas({
-                    pencere.path():rect(0, 0, 4, 8):fill("raised3"),
-                    pencere.path():arc(10, 10, 8, 0, 180):stroke(2, "accent"),
+                    pencere.path():rect(0, 0, 4, 8):fill("raised3"):crisp(),
+                    pencere.path():arc(10, 10, 8, 0, 180):stroke(2, "accent"):crisp(false),
                 }):size(20, 20))
                 :child(pencere.div():id("menu"):anchor("button", "above", { gap = 4, align = "end" }))
                 :child(pencere.div():overlay():inset(0, 0, 0, 0):bg_gradient(90, "accent", "background"))
@@ -1984,6 +1984,8 @@ fn a_script_says_texts_of_many_looks_canvases_overlays_commands_and_roles_as_the
     assert_eq!(paths.len(), 2);
     assert_eq!(paths[0].fill, Some(Role::Raised(3).solid()));
     assert_eq!(paths[0].segments.len(), 5);
+    assert!(paths[0].crisp, "crisp() draws the path with no smoothing");
+    assert!(!paths[1].crisp, "crisp(false) takes it back");
     // Half a turn: a move and two quarter curves, ending at six o'clock.
     assert_eq!(paths[1].segments.len(), 3);
     let pencere_view::Segment::Cubic { to, .. } = paths[1].segments[2] else {

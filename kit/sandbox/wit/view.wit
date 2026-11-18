@@ -472,6 +472,10 @@ interface types {
         segments: slice,
         fill: option<color>,
         stroke: option<stroke>,
+        /// Drawn with no smoothing: a pixel is the path's where its middle is inside it (or under
+        /// its line), so that edges that fall between pixels are not blurred and shapes that touch
+        /// leave no seam. A line thinner than a pixel may not be drawn at all.
+        crisp: bool,
     }
 
     /// What an element is.

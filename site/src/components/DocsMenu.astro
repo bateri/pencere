@@ -1,0 +1,28 @@
+---
+// The menu of the documentation: its pages by what a reader comes for, the same and in the same
+// place on every page of an area, with the page the reader is on marked. The pages and their groups
+// are the site's map (src/docs.js). What a page opens (the components, a document's sections) is
+// listed under the menu by the page's layout, never inside it, so that no link moves.
+import { PAGES, menu } from "../docs.js";
+
+interface Props {
+  path: string;
+}
+const { path } = Astro.props;
+// The page the reader is on, or the page it is under: a component's page is under Components. The
+// longest address wins, so that every page of the kit is not under the kit's overview.
+const here = PAGES.filter((page) => page.area && (path === page.path || path.startsWith(`${page.path}/`))).sort(
+  (a, b) => b.path.length - a.path.length,
+)[0];
+const groups = menu(here?.area ?? "apps");
+---
+{
+  groups.map((group) => (
+    <>
+      <h2>{group.name}</h2>
+      <ul class="side__menu">
+        {group.pages.map((page) => <li><a href={`/${page.path}`} aria-current={page === here ? "page" : undefined}>{page.words}</a></li>)}
+      </ul>
+    </>
+  ))
+}

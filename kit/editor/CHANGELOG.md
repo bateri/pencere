@@ -31,6 +31,11 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
   the lines are walked again only when a change shortens the longest line itself or touches many
   lines. Where the editor wraps, the rows are still counted line by line.
 
+### Fixed
+
+- A line that wraps into more rows than the room shows, scrolled partly above the room, no longer
+  leaves the lines below it undrawn: its rows above the room took the place of theirs.
+
 ## [0.4.1] - 2026-11-05
 
 ### Changed

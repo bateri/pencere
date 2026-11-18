@@ -108,34 +108,36 @@ An element is a plain table that a chain of builder methods fills. Lengths are p
 | `pencere.editor(id, options)`    | The room of an editor of text the host keeps, lays out and draws (below); `div():editor(id, options)` the same.    |
 | `pencere.spacer()`               | A box that takes the room left over.                                                                               |
 
-The builders return the element. Layout: `row`, `col`, `wrap`, `grid(columns)`, `grid_rows(rows)`,
-`span`, `hidden`, `items_start|center|end|stretch`, `justify_start|center|end|between`, `gap`,
-`gap_x`, `gap_y`, `grow`, `no_shrink`, `w`, `h`, `size`, `w_pct`, `w_full`, `h_full`, `size_full`,
-`min_w`, `min_h`, `max_w`, `max_h`, `p`, `px`, `py`, `pt|pr|pb|pl`, `mt|mr|mb|ml`, `absolute`, `inset`,
-`overlay`, `anchor(id, side, { gap =, align = })`, `clip`, `scroll()` (a box whose content scrolls
-behind it, down and across: the host scrolls it, by its id, Section 2.2), `zoom({ min =, max =,
-smart =, wheel = })` (a box that scrolls and lets the person zoom what it holds: the host zooms it,
-Section 2.2; a page's editor does not go inside one).
-Looks: `bg`, `bg_gradient(angle, from, to)`, `border(width, color)`, `rounded`, `rounded_corners`,
-`shadow(dx, dy, blur, color)`, `opacity(0..1)` (the element with all inside it: each thing it draws
-is that much fainter, its words too, past a host's floor of contrast). Text, which the elements
-inside inherit: `text_size`, `weight`, `color`,
-`family("system" | "terminal")`, `align("start" | "center" | "end")`, `italic`, `underline`, `strike`,
-`truncate`. Images: `fit("contain" | "cover")`, `tint(color)`, `page(n)` (a whole number from 1: which page of a PDF the
-picture is; a file that has no pages is its only page, and a page it has not leaves the box empty, with a
-diagnostic that says how many pages the file has. A page that asks whether the terminal draws PDFs asks
-whether `pencere.div().page` exists, as for any later addition; a host built with no PDF reader
-(`pencere-sandbox` without its `pdf` feature) leaves the box of a PDF empty and says in a diagnostic
-that the build has no PDF reader). Names and answers: `id`, `press(id)`,
-`focusable`, `focused`, `text_field(id, "line" | "lines" | "secret")`, `label(words)`, `tip(words,
-keys)`, `command(id, title, keys, enabled)`, `draggable(id)`, `drop_target(id)`, `carry({ text = | path =, url = })`. To a screen reader:
-`role(name, level)`, `checked(on)`, `selected(chosen)`, `expanded(open)`, `disabled(on)`,
-`value(words)`. Motion: `motion({...})`. Children: `child`, `children`. A grid track is a number
-(points), `pencere.fr(n)`, `pencere.range(least, n)` or `"auto"`.
+The builders return the element:
+
+| Kind                                    | Builders                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Layout                                  | `row`, `col`, `wrap`, `grid(columns)`, `grid_rows(rows)`, `span`, `hidden`, `items_start\|center\|end\|stretch`, `justify_start\|center\|end\|between`, `gap`, `gap_x`, `gap_y`, `grow`, `no_shrink`, `w`, `h`, `size`, `w_pct`, `w_full`, `h_full`, `size_full`, `min_w`, `min_h`, `max_w`, `max_h`, `p`, `px`, `py`, `pt\|pr\|pb\|pl`, `mt\|mr\|mb\|ml`, `absolute`, `inset`, `overlay`, `anchor(id, side, { gap =, align = })`, `clip`, `scroll()`, `zoom({ min =, max =, smart =, wheel = })` |
+| Looks                                   | `bg`, `bg_gradient(angle, from, to)`, `border(width, color)`, `rounded`, `rounded_corners`, `shadow(dx, dy, blur, color)`, `opacity(0..1)`                                                                                                                                                                                                                                                                                                                                                        |
+| Text, which the elements inside inherit | `text_size`, `weight`, `color`, `family("system" \| "terminal")`, `align("start" \| "center" \| "end")`, `italic`, `underline`, `strike`, `truncate`                                                                                                                                                                                                                                                                                                                                              |
+| Images                                  | `fit("contain" \| "cover")`, `tint(color)`, `page(n)`                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Names and answers                       | `id`, `press(id)`, `focusable`, `focused`, `text_field(id, "line" \| "lines" \| "secret")`, `label(words)`, `tip(words, keys)`, `command(id, title, keys, enabled)`, `draggable(id)`, `drop_target(id)`, `carry({ text = \| path =, url = })`                                                                                                                                                                                                                                                     |
+| To a screen reader                      | `role(name, level)`, `checked(on)`, `selected(chosen)`, `expanded(open)`, `disabled(on)`, `value(words)`                                                                                                                                                                                                                                                                                                                                                                                          |
+| Motion                                  | `motion({...})`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Children                                | `child`, `children`                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+
+- `scroll()` is a box whose content scrolls behind it, down and across: the host scrolls it, by its
+  id (Section 2.2).
+- `zoom(…)` is a box that scrolls and lets the person zoom what it holds: the host zooms it
+  (Section 2.2); a page's editor does not go inside one.
+- `opacity` is of the element with all inside it: each thing it draws is that much fainter, its
+  words too, past a host's floor of contrast.
+- `page(n)` is a whole number from 1: which page of a PDF the picture is; a file that has no pages
+  is its only page, and a page it has not leaves the box empty, with a diagnostic that says how
+  many pages the file has. A page that asks whether the terminal draws PDFs asks whether
+  `pencere.div().page` exists, as for any later addition; a host built with no PDF reader
+  (`pencere-sandbox` without its `pdf` feature) leaves the box of a PDF empty and says in a
+  diagnostic that the build has no PDF reader.
+- A grid track is a number (points), `pencere.fr(n)`, `pencere.range(least, n)` or `"auto"`.
 
 A builder that says a thing is so or not (`wrap`, `hidden`, `no_shrink`, `absolute`, `overlay`, `clip`,
 `scroll`, `italic`, `underline`, `strike`, `truncate`, `focusable`, `focused`, `checked`, `selected`,
-`expanded`, `disabled`, and a part's `bold`, `italic`, `underline`, `strike`) turns it on when it is
+`expanded`, `disabled`, a part's `bold`, `italic`, `underline`, `strike`, and a path's `crisp`) turns it on when it is
 called with nothing, and is otherwise what it is given: `false` and `nil` are off, so that
 `:selected(row.chosen)` with nothing in the field is not selected. `italic(false)`, `underline(false)`
 and `strike(false)` take back what the element would inherit. `hidden(false)`, `no_shrink(false)`,
@@ -213,8 +215,15 @@ top-left corner. A path (`pencere.path()`) is steps — `move_to(x, y)`, `line_t
 `quad_to(cx, cy, x, y)`, `cubic_to(ax, ay, bx, by, x, y)`, `close()`, and `rect(x, y, w, h)`,
 `arc(cx, cy, r, from, to)` (degrees clockwise from the top: a ring that fills), `circle(cx, cy, r)`
 made of them — with a colour inside it (`fill`: where a line out of a point crosses the path an odd
-number of times) and a line along it (`stroke(width, color)`, round where it turns and ends). The
-canvas has no size of its own; its style gives it one.
+number of times) and a line along it (`stroke(width, color)`, round where it turns and ends). A path
+is drawn smoothed at its edges; a **crisp** one (`crisp()`) is not: a pixel is the path's where its
+middle is inside it (or under its line) and is otherwise untouched. A host draws a point of the page
+as large as its own text is to the kit's (Section 4), seldom a whole number of pixels, so the edges
+of shapes laid on a grid of points fall between pixels: smoothed, each such edge is a pixel of part
+colour and two shapes that touch leave a faint seam; crisp, the pixels are whole and the shapes meet,
+some a pixel wider than others. It is for dots of a dithered fill, pixel art and bars that are to
+meet; a line thinner than a pixel may not be drawn at all. The canvas has no size of its own; its
+style gives it one.
 
 A **command** (`command(id, title, keys, enabled)`) is something the page can be told to do: the host
 lists it by its `title` where a person looks for what can be done (its command palette, its menus),
@@ -1474,6 +1483,10 @@ name)`), and says `{ kind = "dismiss" }` at what `dismiss` lists: `"escape"`, `"
   own, and a list with `multi` says `mark { marked }`. A `split`'s edge and a `grid`'s column say
   `resize { size, final }` (`{ column, width, final }`): `final = false` while it is dragged, `true` when
   it is let go after it moved and at each step of the keys; a press that does not move it says nothing.
+- An `icon` that a component or one of its items takes is an element the page made, a path of the
+  page's own bundle (`"icons/save.svg"`: an SVG or a PNG, tinted in the colour the component draws it
+  in), or the name of one of the library's glyphs: `check`, `chevron_down`, `chevron_left`,
+  `chevron_right`, `chevron_up`, `close`, `dash`, `dot`, `info`, `plus`, `warning`.
 - An icon-only button and a field must say what they are in words (`label`), or the page fails at the
   line that drew them. A layer takes the keyboard when it opens and gives it back when it closes.
 

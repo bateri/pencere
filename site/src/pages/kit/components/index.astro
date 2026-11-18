@@ -1,0 +1,48 @@
+---
+import Kit from "../../../layouts/Kit.astro";
+import Shot from "../../../components/Shot.astro";
+import catalog from "../../../data/catalog.json";
+import { library } from "../../../lib/project.js";
+
+// What a component is, as the page API says it of the module they are in (src/lib/project.js).
+const { says } = library().modules.find((module) => module.name === "@pencere/ui") ?? { says: "" };
+if (!says) throw new Error("kit/SPEC.md has no section for @pencere/ui.");
+
+const groups = catalog.groups.map((group) => ({
+  group,
+  components: catalog.components.filter((component) => component.group === group),
+}));
+---
+<Kit
+  title="Components: the pencere kit"
+  description="The components of the pencere kit's library: buttons, fields, tabs, lists, trees, grids, palettes and dialogs."
+  path="kit/components"
+>
+  <header>
+    <h1>Components</h1>
+    <p class="lead" set:html={says} />
+  </header>
+
+  <div id="cards">
+    {
+      groups.map(({ group, components }) => (
+        <section class="group" aria-label={group}>
+          <h2>{group}</h2>
+          <div class="cards">
+            {components.map((component) => (
+              <a class:list={["card", { "card--wide": (component.demo?.width ?? 0) > 380 }]} href={`/kit/components/${component.name}`}>
+                {component.demo ? (
+                  <Shot name={`components/${component.name}`} width={component.demo.width} height={component.demo.height} alt="" />
+                ) : (
+                  <div class="shot shot--host">The terminal draws this one, as its own menu.</div>
+                )}
+                <b>{component.name}</b>
+                <p set:html={component.summary} />
+              </a>
+            ))}
+          </div>
+        </section>
+      ))
+    }
+  </div>
+</Kit>
