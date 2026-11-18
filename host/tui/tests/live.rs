@@ -655,12 +655,61 @@ const CELL: (u32, u32) = (10, 20);
 /// says nothing of its colours is drawn in).
 const GROUND: &[u8] = b"\x1b]11;rgb:0d/11/17\x1b\\";
 
+/// The same ground, as a pixel of the window.
+const GROUND_PIXEL: [u8; 4] = [0x0d, 0x11, 0x17, 0xff];
+
+/// Whether `window`, `width` pixels across, shows a page, and not the line that stands in for one
+/// until its module has handed it out ("Starting the page…"): that line is one row of words in the
+/// middle of the window, on the ground, and every page here draws above or below it.
+fn shows_page(window: &[u8], width: u32) -> bool {
+    let height = u32::try_from(window.len() / 4).expect("a window") / width;
+    let middle = height / 2;
+    window.chunks(4).enumerate().any(|(n, pixel)| {
+        let y = u32::try_from(n).expect("a pixel") / width;
+        y.abs_diff(middle) > 3 * CELL.1 && pixel[3] != 0 && pixel != GROUND_PIXEL
+    })
+}
+
 impl Terminal {
-    /// Waits until the window has been sent, and the program has said all it is going to say (the
-    /// page is made while the first picture is the window of the ground alone).
+    /// Waits until the window has been sent with the page in it, and the program has said all it is
+    /// going to say. The first picture may be of the line that stands in for the page while its
+    /// module starts, which a busy machine takes seconds over and writes nothing meanwhile: what is
+    /// pressed or typed on that line reaches no page, and it is no picture of the page.
     fn until_picture(&mut self) {
         self.until_written(b"\x1b_Ga=T,", 1);
+        let width = self.width();
+        let shown = self.pixels_when(|window| shows_page(window, width));
+        assert!(
+            shows_page(&shown, width),
+            "the page never came: the window has the line that stands in for it"
+        );
         self.quiet_for(2500);
+    }
+
+    /// How many pixels the window is across.
+    fn width(&self) -> u32 {
+        u32::try_from(self.screen.cols).expect("columns") * CELL.0
+    }
+
+    /// The window once `done` holds of it, or as it is after 40 seconds in which it did not (the
+    /// caller's assertion says what is wrong then). What a key or a press makes of the window is
+    /// drawn when the page has answered, and a busy machine can be silent for seconds before it
+    /// does. The window is read again only when the program has written more.
+    fn pixels_when(&mut self, done: impl Fn(&[u8]) -> bool) -> Vec<u8> {
+        let size = (
+            u16::try_from(self.screen.cols).expect("columns"),
+            u16::try_from(self.screen.rows).expect("rows"),
+        );
+        let began = Instant::now();
+        let mut window = self.pixels(size.0, size.1);
+        while !done(&window) && began.elapsed() < Duration::from_secs(40) {
+            if self.pump() {
+                window = self.pixels(size.0, size.1);
+            } else {
+                wait(&self.pty, false, false, 20);
+            }
+        }
+        window
     }
 
     /// Waits until the program has written nothing for a second: what a key or a press made of the
@@ -760,6 +809,7 @@ fn a_field_that_is_pressed_and_typed_in_is_drawn_in_its_room_and_a_key_is_an_edi
     let resting = terminal.pixels(100, 30);
     // A press on the room of the field, at a pixel, gives it the keyboard: its caret is drawn.
     terminal.click_at(60, 30);
+    terminal.pixels_when(|window| window != resting);
     terminal.quiet();
     let focused = terminal.pixels(100, 30);
     let (left, top, right, bottom) =
@@ -888,6 +938,8 @@ fn the_terminal_lent_to_a_command_is_given_back_and_the_picture_is_sent_anew_as_
     // The screen is entered again when the command has ended: twice in all.
     terminal.until_written(b"\x1b[?1049h", 2);
     terminal.until_written(b"\x1b_Ga=T,", 2);
+    // The page is made again, and until it comes the window has the line that stands in for it.
+    terminal.pixels_when(|window| window == resting);
     terminal.quiet();
     let raw = terminal.raw.clone();
     let left = position_of(&raw, b"\x1b[?1049l", before).expect("the screen is left for it");

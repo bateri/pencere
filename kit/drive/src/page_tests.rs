@@ -1672,12 +1672,13 @@ fn a_decoded_image_wakes_the_page_once_and_a_page_at_rest_not_at_all() {
 #[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_frame_built_before_the_drain_shows_the_arrived_image_and_no_other_is_asked_for() {
     let (ImageRig { mut rig, open, .. }, _) = image_rig("dot.png", PNG.to_vec());
-    // The file is read twice, for its header and for its pixels, and the gate lets both through.
-    open.send(()).unwrap();
+    // The file is read twice, for its header and for its pixels: the gate lets the header through.
     open.send(()).unwrap();
     assert!(wait(&rig.woken), "the size of the image woke nobody");
     // The frame comes first, for a reason of its own (a pointer move, a tick): it lays the page
-    // out with the size, and asks for the pixels at it.
+    // out with the size, and asks for the pixels at it. They are held at the gate until the drain
+    // has spoken: pixels that came between the frame and the drain would be news for the drain,
+    // and a frame worth asking for.
     let list = rig.page.frame(frame_at(0.4)).list;
     assert_eq!(pictures(&rig.page, &list), 0, "no pixels at this size yet");
     let drained = rig.page.drain();
@@ -1685,7 +1686,8 @@ fn a_frame_built_before_the_drain_shows_the_arrived_image_and_no_other_is_asked_
         !drained.redraw,
         "the wake of a size a frame already laid out asked for one more: {drained:?}"
     );
-    // The same for the pixels.
+    // The same for the pixels, which the gate lets through now.
+    open.send(()).unwrap();
     assert!(wait(&rig.woken), "the pixels of the image woke nobody");
     let list = rig.page.frame(frame_at(0.5)).list;
     assert_eq!(pictures(&rig.page, &list), 1, "the frame has the picture");
