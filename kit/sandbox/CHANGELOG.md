@@ -11,9 +11,14 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 - **`Module::party` and `Module::renders`**: the events of one act of the editors (a letter typed is a
   change and a move of the carets) are told as one command, each handled and answered, the page made
   once after the last; `renders` counts the pages the module made.
-- **A path of a canvas can be drawn crisp** (`pencere.path():crisp()`): `draw_figure` draws it with
-  no smoothing, and `figure_key` tells it from the smoothed one. The WIT interface changed, so a
-  `luau.wasm` of an earlier build does not run (`make luau`).
+- **Charts for pages** (`@pencere/charts`): a page draws a chart of numbers over time (processor
+  use, memory, a network) with one call, and the kit takes care of its scale, its size and the moment
+  under the pointer. How a chart looks is a part of its own, a painter, so an app can trade the kit's
+  smooth lines for a look of its own, such as dots, without writing the chart again.
+- **Sharp dots and pixel art** (`pencere.path():crisp()`): a path can be drawn with no smoothing, so
+  small squares stay sharp squares at any text size instead of getting soft edges and faint seams.
+  The interface between the interpreter and the sandbox changed, so an interpreter built before this
+  does not run (`make luau`).
 - **A page says how large its text is to be drawn, and what an element carries**: a reply's
   `text_size = points` (a whole number, below 0 for smaller; the later of two replies in one answer
   stands), `element:carry({ text = | path =, url = })` and the `carried` event

@@ -1490,6 +1490,44 @@ name)`), and says `{ kind = "dismiss" }` at what `dismiss` lists: `"escape"`, `"
 - An icon-only button and a field must say what they are in words (`label`), or the page fails at the
   line that drew them. A layer takes the keyboard when it opens and gives it back when it closes.
 
+#### `@pencere/charts`
+
+Charts drawn on a canvas, made in two halves: what a chart is (its model) and how it is painted (a
+painter) (`local charts = require("@pencere/charts")`). The kit paints smooth lines and fills; a page,
+or a kit of its own, may give another painter and keep the chart's scale, model and pointer as they are.
+
+- `charts.area(spec)` is a box `spec.w` by `spec.h` points (a chart has no size of its own) with a
+  canvas in it: a line for each of `spec.series` (`{ values =, role = }`, the values oldest first, the
+  newest at the right edge; a line shorter than `count` starts further right, and a series of fewer
+  than two values draws nothing) and the area under it, between 0 and `ceiling`. `count` is how many
+  samples the box is across (the longest series', where not given; 2 to 4000, the steps a path takes),
+  `ceiling` the top of the scale (the largest value shown where not given, and 1 where it, or every
+  value, is 0 or less), `rules` the
+  fractions of the height a quiet rule is drawn at (`{ 0.5 }`), `marker` the sample under the pointer,
+  counted back from the newest (none outside the samples), `painter` how the chart is drawn
+  (`charts.smooth`), and `label` what a screen reader says of it. A chart with an `id` keeps its
+  drawing while what it shows is the same: a pointer that moves paints the marker again and nothing
+  else, and a new sample draws it again. A drawing is kept for the frame it was drawn in and the one
+  after, a frame being seen to begin when a chart it drew is asked for again (two charts on a page
+  have two ids), and for 64 charts a frame at most: one the page stops drawing is let go once the page draws
+  its charts again, and the last a page drew are kept while it draws none.
+- `charts.model(spec)` is the model a painter is given, in the points of the box:
+  `{ w =, h =, rules = { y, … }, series = { { role =, points = { { x, y }, … } } }, marker = { x =, points = { { x, y, role }, … } } }`,
+  x rising, a pixel at the top and the foot left clear, a rule's `y` on the middle of a pixel, and no
+  `marker` where the chart has none.
+- A painter is `{ area = function(model) -> paths, marker = function(model) -> paths }`: `area` is
+  given the model with no marker, `marker` the model with one. `charts.painter(options)` makes the
+  kit's, each look an option: `line` (how wide a line is, 1.5 points), `fill` (how opaque the area
+  under a line is, in the line's colour, 0.2), `ink` (the colour of the rules and the marker,
+  `"foreground"`), `rule` (0.07) and `marker` (0.45), how opaque they are, and `dot` (the side of the
+  marker's dot on each line, 4 points). `charts.smooth` is `charts.painter()`. A page makes a painter
+  once, not in `render`: a chart's drawing is kept for the painter that drew it.
+- `charts.back_at({ w =, count = }, x)` is the sample under the point `x` of the box (0 at its left
+  edge), counted back from the newest as `marker` takes it, or nil outside the box. Where the pointer
+  is, is the page's to tell (its `move` events, Section 2.3, and `pencere.layout.bounds`).
+- A page that may run where the kit has no such module asks for it with
+  `pcall(require, "@pencere/charts")`, which is false there.
+
 ### 2.7 Counting
 
 A page counts what it is told and what it says by one rule, wherever a number is a place in a text:
