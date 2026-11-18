@@ -8,8 +8,8 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Added
 
-- **A path can be drawn crisp** (`path().crisp(true)`): with no smoothing, so that dots and bars
-  laid on a grid of points stay whole pixels and meet without a seam at any scale.
+- **Sharp dots and pixel art** (`path().crisp(true)`): a path can be drawn with no smoothing, so
+  dots and bars stay whole pixels and meet without a seam at any text size.
 - **An element can say what it carries out of the view** (`Element::carry(Carry)`, with
   `Carry::text`, `Carry::path` and `Carry::url`): `Laid::carry_at(point)` gives the
   topmost element with a name that carries (`Carrying { id, carry, rect, draggable }`; one above it that
