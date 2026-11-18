@@ -168,16 +168,38 @@ mod tests {
         (dir, program)
     }
 
+    /// `open` of a `script` just written, whose end is told on `woken`. On Linux a file just written
+    /// may not be run yet: a test of another thread that forks in between holds the file open for
+    /// writing until its child execs ("Text file busy"). `woken` is dropped here, so that a wake
+    /// left unused ends the wait for it.
+    fn open_written(
+        program: &std::path::Path,
+        url: &str,
+        failed: &Arc<Failed>,
+        woken: std::sync::mpsc::Sender<()>,
+    ) {
+        let mut tries = 0;
+        loop {
+            let woken = woken.clone();
+            match open(&program.to_string_lossy(), url, failed, move || {
+                let _ = woken.send(());
+            }) {
+                Err(why) if why.kind() == io::ErrorKind::ExecutableFileBusy && tries < 50 => {
+                    tries += 1;
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                done => break done.expect("the opener is started"),
+            }
+        }
+    }
+
     #[test]
     fn an_opener_that_fails_wakes_the_loop_with_the_address_and_one_that_does_not_does_not() {
         let url = "https://example.org/a?b=c&d=e";
         let (dir, program) = script("fails", 3);
         let failed = Arc::new(Failed::default());
         let (woken, wake) = std::sync::mpsc::channel();
-        open(&program.to_string_lossy(), url, &failed, move || {
-            let _ = woken.send(());
-        })
-        .unwrap();
+        open_written(&program, url, &failed, woken);
         assert!(
             wake.recv_timeout(Duration::from_secs(10)).is_ok(),
             "the loop is woken"
@@ -193,10 +215,7 @@ mod tests {
 
         let (dir, program) = script("works", 0);
         let (woken, wake) = std::sync::mpsc::channel();
-        open(&program.to_string_lossy(), url, &failed, move || {
-            let _ = woken.send(());
-        })
-        .unwrap();
+        open_written(&program, url, &failed, woken);
         // The wake is dropped unused when the opener has been waited for.
         assert!(wake.recv_timeout(Duration::from_secs(10)).is_err());
         assert!(failed.take().is_empty());
