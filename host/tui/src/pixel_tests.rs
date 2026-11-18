@@ -530,6 +530,191 @@ fn many_small_changes_are_few_rectangles_and_not_the_box_that_holds_them_all() {
     compare(&window, &pixel, &next, "many small changes");
 }
 
+/// A bar across the window (a line that is selected), and under it five lines of six marks each, far
+/// apart in their line (a word seen again and again); the bar and the marks take another colour.
+fn bar_and_marks(colour: Role) -> DrawList {
+    let mut list = page(&lines(), 0.0);
+    list.items
+        .push(quad(Rect::new(0.0, 40.0, 600.0, 20.0), colour.solid()));
+    for n in 0..30_u32 {
+        let (x, y) = (160.0 + (n % 6) as f32 * 80.0, 60.0 + (n / 6) as f32 * 20.0);
+        list.items
+            .push(quad(Rect::new(x, y, 6.0, 20.0), colour.solid()));
+    }
+    list
+}
+
+#[test]
+fn small_changes_under_a_wide_one_are_not_sent_as_the_box_that_has_them_all() {
+    let (mut window, mut pixel) = (Window::default(), pixel(true));
+    send(&mut window, &mut pixel, bar_and_marks(Role::Raised(1)));
+    let next = bar_and_marks(Role::Raised(4));
+    let written = send(&mut window, &mut pixel, next.clone());
+    assert!(!written.whole);
+    assert!(
+        written.areas.len() <= crate::pixel::MOST_RECTS,
+        "{} rectangles",
+        written.areas.len()
+    );
+    // What changed is the bar and the marks; the pixels sent are not many more than those.
+    let changed = 600 * 20 + 30 * 6 * 20;
+    let sent: u64 = written
+        .areas
+        .iter()
+        .map(|a| u64::from(a.w) * u64::from(a.h))
+        .sum();
+    assert!(
+        sent * 2 <= changed * 3,
+        "{sent} pixels sent for {changed} that changed: {:?}",
+        written.areas
+    );
+    compare(&window, &pixel, &next, "a bar and marks under it");
+}
+
+#[test]
+fn marks_inside_a_bar_that_changes_are_the_bar_and_not_more_rectangles() {
+    let (mut window, mut pixel) = (Window::default(), pixel(true));
+    let selected = |colour: Role, mark: Role| {
+        let mut list = page(&lines(), 0.0);
+        list.items
+            .push(quad(Rect::new(160.0, 40.0, 400.0, 20.0), colour.solid()));
+        for n in 0..10_u32 {
+            list.items.push(quad(
+                Rect::new(170.0 + n as f32 * 38.0, 46.0, 6.0, 6.0),
+                mark.solid(),
+            ));
+        }
+        list
+    };
+    send(
+        &mut window,
+        &mut pixel,
+        selected(Role::Raised(1), Role::Raised(1)),
+    );
+    let next = selected(Role::Raised(4), Role::Raised(2));
+    let written = send(&mut window, &mut pixel, next.clone());
+    assert_eq!(written.areas.len(), 1, "{:?}", written.areas);
+    let area = written.areas[0];
+    assert!(
+        area.x >= 159 && area.right() <= 561 && area.y >= 39 && area.bottom() <= 61,
+        "the bar and no more: {area:?}"
+    );
+    compare(&window, &pixel, &next, "marks inside a bar");
+}
+
+#[test]
+fn a_line_that_is_selected_is_one_rectangle_with_its_words_and_all() {
+    let (mut window, mut pixel) = (Window::default(), pixel(true));
+    send(&mut window, &mut pixel, page(&lines(), 0.0));
+    let mut selected = page(&lines(), 0.0);
+    // The selection is under the words of the line, across the window.
+    selected.items.insert(
+        4,
+        quad(Rect::new(0.0, 200.0, 600.0, 20.0), Role::Raised(4).solid()),
+    );
+    let written = send(&mut window, &mut pixel, selected.clone());
+    assert_eq!(written.areas.len(), 1, "{:?}", written.areas);
+    let area = written.areas[0];
+    assert!(
+        area.y >= 199 && area.bottom() <= 221,
+        "the line and no more: {area:?}"
+    );
+    compare(&window, &pixel, &selected, "a line selected");
+}
+
+#[test]
+fn one_busy_strip_keeps_the_rectangles_that_the_quiet_ones_leave() {
+    // A window of forty rows, so that the strips are many.
+    let mut window = Window::default();
+    let mut pixel = Pixel::new(Fonts::carried(), &found(true), CELL, (60, 40));
+    let frame = |colour: Role| {
+        let mut list = page(&lines(), 0.0);
+        // Eight marks far apart in the third row of cells, and one mark each in four rows that are
+        // far from it and from one another: five strips, one of them busy.
+        for n in 0..8_u32 {
+            list.items.push(quad(
+                Rect::new(10.0 + n as f32 * 70.0, 40.0, 6.0, 20.0),
+                colour.solid(),
+            ));
+        }
+        for (row, x) in [(8.0, 300.0), (14.0, 420.0), (20.0, 540.0), (26.0, 160.0)] {
+            list.items
+                .push(quad(Rect::new(x, row * 20.0, 6.0, 20.0), colour.solid()));
+        }
+        list
+    };
+    send(&mut window, &mut pixel, frame(Role::Raised(1)));
+    let next = frame(Role::Raised(4));
+    let written = send(&mut window, &mut pixel, next.clone());
+    assert!(!written.whole);
+    let changed = 12 * 6 * 20;
+    let sent: u64 = written
+        .areas
+        .iter()
+        .map(|a| u64::from(a.w) * u64::from(a.h))
+        .sum();
+    assert!(
+        sent * 3 <= changed * 4,
+        "{sent} pixels sent for {changed} that changed: {:?}",
+        written.areas
+    );
+    compare(&window, &pixel, &next, "one busy strip");
+}
+
+#[test]
+fn more_pieces_than_can_be_joined_are_no_more_rectangles_than_a_frame_has_and_drawn_as_before() {
+    // A mark every 28 pixels along twenty lines of the page: four hundred pieces, in one strip (the
+    // strips are more than a frame has).
+    let mut window = Window::default();
+    let mut pixel = Pixel::new(Fonts::carried(), &found(true), CELL, (60, 40));
+    let marks = |colour: Role| {
+        let mut list = page(&lines(), 0.0);
+        for n in 0..420_u32 {
+            let (x, y) = (4.0 + (n % 21) as f32 * 28.0, (n / 21) as f32 * 20.0);
+            list.items
+                .push(quad(Rect::new(x, y, 6.0, 6.0), colour.solid()));
+        }
+        list
+    };
+    send(&mut window, &mut pixel, marks(Role::Raised(1)));
+    let next = marks(Role::Raised(4));
+    let written = send(&mut window, &mut pixel, next.clone());
+    assert!(!written.whole);
+    assert!(
+        written.areas.len() <= crate::pixel::MOST_RECTS,
+        "{} rectangles",
+        written.areas.len()
+    );
+    compare(&window, &pixel, &next, "more pieces than are joined");
+}
+
+#[test]
+fn a_frame_of_very_many_small_changes_is_sent_as_no_more_than_the_most_a_frame_has() {
+    let (mut window, mut pixel) = (Window::default(), pixel(true));
+    let marks = |colour: Role| {
+        let mut list = page(&lines(), 0.0);
+        for n in 0..120_u32 {
+            let (x, y) = (
+                160.0 + (n % 12) as f32 * 36.0,
+                64.0 + (n / 12) as f32 * 20.0,
+            );
+            list.items
+                .push(quad(Rect::new(x, y, 6.0, 6.0), colour.solid()));
+        }
+        list
+    };
+    send(&mut window, &mut pixel, marks(Role::Raised(1)));
+    let next = marks(Role::Raised(4));
+    let written = send(&mut window, &mut pixel, next.clone());
+    assert!(!written.whole);
+    assert!(
+        written.areas.len() <= crate::pixel::MOST_RECTS,
+        "{} rectangles",
+        written.areas.len()
+    );
+    compare(&window, &pixel, &next, "very many small changes");
+}
+
 #[test]
 fn rows_that_scrolled_are_copied_in_the_picture_and_only_the_rows_that_came_into_view_are_sent() {
     let run = |compose: bool| {
@@ -729,6 +914,52 @@ fn frames_that_change_a_line_ask_the_system_for_no_pictures_worth_of_memory() {
         "frames after the third asked for memory of {} bytes or more: (frame, times, bytes) {later:?}",
         large::LARGE
     );
+}
+
+/// The rectangles of a frame that changes many places far apart (a word selected all over the page)
+/// are joined by the pairs of them, which are the squares of how many they are: the queue they are
+/// in is kept from one frame to the next, and is not asked of the system again by each.
+#[test]
+fn rectangles_are_joined_in_a_queue_that_is_kept_and_not_asked_of_the_system_again() {
+    use crate::alloc_count_tests as large;
+    use crate::pixel::{Area, Pair, join};
+    let pieces = || -> Vec<Area> {
+        (0..100_u32)
+            .map(|n| Area {
+                x: n % 10 * 60,
+                y: n / 10 * 40,
+                w: 6,
+                h: 6,
+            })
+            .collect()
+    };
+    let mut pairs: Vec<Pair> = Vec::new();
+    let first = pieces();
+    let joined = join(first.clone(), crate::pixel::MOST_RECTS, &mut pairs);
+    assert!(joined.len() <= crate::pixel::MOST_RECTS, "{joined:?}");
+    // Every piece is in a rectangle that is sent.
+    for piece in &first {
+        assert!(
+            joined.iter().any(|area| area.x <= piece.x
+                && area.y <= piece.y
+                && piece.right() <= area.right()
+                && piece.bottom() <= area.bottom()),
+            "{piece:?} is in none of {joined:?}"
+        );
+    }
+    for _ in 0..4 {
+        let next = pieces();
+        large::reset();
+        let again = join(next, crate::pixel::MOST_RECTS, &mut pairs);
+        let (count, bytes) = large::large();
+        assert_eq!(again, joined);
+        assert_eq!(
+            count,
+            0,
+            "asked for memory of {} bytes or more: {count} times, {bytes} bytes",
+            large::LARGE
+        );
+    }
 }
 
 /// The pixels packed in the state a frame keeps unpack to the pixels, over and over, whatever the size

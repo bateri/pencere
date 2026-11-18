@@ -18,7 +18,8 @@
 //! looked for in what was drawn (`Pixel::moved`). A terminal that refuses the edit is sent the bands
 //! as pictures of their own over the window, and the whole window again after [`MOST_LAID`] of them.
 
-use std::collections::HashSet;
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashSet};
 use std::fmt::Write as _;
 
 use miniz_oxide::deflate::core::{
@@ -58,12 +59,42 @@ const JOIN_CELLS: u32 = 2;
 /// How many rows of the same pixels between two that differ are one change and not two.
 const JOIN_ROWS: u32 = 3;
 
-/// How many rectangles one frame is sent as, at the most: more are joined, the two that cost the
-/// least first.
-pub(crate) const MOST_RECTS: usize = 16;
+/// How many pixels more a rectangle may have than the two it is made of have between them, for the one
+/// to be sent and not the two: what a rectangle costs besides its pixels (the command that says where
+/// it goes and how large it is, and the terminal's reading of it) is worth about this many pixels of a
+/// page that are the same, which are sent too where they lie inside it. Chosen by joining the
+/// rectangles of recorded frames (a selection that lights a word all over a page, and a drag over
+/// lines) at 100 to 3200: the bytes were fewest from 1000 to 1600, and the lowest of those is taken.
+const JOIN_PIXELS: i64 = 1000;
+
+/// How many pixels more a rectangle may have than a run of a row that stands in its columns, for the
+/// run to be of the rectangle (a stack of rows) and not a rectangle of its own: a rectangle grows
+/// while it is stacked, and each row that is added is more to what it already has. Chosen with
+/// [`JOIN_PIXELS`] over the same frames, from 100 to 1600: the same bytes from 400 to 1200, more
+/// above it, where a stack takes in what is beside it.
+const STACK_PIXELS: i64 = 400;
+
+/// How many rectangles one frame is sent as, at the most: past what [`JOIN_PIXELS`] allows, more are
+/// joined, the two that cost the least first. Chosen from recorded frames and a terminal's timing: over
+/// the frames of a selection the bytes were 15% fewer with 32 rectangles than with 16, and 2% fewer
+/// with 64 than with 32; a terminal (Ghostty on a Mac, under load) read a command in the order of 15
+/// microseconds, as it read about 0.4 KB, so that the commands of a frame are no more than the bytes
+/// of a few rectangles. The number is a point on the curve of the bytes and not a limit of the terminal.
+pub(crate) const MOST_RECTS: usize = 32;
 
 /// How many rectangles are joined two by two to be few; more than this are one at once.
 const MOST_JOINED: usize = 200;
+
+/// How many pieces (the rectangles the runs of rows are stacked as) are joined, by [`join`], which
+/// keeps the pairs of them in a queue (the squares of the pieces); where there are more the rectangles
+/// are those that `regions` makes, as they were made before the rows were stacked, and that may be the
+/// one box that has them all.
+const MOST_PIECES: usize = 256;
+
+/// How many tall rectangles a frame is looked in for rows that moved, at the most: the same as it was
+/// before the rectangles a frame is sent as were changed, so that the rows that moved are found as
+/// they were.
+const MOST_REGIONS: usize = 16;
 
 /// The fewest rows a copy of rows the terminal holds is worth, in cells' heights.
 const LEAST_MOVE_CELLS: u32 = 1;
@@ -76,6 +107,11 @@ pub(crate) struct Area {
     pub w: u32,
     pub h: u32,
 }
+
+/// Two pieces that may be joined, as `join` queues them: what it costs to make them one (the pair
+/// that costs the least first), which two they are, and how many times each had been joined when the
+/// pair was made (a pair of what was joined since is passed over).
+pub(crate) type Pair = Reverse<(i64, usize, usize, u32, u32)>;
 
 impl Area {
     pub(crate) fn right(&self) -> u32 {
@@ -192,6 +228,9 @@ pub(crate) struct Pixel {
     scratch: Scratch,
     /// What the pixels are packed and written in, kept from frame to frame.
     wire: Wire,
+    /// The queue in which the rectangles of a frame are joined, kept from frame to frame: it holds the
+    /// pairs of them, which are many where a frame has many changes far apart.
+    pairs: Vec<Pair>,
 }
 
 /// What the pixels of a frame are packed in, kept from one frame to the next: the deflate's state is
@@ -317,6 +356,7 @@ impl Pixel {
             copied: None,
             scratch: Scratch::new(),
             wire: Wire::new(),
+            pairs: Vec::new(),
         }
     }
 
@@ -573,21 +613,31 @@ impl Pixel {
         // The picture is wider than the window, and what is held of it is as wide.
         let past = self.extent();
         let width = past.0 as usize;
-        // The rectangles a frame is sent as are shared by its strips.
-        let most = (MOST_RECTS / strips.len().max(1)).max(2);
+        // The tall rectangles in which rows that moved are looked for are shared by the strips.
+        let regions_most = (MOST_REGIONS / strips.len().max(1)).max(2);
         // The buffers are taken out of `self` while the strips are drawn in them and sent.
         let mut scratch = std::mem::take(&mut self.scratch);
         let mut cutting = std::mem::take(&mut self.wire.cut);
-        for &Strip {
-            top,
-            rows,
-            mut columns,
-        } in strips
+        let mut pairs = std::mem::take(&mut self.pairs);
+        for (
+            at,
+            &Strip {
+                top,
+                rows,
+                mut columns,
+            },
+        ) in strips.iter().enumerate()
         {
+            // The rectangles a frame is sent as are shared by its strips: what the ones before this
+            // one left of them, but two for each of the ones after it.
+            let after = strips.len().saturating_sub(at + 1);
+            let most = MOST_RECTS
+                .saturating_sub(written.areas.len() + 2 * after)
+                .max(2);
             // The band that reaches the foot of the window goes on to the foot of the picture, and
             // every band to the page's edge at the right: drawn so, in the buffer, with no copy.
             let below = if top + rows >= size.1 { self.cell.1 } else { 0 };
-            let (pixels, left, across, areas) = loop {
+            let (pixels, left, across, areas, regions) = loop {
                 let (left, to) = columns.unwrap_or((0, size.0));
                 // The page's edge at the right is drawn where the columns go to the window's edge.
                 let right = if to >= size.0 { self.cell.0 } else { 0 };
@@ -607,22 +657,24 @@ impl Pixel {
                         // A part that cannot be drawn alone (a shadow reaches it) is the whole width.
                         continue;
                     }
-                    break (None, 0, 0, Vec::new());
+                    break (None, 0, 0, Vec::new(), Vec::new());
                 };
                 let across = to - left + right;
                 written.rastered += u64::from(across) * u64::from(rows + below);
                 if !self.edits {
-                    break (Some(pixels), left, across, Vec::new());
+                    break (Some(pixels), left, across, Vec::new(), Vec::new());
                 }
-                let areas = self.differing(
+                let (areas, regions) = self.differing(
                     &shown.held,
                     pixels,
                     past.0,
                     (left, across),
                     (top, rows + below),
                     most,
+                    (moving && self.compose).then_some(regions_most),
+                    &mut pairs,
                 );
-                break (Some(pixels), left, across, areas);
+                break (Some(pixels), left, across, areas, regions);
             };
             let Some(pixels) = pixels else {
                 continue;
@@ -666,7 +718,7 @@ impl Pixel {
                     past,
                     (left, across),
                     top,
-                    &areas,
+                    &regions,
                     frame,
                     written,
                 )
@@ -681,7 +733,10 @@ impl Pixel {
                     (left, across),
                     (top, rows),
                     most,
+                    None,
+                    &mut pairs,
                 )
+                .0
             } else {
                 areas
             };
@@ -707,6 +762,7 @@ impl Pixel {
         }
         self.scratch = scratch;
         self.wire.cut = cutting;
+        self.pairs = pairs;
     }
 
     /// In what columns the bands `first`..`first + count` of the window are not what they were, as
@@ -824,9 +880,12 @@ impl Pixel {
 
     /// The rectangles of the rows `top`..`top + rows` whose pixels are not what `held` (`width` pixels
     /// across) has: the rows of `pixels` (a strip of those rows, `across` pixels each from the column
-    /// `left`) are compared with it, a rectangle is where some differ
-    /// and the ones near it do too, and where there are more than `most` of them the ones that
-    /// cost the least to join are joined.
+    /// `left`) are compared with it, and the runs of pixels that differ are stacked into rectangles
+    /// (`stacks`); two of them are one where what the one has in excess of the two is worth less than
+    /// a second command (`join`), and past `most` of them the ones that cost the least to join are.
+    /// With them, where `searching` says how many, the tall rectangles in which rows that moved are
+    /// looked for (`regions`). `pairs` is the queue `join` keeps its pairs in.
+    #[allow(clippy::too_many_arguments)]
     fn differing(
         &self,
         held: &[u8],
@@ -835,7 +894,9 @@ impl Pixel {
         (left, across): (u32, u32),
         (top, rows): (u32, u32),
         most: usize,
-    ) -> Vec<Area> {
+        searching: Option<usize>,
+        pairs: &mut Vec<Pair>,
+    ) -> (Vec<Area>, Vec<Area>) {
         let runs = row_runs(
             held,
             pixels,
@@ -845,19 +906,14 @@ impl Pixel {
             rows,
             self.cell.0 * JOIN_CELLS,
         );
-        let mut areas = clusters(&runs, top, JOIN_ROWS);
-        if areas.len() > most {
-            areas = squeeze(areas, most);
-        }
-        // Rectangles over most of what they are drawn on are one: a frame is cheaper as one edit.
-        let sum: u64 = areas.iter().map(|a| u64::from(a.w) * u64::from(a.h)).sum();
-        if areas.len() > 1
-            && let Some(whole) = bounding(&areas)
-            && sum * 2 > u64::from(whole.w) * u64::from(whole.h)
-        {
-            areas = vec![whole];
-        }
-        areas
+        let searched = searching.map_or_else(Vec::new, |limit| regions(&runs, top, limit));
+        let pieces = stacks(&runs, top, JOIN_ROWS);
+        let areas = if pieces.len() > MOST_PIECES {
+            regions(&runs, top, most)
+        } else {
+            join(pieces, most, pairs)
+        };
+        (areas, searched)
     }
 
     /// Tells the terminal to copy `rows` rows from `first` (in the columns `from` and how many)
@@ -1540,7 +1596,6 @@ fn clusters(rows: &[Vec<(u32, u32)>], top: u32, join: u32) -> Vec<Area> {
     done
 }
 
-/// The smallest rectangle that has all of `areas`.
 /// `areas` as no more than `most` rectangles: the two that cost the least to make one (the room
 /// the one rectangle has more than the two had) are joined, until they are few enough. Where
 /// there are very many they are the one rectangle that holds them all.
@@ -1548,18 +1603,13 @@ fn squeeze(mut areas: Vec<Area>, most: usize) -> Vec<Area> {
     if areas.len() > MOST_JOINED {
         return bounding(&areas).into_iter().collect();
     }
-    let size = |area: &Area| u64::from(area.w) * u64::from(area.h);
     while areas.len() > most.max(1) {
         let mut best: Option<(i64, usize, usize, Area)> = None;
         for (i, a) in areas.iter().enumerate() {
             for (j, b) in areas.iter().enumerate().skip(i + 1) {
-                let Some(joined) = bounding(&[*a, *b]) else {
-                    continue;
-                };
-                #[allow(clippy::cast_possible_wrap)]
-                let waste = size(&joined) as i64 - size(a) as i64 - size(b) as i64;
+                let waste = extra(a, b);
                 if best.is_none_or(|(least, ..)| waste < least) {
-                    best = Some((waste, i, j, joined));
+                    best = Some((waste, i, j, hull(a, b)));
                 }
             }
         }
@@ -1574,6 +1624,182 @@ fn squeeze(mut areas: Vec<Area>, most: usize) -> Vec<Area> {
     areas
 }
 
+/// The tall rectangles in which a page that scrolled is looked for (not what is sent): the runs of
+/// the rows that stand over one another are one rectangle, and where there are more than `most` of
+/// them, or they are most of what they are in, they are joined, the two that cost the least first.
+fn regions(runs: &[Vec<(u32, u32)>], top: u32, most: usize) -> Vec<Area> {
+    let mut areas = clusters(runs, top, JOIN_ROWS);
+    if areas.len() > most {
+        areas = squeeze(areas, most);
+    }
+    // Rectangles over most of what they are drawn on are one.
+    let sum: u64 = areas.iter().map(|a| u64::from(a.w) * u64::from(a.h)).sum();
+    if areas.len() > 1
+        && let Some(whole) = bounding(&areas)
+        && sum * 2 > u64::from(whole.w) * u64::from(whole.h)
+    {
+        areas = vec![whole];
+    }
+    areas
+}
+
+/// The room a rectangle has, in pixels.
+fn size(area: &Area) -> i64 {
+    i64::from(area.w) * i64::from(area.h)
+}
+
+/// The smallest rectangle that has the two.
+fn hull(a: &Area, b: &Area) -> Area {
+    let (x, y) = (a.x.min(b.x), a.y.min(b.y));
+    Area {
+        x,
+        y,
+        w: a.right().max(b.right()) - x,
+        h: a.bottom().max(b.bottom()) - y,
+    }
+}
+
+/// The pixels the rectangle that has the two has more than the two have: what is sent more for one
+/// command than for two (less than none where they cover one another).
+fn extra(a: &Area, b: &Area) -> i64 {
+    size(&hull(a, b)) - size(a) - size(b)
+}
+
+/// The rectangles the runs of rows (the first of them the row `top`) make, each of rows that stand
+/// over one another: a run is of the rectangle in whose columns it stands and that it adds the fewest
+/// pixels to, where that is under [`STACK_PIXELS`] and the rectangle's last row is no more than `join`
+/// rows above it, and else it is a rectangle of its own. A rectangle grows by a few pixels at a time:
+/// a run that is wide, at the top of a stack of narrow ones, is not one with them (it would take in
+/// the columns the narrow ones are not in), but a row that is narrow under a bar of fewer pixels than
+/// [`STACK_PIXELS`] is, and what such a stack has in excess of its rows is not bounded by it.
+fn stacks(rows: &[Vec<(u32, u32)>], top: u32, join: u32) -> Vec<Area> {
+    let mut open: Vec<Area> = Vec::new();
+    let mut done: Vec<Area> = Vec::new();
+    for (r, runs) in rows.iter().enumerate() {
+        let row = top.saturating_add(u32::try_from(r).unwrap_or(u32::MAX));
+        // The rectangles that more than `join` rows lie between and this one are done.
+        let mut at = 0;
+        while at < open.len() {
+            if open
+                .get(at)
+                .is_some_and(|area| row >= area.bottom().saturating_add(join))
+            {
+                done.push(open.swap_remove(at));
+            } else {
+                at += 1;
+            }
+        }
+        for &(from, to) in runs {
+            let line = Area {
+                x: from,
+                y: row,
+                w: to.saturating_sub(from),
+                h: 1,
+            };
+            let nearest = open
+                .iter()
+                .enumerate()
+                .filter(|(_, area)| area.x < line.right() && line.x < area.right())
+                .map(|(at, area)| (extra(area, &line), at))
+                .min();
+            match nearest {
+                Some((added, at)) if added < STACK_PIXELS => {
+                    if let Some(area) = open.get_mut(at) {
+                        *area = hull(area, &line);
+                    }
+                }
+                _ => open.push(line),
+            }
+        }
+    }
+    done.extend(open);
+    done.sort_by_key(|area| (area.y, area.x));
+    done
+}
+
+/// `areas` as fewer rectangles: the two that cost the least to make one ([`extra`]) are joined while
+/// that costs under [`JOIN_PIXELS`], and, where there are more than `most` still, until they are
+/// few enough. The queue of their pairs is `pairs`, emptied and kept for the next time.
+pub(crate) fn join(areas: Vec<Area>, most: usize, pairs: &mut Vec<Pair>) -> Vec<Area> {
+    struct Slot {
+        area: Area,
+        // How many times it was joined to another: a pair in the queue is of what it was.
+        stamp: u32,
+        alive: bool,
+    }
+    let mut slots: Vec<Slot> = areas
+        .into_iter()
+        .map(|area| Slot {
+            area,
+            stamp: 0,
+            alive: true,
+        })
+        .collect();
+    // The pairs, the cheapest first; a pair of rectangles that were joined since is passed over.
+    let mut kept = std::mem::take(pairs);
+    kept.clear();
+    let mut queue = BinaryHeap::from(kept);
+    for (i, a) in slots.iter().enumerate() {
+        for (j, b) in slots.iter().enumerate().skip(i + 1) {
+            queue.push(Reverse((extra(&a.area, &b.area), i, j, 0_u32, 0_u32)));
+        }
+    }
+    let mut count = slots.len();
+    while count > 1 {
+        let Some(Reverse((cost, i, j, stamp_i, stamp_j))) = queue.pop() else {
+            break;
+        };
+        let current = |at: usize, stamp: u32| {
+            slots
+                .get(at)
+                .is_some_and(|slot| slot.alive && slot.stamp == stamp)
+        };
+        if !current(i, stamp_i) || !current(j, stamp_j) {
+            continue;
+        }
+        if cost >= JOIN_PIXELS && count <= most.max(1) {
+            break;
+        }
+        let (Some(a), Some(b)) = (
+            slots.get(i).map(|slot| slot.area),
+            slots.get(j).map(|slot| slot.area),
+        ) else {
+            break;
+        };
+        let joined = hull(&a, &b);
+        if let Some(slot) = slots.get_mut(j) {
+            slot.alive = false;
+        }
+        let Some(slot) = slots.get_mut(i) else {
+            break;
+        };
+        slot.area = joined;
+        slot.stamp = slot.stamp.saturating_add(1);
+        let stamp = slot.stamp;
+        count -= 1;
+        for (k, other) in slots.iter().enumerate() {
+            if k == i || !other.alive {
+                continue;
+            }
+            let cost = extra(&joined, &other.area);
+            queue.push(Reverse(if i < k {
+                (cost, i, k, stamp, other.stamp)
+            } else {
+                (cost, k, i, other.stamp, stamp)
+            }));
+        }
+    }
+    *pairs = queue.into_vec();
+    let mut joined: Vec<Area> = slots
+        .into_iter()
+        .filter(|slot| slot.alive)
+        .map(|slot| slot.area)
+        .collect();
+    joined.sort_by_key(|area| (area.y, area.x));
+    joined
+}
+
+/// The smallest rectangle that has all of `areas`.
 fn bounding(areas: &[Area]) -> Option<Area> {
     let x = areas.iter().map(|a| a.x).min()?;
     let y = areas.iter().map(|a| a.y).min()?;
