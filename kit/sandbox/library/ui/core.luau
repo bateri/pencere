@@ -120,7 +120,8 @@ end
 --   command(u, id, props, state, part, key, event)    a command it wrote was asked for
 --   scrolled(u, id, props, state, part, key, box)     a box of it was scrolled
 --   editor(u, id, props, state, event)                an event of the editor `props.editor`
---   away(u, id, props, state, event, hit)             a button went down outside it (a popover closes)
+--   away(u, id, props, state, event, hit)             a button went down outside it, or into a field outside
+--                                                     it (`hit`: the field), and a popover closes
 --   wake(u, id, props, state, event)                  the time a reply of it asked to be woken at has come
 --   dismiss(u, id, props, state)                      escape came to it as the layer in front: what it says
 --                                                     of that (`{ kind = "dismiss" }` where it says nothing)
@@ -934,6 +935,17 @@ function Ctx:handle(event)
 		if event.field ~= nil then
 			self.holder = event.field
 			self.pointer.focus = event.field
+			-- A click into a field is a press the host keeps (the page hears no `press`): a component that
+			-- a press outside it closes is told of it too, where the field is not inside it.
+			for _, away in self.mounts do
+				if away.spec.away and not inside(event.field, away.id) then
+					local reply, action = call(self, away, "away", event, event.field)
+					if reply ~= nil then
+						out.reply = merge(out.reply, reply)
+						self:_emit(out, away, action)
+					end
+				end
+			end
 		else
 			self.holder = "page"
 		end

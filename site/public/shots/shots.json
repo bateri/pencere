@@ -64,6 +64,11 @@
     "height": 400.0,
     "width": 640.0
   },
+  "components/picker": {
+    "diagnostics": [],
+    "height": 320.0,
+    "width": 420.0
+  },
   "components/popover": {
     "diagnostics": [],
     "height": 220.0,

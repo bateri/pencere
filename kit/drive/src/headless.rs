@@ -1860,11 +1860,13 @@ impl<P: Peer> Headless<P> {
                 self.seen.taken = true;
                 return self.settle();
             }
+            // (A field something is drawn over is not shown by a host, and a press there is on what
+            // covers it.)
             let field = self
                 .page
                 .fields()
                 .iter()
-                .find(|field| contains(field.rect, at))
+                .find(|field| !field.covered && contains(field.rect, at))
                 .map(|field| field.id);
             if let Some(field) = field {
                 self.seen.taken = true;

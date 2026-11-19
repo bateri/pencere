@@ -1448,7 +1448,7 @@ place, or, where none is given, one the context keeps by the name for as long as
 - A `popover` stands by an element (`anchor = "name"`), by the caret of an editor
   (`anchor = pencere.caret_of(editor)`) or by a range of its text (`anchor = pencere.range_of(editor,
 name)`), and says `{ kind = "dismiss" }` at what `dismiss` lists: `"escape"`, `"away"` (a press outside it
-  that is not on its anchor) and, by an editor, `"edit"`, `"caret"` (the selection moved), `"scroll"` (the
+  that is not on its anchor, a click into a field outside it among them) and, by an editor, `"edit"`, `"caret"` (the selection moved), `"scroll"` (the
   lines in view changed) and `"leave"`; by an editor all of them, by an element the first two. `"leave"`
   waits `hide_delay` (0.3 seconds): the card stays if the pointer came onto it or rested on another word
   in that time (the page forwards the editor's `hover` events and its `wake` to `u:handle`, as it
@@ -1470,10 +1470,20 @@ name)`), and says `{ kind = "dismiss" }` at what `dismiss` lists: `"escape"`, `"
   asks the editor to paste, and the line is on only in the menu a right press opens: in the one Shift F10
   asks for it is greyed. `u:editor_menu_pick(act)` is the reply that asks the editor for the line picked
   (nil for the page's lines and Paste).
-- `button`, `icon_button`, `toggle`, `badge`, `kbd`, `rule`, `banner`; `input`, `segments`, `tabs`;
-  `modal`, `dialog`, `toasts`, `menu` (the host's), `editor_menu`, `popover`; `list`, `palette`,
+- `button`, `icon_button`, `toggle`, `badge`, `kbd`, `rule`, `banner`; `input`, `segments`, `tabs`,
+  `picker`; `modal`, `dialog`, `toasts`, `menu` (the host's), `editor_menu`, `popover`; `list`, `palette`,
   `completions`, `tree`, `grid`; `split`, `status`; `find_bar`. `ui.commands(list)` writes the page's commands once for the host, the
   palette and the help, and holds them while a modal is in front.
+- `u:picker(id, { anchor =, items =, multi =, state =, label = })` is a card by the control that
+  opened it (`anchor`, an element's name) with a field that narrows its items and the items under it,
+  to choose one or, with `multi`, several, as a field of labels or the values of a filter does: the
+  host's menu closes at every pick, the picker stays. Its `items` are
+  `{ key, title, hint, icon, on, enabled }`, `on` what is chosen now, which the page holds. A row of
+  one is `pick { item }` (and the page stops drawing it), a row of several `toggle { item, on }` with
+  `on` what it is to become, each a click or enter; the keyboard stays in the field, enter selects what was typed, and escape or a press
+  outside it that is not on its anchor is `dismiss`. `search = false` leaves the field out (the space
+  bar chooses as enter does); `side`, `gap`, `align`, `width`, `rows`, `height`, `inset`, `hint` and
+  `empty` place, size and word it.
 - `u:menu(id, entries, { near =, at = })` is the reply that asks the host for a menu at an element
   (below its left edge) or at a place (`at = { x =, y = }`): where `near` is not laid out it opens at
   `at`, and where there is no `at` either there is no menu (nil); with neither given, it is an error. A

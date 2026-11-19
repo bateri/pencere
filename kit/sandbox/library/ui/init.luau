@@ -52,7 +52,7 @@ ui.toast = layers.toast
 ui.toasts_prune = layers.toasts_prune
 
 -- The components, as methods of the context.
-for _, parts in { basic, controls, { dialog = layers.dialog, toasts = layers.toasts }, { list = lists.list, palette = lists.palette, completions = lists.completions }, structure, { find_bar = find.find_bar, grid = grid.grid },
+for _, parts in { basic, controls, { dialog = layers.dialog, toasts = layers.toasts }, { list = lists.list, palette = lists.palette, picker = lists.picker, completions = lists.completions }, structure, { find_bar = find.find_bar, grid = grid.grid },
 	{ editor_menu = editor_menu.editor_menu, editor_menu_pick = editor_menu.editor_menu_pick } } do
 	for name, component in parts do
 		core.Ctx[name] = component

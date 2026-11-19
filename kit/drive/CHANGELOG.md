@@ -79,6 +79,8 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Changed
 
+- A press over a field that something is drawn over (a popover, a card) reaches what covers it, as in
+  a host, which does not show such a field; it went to the field.
 - A page the module makes again that is the page it was is not laid out again, and what an editor
   says of one act (a letter typed is a change and a move of the carets) is one page, not one for each.
 - The crate's licence is `Apache-2.0 AND OFL-1.1`: the two faces it carries (JetBrains Mono, Inter)

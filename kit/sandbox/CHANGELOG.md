@@ -8,6 +8,10 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **A picker** (`u:picker` of `@pencere/ui`): a card by the control that opened it, with a field that
+  narrows its items, to choose one or several. With `multi` each row has a box and a click or enter
+  turns it on or off while the card stays open, so that a page's labels or the values of a filter are
+  chosen in one go and not one menu at a time.
 - **`Module::party` and `Module::renders`**: the events of one act of the editors (a letter typed is a
   change and a move of the carets) are told as one command, each handled and answered, the page made
   once after the last; `renders` counts the pages the module made.
@@ -117,6 +121,9 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Fixed
 
+- **A click into a field closes a popover.** The host keeps such a press (the page is told the field
+  has the keyboard, not that a button went down), so a popover, and the new picker, stayed open when
+  the person clicked into a field outside it.
 - **One click picks a palette's row and a completion.** The row under the pointer was chosen as
   the pointer came to it, so the click on it said nothing and only a double click picked it. A press
   on a row of a list whose cursor follows the pointer says `select` now, on the row chosen already too.

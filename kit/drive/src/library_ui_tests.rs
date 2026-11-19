@@ -1550,6 +1550,223 @@ fn a_palette_searches_a_long_list_a_step_at_a_frame() -> Result<(), Error> {
     Ok(())
 }
 
+// --- A picker -----------------------------------------------------------------------------------------
+
+/// A page with a control that opens a picker of labels by it: the page holds what is on, a toggle
+/// turns it, and a pick or a dismissal closes the card (`MULTI` and `SEARCH` say which picker).
+const PICKER: &str = r#"
+S.open = false
+S.items = {
+    { key = "bug", title = "Bug", on = true },
+    { key = "api", title = "API" },
+    { key = "ui", title = "Interface" },
+    { key = "off", title = "Turned Off", enabled = false },
+}
+S.state = { query = "" }
+view = function(u)
+    local root = pencere.div():gap(8):p(20)
+        :child(u:button("labels", { title = "Labels" }))
+        :child(u:button("elsewhere", { title = "Elsewhere" }))
+        :child(u:input("other", { label = "Other" }))
+    if S.open then
+        root:child(u:picker("picker", { anchor = "labels", items = S.items, multi = MULTI, search = SEARCH,
+            state = S.state, label = "Labels", hint = "Change labels" }))
+    end
+    return root
+end
+on_action = function(act)
+    if act.from == "labels" then
+        S.open = not S.open
+        S.state = { query = "" }
+    elseif act.from == "picker" and act.kind == "toggle" then
+        for _, item in S.items do
+            if item.key == act.item.key then
+                item.on = act.on
+            end
+        end
+    elseif act.from == "picker" and (act.kind == "pick" or act.kind == "dismiss") then
+        if act.kind == "pick" then
+            for _, item in S.items do
+                item.on = item.key == act.item.key
+            end
+        end
+        S.open = false
+    end
+end
+"#;
+
+fn picker(multi: bool, search: bool) -> Result<Headless, Error> {
+    open(&format!("MULTI = {multi}\nSEARCH = {search}\n{PICKER}"))
+}
+
+/// The lines of the log that are the picker's.
+fn picked(page: &Headless) -> Vec<String> {
+    log(page)
+        .into_iter()
+        .filter(|line| line.starts_with("picker"))
+        .collect()
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_picker_of_several_turns_each_on_and_off_and_stays_open() -> Result<(), Error> {
+    let mut page = picker(true, true)?;
+    page.click("labels")?;
+    page.step()?;
+    page.advance(0.3)?;
+    let card = page.bounds("picker").expect("the card");
+    let anchor = page.bounds("labels").expect("the anchor");
+    assert!(card.y >= anchor.y + anchor.h, "below its anchor");
+    assert_eq!(
+        page.focus(),
+        Focus::Field(pencere_view::Id::named("picker/input/field")),
+        "the keyboard is in its field"
+    );
+    assert_eq!(
+        accessible(&page, "picker/list/row/bug").state.checked,
+        Some(true)
+    );
+    assert_eq!(
+        accessible(&page, "picker/list/row/api").state.checked,
+        Some(false)
+    );
+    assert!(
+        accessible(&page, "picker/list/row/bug").state.selected,
+        "the first is chosen"
+    );
+    page.click("picker/list/row/api")?;
+    page.click("picker/list/row/bug")?;
+    assert_eq!(
+        picked(&page),
+        ["picker toggle on=true", "picker toggle on=false"]
+    );
+    assert!(page.says("Interface"), "the card stays");
+    assert_eq!(
+        accessible(&page, "picker/list/row/api").state.checked,
+        Some(true)
+    );
+    assert_eq!(
+        accessible(&page, "picker/list/row/bug").state.checked,
+        Some(false)
+    );
+    assert_eq!(page.bounds("picker"), Some(card), "it does not move");
+    assert_eq!(
+        page.focus(),
+        Focus::Field(pencere_view::Id::named("picker/input/field")),
+        "the keyboard stays in its field"
+    );
+    // What is typed narrows the rows, and enter turns the one the cursor is on.
+    page.type_text("int")?;
+    page.advance(0.3)?;
+    assert!(!page.says("API"), "what the query is not in is not shown");
+    page.press("enter")?;
+    assert_eq!(
+        picked(&page).last().map(String::as_str),
+        Some("picker toggle on=true")
+    );
+    assert_eq!(
+        accessible(&page, "picker/list/row/ui").state.checked,
+        Some(true)
+    );
+    // What was typed is selected after enter: the next word replaces it. An item that is off is not
+    // chosen.
+    page.type_text("turned")?;
+    page.advance(0.3)?;
+    assert_eq!(
+        picked(&page).last().map(String::as_str),
+        Some("picker query text=turned")
+    );
+    page.press("enter")?;
+    page.click("picker/list/row/off")?;
+    let toggles = |page: &Headless| {
+        picked(page)
+            .into_iter()
+            .filter(|line| line.starts_with("picker toggle"))
+            .count()
+    };
+    assert_eq!(toggles(&page), 3, "{:?}", picked(&page));
+    page.press("escape")?;
+    assert_eq!(
+        picked(&page).last().map(String::as_str),
+        Some("picker dismiss")
+    );
+    assert!(page.bounds("picker").is_none(), "the card is gone");
+    page.step()?;
+    assert_eq!(page.focus(), Focus::Page, "the keyboard is back");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_picker_goes_at_a_press_outside_it_and_its_anchor_is_the_pages() -> Result<(), Error> {
+    let mut page = picker(true, true)?;
+    page.click("labels")?;
+    page.advance(0.3)?;
+    page.click("elsewhere")?;
+    assert!(page.bounds("picker").is_none());
+    assert_eq!(
+        log(&page),
+        ["labels press", "picker dismiss", "elsewhere press"]
+    );
+    page.click("labels")?;
+    page.advance(0.3)?;
+    page.click("labels")?;
+    assert!(
+        page.bounds("picker").is_none(),
+        "the anchor's own press closes it, and does not close then open it"
+    );
+    assert_eq!(picked(&page), ["picker dismiss"]);
+    // A click into a field outside it is a press outside it, which the host keeps.
+    page.click("labels")?;
+    page.advance(0.3)?;
+    page.click("other/field")?;
+    assert!(page.bounds("picker").is_none(), "the card is gone");
+    assert_eq!(picked(&page), ["picker dismiss", "picker dismiss"]);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_picker_of_one_marks_the_one_on_and_a_pick_closes_it() -> Result<(), Error> {
+    let mut page = picker(false, true)?;
+    page.click("labels")?;
+    page.advance(0.3)?;
+    assert_eq!(
+        accessible(&page, "picker/list/row/bug").state.checked,
+        None,
+        "a row of one is no box"
+    );
+    page.press("down")?;
+    page.press("enter")?;
+    assert_eq!(picked(&page), ["picker pick"]);
+    assert!(page.bounds("picker").is_none());
+    page.click("labels")?;
+    page.advance(0.3)?;
+    page.click("picker/list/row/ui")?;
+    assert_eq!(picked(&page), ["picker pick", "picker pick"]);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_picker_with_no_field_gives_its_list_the_keyboard_and_the_space_bar_chooses()
+-> Result<(), Error> {
+    let mut page = picker(true, false)?;
+    page.click("labels")?;
+    page.step()?;
+    page.advance(0.3)?;
+    assert!(page.bounds("picker/input").is_none(), "no field of its own");
+    assert_eq!(keys_at(&page), "keys at picker/list in page");
+    page.press("down")?;
+    page.press("space")?;
+    page.press("enter")?;
+    assert_eq!(
+        picked(&page),
+        ["picker toggle on=true", "picker toggle on=false"]
+    );
+    Ok(())
+}
+
 // --- Completions --------------------------------------------------------------------------------------
 
 #[test]
