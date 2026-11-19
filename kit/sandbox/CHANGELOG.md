@@ -123,7 +123,8 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 - **A click into a field closes a popover.** The host keeps such a press (the page is told the field
   has the keyboard, not that a button went down), so a popover, and the new picker, stayed open when
-  the person clicked into a field outside it.
+  the person clicked into a field outside it. A click into the control it stands by (a field, or one
+  inside it) is still the page's.
 - **One click picks a palette's row and a completion.** The row under the pointer was chosen as
   the pointer came to it, so the click on it said nothing and only a double click picked it. A press
   on a row of a list whose cursor follows the pointer says `select` now, on the row chosen already too.

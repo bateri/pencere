@@ -761,7 +761,7 @@ local Picker = core.component("picker", {
 		return card
 	end,
 	away = function(_, _, props, _, _, hit)
-		if hit ~= nil and hit == props.anchor then
+		if layers.on_anchor(hit, props.anchor) then
 			return nil
 		end
 		return true, { kind = "dismiss" }

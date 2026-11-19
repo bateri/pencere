@@ -366,6 +366,23 @@ end
 
 local SIDES = { above = true, below = true, left = true, right = true }
 
+-- Whether `hit` (what a press went down on, or the field a click went into) is the element `anchor` or
+-- inside it: a press on its own control is the page's, which opens and closes the card.
+function layers.on_anchor(hit, anchor)
+	if hit == nil or type(anchor) ~= "string" then
+		return false
+	end
+	if hit == anchor then
+		return true
+	end
+	for _, around in layout.path_of(hit) do
+		if around == anchor then
+			return true
+		end
+	end
+	return false
+end
+
 -- What closes a popover: escape, a press outside it, and, of one that stands by an editor's text,
 -- the text changing under it, the caret moving, the editor scrolling, and the pointer leaving the
 -- word it rested on (after `hide_delay`, unless it went onto the card, or came to rest on another
@@ -468,7 +485,7 @@ local Popover = core.component("popover", {
 		return card
 	end,
 	away = function(_, _, props, _, _, hit)
-		if not dismissals(props).away or (hit ~= nil and hit == props.anchor) then
+		if not dismissals(props).away or layers.on_anchor(hit, props.anchor) then
 			return nil
 		end
 		return true, { kind = "dismiss" }

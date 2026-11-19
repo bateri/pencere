@@ -1046,6 +1046,45 @@ end
     Ok(())
 }
 
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_popover_by_a_field_stays_at_a_click_into_that_field_and_goes_at_one_into_another()
+-> Result<(), Error> {
+    let mut page = open(
+        r#"
+S.open = true
+view = function(u)
+    local root = pencere.div():gap(8):p(20)
+        :child(u:input("search", { label = "Search" }))
+        :child(u:input("other", { label = "Other" }))
+    if S.open then
+        root:child(u:popover("card", { anchor = "search", side = "right" }, pencere.div():p(8):child(pencere.text("Hello"))))
+    end
+    return root
+end
+on_action = function(act)
+    if act.from == "card" and act.kind == "dismiss" then
+        S.open = false
+    end
+end
+"#,
+    )?;
+    page.advance(0.3)?;
+    assert!(page.says("Hello"));
+    page.click("search/field")?;
+    assert!(
+        page.says("Hello"),
+        "a click into its own field is on its anchor"
+    );
+    page.click("other/field")?;
+    assert!(
+        !page.says("Hello"),
+        "a click into another field is outside it"
+    );
+    assert_eq!(log(&page), ["card dismiss"]);
+    Ok(())
+}
+
 /// A page with an editor and a card by the word the pointer rests on: the card is a popover that stands
 /// by the range the page named, goes at what its `dismiss` lists, and waits `hide_delay` after the
 /// pointer left the word.
