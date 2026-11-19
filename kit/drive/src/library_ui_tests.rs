@@ -1470,6 +1470,65 @@ fn a_palette_picks_with_a_click_gives_up_with_escape_and_says_back_in_an_empty_f
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_palette_picks_the_row_the_pointer_rests_on_with_one_click() -> Result<(), Error> {
+    // The page writes down the key of the item it is given, which the log leaves out (a table).
+    let source = PALETTE.replace(
+        "        S.open = false\n    end\nend",
+        "        S.open = false\n        if act.kind == \"pick\" then\n            S.picked = act.item.key\n        end\n    end\nend\nfinish = function(_, root)\n    root:child(pencere.text(\"picked \" .. tostring(S.picked)):id(\"picked\"))\nend",
+    );
+    assert_ne!(source, PALETTE, "the page writes down what it picks");
+    let mut page = open(&source)?;
+    let picks = |page: &Headless| {
+        log(page)
+            .iter()
+            .filter(|line| line.starts_with("palette pick"))
+            .count()
+    };
+    let picked = |page: &Headless| page.words_in("picked").join("");
+    // The first row is chosen as the palette opens: one click on it picks it.
+    page.click("open")?;
+    page.step()?;
+    page.advance(0.3)?;
+    page.click("palette/list/row/save")?;
+    page.step()?;
+    assert_eq!(picks(&page), 1, "{:?}", log(&page));
+    assert_eq!(picked(&page), "picked save");
+    assert!(page.bounds("palette/card").is_none(), "the palette is gone");
+    // The pointer that comes to a row chooses it, as a hand does before it clicks: the click then
+    // picks it, and not only a second one.
+    page.click("open")?;
+    page.step()?;
+    page.advance(0.3)?;
+    page.hover("palette/list/row/close")?;
+    assert!(accessible(&page, "palette/list/row/close").state.selected);
+    page.click("palette/list/row/close")?;
+    page.step()?;
+    assert_eq!(picks(&page), 2, "{:?}", log(&page));
+    assert_eq!(picked(&page), "picked close");
+    assert!(page.bounds("palette/card").is_none(), "the palette is gone");
+    // A double click picks once: the first press picks and the palette is gone at the second.
+    page.click("open")?;
+    page.step()?;
+    page.advance(0.3)?;
+    page.hover("palette/list/row/find")?;
+    page.double_click("palette/list/row/find")?;
+    page.step()?;
+    assert_eq!(picks(&page), 3, "{:?}", log(&page));
+    assert_eq!(picked(&page), "picked find");
+    // A row that cannot be done now is not picked by the pointer either.
+    page.click("open")?;
+    page.step()?;
+    page.advance(0.3)?;
+    page.hover("palette/list/row/off")?;
+    page.click("palette/list/row/off")?;
+    page.step()?;
+    assert_eq!(picks(&page), 3, "{:?}", log(&page));
+    assert!(page.bounds("palette/card").is_some(), "the palette stays");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_palette_searches_a_long_list_a_step_at_a_frame() -> Result<(), Error> {
     let mut page = open(
         &PALETTE
@@ -1541,6 +1600,59 @@ end
     assert_eq!(log(&page).last().map(String::as_str), Some("complete pick"));
     assert!(!page.says("pairs"));
     assert!(keys_of(&page).is_empty());
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_completion_the_pointer_rests_on_is_picked_with_one_click() -> Result<(), Error> {
+    let mut page = open(
+        r#"
+S.items = {}
+view = function(u)
+    return pencere.div():size_full():gap(6)
+        :child(u:button("show", { title = "Show" }))
+        :child(pencere.editor("doc", {}):w_full():h(120))
+        :child(u:completions("complete", { editor = "doc", items = S.items }))
+        :child(pencere.text("picked " .. tostring(S.picked)):id("picked"))
+end
+on_action = function(act)
+    if act.from == "show" then
+        S.items = { { key = "print", title = "print" }, { key = "pairs", title = "pairs" }, { key = "pcall", title = "pcall" } }
+    elseif act.from == "complete" then
+        if act.kind == "pick" then
+            S.picked = act.item.key
+        end
+        S.items = {}
+    end
+end
+"#,
+    )?;
+    let picks = |page: &Headless| {
+        log(page)
+            .iter()
+            .filter(|line| line.starts_with("complete pick"))
+            .count()
+    };
+    let picked = |page: &Headless| page.words_in("picked").join("");
+    // The first is chosen as the card comes: one click on it picks it.
+    page.click("show")?;
+    page.focus_editor("doc")?;
+    page.advance(0.3)?;
+    page.click("complete/list/row/print")?;
+    assert_eq!(picks(&page), 1, "{:?}", log(&page));
+    assert_eq!(picked(&page), "picked print");
+    assert!(!page.says("pairs"));
+    // The pointer that comes to one chooses it; the click then picks it.
+    page.click("show")?;
+    page.focus_editor("doc")?;
+    page.advance(0.3)?;
+    page.hover("complete/list/row/pcall")?;
+    assert!(accessible(&page, "complete/list/row/pcall").state.selected);
+    page.click("complete/list/row/pcall")?;
+    assert_eq!(picks(&page), 2, "{:?}", log(&page));
+    assert_eq!(picked(&page), "picked pcall");
+    assert!(!page.says("pairs"));
     Ok(())
 }
 

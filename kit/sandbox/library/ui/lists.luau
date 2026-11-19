@@ -130,7 +130,8 @@ lists.move = move
 -- (`props.key_map` maps others: `{ j = "down", k = "up" }`), opens with enter (`open { how = "key" }`)
 -- and marks with the space bar. `focusable = false` leaves the keyboard where it is (a palette's
 -- field). `active` says it has the keyboard when it has not (the palette's field has it), and
--- `hover_selects` has the cursor follow the pointer. Rows the page has not read yet (`count` past
+-- `hover_selects` has the cursor follow the pointer, and then every press says `select`, on the row
+-- chosen already too. Rows the page has not read yet (`count` past
 -- the rows of `items`, which hold a place with nil) say `need { first, last }` as they come into view.
 local List = core.component("list", {
 	state = function()
@@ -229,7 +230,10 @@ local List = core.component("list", {
 		if event.count == 2 then
 			return true, { kind = "open", key = key, how = "pointer" }
 		end
-		if changed then
+		-- Where the cursor follows the pointer, the row is chosen before the press comes (and the
+		-- first is chosen with none at all): the press is still the choice, or a palette would pick
+		-- only at a second press.
+		if changed or props.hover_selects then
 			return true, { kind = "select", key = key, how = "pointer" }
 		end
 		return true

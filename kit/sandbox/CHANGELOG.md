@@ -117,6 +117,9 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Fixed
 
+- **One click picks a palette's row and a completion.** The row under the pointer was chosen as
+  the pointer came to it, so the click on it said nothing and only a double click picked it. A press
+  on a row of a list whose cursor follows the pointer says `select` now, on the row chosen already too.
 - **The pointer keeps the shape a component of the library asks for.** A split's handle or a
   column's edge showed the resize pointer only as the pointer came onto it, and the arrow at the
   next move, press or turn of the wheel. Every reply to the pointer says its shape now, as the
