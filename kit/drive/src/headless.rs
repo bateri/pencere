@@ -2302,7 +2302,10 @@ impl<P: Peer> Headless<P> {
     /// A picture of the page as the last frame drew it: a PNG of the view's pixels, the words in
     /// `fonts` (the page laid out with the same, [`Opening::measure`], for its words to fill their
     /// boxes; [`crate::shot::Fonts::none`] draws each character as a box, the same on every
-    /// machine), in a dark terminal's colours.
+    /// machine), in a dark terminal's colours. The host's text fields are drawn over the page as a
+    /// system's are: what each holds in the terminal's face at the kit's text size (a secret as
+    /// dots), or its hint, quiet, where it holds nothing; what is selected in it, and the caret of
+    /// the one that has the keyboard.
     ///
     /// # Errors
     ///
@@ -2323,8 +2326,24 @@ impl<P: Peer> Headless<P> {
         fonts: &crate::shot::Fonts,
         palette: crate::shot::Palette,
     ) -> Result<Vec<u8>, crate::shot::Error> {
+        // The fields are the host's, drawn over the page as a system's are.
+        let focus = match self.focus() {
+            Focus::Field(id) => Some(id),
+            Focus::Page | Focus::Editor(_) => None,
+        };
+        #[allow(clippy::cast_possible_truncation)]
+        let scale = self.scale as f32;
+        let mut list = self.list.clone();
+        list.items.extend(field::drawn(
+            self.page.fields(),
+            &self.seen.fields,
+            focus,
+            self.page.placement().zoom,
+            scale,
+            fonts,
+        ));
         crate::shot::png(
-            &self.list,
+            &list,
             (self.pixels(self.size.w), self.pixels(self.size.h)),
             fonts,
             self.page.images(),

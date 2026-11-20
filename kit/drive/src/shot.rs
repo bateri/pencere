@@ -2,7 +2,8 @@
 //! gives and a theme of the kit's roles — the boxes, the words, the colours, the pictures and the
 //! editors where the kit put them, which is what an eye checks (what is aligned, what overlaps, what
 //! is cut). Not a terminal's drawing: no shaping, and a soft shadow made as three passes of a box
-//! blur (a good Gaussian), which is what the eye needs of one.
+//! blur (a good Gaussian), which is what the eye needs of one. A host's text fields are not in a
+//! draw list: [`crate::Headless::shot`] draws the headless host's over it.
 //!
 //! **The fonts are the caller's.** Where it gives none, each character is drawn as a box a character
 //! wide ([`Fonts::none`]): a picture made on any machine, with no font of its system, is the same

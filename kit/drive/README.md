@@ -222,8 +222,10 @@ that waits in its own way needs: `Headless::tick` and `Headless::fill_field`.
 With the feature `shot`, `Headless::shot(&fonts)` draws the last frame into a PNG (and
 `shot::png` any draw list): the boxes, the words, the colours of a dark or a light terminal's theme
 (`Palette`), the canvases, the pictures and the editors where the kit put them — what an eye checks
-(what is aligned, what overlaps, what is cut). It is not a terminal's drawing: no shaping, no
-shadows, no blur.
+(what is aligned, what overlaps, what is cut). `Headless::shot` draws the host's text fields over
+the page too, as a system draws its own: what each holds (a secret as dots) or its hint, quiet, its
+selection and the caret of the one with the keyboard; `shot::png` draws a list, and a host's fields
+are not in one. It is not a terminal's drawing: no shaping, no shadows, no blur.
 
 The fonts are the caller's. `shot::Fonts::installed()` draws in the machine's own (on a Mac SF Mono and
 SF, as bateri does, in their bold and italic; a character a face lacks is drawn in the first face of

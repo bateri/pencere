@@ -100,6 +100,13 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 - A page's pictures are measured and drawn for the page of the file they show (`Images::size` and
   `Images::bitmap` take it): a page of a PDF is laid out at its own size and drawn at the size it is.
 
+### Fixed
+
+- **A picture shows the host's text fields.** `Headless::shot` drew a field's box empty, whatever
+  was typed in it, and with no hint: it now draws what each field holds in the terminal's face at the
+  kit's text size (a secret as dots), or its hint, quiet, where it holds nothing, what is selected in
+  it and the caret of the one that has the keyboard, as a system draws its own over the page.
+
 ## [0.4.1] - 2026-11-05
 
 Released with the other crates; no change of its own.
