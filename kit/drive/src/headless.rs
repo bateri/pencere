@@ -64,7 +64,8 @@ pub use peer::{Calls, Heard, LOG_METHOD, Logged, Peer, Subscription};
 pub use pencere_wire::messages::Error as Failure;
 pub use serde_json::Value;
 
-use crate::{CarryOut, Copied, Field, FrameAt, Host, Outline, Page, Route, Setup};
+use crate::reading::{Reading, ReadingInput};
+use crate::{CarryOut, Copied, Field, FrameAt, Host, Outline, Page, Route, Setup, Unreachable};
 
 /// A frame of a host that draws sixty a second: how far apart [`Headless::advance`] draws the
 /// frames of a page that moves, and the soonest after one that the next is drawn.
@@ -1886,24 +1887,15 @@ impl<P: Peer> Headless<P> {
 
     /// The middle of the element named `name`, where a press there reaches it.
     fn reach(&self, name: &str) -> Result<Point, Error> {
-        let bounds = self
-            .bounds(name)
-            .ok_or_else(|| Error::NoSuch(name.to_owned()))?;
-        let at = middle(bounds);
-        if self.reaches(name, at) {
-            Ok(at)
-        } else {
-            Err(Error::Unreachable(name.to_owned()))
-        }
+        self.page.reach(Id::named(name)).map_err(|why| match why {
+            Unreachable::Absent => Error::NoSuch(name.to_owned()),
+            Unreachable::Covered => Error::Unreachable(name.to_owned()),
+        })
     }
 
-    /// Whether a press at `at` (the host's points) reaches the element named `name`: it is the
-    /// topmost there, or holds it.
+    /// Whether a press at `at` (the host's points) reaches the element named `name`.
     fn reaches(&self, name: &str, at: Point) -> bool {
-        let place = self.page.placement();
-        self.page
-            .laid()
-            .is_some_and(|laid| laid.ids_at(place.to_page(at)).contains(&Id::named(name)))
+        self.page.reaches(Id::named(name), at)
     }
 
     // --- What else the host does -------------------------------------------------------------------
@@ -2455,6 +2447,26 @@ impl<P: Peer> Headless<P> {
     /// The page's fields, what a screen reader says of it, its tooltips and its commands.
     pub fn outline(&self) -> &Outline {
         self.page.outline()
+    }
+
+    /// What an agent reads of the page as it stands, as the host of a terminal would give it: the
+    /// elements by the names they are told by, the fields with what they hold, the editors'
+    /// lines and selections, the boxes that scroll, the commands, where the keyboard is and
+    /// whether the page is at rest. It does not wait for the page: [`Headless::settle`] first
+    /// where what was told is to have come to something. What a page author sees here is what an
+    /// agent sees, so a page can be tested for being read.
+    pub fn reading(&mut self) -> Reading {
+        let keyboard = match self.focus() {
+            Focus::Field(id) => Some(id),
+            _ => None,
+        };
+        let seen = &self.seen;
+        let text = |id: Id| seen.fields.get(&id).map(|held| held.text.clone());
+        self.page.reading(&ReadingInput {
+            field_text: Some(&text),
+            field_focus: keyboard,
+            menu: None,
+        })
     }
 
     /// The pointer's shape the page last asked for, answering the pointer.

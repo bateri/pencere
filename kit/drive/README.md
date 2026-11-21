@@ -217,6 +217,37 @@ stand-in program, the app's own or a program on a pty, found by words and roles,
 `expect` (the command's README, "Testing an app"). It adds nothing to this crate but what a test
 that waits in its own way needs: `Headless::tick` and `Headless::fill_field`.
 
+## What an agent reads
+
+An agent that reads a page and drives it needs what a person sees of it and a name for each thing
+to point at. `Page::reading(input)` is that: the page's elements, its fields, the lines its editors
+show and what is selected in them, the boxes that scroll, its commands, where the keyboard is and
+whether the page is at rest (`reading::Reading`). It is plain data with two writers,
+`Reading::text()` for a person or a model and `Reading::json()` for a program; a host with no page
+of this crate (a web view whose script made the parts) builds a `Reading` and writes it the same way.
+`Headless::reading()` is the same under the host with no screen, so a page's author tests what an
+agent will see.
+
+- **A name is six letters** (`reading::reference`): the element's `Id` mixed and written in base 32
+  (`k3f9qa`). It is the same at every reading of a page that keeps the element, and the same for
+  whoever reads: nothing is remembered between readings. If two elements of a reading come to the same
+  name, both are marked and `Reading::find` refuses the name; the whole id (16 hex digits,
+  `reading::full`) names either. Plain text has no name.
+- **What the host holds, it gives** (`ReadingInput`): the text of its fields and where its keyboard is.
+  The value of a secret field is never asked for and is in no reading.
+- **A reading is cleaned**: control characters are `?`, long words are cut (a `…` says so), line breaks
+  stay.
+- **At rest** (`Page::rest`) says whether the module has more to do of what it was told, how many
+  calls to the program have no answer (a subscription and what the program pushes are not calls), whether
+  an image is on its way and whether the page is laid out for what it last was. It never waits: a host
+  asks at every drain and wake. Motion is told and is not waited for, so a page that always moves
+  can be at rest.
+- **`Page::reach(id)`** is where a press reaches an element (its middle, if nothing covers it), the same
+  place `Headless::click` presses.
+
+Three things make a page easy to read and drive: a name (`id`) on every element that answers a press,
+a title on every command, and a label or hint on every field.
+
 ## Pictures of a page (`shot`)
 
 With the feature `shot`, `Headless::shot(&fonts)` draws the last frame into a PNG (and

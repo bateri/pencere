@@ -8,6 +8,9 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **`Module::idle`**: whether the module has done everything it was told and what came of it is out,
+  without waiting (`flush` waits), so that a host can tell a page that has more to say from one that
+  has said it.
 - **A picker** (`u:picker` of `@pencere/ui`): a card by the control that opened it, with a field that
   narrows its items, to choose one or several. With `multi` each row has a box and a click or enter
   turns it on or off while the card stays open, so that a page's labels or the values of a filter are

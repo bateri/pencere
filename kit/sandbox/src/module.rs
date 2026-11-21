@@ -163,6 +163,9 @@ struct Waiting {
     /// The last mark of the application's ([`Module::flush`]) the module has come to, with all it
     /// was told before it done and put out.
     reached: u64,
+    /// How many of the commands the application posted the module has done, and put out what came
+    /// of them ([`Module::idle`]).
+    handled: u64,
 }
 
 /// What the application takes from the mailbox.
@@ -193,6 +196,8 @@ pub struct Module {
     mailbox: Arc<Mailbox>,
     /// The last mark posted ([`Module::flush`]).
     marks: AtomicU64,
+    /// How many commands the application has posted ([`Module::idle`]).
+    posted: AtomicU64,
 }
 
 impl Module {
@@ -231,7 +236,14 @@ impl Module {
             commands,
             mailbox,
             marks: AtomicU64::new(0),
+            posted: AtomicU64::new(0),
         }
+    }
+
+    /// Posts `command` to the module, counted ([`Module::idle`]).
+    fn post(&self, command: Command) {
+        self.posted.fetch_add(1, Ordering::SeqCst);
+        let _ = self.commands.send(command);
     }
 
     /// Starts the interpreter on `script` under
@@ -253,7 +265,7 @@ impl Module {
     /// Asks for the page for a viewport of `size` points at `now` seconds. Returns at once;
     /// the page comes with the next taking.
     pub fn render(&self, size: Size, now: f64, reduce_motion: bool) {
-        let _ = self.commands.send(Command::Render {
+        self.post(Command::Render {
             size,
             now,
             reduce_motion,
@@ -262,7 +274,7 @@ impl Module {
 
     /// Tells the module what the person did. Returns at once.
     pub fn event(&self, event: Event) {
-        let _ = self.commands.send(Command::Event(event, None));
+        self.post(Command::Event(event, None));
     }
 
     /// Tells the module what the editors said of themselves after one act, as one command: the
@@ -276,7 +288,7 @@ impl Module {
             "what the person did is told alone: {events:?}"
         );
         if !events.is_empty() {
-            let _ = self.commands.send(Command::Party(events));
+            self.post(Command::Party(events));
         }
     }
 
@@ -286,9 +298,7 @@ impl Module {
     /// from the host's list is the person's, one a key did only when the key is the system's copy or
     /// cut ([`copy_key`]); the page chose what any other key does. Returns at once.
     pub fn event_by_key(&self, event: Event, key: pencere_view::Key, mods: pencere_view::Mods) {
-        let _ = self
-            .commands
-            .send(Command::Event(event, Some(copy_key(key, mods))));
+        self.post(Command::Event(event, Some(copy_key(key, mods))));
     }
 
     /// Tells the module what its program said (a JSON object, as written). Returns at once, and
@@ -297,13 +307,13 @@ impl Module {
     /// while the module has not taken the last of it ([`Program::taken`]) — this queue is as
     /// long as that leaves it.
     pub fn message(&self, text: String) {
-        let _ = self.commands.send(Command::Message(text));
+        self.post(Command::Message(text));
     }
 
     /// Tells the module the program has read enough for it to say what it was told *full* to
     /// ([`Program::may_say`]). Returns at once.
     pub fn room(&self) {
-        let _ = self.commands.send(Command::Room);
+        self.post(Command::Room);
     }
 
     /// Wakes the page: the application is at a frame of the time `now` (on the clock it gives
@@ -316,7 +326,7 @@ impl Module {
     /// when nothing is asked, or at a time no later than the last wake's (a second in the same
     /// frame) is passed over; of wakes that wait while the module is busy, the newest is the one.
     pub fn wake(&self, now: f64) {
-        let _ = self.commands.send(Command::Wake(now));
+        self.post(Command::Wake(now));
     }
 
     /// Hands the module the text of each of the page's editors as it is now
@@ -324,14 +334,14 @@ impl Module {
     /// the events that tell of the versions it is of, it is what the module reads when it is told
     /// of them. Returns at once.
     pub fn texts(&self, texts: Vec<(Id, Arc<dyn TextSnapshot>)>) {
-        let _ = self.commands.send(Command::Texts(texts));
+        self.post(Command::Texts(texts));
     }
 
     /// Tells the module the page was laid out as `laid`: it may ask of it from now on, and is
     /// asked to bring what depends on it back within it.
     pub fn lay_out(&self, laid: Arc<Laid>) {
-        let _ = self.commands.send(Command::Laid(laid));
-        let _ = self.commands.send(Command::Settle);
+        self.post(Command::Laid(laid));
+        self.post(Command::Settle);
     }
 
     /// Waits until a page made for `size` that the application has not taken is put out, the
@@ -376,7 +386,7 @@ impl Module {
     /// for. What it put out is taken as ever ([`Module::poll`]).
     pub fn flush(&self, within: Duration) -> bool {
         let mark = self.marks.fetch_add(1, Ordering::SeqCst).saturating_add(1);
-        let _ = self.commands.send(Command::Mark(mark));
+        self.post(Command::Mark(mark));
         let waiting = self
             .mailbox
             .waiting
@@ -390,6 +400,19 @@ impl Module {
             })
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         waiting.reached >= mark || waiting.closed.is_some()
+    }
+
+    /// Whether the module has nothing left to do of what it was told: every command posted to it
+    /// is done and what came of it is out, waiting to be taken ([`Module::poll`]), or the module is
+    /// gone. Never waits: [`Module::flush`] is for a host that waits, this is for one that looks.
+    /// Ask before taking, and what was out when it said yes is in what is taken.
+    pub fn idle(&self) -> bool {
+        let waiting = self
+            .mailbox
+            .waiting
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        waiting.closed.is_some() || self.posted.load(Ordering::SeqCst) <= waiting.handled
     }
 
     /// Takes what the module has put out since the last taking. Never waits.
@@ -543,6 +566,17 @@ impl Post<'_> {
         due
     }
 
+    /// The module has done `count` more of the commands it was posted, and put out what came of
+    /// them ([`Module::idle`]).
+    fn handled(&self, count: u64) {
+        let mut waiting = self
+            .mailbox
+            .waiting
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        waiting.handled = waiting.handled.saturating_add(count);
+    }
+
     /// The module has come to the application's `mark`, with all it was told before it done: the
     /// application that waits for it is told ([`Module::flush`]). Nothing is woken: what came of
     /// it woke the application as it came.
@@ -693,6 +727,8 @@ fn run<R: Runner>(
         while let Ok(more) = inbox.try_recv() {
             batch.push(more);
         }
+        // As many as were posted: a party that is unfolded below is one command.
+        let received = u64::try_from(batch.len()).unwrap_or(u64::MAX);
         let (batch, partial) = unfold(batch);
         // The program said something that changed the page: one page for all it said in this
         // batch, made after the last of it (a program that pushes fast does not make the
@@ -997,7 +1033,10 @@ fn run<R: Runner>(
             post.say(runner.take_sent(), runner.take_asks());
             post.put(Some((frame, asked.size)), None);
         }
-        // After the page the batch owed: what came of everything before the mark is out.
+        // After the page the batch owed: what came of everything before the mark is out. The count
+        // goes first: whoever a mark wakes asks whether the module is idle, and the answer is to
+        // be yes.
+        post.handled(received);
         if let Some(mark) = marked {
             post.reached(mark);
         }
@@ -1552,6 +1591,35 @@ mod tests {
         // Nothing posted: a flush comes back at once with nothing new.
         assert!(rig.module.flush(Duration::from_secs(5)));
         assert_eq!(rig.module.poll().frame, None);
+    }
+
+    #[test]
+    fn a_module_is_idle_when_all_it_was_told_is_done_and_out_and_a_look_never_waits() {
+        let (hold, gate) = mpsc::channel();
+        let rig = rig(Some(gate), None, false);
+        assert!(rig.module.idle(), "nothing posted, nothing owed");
+        rig.module.render(Size::new(10.0, 10.0), 0.0, false);
+        // Held in its first render: what was posted is not done.
+        assert!(!rig.module.idle());
+        rig.module.event(typed("a"));
+        hold.send(()).unwrap();
+        // The look after a flush finds all of it done, and what came of it waits to be taken.
+        assert!(rig.module.flush(Duration::from_secs(5)));
+        assert!(rig.module.idle());
+        assert!(rig.module.poll().frame.is_some());
+        assert!(rig.module.idle(), "taking is not telling");
+        rig.module.message("redraw".into());
+        assert!(rig.module.flush(Duration::from_secs(5)));
+        assert!(rig.module.idle());
+    }
+
+    #[test]
+    fn a_module_that_is_gone_is_idle() {
+        let rig = rig(None, Some("render"), false);
+        rig.module.render(Size::new(10.0, 10.0), 0.0, false);
+        assert!(rig.module.flush(Duration::from_secs(5)));
+        rig.module.event(typed("a"));
+        assert!(rig.module.idle());
     }
 
     #[test]

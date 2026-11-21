@@ -59,6 +59,7 @@ use pencere_view::{
 use crate::editing::{Editing, Told, in_a_room};
 use crate::host::{CarryOut, Copied, Drained, Held, Host};
 use crate::outline::{Field, Outline, Placement};
+use crate::reading::{Owed, Reading, ReadingInput, Rest};
 use crate::scrolling::{HostScrolls, Scrolling};
 use crate::waking::Wakes;
 
@@ -167,6 +168,16 @@ const RELAYOUTS: usize = 2;
 /// many menus (the entries it tells a pick with), so that a pick it tells has its paste.
 const MENUS_KEPT: usize = 16;
 
+/// Why [`Page::reach`] found no place to press an element.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unreachable {
+    /// The element is not on the page.
+    Absent,
+    /// It is, but a press at its middle reaches something else or nothing: it is covered, or
+    /// scrolled out of view.
+    Covered,
+}
+
 /// A page of the kit, driven. See the module's documentation for how; every point it is told and
 /// tells is the host's ([`Placement`]).
 pub struct Page {
@@ -242,6 +253,8 @@ struct State {
     told_end: bool,
     /// What the module said to its program that the host has not carried.
     sent: Vec<String>,
+    /// The calls the page made that its program has not answered.
+    owed: Owed,
     /// The page's editors.
     editing: Editing,
     /// The shape the editor says the pointer has where it last was, over an editor's room.
@@ -454,6 +467,7 @@ impl Page {
                 ended: None,
                 told_end: false,
                 sent: Vec::new(),
+                owed: Owed::default(),
                 editing: Editing::new(),
                 cursor_over: None,
                 cursor_told: None,
@@ -926,6 +940,7 @@ impl Page {
 
     /// The program that opened the page said something: one JSON object, as it wrote it.
     pub fn message(&mut self, text: &str) {
+        self.state.owed.heard(text);
         self.state.module.message(text.to_owned());
     }
 
@@ -1139,6 +1154,71 @@ impl Page {
     }
 
     // --- What the page is now ----------------------------------------------------------------------
+
+    /// The middle of the element named `id`, in the host's points, where a press reaches it: it is
+    /// the topmost there, or holds it. What the pointer does to an element is done there, so that
+    /// what a person clicks on is what an agent clicks on.
+    ///
+    /// # Errors
+    ///
+    /// The element is not on the page (or the page is not laid out), or what lies over its middle
+    /// (a box over it, the edge of a box that scrolls) is what a press there reaches.
+    pub fn reach(&self, id: Id) -> Result<Point, Unreachable> {
+        let laid = self.state.laid.as_deref().ok_or(Unreachable::Absent)?;
+        let rect = laid.bounds(id).ok_or(Unreachable::Absent)?;
+        let rect = self.state.place.to_host(rect);
+        let at = Point::new(rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
+        if self.reaches(id, at) {
+            Ok(at)
+        } else {
+            Err(Unreachable::Covered)
+        }
+    }
+
+    /// Whether a press at `at` (the host's points) reaches the element named `id`: it is the
+    /// topmost there, or holds it.
+    pub fn reaches(&self, id: Id, at: Point) -> bool {
+        self.state
+            .laid
+            .as_deref()
+            .is_some_and(|laid| laid.ids_at(self.state.place.to_page(at)).contains(&id))
+    }
+
+    /// What is still going on after what the page was told: whether the module has more to do, how
+    /// many calls to the program have no answer, whether an image is on its way, whether the page
+    /// is laid out for what it last was, and whether anything moves. Never waits: a host that
+    /// has an agent wait looks at every drain and every wake. It takes in what the module has put
+    /// out (the drain after it has it all), and asks the module before it takes, so that a page
+    /// that says it is idle has said everything it will say to what it was told.
+    pub fn rest(&mut self) -> Rest {
+        let idle = self.state.module.idle();
+        self.state.sync(false, self.images.as_ref());
+        Rest {
+            unprocessed: !idle,
+            calls: self.state.owed.count(),
+            images: self.images.as_ref().is_some_and(Images::busy),
+            unsettled: self.state.again || self.state.fresh || self.state.redraw,
+            moving: self.animating(),
+        }
+    }
+
+    /// What an agent reads of the page as it was last laid out: its elements, fields, editors,
+    /// boxes that scroll, commands, where the keyboard is and whether it is at rest
+    /// ([`Page::rest`]). `input` is what only the host has (what its fields hold).
+    pub fn reading(&mut self, input: &ReadingInput<'_>) -> Reading {
+        let rest = self.rest();
+        crate::reading::read(self, input, rest)
+    }
+
+    /// The editor under `at` (the host's points), whether or not it has the keyboard, and the place
+    /// in its document there: what a reading finds the lines an editor shows by.
+    pub(crate) fn place_in_editor(&mut self, at: Point) -> Option<(Id, usize)> {
+        let at = self.state.place.to_page(at);
+        self.edit(false, |editors, laid, measure, _| {
+            editors.place_at(laid, at, measure)
+        })
+        .flatten()
+    }
 
     /// The fields, what a screen reader says, the tooltips and the commands of the page, as of the
     /// last frame, in the host's points.
@@ -1563,12 +1643,16 @@ impl State {
         // How much the module may say is not decided here: it was told *full* by the program when
         // the program had no room, and what it said is what the program has room for.
         if self.ended.is_none() {
+            for text in &update.sent {
+                self.owed.said(text);
+            }
             self.sent.extend(update.sent);
         }
         if let Some(fault) = update.closed
             && self.ended.is_none()
         {
             self.ended = Some(fault);
+            self.owed.clear();
         }
     }
 

@@ -21,6 +21,7 @@ pub mod headless;
 mod host;
 mod outline;
 mod page;
+pub mod reading;
 mod scrolling;
 #[cfg(feature = "shot")]
 pub mod shot;
@@ -28,8 +29,9 @@ mod waking;
 
 pub use host::{CarryOut, Copied, Drained, Held, Host};
 pub use outline::{Field, Outline, Placement, Tip, ZOOM_TEXT};
-pub use page::{FrameAt, NoText, Page, PageEditors, Painted, Setup, carriable};
+pub use page::{FrameAt, NoText, Page, PageEditors, Painted, Setup, Unreachable, carriable};
 pub use pencere_editor::Route;
+pub use reading::{Reading, ReadingInput, Rest};
 pub use scrolling::Scrolling;
 
 #[cfg(all(test, feature = "shot"))]
@@ -52,6 +54,8 @@ mod library_ui_tests;
 mod luau_editor_tests;
 #[cfg(test)]
 mod page_tests;
+#[cfg(test)]
+mod reading_tests;
 #[cfg(all(test, feature = "shot"))]
 mod shot_tests;
 #[cfg(all(test, feature = "shot"))]

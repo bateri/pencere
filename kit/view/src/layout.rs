@@ -1644,6 +1644,16 @@ impl Laid {
         Some(extent)
     }
 
+    /// The boxes that scroll and have a name, in the paint order: each with how far it is scrolled
+    /// and the part of it that shows, points. What a reader of the page tells of what is above and
+    /// below what it shows.
+    pub fn scroll_areas(&self) -> Vec<(Id, Extent, Rect)> {
+        self.scrollers()
+            .into_iter()
+            .filter_map(|at| self.scroller_at(at))
+            .collect()
+    }
+
     /// The places in the paint order of the boxes that scroll, have a name and are not hidden.
     pub(crate) fn scrollers(&self) -> Vec<usize> {
         self.nodes

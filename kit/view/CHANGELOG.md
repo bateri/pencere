@@ -8,6 +8,8 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Added
 
+- **`Laid::scroll_areas`**: the boxes that scroll and have a name, each with how far it is scrolled and
+  the part of it that shows.
 - **Sharp dots and pixel art** (`path().crisp(true)`): a path can be drawn with no smoothing, so
   dots and bars stay whole pixels and meet without a seam at any text size.
 - **An element can say what it carries out of the view** (`Element::carry(Carry)`, with

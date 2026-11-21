@@ -1,0 +1,758 @@
+//! What an agent reads of a page: the name of an element, the two writers, what is waited for before
+//! a reading, and the reading of pages under the host with no screen. The tests that run the
+//! interpreter are heavy (`make check-heavy`).
+
+use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use pencere_sandbox::{Fault, Frame, Runner};
+use pencere_view::{
+    Accessible, AccessibleRole, Event, FieldKind, Id, Key, Laid, Mods, Rect, Reply, Shortcut, Size,
+    State, div, text,
+};
+use serde_json::{Value, json};
+
+use crate::headless::{Calls, Error, Headless};
+use crate::reading::{
+    CommandReading, EditorReading, FieldReading, Found, Item, LINE_LIMIT, MenuLine, Owed, Place,
+    Reading, ScrollReading, Selected, WORDS_LIMIT, clean, full, keys_of, reference,
+};
+use crate::{FrameAt, Page, Setup};
+
+fn example(name: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples")
+        .join(name)
+}
+
+fn item(role: AccessibleRole, id: Option<Id>, words: &str) -> Item {
+    Item::of(&Accessible {
+        role,
+        id,
+        rect: Rect::new(1.4, 2.0, 30.0, 10.0),
+        words: words.to_owned(),
+        state: State::default(),
+    })
+}
+
+/// Two numbers that come to the same name: found by looking at the first few thousand.
+const CLASH: (u64, u64) = (2091, 3837);
+
+#[test]
+fn a_name_is_six_letters_of_the_id_mixed_and_is_the_same_each_time() {
+    let id = Id::named("restart");
+    let name = reference(id);
+    assert_eq!(name.len(), 6);
+    assert!(
+        name.chars()
+            .all(|c| "0123456789abcdefghjkmnpqrstvwxyz".contains(c)),
+        "{name}"
+    );
+    assert_eq!(name, reference(Id::named("restart")));
+    assert_ne!(name, reference(Id::named("remove")));
+    assert_eq!(full(Id::new(255)), "00000000000000ff");
+}
+
+#[test]
+fn ids_that_are_small_numbers_have_names_that_differ_from_the_first_letter() {
+    // The raw low bits of 1, 2, 3 would give names that differ in their last letter only.
+    let names: Vec<String> = (1..=64).map(|n| reference(Id::new(n))).collect();
+    let mut firsts: Vec<char> = names
+        .iter()
+        .filter_map(|name| name.chars().next())
+        .collect();
+    firsts.sort_unstable();
+    firsts.dedup();
+    assert!(firsts.len() > 8, "{firsts:?}");
+    let mut all = names.clone();
+    all.sort();
+    all.dedup();
+    assert_eq!(all.len(), 64);
+}
+
+#[test]
+fn two_elements_of_one_name_are_both_marked_and_each_is_found_by_its_whole_id() {
+    let (a, b) = (Id::new(CLASH.0), Id::new(CLASH.1));
+    assert_eq!(reference(a), reference(b), "the pair still clashes");
+    let reading = Reading {
+        items: vec![
+            item(AccessibleRole::Button, Some(a), "First"),
+            item(AccessibleRole::Button, Some(b), "Second"),
+            item(AccessibleRole::Button, Some(Id::named("other")), "Third"),
+            item(AccessibleRole::Text, None, "plain"),
+        ],
+        ..Reading::default()
+    };
+    let name = reference(a);
+    assert_eq!(reading.find(&name), Found::Clash);
+    assert_eq!(reading.find(&name.to_uppercase()), Found::Clash);
+    assert_eq!(reading.find(&full(a)), Found::One(a));
+    assert_eq!(reading.find(&full(b)), Found::One(b));
+    assert_eq!(
+        reading.find(&reference(Id::named("other"))),
+        Found::One(Id::named("other"))
+    );
+    assert_eq!(reading.find("zzzzzz"), Found::Nothing);
+    assert_eq!(reading.find(&full(Id::new(7))), Found::Nothing);
+
+    let text = reading.text();
+    let marked: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with(&format!("{name}!")))
+        .collect();
+    assert_eq!(marked.len(), 2, "{text}");
+    assert!(
+        text.lines()
+            .any(|line| line.starts_with(&reference(Id::named("other"))) && !line.contains('!')),
+        "{text}"
+    );
+    let json: Value = serde_json::from_str(&reading.json()).expect("json");
+    let items = json["items"].as_array().expect("items");
+    assert_eq!(items[0]["clash"], json!(true));
+    assert_eq!(items[1]["clash"], json!(true));
+    assert_eq!(items[2]["clash"], json!(false));
+    assert_eq!(items[0]["id"], json!(full(a)));
+    assert_eq!(items[3]["ref"], Value::Null, "plain text has no name");
+}
+
+#[test]
+fn what_a_page_says_is_cleaned_alike_in_the_text_and_in_the_json() {
+    // A control character, DEL, one past the ASCII, and a mark that turns text round are `?`; a tab is a
+    // space and a line break stays.
+    let said = "a\u{1}b\u{7f}c\u{85}d\u{202e}e\u{200b}f\tg\nh";
+    let clean_said = "a?b?c?d?e?f g\nh";
+    assert_eq!(clean(said, 100), clean_said);
+    let long = "x".repeat(WORDS_LIMIT + 50);
+    let cut = clean(&long, WORDS_LIMIT);
+    assert_eq!(cut.chars().count(), WORDS_LIMIT + 1);
+    assert!(cut.ends_with('…'));
+
+    let reading = Reading {
+        items: vec![
+            item(AccessibleRole::Text, None, said),
+            item(AccessibleRole::Text, None, &long),
+        ],
+        commands: vec![CommandReading {
+            id: Id::named("go"),
+            title: said.to_owned(),
+            keys: vec![],
+            enabled: true,
+        }],
+        ..Reading::default()
+    };
+    let json: Value = serde_json::from_str(&reading.json()).expect("json");
+    assert_eq!(json["items"][0]["text"], json!(clean_said));
+    assert_eq!(json["items"][1]["text"], json!(cut));
+    assert_eq!(json["commands"][0]["title"], json!(clean_said));
+    let text = reading.text();
+    // The line break stays; what follows it is indented under its line.
+    assert!(text.contains("\"a?b?c?d?e?f g\n        h\""), "{text:?}");
+    assert!(
+        !text.contains(['\u{1}', '\u{7f}', '\u{85}', '\u{202e}', '\u{200b}']),
+        "{text:?}"
+    );
+}
+
+#[test]
+fn a_reading_is_written_for_a_person_and_for_a_program_from_the_same_parts() {
+    let go = Id::named("go");
+    let reading = Reading {
+        focus: crate::reading::Focus::Field(Id::named("q")),
+        rest: crate::reading::Rest {
+            calls: 2,
+            moving: true,
+            ..Default::default()
+        },
+        items: vec![Item::of(&Accessible {
+            role: AccessibleRole::Checkbox,
+            id: Some(go),
+            rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+            words: "Auto start".to_owned(),
+            state: State {
+                checked: Some(true),
+                disabled: true,
+                ..State::default()
+            },
+        })],
+        fields: vec![FieldReading {
+            id: Id::named("q"),
+            kind: FieldKind::Line,
+            label: None,
+            hint: Some("Search".to_owned()),
+            value: Some("api".to_owned()),
+            covered: false,
+            rect: Rect::new(0.0, 20.0, 100.0, 20.0),
+        }],
+        editors: vec![EditorReading {
+            id: Id::named("sql"),
+            label: Some("Query".to_owned()),
+            focused: true,
+            first: 9,
+            lines: vec!["select 1".to_owned(), "from t".to_owned()],
+            total: 40,
+            caret: Place {
+                line: 10,
+                column: 3,
+            },
+            selection: Some(Selected {
+                from: Place {
+                    line: 10,
+                    column: 3,
+                },
+                to: Place {
+                    line: 10,
+                    column: 8,
+                },
+                text: "lect ".to_owned(),
+            }),
+            rect: Rect::new(0.0, 40.0, 100.0, 40.0),
+        }],
+        scrolls: vec![ScrollReading {
+            id: Id::named("list"),
+            percent: 56,
+            above: true,
+            below: true,
+            rect: Rect::new(0.0, 80.0, 100.0, 60.0),
+        }],
+        commands: vec![CommandReading {
+            id: Id::named("rename"),
+            title: "Rename".to_owned(),
+            keys: vec!["f2".to_owned(), "ctrl+r".to_owned()],
+            enabled: false,
+        }],
+        menu: Some(vec![MenuLine {
+            title: "Copy".to_owned(),
+            enabled: true,
+        }]),
+        notes: vec!["no commands here".to_owned()],
+    };
+    let text = reading.text();
+    let q = reference(Id::named("q"));
+    assert!(text.starts_with(&format!("focus: field {q}\n")), "{text}");
+    assert!(
+        text.contains("rest: 2 calls are waiting for an answer; motion\n"),
+        "{text}"
+    );
+    assert!(text.contains("note: no commands here\n"), "{text}");
+    assert!(
+        text.contains(&format!(
+            "{}  checkbox \"Auto start\" [checked, disabled]",
+            reference(go)
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("{q}  field \"Search\" = \"api\"")),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "editor \"Query\" lines 9-10 of 40, caret 10:3, selected 10:3-10:8 \"lect \" (keyboard)"
+        ),
+        "{text}"
+    );
+    assert!(text.contains("   9| select 1\n  10| from t\n"), "{text}");
+    assert!(text.contains("scroll 56% (more above and below)"), "{text}");
+    assert!(
+        text.contains("\"Rename\" [f2, ctrl+r] (disabled)"),
+        "{text}"
+    );
+    assert!(text.contains("menu:\n  \"Copy\"\n"), "{text}");
+
+    let json: Value = serde_json::from_str(&reading.json()).expect("json");
+    assert_eq!(json["focus"]["kind"], json!("field"));
+    assert_eq!(json["rest"]["calls"], json!(2));
+    assert_eq!(json["rest"]["resting"], json!(false));
+    assert_eq!(
+        json["items"][0]["state"],
+        json!({ "checked": true, "disabled": true })
+    );
+    assert_eq!(json["items"][0]["box"], json!([0.0, 0.0, 10.0, 10.0]));
+    assert_eq!(json["fields"][0]["value"], json!("api"));
+    assert_eq!(json["fields"][0]["kind"], json!("line"));
+    assert_eq!(json["editors"][0]["lines"]["from"], json!(9));
+    assert_eq!(
+        json["editors"][0]["selection"]["to"],
+        json!({ "line": 10, "column": 8 })
+    );
+    assert_eq!(json["scrolls"][0]["percent"], json!(56));
+    assert_eq!(json["commands"][0]["keys"], json!(["f2", "ctrl+r"]));
+    assert_eq!(json["menu"][0]["title"], json!("Copy"));
+    assert_eq!(json["notes"][0], json!("no commands here"));
+}
+
+#[test]
+fn keys_are_written_as_a_person_writes_them_and_are_read_back() {
+    for words in [
+        "cmd+k",
+        "ctrl+shift+p",
+        "alt+enter",
+        "f5",
+        "escape",
+        "page_down",
+        "cmd++",
+        "ctrl+space",
+    ] {
+        let shortcut = Shortcut::parse(words).expect(words);
+        assert_eq!(keys_of(shortcut), words, "{words}");
+    }
+    assert_eq!(
+        keys_of(Shortcut::new(
+            Key::Character('K'),
+            Mods {
+                command: true,
+                shift: true,
+                ..Mods::default()
+            }
+        )),
+        "shift+cmd+k"
+    );
+}
+
+#[test]
+fn the_calls_a_page_made_wait_for_their_answers_and_nothing_else_is_waited_for() {
+    let mut owed = Owed::default();
+    owed.said(r#"{"call":{"id":1,"method":"list"}}"#);
+    owed.said(r#"{ "call" : {"id":2,"method":"save","params":{"a":1}}}"#);
+    owed.said(r#"{"subscribe":{"id":3,"topic":"stats"}}"#);
+    assert_eq!(owed.count(), 2, "a subscription is not a call");
+    // What the program says that is not an answer does not end a wait.
+    owed.heard(r#"{"push":{"id":3,"value":{"cpu":1}}}"#);
+    owed.heard(r#"{"progress":{"id":1,"done":1,"total":4}}"#);
+    owed.heard("not a message");
+    assert_eq!(owed.count(), 2);
+    owed.heard(r#"{"response":{"id":1,"result":{}}}"#);
+    assert_eq!(owed.count(), 1);
+    // A call that is given up, or whose answer is an error, is not waited for.
+    owed.said(r#"{"cancel":{"id":2}}"#);
+    assert_eq!(owed.count(), 0);
+    owed.said(r#"{"call":{"id":4,"method":"x"}}"#);
+    owed.heard(r#"{"response":{"id":4,"error":{"code":"no"}}}"#);
+    assert_eq!(owed.count(), 0);
+    owed.said(r#"{"call":{"id":5,"method":"x"}}"#);
+    owed.clear();
+    assert_eq!(owed.count(), 0);
+}
+
+/// A module made by a test: its first page is made at once, and what it is told after it waits for
+/// the gate. What it says to its program is what the test puts in `sent`.
+struct Held {
+    gate: Receiver<()>,
+    sent: Arc<Mutex<Vec<String>>>,
+}
+
+impl Runner for Held {
+    fn render(&mut self, _size: Size, _now: f64, _reduce: bool) -> Result<Frame, Fault> {
+        Ok(Frame {
+            root: div().child(text("held")),
+            animating: false,
+            wake_at: None,
+            wake: None,
+        })
+    }
+
+    fn settle(&mut self) -> Result<bool, Fault> {
+        Ok(false)
+    }
+
+    fn handle(&mut self, _event: Event) -> Result<Reply, Fault> {
+        let _ = self.gate.recv();
+        Ok(Reply::none())
+    }
+
+    fn lay_out(&mut self, _laid: Arc<Laid>) {}
+
+    fn take_sent(&mut self) -> Vec<String> {
+        std::mem::take(&mut *self.sent.lock().unwrap())
+    }
+}
+
+fn held() -> (Page, Sender<()>, Arc<Mutex<Vec<String>>>) {
+    let (open, gate) = channel();
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let page = Page::spawn(
+        {
+            let sent = Arc::clone(&sent);
+            move || Ok(Held { gate, sent })
+        },
+        Setup::default(),
+        || {},
+    );
+    (page, open, sent)
+}
+
+fn frame() -> FrameAt {
+    FrameAt {
+        size: (800, 600),
+        scale: 1.0,
+        now: 1.0,
+        reduce_motion: false,
+    }
+}
+
+#[test]
+fn what_the_page_was_told_is_unprocessed_until_the_module_has_done_it_and_a_call_is_counted_until_answered()
+ {
+    let (mut page, open, sent) = held();
+    assert!(page.module().flush(Duration::from_secs(5)));
+    page.frame(frame());
+    assert!(page.module().flush(Duration::from_secs(5)));
+    // The page is told something and the module holds it: it is not processed.
+    page.focus(None);
+    let rest = page.rest();
+    assert!(rest.unprocessed, "{rest:?}");
+    assert!(!rest.resting());
+    // It says two calls and a subscription while it handles the next.
+    sent.lock().unwrap().extend([
+        r#"{"call":{"id":1,"method":"list"}}"#.to_owned(),
+        r#"{"call":{"id":2,"method":"save"}}"#.to_owned(),
+        r#"{"subscribe":{"id":3,"topic":"stats"}}"#.to_owned(),
+    ]);
+    open.send(()).unwrap();
+    assert!(page.module().flush(Duration::from_secs(5)));
+    page.drain();
+    // What is told again is held again, and is let go the same way.
+    page.focus(None);
+    assert!(page.rest().unprocessed);
+    open.send(()).unwrap();
+    assert!(page.module().flush(Duration::from_secs(5)));
+    let rest = page.rest();
+    assert!(!rest.unprocessed, "{rest:?}");
+    assert_eq!(rest.calls, 2, "a subscription is not a call: {rest:?}");
+    assert!(!rest.resting());
+    // The program answers one and pushes to the subscription: one call is left.
+    page.message(r#"{"response":{"id":1,"result":{}}}"#);
+    page.message(r#"{"push":{"id":3,"value":1}}"#);
+    assert_eq!(page.rest().calls, 1);
+    page.message(r#"{"response":{"id":2,"result":{}}}"#);
+    assert!(page.module().flush(Duration::from_secs(5)));
+    page.drain();
+    page.frame(frame());
+    assert!(page.module().flush(Duration::from_secs(5)));
+    page.drain();
+    assert!(page.rest().resting(), "{:?}", page.rest());
+}
+
+// --- Pages under the host with no screen --------------------------------------------------------
+
+/// A page of a list that scrolls, an editor, a field of each kind, a button that makes a call, two
+/// commands and a cover over a button.
+const PAGE: &str = r#"
+local loaded = false
+local saved = "not saved"
+pencere.subscribe("stats", nil, function(pushed) return true end)
+return {
+    render = function()
+        local list = pencere.div():id("list"):h(60):w(300):scroll()
+        for n = 1, 30 do list:child(pencere.div():h(20):no_shrink():child(pencere.text("row " .. n))) end
+        return pencere.div():size_full()
+            :command("rename", "Rename", { "f2", "ctrl+r" })
+            :command("go", "Go", {})
+            :child(pencere.div():id("q"):text_field("q"):h(24):w(200):child(pencere.text("Search")))
+            :child(pencere.div():id("pw"):text_field("pw", "secret"):h(24):w(200):child(pencere.text("Password")))
+            :child(pencere.div():id("save"):press("save"):size(80, 24):child(pencere.text("Save")))
+            :child(pencere.text(saved))
+            :child(pencere.editor("sql", {}):label("Query"):h(60):w(300))
+            :child(list)
+            --COVER--
+    end,
+    handle = function(event)
+        if event.type == "viewport" and not loaded then
+            loaded = true
+            return { editor = { sql = { load = "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20" } } }
+        elseif event.type == "release" then
+            pencere.call("save", nil, function(result, error)
+                saved = "saved"
+                return true
+            end)
+            return true
+        end
+    end,
+}
+"#;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_reading_of_the_container_app_gives_its_rows_by_names_that_stay() -> Result<(), Error> {
+    use std::collections::HashMap;
+
+    use crate::headless::Failure;
+
+    let mut states: HashMap<String, &'static str> =
+        HashMap::from([("c1".into(), "running"), ("c2".into(), "exited")]);
+    let program = Calls::new()
+        .on("list", |_| {
+            Ok(json!({ "containers": [
+                { "id": "c1", "name": "api", "image": "api:1", "state": "running", "ports": "" },
+                { "id": "c2", "name": "db", "image": "postgres:16", "state": "exited", "ports": "" },
+            ] }))
+        })
+        .on("toggle", move |params| {
+            let id = params["id"].as_str().unwrap_or_default().to_owned();
+            let Some(state) = states.get_mut(&id) else {
+                return Err(Failure {
+                    code: "not-found".into(),
+                    message: id,
+                });
+            };
+            *state = if *state == "running" { "exited" } else { "running" };
+            Ok(json!({ "id": id, "state": *state }))
+        });
+    let mut page = Headless::app(example("containers-lua"))
+        .size(900.0, 500.0)
+        .peer(program)
+        .open()?;
+    let first = page.reading();
+    let text = first.text();
+    let stop = reference(Id::named("act c1"));
+    assert!(text.contains(&format!("{stop}  button \"Stop\"")), "{text}");
+    assert!(text.contains("\"api\""), "{text}");
+    assert!(text.contains("\"postgres:16\""), "{text}");
+    // The names stay from one reading to the next.
+    assert_eq!(page.reading().text(), text);
+    assert_eq!(first.find(&stop), Found::One(Id::named("act c1")));
+
+    page.click("act c1")?;
+    let after = page.reading().text();
+    assert!(
+        after.contains(&format!("{stop}  button \"Start\"")),
+        "{after}"
+    );
+    Ok(())
+}
+
+/// The page, with a cover over all of it where `covered`.
+fn page(covered: bool) -> String {
+    let cover = r#":child(pencere.div():id("cover"):press("cover"):overlay():inset(0, 0, 0, 0))"#;
+    PAGE.replace("--COVER--", if covered { cover } else { "" })
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_reading_gives_the_fields_the_commands_and_the_editor_and_never_a_secret_value()
+-> Result<(), Error> {
+    let mut page = Headless::script(page(false)).size(400.0, 600.0).open()?;
+    page.settle()?;
+    let reading = page.reading();
+    // Commands, with their keys.
+    assert!(
+        reading
+            .commands
+            .iter()
+            .any(|c| c.title == "Rename" && c.keys == ["f2", "ctrl+r"] && c.enabled),
+        "{:?}",
+        reading.commands
+    );
+    assert!(reading.commands.iter().any(|c| c.title == "Go"));
+    // Fields: the hint, the kind and what each holds.
+    page.fill("q", "api")?;
+    page.fill("pw", "hunter2")?;
+    let reading = page.reading();
+    let q = reading
+        .fields
+        .iter()
+        .find(|f| f.id == Id::named("q"))
+        .expect("q");
+    assert_eq!(
+        (q.kind, q.hint.as_deref(), q.value.as_deref()),
+        (FieldKind::Line, Some("Search"), Some("api"))
+    );
+    let pw = reading
+        .fields
+        .iter()
+        .find(|f| f.id == Id::named("pw"))
+        .expect("pw");
+    assert_eq!((pw.kind, pw.value.as_deref()), (FieldKind::Secret, None));
+    // The secret is in neither writer, and no field is among the items twice.
+    for written in [reading.text(), reading.json()] {
+        assert!(!written.contains("hunter2"), "{written}");
+        assert!(written.contains("api"), "{written}");
+    }
+    assert!(
+        reading
+            .items
+            .iter()
+            .all(|item| item.role != "field" && item.role != "editor")
+    );
+    assert!(
+        reading
+            .items
+            .iter()
+            .any(|item| item.role == "button" && item.words == "Save")
+    );
+    // The page is read the same, twice.
+    assert_eq!(page.reading(), reading);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_lines_an_editor_shows_and_what_is_selected_change_as_it_is_scrolled_and_selected()
+-> Result<(), Error> {
+    let mut page = Headless::script(page(false)).size(400.0, 600.0).open()?;
+    page.settle()?;
+    let reading = page.reading();
+    let editor = reading
+        .editors
+        .iter()
+        .find(|e| e.id == Id::named("sql"))
+        .expect("editor");
+    assert_eq!(editor.label.as_deref(), Some("Query"));
+    assert_eq!(editor.total, 20);
+    assert_eq!(editor.first, 1, "{editor:?}");
+    assert!(
+        editor.lines.len() >= 2 && editor.lines.len() < 20,
+        "{:?}",
+        editor.lines
+    );
+    assert_eq!(editor.lines.first().map(String::as_str), Some("line 1"));
+    assert_eq!(editor.selection, None);
+    assert!(!editor.focused);
+    let shown = editor.lines.len();
+
+    page.select("sql", 0, 6)?;
+    let selected = page.reading();
+    let editor = selected
+        .editors
+        .iter()
+        .find(|e| e.id == Id::named("sql"))
+        .expect("editor");
+    assert!(editor.focused);
+    assert_eq!(
+        selected.focus,
+        crate::reading::Focus::Editor(Id::named("sql"))
+    );
+    assert_eq!(editor.caret, Place { line: 1, column: 7 });
+    assert_eq!(
+        editor.selection,
+        Some(Selected {
+            from: Place { line: 1, column: 1 },
+            to: Place { line: 1, column: 7 },
+            text: "line 1".to_owned()
+        })
+    );
+
+    // The wheel over it scrolls it: the lines that show are other lines.
+    page.wheel("sql", 0.0, 400.0)?;
+    let scrolled = page.reading();
+    let editor = scrolled
+        .editors
+        .iter()
+        .find(|e| e.id == Id::named("sql"))
+        .expect("editor");
+    assert!(editor.first > 1, "{editor:?}");
+    assert_eq!(
+        editor.lines.first().map(String::as_str),
+        Some(format!("line {}", editor.first).as_str())
+    );
+    assert!(editor.lines.len() <= shown + 1);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_box_that_scrolls_says_where_it_is_and_what_is_above_and_below() -> Result<(), Error> {
+    let mut page = Headless::script(page(false)).size(400.0, 600.0).open()?;
+    page.settle()?;
+    let at_top = page.reading();
+    let list = at_top
+        .scrolls
+        .iter()
+        .find(|s| s.id == Id::named("list"))
+        .expect("list");
+    assert_eq!((list.percent, list.above, list.below), (0, false, true));
+    // The editor's own scrolling is its lines, not a box.
+    assert!(at_top.scrolls.iter().all(|s| s.id != Id::named("sql")));
+    page.scroll_to("list", 300.0)?;
+    let middle = page.reading();
+    let list = middle
+        .scrolls
+        .iter()
+        .find(|s| s.id == Id::named("list"))
+        .expect("list");
+    // 300 of the most it can be: 30 rows of 20 points in 60.
+    assert_eq!((list.percent, list.above, list.below), (56, true, true));
+    page.scroll_to("list", 10_000.0)?;
+    let end = page.reading();
+    let list = end
+        .scrolls
+        .iter()
+        .find(|s| s.id == Id::named("list"))
+        .expect("list");
+    assert_eq!((list.percent, list.above, list.below), (100, true, false));
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_press_reaches_an_element_unless_what_covers_its_middle_is_what_it_reaches() -> Result<(), Error>
+{
+    let mut page = Headless::script(page(true)).size(400.0, 600.0).open()?;
+    page.settle()?;
+    // The cover is over everything, the button under it included.
+    assert_eq!(
+        page.page().reach(Id::named("save")),
+        Err(crate::Unreachable::Covered)
+    );
+    assert!(page.page().reach(Id::named("cover")).is_ok());
+    assert_eq!(
+        page.page().reach(Id::named("nothing")),
+        Err(crate::Unreachable::Absent)
+    );
+    assert_eq!(
+        page.click("save"),
+        Err(Error::Unreachable("save".to_owned()))
+    );
+    assert_eq!(
+        page.click("nothing"),
+        Err(Error::NoSuch("nothing".to_owned()))
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_call_with_no_answer_is_waited_for_and_a_push_to_a_subscription_is_not() -> Result<(), Error> {
+    let source = page(false);
+    let mut page = Headless::script(&source).size(400.0, 600.0).open()?;
+    page.settle()?;
+    assert!(page.reading().rest.resting(), "{:?}", page.reading().rest);
+    page.click("save")?;
+    assert_eq!(page.peer().waiting().len(), 1);
+    let waiting = page.reading();
+    assert_eq!(waiting.rest.calls, 1, "{:?}", waiting.rest);
+    assert!(!waiting.rest.resting());
+    assert!(
+        waiting
+            .text()
+            .contains("rest: 1 call is waiting for an answer"),
+        "{}",
+        waiting.text()
+    );
+    assert_eq!(
+        waiting.json().parse::<Value>().expect("json")["rest"]["calls"],
+        json!(1)
+    );
+    // A topic's push is no call.
+    let pushed = page.push("stats", &json!({ "cpu": 1 }))?;
+    assert_eq!(pushed, 1);
+    assert_eq!(page.reading().rest.calls, 1);
+    // The answer ends the wait.
+    assert!(page.answer("save", Ok(json!({})))?);
+    let answered = page.reading();
+    assert_eq!(answered.rest.calls, 0, "{:?}", answered.rest);
+    assert!(answered.rest.resting());
+    assert!(
+        answered.items.iter().any(|item| item.words == "saved"),
+        "{:?}",
+        answered.items
+    );
+    Ok(())
+}
+
+#[test]
+fn long_lines_of_an_editor_are_cut_where_the_writers_cut_them() {
+    let long = "y".repeat(LINE_LIMIT + 10);
+    assert_eq!(clean(&long, LINE_LIMIT).chars().count(), LINE_LIMIT + 1);
+}
