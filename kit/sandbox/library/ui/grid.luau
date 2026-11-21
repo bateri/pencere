@@ -175,6 +175,12 @@ end
 -- still say the column pressed. Rows it has no cell for are asked as
 -- `need { first, last }` when they come into view. The width of a column is a guess of its title's
 -- length until a page can measure text; give `width` or let the person size it.
+--
+-- To a screen reader a row is said by the words of its cells, its number first and no column's title
+-- (the head says them once), and a control a cell holds (a mark, a fold button, a button) is read apart
+-- from it, with its state; the row is `selected` while its cell is chosen. `row_label(row)` is the words
+-- to say a row by where the page has better than its cells' (nil leaves it to them); the words in its
+-- cells that no control holds are then read apart, after it.
 local Grid = core.component("grid", {
 	state = function()
 		return { cursor = nil, widths = {}, sort = nil }
@@ -283,12 +289,17 @@ local Grid = core.component("grid", {
 				:press(row_part)
 				:role("menu_item")
 				:selected(chosen ~= nil and chosen.row == place)
-				:label("Row " .. place)
 				:row()
 				:items_center()
 				:h(height)
 				:w(room)
 				:no_shrink()
+			-- A row is said by the words of its cells (the number first), and the controls in its cells
+			-- (a mark, a fold button) apart from it; the page's `row_label` is its name where it gives one.
+			local named = props.row_label ~= nil and props.row_label(place) or nil
+			if named ~= nil then
+				line:label(named)
+			end
 			local rows_only = props.select == "row"
 			if rows_only and chosen ~= nil and chosen.row == place then
 				line:bg(keyboard and t.chosen or t.chosen_blurred)

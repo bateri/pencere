@@ -142,6 +142,11 @@ dy, blur, color)` (a glow with no offset), `pencere.linear` and `pencere.radial`
 
 ### Fixed
 
+- **A grid's rows are read by their cells.** `ui.grid` named every row "Row N" to a screen reader and
+  an agent, and said nothing of what a cell held. A row is said by the words of its cells (its
+  number first, no column's title: the head says them once), and a control a cell holds (a mark, a
+  fold button) is read apart from it, with its state. `row_label(row)` gives the words to say a row
+  by where the page has better.
 - **A click into a field closes a popover.** The host keeps such a press (the page is told the field
   has the keyboard, not that a button went down), so a popover, and the new picker, stayed open when
   the person clicked into a field outside it. A click into the control it stands by (a field, or one

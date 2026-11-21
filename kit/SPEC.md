@@ -1627,6 +1627,8 @@ name)`), and says `{ kind = "dismiss" }` at what `dismiss` lists: `"escape"`, `"
   own, and a list with `multi` says `mark { marked }`. A `split`'s edge and a `grid`'s column say
   `resize { size, final }` (`{ column, width, final }`): `final = false` while it is dragged, `true` when
   it is let go after it moved and at each step of the keys; a press that does not move it says nothing.
+  A `grid`'s row is read by the words of its cells (its number first, no column's title) and the controls
+  in its cells apart from it; `row_label(row)` gives the words to say it by where the page has better.
 - An `icon` that a component or one of its items takes is an element the page made, a path of the
   page's own bundle (`"icons/save.svg"`: an SVG or a PNG, tinted in the colour the component draws it
   in), or the name of one of the library's glyphs: `check`, `chevron_down`, `chevron_left`,

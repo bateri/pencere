@@ -2415,6 +2415,57 @@ fn a_grid_that_chooses_rows_goes_from_row_to_row_and_leaves_left_and_right_to_th
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_grid_row_is_read_by_the_words_of_its_cells_and_the_controls_in_it_apart() -> Result<(), Error>
+{
+    // A row with words only is said by them (its number first), not by "Row 3".
+    let mut page = open(GRID)?;
+    let row = accessible(&page, "g/row/3");
+    assert_eq!(row.role, pencere_view::AccessibleRole::MenuItem);
+    assert_eq!(row.words, "3 3 name 3 21");
+    assert!(!row.state.selected);
+    page.click_in("g/row/3", 40.0, 5.0)?;
+    assert!(accessible(&page, "g/row/3").state.selected);
+    assert!(!accessible(&page, "g/row/4").state.selected);
+
+    // A row that holds a mark and a fold button is said by the words that are in neither, and
+    // each of the two is read apart, with its state.
+    let controls = GRID.replace(
+        "return values[column.key] ~= nil and tostring(values[column.key]) or (\"v\" .. row)",
+        "if column.key == \"id\" then
+                return pencere.div():id(\"mark/\" .. row):press(\"mark/\" .. row):role(\"checkbox\")
+                    :checked(row == 2):label(\"Marked\"):size(12, 12)
+            elseif column.key == \"qty\" then
+                return pencere.div():id(\"fold/\" .. row):press(\"fold/\" .. row):role(\"button\")
+                    :expanded(false):label(\"Fold\"):size(12, 12)
+            end
+            return tostring(values[column.key])",
+    );
+    let page = open(&controls)?;
+    assert_eq!(accessible(&page, "g/row/3").words, "3 name 3");
+    let mark = accessible(&page, "mark/2");
+    assert_eq!(mark.role, pencere_view::AccessibleRole::Checkbox);
+    assert_eq!(
+        (mark.words.as_str(), mark.state.checked),
+        ("Marked", Some(true))
+    );
+    assert_eq!(accessible(&page, "mark/3").state.checked, Some(false));
+    let fold = accessible(&page, "fold/3");
+    assert_eq!(
+        (fold.words.as_str(), fold.state.expanded),
+        ("Fold", Some(false))
+    );
+
+    // A name the page gives a row wins.
+    let named = open(&GRID.replace(
+        "numbers = S.numbers,",
+        "numbers = S.numbers, row_label = function(row) return \"Item \" .. row end,",
+    ))?;
+    assert_eq!(accessible(&named, "g/row/3").words, "Item 3");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_grid_without_numbers_puts_each_head_over_its_column() -> Result<(), Error> {
     let page = open(&GRID.replace("S.rows = {}", "S.numbers = false\nS.rows = {}"))?;
     let row = page.bounds("g/row/3").expect("a row");
