@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+use crate::probe::Probing;
 use crate::stage::Flaws;
 
 pub const USAGE: &str = "\
@@ -88,6 +89,17 @@ options:
                        take the transfer back and use messages
   --interrupt-at-pipe  ^C is typed into the pane once a pipe has been made for a
                        transfer and the program told its name
+  --probe SECONDS      prove this terminal's own route to the program's machine
+                       (specification section 4.10): the welcome lists `probe`,
+                       and as each view starts the program is asked for a
+                       listener on its loopback that stays up SECONDS (1 to 30),
+                       and the port it names is connected to and the token read
+                       back
+  --probe-twice        ask a second time before the first is answered: the
+                       program has a listener up and says `busy`
+  --probe-late         connect only after the listener's time is up: it is gone
+  --probe-reconnect    connect a second time once the token is read: the program
+                       has closed the listener
   --kit-version V      open the Lua script (`lua`) at version V instead of 0.1, as a
                        terminal of another release of the kit does
   --allow-network      grant the origins and permissions a page asks for
@@ -188,6 +200,8 @@ pub struct Args {
     pub stage: Option<PathBuf>,
     /// The flaws it is asked to have.
     pub stage_flaws: Flaws,
+    /// Whether it proves its own route to the program's machine (§4.10), and how.
+    pub probing: Probing,
 }
 
 /// What parsing asks of `main`.
@@ -255,6 +269,7 @@ fn parse_with<I: Iterator<Item = String>>(args: &mut I) -> Result<Option<Args>, 
         gestures: Gestures::default(),
         stage: None,
         stage_flaws: Flaws::default(),
+        probing: Probing::default(),
     };
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -271,6 +286,9 @@ fn parse_with<I: Iterator<Item = String>>(args: &mut I) -> Result<Option<Args>, 
             "--stage-wrong-marker" => parsed.stage_flaws.wrong_marker = true,
             "--stage-silent" => parsed.stage_flaws.silent = true,
             "--interrupt-at-pipe" => parsed.gestures.interrupt_at_pipe = true,
+            "--probe-twice" => parsed.probing.twice = true,
+            "--probe-late" => parsed.probing.late = true,
+            "--probe-reconnect" => parsed.probing.reconnect = true,
             "--call"
             | "--subscribe"
             | "--link"
@@ -289,7 +307,8 @@ fn parse_with<I: Iterator<Item = String>>(args: &mut I) -> Result<Option<Args>, 
             | "--save-in"
             | "--interrupt-at-read"
             | "--stage"
-            | "--stage-route-after" => {
+            | "--stage-route-after"
+            | "--probe" => {
                 let value = args.next().ok_or_else(|| format!("{arg} needs a value"))?;
                 option(&mut parsed, &arg, &value)?;
             }
@@ -298,6 +317,9 @@ fn parse_with<I: Iterator<Item = String>>(args: &mut I) -> Result<Option<Args>, 
     }
     if parsed.program.is_empty() {
         return Err("no program: put it after --".to_owned());
+    }
+    if parsed.probing.ttl.is_none() && parsed.probing.has_flaws() {
+        return Err("a flaw of the proof needs --probe SECONDS".to_owned());
     }
     if parsed.stage.is_none() && parsed.stage_flaws != Flaws::default() {
         return Err("a flaw of the folder needs --stage DIR".to_owned());
@@ -364,6 +386,17 @@ fn option(parsed: &mut Args, name: &str, value: &str) -> Result<(), String> {
                 return Err("--stage needs a directory".to_owned());
             }
             parsed.stage = Some(PathBuf::from(value));
+        }
+        "--probe" => {
+            parsed.probing.ttl = Some(
+                value
+                    .parse()
+                    .ok()
+                    .filter(|ttl| (1..=30).contains(ttl))
+                    .ok_or_else(|| {
+                        format!("--probe {value}: want a number of seconds from 1 to 30")
+                    })?,
+            );
         }
         "--stage-route-after" => {
             parsed.stage_flaws.route_after = Some(u64::from(count(name, value)?));
@@ -531,6 +564,21 @@ mod tests {
     }
 
     #[test]
+    fn the_proof_of_the_route_and_its_flaws_are_kept() {
+        let Outcome::Run(args) =
+            parsed(&["--probe", "5", "--probe-twice", "--probe-late", "--", "p"])
+        else {
+            panic!("did not parse");
+        };
+        assert_eq!(args.probing.ttl, Some(5));
+        assert!(args.probing.twice && args.probing.late && !args.probing.reconnect);
+        let Outcome::Run(args) = parsed(&["--", "p"]) else {
+            panic!("did not parse");
+        };
+        assert_eq!(args.probing.ttl, None);
+    }
+
+    #[test]
     fn mistakes_say_what_they_are() {
         for bad in [
             &["--"][..],
@@ -545,6 +593,9 @@ mod tests {
             &["--on-view", "two", "--", "p"],
             &["--refuse-open", "0", "--", "p"],
             &["--stage-silent", "--", "p"],
+            &["--probe-late", "--", "p"],
+            &["--probe", "0", "--", "p"],
+            &["--probe", "31", "--", "p"],
             &["--stage", "", "--", "p"],
             &["--stage", "d", "--stage-route-after", "0", "--", "p"],
             &["--wat", "--", "p"],

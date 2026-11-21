@@ -124,9 +124,11 @@ are what a program and its view say to each other while the view runs:
 ## 4. Transport
 
 Messages travel in the terminal's own stream: from the program in its output, to
-the program in its input. There is no port and no second channel. The one thing a host may
-carry another way is the bytes of a file, through a folder of its own on the program's machine
-(Section 8.11), and the program learns of that only from the messages.
+the program in its input. There is no port and no second channel. Two things a host may
+carry another way: the bytes of a file, through a folder of its own on the program's machine
+(Section 8.11), and one token, which a host's own route to that machine carries to a listener of
+the program's to prove where the route ends (Section 4.10). The program learns of either only from
+the messages.
 
 ### 4.1 Frames
 
@@ -250,6 +252,8 @@ the frame as written: `ESC _ pencere;`, kind, `;`, control, `;`, payload,
 | `fetch`   | `to-host`    | JSON `Fetch`                                    | none (answered by two `fetched`)                  | 8.11     |
 | `fetched` | `to-program` | JSON `Fetched`                                  | `re`: the fetch answered                          | 8.11     |
 | `unstage` | `to-host`    | JSON `Unstage`                                  | none (answered by a `staged` or a `fetched`)      | 8.11     |
+| `probe`   | `to-program` | JSON `Probe`                                    | none (answered by a `probed`)                     | 4.10     |
+| `probed`  | `to-host`    | JSON `Probed`                                   | `re`: the probe answered                          | 4.10     |
 | `msg`     | both         | one JSON object: a view message (9.2)           | none                                              | 9        |
 | `closed`  | `to-program` | JSON `Closed`                                   | `re`: the open, dismiss or bye it answers, if any | 6.4, 10  |
 | `bye`     | `to-host`    | JSON `Bye`                                      | none (answered by a `closed`, 10.3)               | 10.3     |
@@ -412,6 +416,69 @@ run code on.
 - With `ECHO` on the tty would write every reply back onto the screen.
 - `ISIG` stays on so that ⌃C reaches the program as SIGINT (Section 10.4).
 
+### 4.10 Proving where the host's own route ends
+
+A host may have a way of its own to the machine the program runs on (a tunnel it keeps, the connection of
+a remote shell) that carries bytes for something it shows the person other than the messages of this
+document. It is the second thing that may travel another way than the stream (Section 4, with the folder
+of Section 8.11), and it is bound the same way: what is asked of the program and what it answers are
+messages, and the program learns of the route from the messages alone. What crosses on the route itself is
+one token, once.
+
+A route says nothing of where it ends. A remote shell inside a remote shell, a container with a network of
+its own, a home directory two machines share, and a shell opened by hand in a pane of the person's own
+machine all have a `localhost` that is not the program's. A host therefore does not take a route for the
+program's machine because of what it knows of the pane: it uses a route for traffic only once the route
+has shown that it reaches the **loopback of the program's machine** (the loopback interface, `127.0.0.1`,
+of the network the program is in). The proof is a `probe` and what the program does with it.
+
+**Asking: `probe`.** The host sends the program a `probe` with a `token` of its own: 32 lowercase hex
+digits of the host's randomness, new for each `probe` and not any other token of this document. It says in
+`ttl` how many seconds the listener may stay up, a whole number from 1 to 30. A host sends a `probe` only
+when the `features` of its `welcome` list `probe` (Section 5.2), only while the program has a view open
+(Section 10.2), and one at a time. A program with no view open ignores a `probe`.
+
+**The listener.** A program that gets a `probe` opens a TCP listener on `127.0.0.1` of its own machine, at
+a port the system chooses, and no other address: not a wildcard, not `::1`, not the address of an
+interface. It answers with a `probed` whose `re` is the id of the `probe` and whose `port` is the port of
+the listener. The listener accepts one connection. When it has accepted it, the program closes the
+listener, and then writes the `token` on the connection, as the 32 bytes of its digits and nothing else,
+reads nothing, and closes the connection. A connection that comes after that finds no listener. If no
+connection comes within `ttl` seconds of the answer, or the view ends, or the program ends or gives the
+terminal back (Section 10.3), the program closes the listener. A program has at most one listener, and
+opens another only when it is asked again.
+
+```frame fixtures/to-program/probe.frame
+<ESC>_pencere;probe;id=3;{"token":"3f9c2a7be1d84056a9c4e7b1d2f80a65","ttl":10}<ESC>\
+```
+
+```frame fixtures/to-host/probed.frame
+<ESC>_pencere;probed;id=7,re=3;{"port":43211}<ESC>\
+```
+
+**Reading it back.** The host connects, by the route it is trying, to that port of the loopback of the
+program's machine, and reads the `token` back. If the bytes it reads are the `token` it sent, the route
+reaches the loopback of the program's machine, in the network the program is in: only that program, or one
+that read the host's input, knows the `token`, and a listener that is somewhere else does not. If it cannot
+connect, or reads something else, or the connection ends before 32 bytes have come, the route has not shown
+that it does: the host has no route, and does not try another for the same traffic, whatever else it knows.
+A host waits a bounded time for the `probed`, and a program that does not answer, because it
+does not know the kind or because it has no sandbox that lets it listen, is a route that was not shown. The
+host believes the first `probed` whose `re` is the id of the `probe` it sent, and no other. It does not
+keep the proof for a different route, or for a pane that has taken another program, and asks again when
+either changes.
+
+**The answer when there is no listener.** The `probed` of a program that cannot open the listener has a
+`code` and no `port`:
+
+- `busy`: a listener of the program's is up already;
+- `io`: the program could not open a listener on `127.0.0.1`;
+- `invalid`: the `token` is not 32 lowercase hex digits, or `ttl` is not from 1 to 30.
+
+```frame fixtures/to-host/probed-error.frame
+<ESC>_pencere;probed;id=7,re=3;{"code":"busy"}<ESC>\
+```
+
 ## 5. Capability query and versions
 
 ### 5.1 The query
@@ -461,8 +528,8 @@ there is something to say in it, `opens`, and `re` set to the hello's id. If the
 and `host` only.
 
 `features` lists the optional parts of this document the host supports: `dismiss`
-(Section 10.8) and `stage` (Section 8.11). A program uses only what is listed and ignores a
-name it does not know. (Every view arrives as a bundle, Section 8, so that is no feature.) A host
+(Section 10.8), `stage` (Section 8.11) and `probe` (Section 4.10). A program uses only what is
+listed and ignores a name it does not know. (Every view arrives as a bundle, Section 8, so that is no feature.) A host
 that lists `stage` says where its folder on the program's machine is in `stage`, a member next to
 `features` with the `dir` of the folder and the `token` its `marker` file holds; a `stage` without
 the feature, or the feature without a `stage` that is well formed, is no offer.
@@ -2413,6 +2480,14 @@ stop is what the web does: a page the program asked for can show the person a fo
 typed in it, so a view that opens a browser is as trusted as a program that opens a web page for the
 person.
 
+**The proof of a route.** A host believes its own route reaches the program's loopback only when the
+token it sent in a `probe` comes back from the port the program named (Section 4.10). It reads the
+`probed` that answers its `probe`, once. A process that can write the program's output can name another
+port, and one on the program's machine can connect first and take the one connection: the proof fails
+in both, and the host has no route. Only a process that read the host's input learns the token, which
+names one `probe` and is spent when the listener has accepted; this document does not defend against that
+process (the first paragraph of this section).
+
 **Resource use.** Frame, message and bundle limits (Sections 4.6, 8.2) bound what a
 receiver buffers, and the limit on what waits for a program that does not read (Section 4.8) bounds
 what a view can make the host keep; hosts SHOULD also limit how often one pane may ask (answers to
@@ -2475,7 +2550,7 @@ interface Welcome {
   version?: number; // present with token, absent with supported
   token?: string;
   host: { name: string; version: string };
-  features?: string[]; // "dismiss" (Section 10.8), "stage" (Section 8.11)
+  features?: string[]; // "dismiss" (Section 10.8), "stage" (Section 8.11), "probe" (Section 4.10)
   stage?: { dir: string; token: string }; // with "stage" in features: the host's folder and what its marker file holds (Section 8.11)
   views?: ViewOffer[]; // with token (always present then): the program's list cut down to what the host opens, in the program's order; may be empty (Section 5.2)
   opens?: ViewOffer[]; // the kinds of the program's list that the host opens at none of its versions, with the versions it does open (Section 5.2); left out when none
@@ -2550,6 +2625,17 @@ interface Fetch {
 
 interface Unstage {
   id: number; // the id of the stage or the fetch taken back (Section 8.11)
+}
+
+interface Probe {
+  token: string; // 32 lowercase hex digits: what the listener writes to its one connection (Section 4.10)
+  ttl: number; // 1 to 30: the seconds the listener stays up
+}
+
+// A probed has one of port and code (Section 4.10).
+interface Probed {
+  port?: number; // 1 to 65535: the port of the listener on 127.0.0.1
+  code?: string; // why not
 }
 
 // A staged has one of pipe, sent and code; a fetched, one of pipe, saved and code (Section 8.11).
@@ -2635,7 +2721,7 @@ type PageToHost =
 Codes of `Need.refused`: `limit`, `view`, `size`, `digest` (Section 8.8). Codes of the `e` of a `data`:
 `handle`, `range`, `busy`, `gone`, `io` (Section 8.9). Codes of `Wrote`: `handle`, `order`, `size`,
 `space`, `io` (Section 8.10). Codes of `Staged` and `Fetched`: `handle`, `busy`, `gone`, `size`, `space`,
-`route`, `io`, `cancelled` (Section 8.11).
+`route`, `io`, `cancelled` (Section 8.11). Codes of `Probed`: `busy`, `io`, `invalid` (Section 4.10).
 
 Codes of `Closed`: for `refused`, those of Section 6.4; for `error`, `bundle` (Section 8.4), `view`
 (Section 9.8) and `timeout` (Sections 8.4 and 12.2). A receiver treats a code it does not know as the

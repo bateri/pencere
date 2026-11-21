@@ -6,6 +6,11 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **A program answers the proof of a host's own route (specification §4.10).** Asked with a `probe`,
+  `serve` opens a listener on `127.0.0.1` that gives the host's token to one connection.
+
 ## [0.4.0] - 2026-11-03
 
 ### Changed

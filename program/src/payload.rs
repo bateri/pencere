@@ -232,6 +232,75 @@ pub(crate) fn read(handle: &str, offset: u64, length: u64) -> String {
     })
 }
 
+/// What a `probe` of the terminal asks (§4.10): the token a listener on the loopback gives to its one
+/// connection, and the seconds it stays up.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Asked {
+    pub(crate) token: String,
+    pub(crate) ttl: u64,
+}
+
+/// Reads a `probe`: a `token` of 32 lowercase hex digits and a `ttl` that is a whole number from 1
+/// to 30. `None` for anything else, which is answered `invalid`.
+pub(crate) fn probe(payload: &str) -> Option<Asked> {
+    let body: Value = parsed(payload)?;
+    let body = body.as_object()?;
+    let token = body.get("token")?.as_str()?;
+    if !is_pipe_name(token) {
+        return None;
+    }
+    let ttl = body
+        .get("ttl")?
+        .as_u64()
+        .filter(|ttl| (1..=30).contains(ttl))?;
+    Some(Asked {
+        token: token.to_owned(),
+        ttl,
+    })
+}
+
+/// Why the program has no listener to give (`probed.code`, §4.10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NotListening {
+    /// A listener of the program's is up already.
+    Busy,
+    /// No listener could be opened on `127.0.0.1`.
+    Io,
+    /// The `probe` is not one the program answers with a listener.
+    Invalid,
+}
+
+impl NotListening {
+    fn code(self) -> &'static str {
+        match self {
+            Self::Busy => "busy",
+            Self::Io => "io",
+            Self::Invalid => "invalid",
+        }
+    }
+}
+
+/// The payload of a `probed` (§4.10): the port of the listener, or why there is none.
+pub(crate) fn probed(answer: Result<u16, NotListening>) -> String {
+    #[derive(Serialize)]
+    struct Probed {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        code: Option<&'static str>,
+    }
+    wire(&match answer {
+        Ok(port) => Probed {
+            port: Some(port),
+            code: None,
+        },
+        Err(why) => Probed {
+            port: None,
+            code: Some(why.code()),
+        },
+    })
+}
+
 /// The `dismiss`: the token the view was opened with, as the `bye` has it (§10.8).
 pub(crate) fn dismiss(token: &str) -> String {
     #[derive(Serialize)]
@@ -392,7 +461,8 @@ fn stage_offer(value: Option<&Value>) -> Option<StageOffer> {
     })
 }
 
-/// 32 lowercase hex digits: the token of a folder's marker and the name of a pipe in it (§8.11).
+/// 32 lowercase hex digits: the token of a folder's marker and the name of a pipe in it (§8.11), and
+/// the token a `probe` gives (§4.10).
 pub(crate) fn is_pipe_name(text: &str) -> bool {
     text.len() == 32
         && text
@@ -618,6 +688,56 @@ mod tests {
 
     fn versions(list: &[&str]) -> Vec<String> {
         list.iter().map(|v| (*v).to_owned()).collect()
+    }
+
+    #[test]
+    fn a_probe_is_read_and_answered_as_the_fixtures_have_it() {
+        let Some(dir) = fixtures() else {
+            return;
+        };
+        let bytes = std::fs::read(dir.join("to-program/probe.frame")).expect("a fixture");
+        let mut events = Vec::new();
+        StreamDecoder::new(Direction::ToProgram).feed(&bytes, &mut events);
+        let Some(Event::Message(message)) = events.into_iter().next() else {
+            panic!("a message");
+        };
+        assert_eq!(message.kind, "probe");
+        assert_eq!(
+            probe(&message.payload),
+            Some(Asked {
+                token: "3f9c2a7be1d84056a9c4e7b1d2f80a65".to_owned(),
+                ttl: 10
+            })
+        );
+        assert_eq!(probed(Ok(43211)), payload_of("to-host/probed.frame"));
+        assert_eq!(
+            probed(Err(NotListening::Busy)),
+            payload_of("to-host/probed-error.frame")
+        );
+    }
+
+    #[test]
+    fn a_probe_is_a_token_of_32_hex_digits_and_a_ttl_from_1_to_30_and_nothing_else_is_asked() {
+        let token = "3f9c2a7be1d84056a9c4e7b1d2f80a65";
+        let asked = |ttl: &str| probe(&format!(r#"{{"token":"{token}","ttl":{ttl}}}"#));
+        assert_eq!(asked("1").map(|a| a.ttl), Some(1));
+        assert_eq!(asked("30").map(|a| a.ttl), Some(30));
+        for ttl in ["0", "31", "-1", "1.5", r#""10""#, "null"] {
+            assert_eq!(asked(ttl), None, "{ttl}");
+        }
+        for text in [
+            r#"{"ttl":10}"#,
+            r#"{"token":"3f9c2a7be1d84056a9c4e7b1d2f80a6","ttl":10}"#,
+            r#"{"token":"3F9C2A7BE1D84056A9C4E7B1D2F80A65","ttl":10}"#,
+            r#"{"token":7,"ttl":10}"#,
+            r#"{"token":"3f9c2a7be1d84056a9c4e7b1d2f80a65"}"#,
+            "[]",
+            "not json",
+        ] {
+            assert_eq!(probe(text), None, "{text}");
+        }
+        assert_eq!(probed(Err(NotListening::Io)), r#"{"code":"io"}"#);
+        assert_eq!(probed(Err(NotListening::Invalid)), r#"{"code":"invalid"}"#);
     }
 
     #[test]
@@ -957,6 +1077,8 @@ mod tests {
                             "{label}"
                         ),
                         "closed" => assert!(closed(&payload).is_some(), "{label}"),
+                        // What the host asks for to prove its own route (§4.10).
+                        "probe" => assert!(probe(&payload).is_some(), "{label}"),
                         // The words of a page, as the host passes them on.
                         "msg" => {
                             assert!(crate::handlers::read_message(&payload).is_some(), "{label}")

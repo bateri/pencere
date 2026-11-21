@@ -27,11 +27,13 @@ import {
   parseClosed,
   parseFetched,
   parseNeed,
+  parseProbe,
   parseRefused,
   parseStaged,
   parseViewRequest,
   parseWelcome,
   parseWrote,
+  probedPayload,
   progressPayload,
   pushPayload,
   readViews,
@@ -233,6 +235,8 @@ function rewritten(message: Message): string | undefined {
       return byePayload(body.token as string, body.reason as "exit" | "signal" | "error");
     case "dismiss":
       return dismissPayload(body.token as string);
+    case "probed":
+      return probedPayload((body.port ?? body.code) as Parameters<typeof probedPayload>[0]);
     case "stage":
       return stagePayload(body.handle as string, body.offset as number);
     case "fetch":
@@ -291,6 +295,7 @@ const HOSTILE = new Set([
   "bundle-limits",
   "bundle-too-many-files",
   "bundle-corrupt",
+  "probe-route",
 ]);
 
 describe("what is read of the messages a view says", () => {
@@ -382,6 +387,10 @@ describe("every session of the manifest", () => {
                 break;
               case "wrote":
                 expect(parseWrote(payload), label).toBeDefined();
+                break;
+              case "probe":
+                // What the host asks for to prove its own route (§4.10).
+                expect(parseProbe(payload), label).toBeDefined();
                 break;
               case "staged":
                 expect(parseStaged(payload), label).toBeDefined();

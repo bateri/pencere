@@ -30,6 +30,7 @@ use crate::foreground::{self, Job};
 use crate::handlers::{self, Outbox, Work};
 use crate::link::{Item, Reader, Writer};
 use crate::payload::{self, ByeReason, ClosedReason, FEATURE_DISMISS, Offer, OpenFields, Welcome};
+use crate::probe::Probe;
 use crate::terminal::{
     self, DEVICE_ATTRIBUTES, ENTER_ALTERNATE, FAREWELL, Pipe, Read, TakeError, Taken, Terminal,
 };
@@ -304,6 +305,8 @@ struct Session<'a> {
     exchange: Exchange,
     /// What the view has attached, and the reads and writes of files that are out.
     files: Files,
+    /// The listener a `probe` of the terminal asked for, if one is up (§4.10).
+    probe: Probe,
     /// When the view last failed after it ran: a view that fails again within
     /// `Options::retry_window` of it is not shown again.
     last_failure: Option<Instant>,
@@ -383,6 +386,7 @@ pub(crate) fn run(
         live: false,
         exchange: Exchange::new(outbox),
         files: Files::default(),
+        probe: Probe::default(),
         last_failure: None,
         revival: None,
         bye_sent: false,
@@ -572,6 +576,9 @@ impl Session<'_> {
         // What is queued and not yet written would reach the terminal after the `bye`, and open
         // or feed a view the program has just ended.
         self.writer.mute();
+        // The listener of a proof of the terminal's route is closed as the program gives the
+        // terminal back (§4.10).
+        self.probe.end();
         let bye = payload::bye(&token, reason);
         let id = self.writer.last_words("bye", &bye).ok();
         self.bye_sent = id.is_some();
@@ -622,6 +629,7 @@ impl Session<'_> {
     fn end_view(&mut self) {
         self.exchange.end_view();
         self.files.forget();
+        self.probe.end();
     }
 
     /// The terminal's view is gone, or the program no longer believes in it: nothing of it is
@@ -824,6 +832,7 @@ impl Session<'_> {
                 "wrote" => self.files.on_wrote(message),
                 "staged" => self.files.on_transfer(message, false, &mut self.writer),
                 "fetched" => self.files.on_transfer(message, true, &mut self.writer),
+                "probe" => self.probe.on_probe(message, &mut self.writer),
                 // A kind this version does not know, or one only a program sends: ignored (§4.5).
                 _ => {}
             },

@@ -32,6 +32,7 @@ import type {
 import type { Message } from "./frame.js";
 import { Link } from "./link.js";
 import type { Input, Output } from "./link.js";
+import { Probe } from "./probe.js";
 import {
   ENTRY_TYPES,
   FEATURE_DISMISS,
@@ -47,7 +48,9 @@ import {
   openPayload,
   parseClosed,
   parseNeed,
+  parseProbe,
   parseWelcome,
+  probedPayload,
 } from "./messages.js";
 import type {
   Access,
@@ -565,6 +568,8 @@ class TerminalSession implements ViewTarget {
   #revival: ServeResult | undefined;
   /** What the view has attached, and the reads and writes of files that wait for the host. */
   readonly #files = new Files();
+  /** The listener a `probe` of the host asked for, if one is up (§4.10). */
+  readonly #probe = new Probe();
   readonly #sendFile: SendFile = (kind, payload, params) =>
     this.#link.send(kind, payload, params ?? {}).id;
   /** What the view asks of the program: found among the handlers, and answered. */
@@ -772,6 +777,9 @@ class TerminalSession implements ViewTarget {
       case "fetched":
         this.#files.onTransfer(message, true);
         return;
+      case "probe":
+        if (this.#phase === "showing") this.#onProbe(message);
+        return;
       case "closed":
         this.#onClosed(message);
         return;
@@ -781,6 +789,20 @@ class TerminalSession implements ViewTarget {
       default:
       // A kind this version does not know, or one only a program sends: ignored (§4.5).
     }
+  }
+
+  /** A `probe` of the host (§4.10): answered with the port of a listener on the loopback, or why there is none. */
+  #onProbe(message: Message): void {
+    const re = message.id;
+    const asked = parseProbe(message.payload);
+    if (asked === undefined) {
+      this.#link.send("probed", probedPayload("invalid"), { re });
+      return;
+    }
+    void this.#probe.open(asked).then((answer) => {
+      // The view ended while the listener came up: it is closed, and nobody is waiting.
+      if (this.#phase === "showing") this.#link.send("probed", probedPayload(answer), { re });
+    });
   }
 
   #onWelcome(message: Message): void {
@@ -871,6 +893,7 @@ class TerminalSession implements ViewTarget {
   #endView(): void {
     this.#router.end();
     this.#files.forget();
+    this.#probe.end();
   }
 
   /** The host's view is gone, or the program no longer believes in it: nothing of it is served. */
@@ -1195,6 +1218,8 @@ class TerminalSession implements ViewTarget {
     // What is queued and not yet written would reach the host after the `bye`, and open or feed a
     // view the program has just ended.
     this.#link.mute();
+    // The listener of a proof of the host's route is closed as the program gives the terminal back (§4.10).
+    this.#probe.end();
     this.#byeId = this.#link.sendNow("bye", byePayload(this.#token, reason));
     return this.#byeId;
   }

@@ -33,6 +33,10 @@ pub const FEATURE_DISMISS: &str = "dismiss";
 /// which the bytes of a file can travel, and says where in `stage` (specification §8.11).
 pub const FEATURE_STAGE: &str = "stage";
 
+/// A feature a host may list in its `welcome`: it proves its own route to the program's machine with
+/// a `probe`, and the program answers with a `probed` (specification §4.10).
+pub const FEATURE_PROBE: &str = "probe";
+
 /// The folder a host keeps on the program's machine, as the `welcome` offers it
 /// (`stage`, specification §5.2 and §8.11).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -298,6 +302,17 @@ pub fn closed(reason: Reason, code: Option<&str>, message: Option<&str>) -> Stri
     })
 }
 
+/// The host's `probe`: the token the listener on the loopback of the program's machine gives to its one
+/// connection, and the seconds it stays up (specification §4.10).
+pub fn probe(token: &str, ttl: u8) -> String {
+    #[derive(Serialize)]
+    struct Probe<'a> {
+        token: &'a str,
+        ttl: u8,
+    }
+    wire(&Probe { token, ttl })
+}
+
 fn wire<T: Serialize>(value: &T) -> String {
     // The types above hold strings and numbers only, which cannot fail to
     // serialise; an empty payload is not a message anyone could mistake for one.
@@ -387,6 +402,33 @@ pub struct Read {
     pub offset: u64,
     /// How many bytes, at most.
     pub length: u64,
+}
+
+/// The program's `probed`: the answer to a `probe`, the port of the listener it opened or why it has
+/// none (specification §4.10). A member of the wrong kind makes the payload no answer.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Probed {
+    /// The port of the listener on `127.0.0.1`.
+    pub port: Option<u16>,
+    /// Why there is no listener: `busy`, `io` or `invalid`, or a word a later version says.
+    pub code: Option<String>,
+}
+
+impl Probed {
+    /// The answer this says, if it says one: the port of a listener (1 to 65535) or the code that
+    /// tells there is none (up to 16 lowercase letters), and not both or neither.
+    pub fn answer(self) -> Option<Result<u16, String>> {
+        match (self.port, self.code) {
+            (Some(port), None) if port != 0 => Some(Ok(port)),
+            (None, Some(code))
+                if (1..=16).contains(&code.len())
+                    && code.bytes().all(|b| b.is_ascii_lowercase()) =>
+            {
+                Some(Err(code))
+            }
+            _ => None,
+        }
+    }
 }
 
 /// A member that is a string, or absent, or anything else, which reads as absent.
@@ -676,6 +718,39 @@ mod tests {
             transfer_failed("route", Some(4)),
             r#"{"code":"route","at":4}"#
         );
+    }
+
+    #[test]
+    fn a_probe_is_written_as_the_fixture_has_it() {
+        assert_eq!(
+            probe("3f9c2a7be1d84056a9c4e7b1d2f80a65", 10),
+            r#"{"token":"3f9c2a7be1d84056a9c4e7b1d2f80a65","ttl":10}"#
+        );
+    }
+
+    #[test]
+    fn a_probed_is_a_port_from_1_to_65535_or_a_code_and_nothing_else_is_an_answer() {
+        let read = |text: &str| json::from_object::<Probed>(text).and_then(Probed::answer);
+        assert_eq!(read(r#"{"port":43211}"#), Some(Ok(43211)));
+        assert_eq!(read(r#"{"port":65535,"x":1}"#), Some(Ok(65535)));
+        assert_eq!(read(r#"{"code":"busy"}"#), Some(Err("busy".to_owned())));
+        for text in [
+            r#"{"port":0}"#,
+            r#"{"port":65536}"#,
+            r#"{"port":-1}"#,
+            r#"{"port":"43211"}"#,
+            r#"{"port":1.5}"#,
+            r#"{"code":7}"#,
+            r#"{"code":""}"#,
+            r#"{"code":"Busy"}"#,
+            r#"{"code":"abcdefghijklmnopq"}"#,
+            r#"{"port":43211,"code":"io"}"#,
+            "{}",
+            "[43211]",
+            "43211",
+        ] {
+            assert_eq!(read(text), None, "{text}");
+        }
     }
 
     #[test]

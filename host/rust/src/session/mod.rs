@@ -31,6 +31,7 @@
 mod files;
 mod native;
 mod page;
+mod probing;
 mod staging;
 
 use std::mem;
@@ -40,6 +41,7 @@ pub use files::{
     ATTACHED_SCHEME, AttachedFiles, FileError, FileGrant, MAX_FILE_PIECE, MAX_OPEN_READS,
     MAX_OPEN_TRANSFERS, attached_digest, has_files,
 };
+pub use probing::MOST_TTL;
 pub use staging::{FetchError, StageDir, StageError};
 
 use crate::bundle::{BundleLimits, Digest, Manifest, Received, Receiving, Store};
@@ -49,8 +51,8 @@ use crate::frame::{
 };
 use crate::icon::{self, Icon};
 use crate::message::{
-    self, Bye, Dismiss, FEATURE_DISMISS, FEATURE_STAGE, Features, Hello, HostInfo, OpenBody,
-    Reason, SUPPORTED_VERSIONS, TokenProbe, ViewOffer,
+    self, Bye, Dismiss, FEATURE_DISMISS, FEATURE_PROBE, FEATURE_STAGE, Features, Hello, HostInfo,
+    OpenBody, Reason, SUPPORTED_VERSIONS, TokenProbe, ViewOffer,
 };
 use crate::sandbox::{self, Access, AccessError, Consent, Grant};
 use crate::text;
@@ -494,6 +496,28 @@ pub enum Action {
         /// The id the transfer began with.
         transfer: u32,
     },
+    /// The program opened the listener a [`Session::probe`] asked for (§4.10): connect, by the route
+    /// being tried, to `port` of the loopback of the program's machine, and read 32 bytes. If they
+    /// are the digits of `token` the route reaches the loopback of the program's machine; if the
+    /// connection is refused, or ends short, or gives other bytes, it has not shown that it does and
+    /// the host has no route. The session does no more with the probe: it is answered.
+    ProbeConnect {
+        /// The id [`Session::probe`] gave.
+        probe: u32,
+        /// The port of the listener, from 1 to 65535.
+        port: u16,
+        /// The 32 lowercase hex digits the connection gives back.
+        token: String,
+    },
+    /// The program has no listener to give (§4.10): the route has not shown where it ends, and the
+    /// host has no route.
+    ProbeFailed {
+        /// The id [`Session::probe`] gave.
+        probe: u32,
+        /// Why: `busy` (a listener is up already; ask again later), `io` or `invalid`, or a word a
+        /// later version says.
+        code: String,
+    },
     /// The view is to forget the files of these names (`sha256:` and a digest), which the program
     /// let go of: a view the terminal draws itself drops what it decoded of them (§8.8).
     ForgetFiles(Vec<String>),
@@ -595,6 +619,8 @@ struct Live {
     links: Vec<u32>,
     /// What is attached, the person's files, the panel (specification §8.8 to §8.10).
     files: files::Files,
+    /// The `probe` that is out, until it is answered or the view ends (§4.10).
+    probe: Option<probing::Out>,
 }
 
 /// What ended a view.
@@ -654,6 +680,8 @@ pub struct Session<S: Store, E: Entropy> {
     dismiss: bool,
     /// The host's folder on the program's machine, if it has one to offer (§8.11).
     stage: Option<StageDir>,
+    /// Whether the host proves its own route with a `probe` (§4.10).
+    probe: bool,
     phase: Phase,
     /// What the view that runs has attached, which a thread other than the session's can read
     /// (`attached_files`). Every view's files are put in it and emptied from it.
@@ -687,6 +715,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             allow_opens: true,
             dismiss: true,
             stage: None,
+            probe: false,
             phase: Phase::Idle,
             attached: AttachedFiles::default(),
             stream: StreamDecoder::new(Direction::ToHost),
@@ -752,6 +781,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             "stage" => self.on_stage(&message),
             "fetch" => self.on_fetch(&message),
             "unstage" => self.on_unstage(&message),
+            "probed" => self.on_probed(&message),
             "msg" => self.on_msg(&message),
             "bye" => self.on_bye(&message),
             "dismiss" => self.on_dismiss(&message),
@@ -991,14 +1021,20 @@ impl<S: Store, E: Entropy> Session<S, E> {
     }
 
     /// What the `welcome` says the host supports: closing a view at the program's request, unless
-    /// the host was told not to ([`Session::offer_dismiss`]), and a folder on the program's machine
-    /// if it was told where ([`Session::offer_stage`]).
+    /// the host was told not to ([`Session::offer_dismiss`]), a folder on the program's machine
+    /// if it was told where ([`Session::offer_stage`]), and the proof of its own route if it was
+    /// told to ([`Session::offer_probe`]).
     fn features(&self) -> Features<'_> {
-        let names: &'static [&'static str] = match (self.dismiss, self.stage.is_some()) {
-            (true, true) => &[FEATURE_DISMISS, FEATURE_STAGE],
-            (true, false) => &[FEATURE_DISMISS],
-            (false, true) => &[FEATURE_STAGE],
-            (false, false) => &[],
+        let names: &'static [&'static str] = match (self.dismiss, self.stage.is_some(), self.probe)
+        {
+            (true, true, true) => &[FEATURE_DISMISS, FEATURE_STAGE, FEATURE_PROBE],
+            (true, true, false) => &[FEATURE_DISMISS, FEATURE_STAGE],
+            (true, false, true) => &[FEATURE_DISMISS, FEATURE_PROBE],
+            (true, false, false) => &[FEATURE_DISMISS],
+            (false, true, true) => &[FEATURE_STAGE, FEATURE_PROBE],
+            (false, true, false) => &[FEATURE_STAGE],
+            (false, false, true) => &[FEATURE_PROBE],
+            (false, false, false) => &[],
         };
         Features {
             names,
@@ -1347,6 +1383,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             context,
             links: Vec::new(),
             files,
+            probe: None,
         }));
         self.actions.push(Action::StartView(Box::new(start)));
     }
@@ -1472,8 +1509,20 @@ impl<S: Store, E: Entropy> Session<S, E> {
         payload: &str,
         from_view: bool,
     ) -> bool {
+        self.queue_id(kind, re, file, payload, from_view).is_some()
+    }
+
+    /// [`queue_with`](Self::queue_with), with the id the message was given when it was written.
+    fn queue_id(
+        &mut self,
+        kind: &str,
+        re: Option<u32>,
+        file: FileParams<'_>,
+        payload: &str,
+        from_view: bool,
+    ) -> Option<u32> {
         if self.ended {
-            return false;
+            return None;
         }
         let id = self.ids.next_id();
         let message = Outgoing {
@@ -1491,10 +1540,10 @@ impl<S: Store, E: Entropy> Session<S, E> {
             } else {
                 Action::Write(bytes)
             });
-            true
+            Some(id)
         } else {
             self.diagnostics.unwritable = self.diagnostics.unwritable.saturating_add(1);
-            false
+            None
         }
     }
 

@@ -4100,3 +4100,75 @@ fn the_typescript_sdk_goes_on_in_messages_when_the_marker_is_wrong_or_the_pipe_i
         r#"view: <- response id=2 result={"bytes":4194313,"via":"messages"}"#,
     ]);
 }
+
+// ---- the proof of the host's own route (specification §4.10) ------------------------------
+//
+// With `--probe SECONDS` the stand-in offers the proof: as each view starts it asks the program for a
+// listener on the loopback of its machine, connects to the port the program names and reads the token
+// back. A program in TypeScript and one in Rust give the same answers.
+
+/// Runs the TypeScript program and the Rust one with `options` (and a call whose answer ends the
+/// script after the proof), and hands each record, with the name of the program, to `check`.
+fn each_program_proves(options: &[&str], check: impl Fn(&str, &Run)) {
+    let mut all = options.to_vec();
+    all.extend(["--call", "no-such-method", "--then", "interrupt"]);
+    for (name, run) in [
+        ("typescript", run_containers(&all)),
+        ("rust", run_rust_example(&all, &[])),
+    ] {
+        assert!(run.status.success(), "{name}: {}", run.text());
+        check(name, &run);
+    }
+}
+
+#[test]
+fn a_program_that_is_asked_for_a_listener_gives_its_one_connection_the_token_and_has_none_after() {
+    each_program_proves(&["--probe", "5", "--probe-reconnect"], |name, run| {
+        run.in_order(&[
+            "host: welcome id=1 re=1 version=1 with a token features=dismiss,probe",
+            "host: probe id=* ttl=5",
+            "program: probed id=* re=* port=",
+            "host: the route reaches the program's loopback: the listener at port * gave the token back",
+            "host: a second connection to port * is refused",
+        ]);
+        run.never("no route");
+        run.never("was given a token");
+        let _ = name;
+    });
+}
+
+#[test]
+fn a_listener_that_is_connected_to_after_its_time_is_up_is_gone() {
+    each_program_proves(&["--probe", "1", "--probe-late"], |_, run| {
+        run.in_order(&[
+            "host: probe id=* ttl=1",
+            "program: probed id=* re=* port=",
+            "host: waits 2 seconds before it connects",
+            "host: no route: the listener at port * could not be reached (ConnectionRefused)",
+        ]);
+        run.never("the route reaches");
+    });
+}
+
+#[test]
+fn a_program_with_a_listener_up_says_busy_to_a_second_probe_and_the_host_has_no_route() {
+    each_program_proves(&["--probe", "5", "--probe-twice"], |_, run| {
+        run.in_order(&["host: probe id=* ttl=5", "host: probe id=* ttl=5"]);
+        // The answer to the first may come before or after this one, or not at all if the program
+        // is leaving by then: the listener takes a while to open in a runtime that opens it later.
+        run.in_order(&[
+            "program: probed id=* re=4 code=busy",
+            "host: no route: the program has no listener to give (busy)",
+        ]);
+        // The answer to the probe that was given up is not believed.
+        run.never("the route reaches");
+    });
+}
+
+#[test]
+fn a_host_that_does_not_offer_the_proof_lists_no_feature_and_sends_no_probe() {
+    let run = run_containers(&["--call", "no-such-method", "--then", "interrupt"]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&["host: welcome id=1 re=1 version=1 with a token features=dismiss views="]);
+    run.never("probe");
+}

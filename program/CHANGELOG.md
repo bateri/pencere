@@ -8,6 +8,8 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Added
 
+- **A program answers the proof of a terminal's own route (specification §4.10).** Asked with a
+  `probe`, it opens a listener on `127.0.0.1` that gives the terminal's token to one connection.
 - **`Options::screen` may draw the view as pictures.** A screen that returns an error of the kind
   `io::ErrorKind::Unsupported` says the terminal cannot show it: nothing is said, and the fallback
   runs as if the program carried no screen.

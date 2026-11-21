@@ -16,6 +16,7 @@
 mod args;
 mod files;
 mod host;
+mod probe;
 mod stage;
 mod view;
 

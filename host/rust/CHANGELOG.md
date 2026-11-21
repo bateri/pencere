@@ -9,6 +9,9 @@ under this name) are recorded here. The format follows
 
 ### Added
 
+- **A host can prove where its own route to the program's machine ends (specification §4.10)**:
+  `Session::offer_probe`, `Session::probe` and the actions `ProbeConnect` and `ProbeFailed` ask the
+  program for a listener on its loopback and say where to connect and what to read back.
 - **The `apps` module** (specification `apps.md`): reads the `app.json` and the `app.json.sig` that
   release an app, checks the shape of the first and the Ed25519 signature of the second over the
   bytes as published, and chooses, among a release and the earlier releases it lists, the newest

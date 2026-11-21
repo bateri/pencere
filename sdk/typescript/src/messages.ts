@@ -189,6 +189,14 @@ export function unstagePayload(id: number): string {
   return toWire({ id });
 }
 
+/** Why the program has no listener to give a `probe` (`probed.code`, §4.10). */
+export type NotListening = "busy" | "io" | "invalid";
+
+/** The payload of `probed`: the port of the listener on `127.0.0.1`, or why there is none (§4.10). */
+export function probedPayload(answer: number | NotListening): string {
+  return toWire(typeof answer === "number" ? { port: answer } : { code: answer });
+}
+
 // ---- what the host says ------------------------------------------------------
 
 /** The folder a `welcome` offers (`welcome.stage`, §8.11). */
@@ -405,7 +413,7 @@ export function parseWrote(payload: string): Wrote | undefined {
 
 const PIPE = /^[0-9a-f]{32}$/;
 
-/** Whether `text` is a name the host gives a pipe: 32 lowercase hex digits and nothing a path could be made of (§8.11). */
+/** Whether `text` is a name the host gives a pipe: 32 lowercase hex digits and nothing a path could be made of (§8.11), as the token of a `probe` is (§4.10). */
 export function isPipeName(text: string): boolean {
   return PIPE.test(text);
 }
@@ -422,6 +430,22 @@ export type Staged =
   | { readonly kind: "sent"; readonly sent: number }
   /** `handle`, `busy`, `gone`, `size`, `route`, `io` or `cancelled`. */
   | { readonly kind: "failed"; readonly code: string };
+
+/** What a host asks with a `probe` (§4.10): the token a listener on the loopback gives to its one connection, and the seconds it stays up. */
+export interface ProbeAsked {
+  readonly token: string;
+  readonly ttl: number;
+}
+
+/** Reads a `probe`: a `token` of 32 lowercase hex digits and a `ttl` that is a whole number from 1 to 30; `undefined` for anything else, which is answered `invalid`. */
+export function parseProbe(payload: string): ProbeAsked | undefined {
+  const body = parseObject(payload);
+  if (body === undefined) return undefined;
+  const { token, ttl } = body;
+  if (typeof token !== "string" || !PIPE.test(token)) return undefined;
+  if (typeof ttl !== "number" || !Number.isInteger(ttl) || ttl < 1 || ttl > 30) return undefined;
+  return { token, ttl };
+}
 
 /** Reads a `staged`; `undefined` when it is none of the three. */
 export function parseStaged(payload: string): Staged | undefined {

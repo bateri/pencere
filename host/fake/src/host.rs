@@ -26,6 +26,7 @@ use serde_json::Value;
 
 use crate::args::{Args, Ask, Gestures, Then};
 use crate::files::Desk;
+use crate::probe::{self, Probing};
 use crate::stage::{Finished, Stage};
 use crate::view::{Reaction, ScriptedView};
 
@@ -91,6 +92,13 @@ pub struct Host {
     reads: u32,
     /// The folder the bytes of files cross through, when the command line asks for one (§8.11).
     stage: Option<Stage>,
+    /// How it proves its own route to the program's machine, when the command line asks for it
+    /// (§4.10).
+    probing: Probing,
+    /// The proof of the route is out and not answered yet: what the script does next waits for it.
+    proof_out: bool,
+    /// The script is done and what comes next waits for the proof.
+    script_waits: bool,
 }
 
 impl Host {
@@ -109,6 +117,7 @@ impl Host {
         }
         let mut session = Session::new(config, store, pane::entropy(urandom));
         session.offer_dismiss(args.dismiss);
+        session.offer_probe(args.probing.ttl.is_some());
         let stage = match &args.stage {
             Some(dir) => {
                 let (stage, offered) = Stage::open(dir, args.stage_flaws.clone())?;
@@ -149,6 +158,9 @@ impl Host {
             desk: Desk::default(),
             reads: 0,
             stage,
+            probing: args.probing.clone(),
+            proof_out: false,
+            script_waits: false,
         })
     }
 
@@ -425,6 +437,17 @@ impl Host {
                 size,
                 pipe,
             } => self.fetch_file(fetch, &handle, offset, size, &pipe),
+            Action::ProbeConnect { port, token, .. } => {
+                probe::prove(port, &token, &self.probing);
+                self.proof_over();
+            }
+            Action::ProbeFailed { code, .. } => {
+                log::line(
+                    "host",
+                    format!("no route: the program has no listener to give ({code})"),
+                );
+                self.proof_over();
+            }
             Action::Unstage { transfer } => {
                 log::line("host", format!("takes back the pipe of {transfer}"));
                 if let Some(stage) = self.stage.as_mut() {
@@ -567,6 +590,14 @@ impl Host {
             self.session.module_save(&name, None);
             self.settle();
         }
+        // The proof of the route: the program is asked for a listener on its loopback as the view
+        // starts, once, or twice to have it say it has one.
+        if let Some(ttl) = self.probing.ttl {
+            for _ in 0..(if self.probing.twice { 2 } else { 1 }) {
+                self.proof_out |= self.session.probe(ttl).is_some();
+            }
+            self.settle();
+        }
         let mut calls = self.calls.clone();
         for call in &mut calls {
             if let Some(params) = call.params.as_mut() {
@@ -628,8 +659,21 @@ impl Host {
         }
     }
 
+    /// The proof of the route has its answer: a script that was done and waited for it goes on.
+    fn proof_over(&mut self) {
+        self.proof_out = false;
+        if std::mem::take(&mut self.script_waits) {
+            self.calls_done();
+        }
+    }
+
     /// The script is done: what the command line said to do next.
     fn calls_done(&mut self) {
+        // The program answers the proof when it can, which may be after it has answered the page.
+        if self.proof_out {
+            self.script_waits = true;
+            return;
+        }
         // A program that shows its view again is waited for, whatever the action is.
         if self.views < self.on_view {
             log::line("view", "has nothing more to do");
@@ -801,9 +845,8 @@ fn describe_program(message: &Message) -> String {
     let id = message.id;
     // Only the kinds that are read for what they say are parsed.
     let payload = match message.kind.as_str() {
-        "open" | "bye" | "attach" | "detach" | "read" | "stage" | "fetch" | "unstage" => {
-            parsed(&message.payload)
-        }
+        "open" | "bye" | "attach" | "detach" | "read" | "stage" | "fetch" | "unstage"
+        | "probed" => parsed(&message.payload),
         _ => Value::Null,
     };
     match message.kind.as_str() {
@@ -871,6 +914,20 @@ fn describe_program(message: &Message) -> String {
             "unstage id={id} of={}",
             payload.get("id").and_then(Value::as_u64).unwrap_or(0)
         ),
+        "probed" => {
+            let re = message
+                .re()
+                .map(|re| format!(" re={re}"))
+                .unwrap_or_default();
+            match (
+                payload.get("port").and_then(Value::as_u64),
+                payload_str(&payload, "code"),
+            ) {
+                (Some(port), _) => format!("probed id={id}{re} port={port}"),
+                (None, Some(code)) => format!("probed id={id}{re} code={code}"),
+                (None, None) => format!("probed id={id}{re}"),
+            }
+        }
         "write" => format!(
             "write id={id} offset={}{} {} bytes",
             message.offset().unwrap_or(0),
@@ -944,6 +1001,10 @@ fn describe_host(message: &Message) -> String {
                 format!("welcome id={id}{re} (no common version)")
             }
         }
+        "probe" => format!(
+            "probe id={id} ttl={}",
+            payload.get("ttl").and_then(Value::as_u64).unwrap_or(0)
+        ),
         "need" => {
             let missing = payload
                 .get("missing")

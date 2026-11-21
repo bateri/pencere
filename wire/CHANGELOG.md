@@ -8,6 +8,8 @@ All notable changes to the `pencere-wire` crate are recorded here. The format fo
 
 ### Added
 
+- **The proof of a host's own route (specification §4.10)**: `probe` and `Probed`, the payloads of the
+  `probe` a host sends and the `probed` that answers it, and `FEATURE_PROBE`.
 - **`carry`**: the rule of what a view may hand to its host's system drag (`is_carriable`, `is_carriable_url`,
   `MAX_CARRY`): one line, no control characters (nor the separators of lines, the byte order mark, or the
   controls of the direction of text), at most 64 KiB, and an address only of the kind a `link` may be. The one copy, as `link`'s.

@@ -98,6 +98,7 @@ mod log;
 mod payload;
 #[allow(unsafe_code)]
 mod pipes;
+mod probe;
 #[allow(unsafe_code)]
 mod screen;
 mod session;

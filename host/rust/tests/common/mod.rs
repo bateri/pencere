@@ -139,6 +139,10 @@ pub fn session_of(
         let token = stage["token"].as_str().unwrap();
         session.offer_stage(Some(StageDir::new(dir, token).unwrap()));
     }
+    // A host that proves its own route to the program's machine says so.
+    if config["probe"].as_bool() == Some(true) {
+        session.offer_probe(true);
+    }
     session
 }
 

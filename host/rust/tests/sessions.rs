@@ -100,6 +100,8 @@ fn name_of(action: &Action) -> Option<&'static str> {
         Action::StageFile { .. } => Some("stage-file"),
         Action::FetchFile { .. } => Some("fetch-file"),
         Action::Unstage { .. } => Some("unstage"),
+        Action::ProbeConnect { .. } => Some("probe-connect"),
+        Action::ProbeFailed { .. } => Some("probe-failed"),
         Action::ForgetFiles(_) => Some("forget-files"),
         Action::Pick { .. } => Some("pick"),
         Action::Save { .. } => Some("save"),
@@ -164,6 +166,10 @@ fn happen<S: Store, E: Entropy>(
         }
         "grant-save" => {
             let _ = host.grant_save();
+        }
+        // The host asks the program for a listener on its machine's loopback (§4.10).
+        "probe" => {
+            let _ = host.probe(event["ttl"].as_u64().unwrap() as u8);
         }
         // What the terminal did for a transfer through the host's folder, by the id of the
         // program's `stage` or `fetch`: the pipe exists, and how the file went.
@@ -312,7 +318,7 @@ fn run(session: &Value, how: impl Fn(usize) -> Feed) {
 fn every_session_gives_the_bytes_the_fixtures_name() {
     let manifest = common::manifest();
     let sessions = manifest["session"].as_array().unwrap();
-    assert_eq!(sessions.len(), 42);
+    assert_eq!(sessions.len(), 44);
     for session in sessions {
         run(session, |_| Feed::Whole);
         run(session, |_| Feed::OneByOne);

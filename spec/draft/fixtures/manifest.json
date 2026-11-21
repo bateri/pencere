@@ -1448,6 +1448,58 @@
         }
       ],
       "errors": []
+    },
+    {
+      "file": "to-program/probe.frame",
+      "direction": "to-program",
+      "note": "probe: the host asks for a listener on the loopback of the program's machine that gives this token to one connection, and for how many seconds it may stay up",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "probe",
+          "id": 3,
+          "control": {},
+          "payload": "{\"token\":\"3f9c2a7be1d84056a9c4e7b1d2f80a65\",\"ttl\":10}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/probed.frame",
+      "direction": "to-host",
+      "note": "probed: the answer to a probe, the port of the listener",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "probed",
+          "id": 7,
+          "control": {
+            "re": "3"
+          },
+          "payload": "{\"port\":43211}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/probed-error.frame",
+      "direction": "to-host",
+      "note": "probed: the answer to a probe when the program has no listener to give, and why",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "probed",
+          "id": 7,
+          "control": {
+            "re": "3"
+          },
+          "payload": "{\"code\":\"busy\"}"
+        }
+      ],
+      "errors": []
     }
   ],
   "session": [
@@ -4091,6 +4143,184 @@
         },
         {
           "out": "session/stage-without-files/06-out.frame",
+          "acted": []
+        }
+      ]
+    },
+    {
+      "name": "probe-route",
+      "note": "the host proves its own route reaches the program's loopback: a probe goes out only while a view runs and only when the host offers it, with a token of the host's own randomness; the first answer whose re is the probe's is believed (a port is for the host to connect to, a code is why there is none), a second answer and an answer to another probe are ignored, an answer that names no usable port is ignored and the probe stays out, and a probe ends with its view",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "LuBX5P5O_bQ8vrFCtYrTXQ"
+        ],
+        "probe": true,
+        "store": ["ef637abb8c8f9fe8f2156cb68d0243c868cb75775ea98f8c43de85fcf3fc9c24"],
+        "views": [
+          {
+            "kind": "lua",
+            "versions": ["0.1"]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": "probe",
+          "ttl": 10
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/probe-route/03-in.frame"
+        },
+        {
+          "out": "session/probe-route/04-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/probe-route/05-in.frame"
+        },
+        {
+          "out": "session/probe-route/06-out.frame",
+          "acted": ["start-view"]
+        },
+        {
+          "event": "probe",
+          "ttl": 10
+        },
+        {
+          "out": "session/probe-route/08-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/probe-route/09-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/probe-route/11-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["probe-connect"]
+        },
+        {
+          "in": "session/probe-route/13-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "event": "probe",
+          "ttl": 5
+        },
+        {
+          "out": "session/probe-route/16-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/probe-route/17-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["probe-failed"]
+        },
+        {
+          "event": "probe",
+          "ttl": 5
+        },
+        {
+          "out": "session/probe-route/20-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/probe-route/21-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "event": "close-view"
+        },
+        {
+          "out": "session/probe-route/24-out.frame",
+          "acted": ["destroy-view"]
+        },
+        {
+          "in": "session/probe-route/25-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "event": "probe",
+          "ttl": 10
+        },
+        {
+          "out": null,
+          "acted": []
+        }
+      ]
+    },
+    {
+      "name": "probe-not-offered",
+      "note": "a host that does not offer the probe sends none, and an answer to one it did not send is ignored",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg"],
+        "store": ["ef637abb8c8f9fe8f2156cb68d0243c868cb75775ea98f8c43de85fcf3fc9c24"],
+        "views": [
+          {
+            "kind": "lua",
+            "versions": ["0.1"]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "in": "session/probe-not-offered/01-in.frame"
+        },
+        {
+          "out": "session/probe-not-offered/02-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/probe-not-offered/03-in.frame"
+        },
+        {
+          "out": "session/probe-not-offered/04-out.frame",
+          "acted": ["start-view"]
+        },
+        {
+          "event": "probe",
+          "ttl": 10
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/probe-not-offered/07-in.frame"
+        },
+        {
+          "out": null,
           "acted": []
         }
       ]
