@@ -155,6 +155,179 @@ fn what_a_page_says_is_cleaned_alike_in_the_text_and_in_the_json() {
 }
 
 #[test]
+fn what_stands_in_a_reading_that_a_page_did_not_say_in_words_is_cleaned_too_and_a_secret_is_never_written()
+ {
+    // Characters that end a line or hide text in a way a person does not see: the line and paragraph
+    // separators, a soft hyphen, the tags that write text apart from what shows.
+    let hidden = "a\u{2028}b\u{2029}c\u{ad}d\u{e0041}e\u{206a}f\u{fff9}g";
+    assert_eq!(clean(hidden, 100), "a?b?c?d?e?f?g");
+    // The keys of a command, the role of an item and the notes of a reading come from the page or a
+    // host that builds a reading of its own; they are cleaned as the words are.
+    let key = "ctrl+\u{1b}\u{9b}";
+    let mut odd = item(AccessibleRole::Text, None, "words");
+    odd.role = "but\u{1b}ton".to_owned();
+    let secret = Id::named("pw");
+    let reading = Reading {
+        items: vec![odd],
+        commands: vec![CommandReading {
+            id: Id::named("go"),
+            title: "Go".to_owned(),
+            keys: vec![key.to_owned()],
+            enabled: true,
+        }],
+        fields: vec![FieldReading {
+            id: secret,
+            kind: FieldKind::Secret,
+            label: Some("Password".to_owned()),
+            hint: None,
+            value: Some("hunter2".to_owned()),
+            covered: false,
+            rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+        }],
+        notes: vec!["a\u{1b}[2Jb".to_owned()],
+        ..Reading::default()
+    };
+    let text = reading.text();
+    let json = reading.json();
+    for written in [&text, &json] {
+        assert!(!written.contains(['\u{1b}', '\u{9b}']), "{written:?}");
+        assert!(!written.contains("hunter2"), "{written:?}");
+    }
+    assert!(text.contains("note: a?[2Jb"), "{text:?}");
+    assert!(text.contains("[ctrl+??]"), "{text:?}");
+    let json: Value = serde_json::from_str(&json).expect("json");
+    assert_eq!(json["fields"][0]["value"], Value::Null);
+    assert_eq!(json["items"][0]["role"], json!("but?ton"));
+}
+
+#[test]
+fn what_shows_of_an_editor_is_found_from_the_room_it_has_where_a_card_or_a_box_cuts_it() {
+    use crate::reading::shown_span;
+    // An editor whose room is from 100 to 400 on the page, ten places to a point: what is seen of
+    // it is where `shows` says.
+    let place = |shows: std::ops::RangeInclusive<f32>| {
+        move |y: f32| shows.contains(&y).then_some(((y - 100.0) * 10.0) as usize)
+    };
+    // All of it shows: the first and the last place, near the edges of its room.
+    let (top, bottom) = shown_span(place(0.0..=1000.0), 100.0, 300.0).expect("shows");
+    assert!(top < 20 && bottom > 2970, "{top}-{bottom}");
+    // Its top is covered up to 160 and its bottom is cut off at 250: the middle shows.
+    let (top, bottom) = shown_span(place(160.0..=250.0), 100.0, 300.0).expect("shows");
+    assert!((599..=620).contains(&top), "{top}");
+    assert!((1490..=1500).contains(&bottom), "{bottom}");
+    // Nothing of it shows.
+    assert_eq!(shown_span(place(1000.0..=2000.0), 100.0, 300.0), None);
+}
+
+#[test]
+fn a_frame_the_host_was_told_to_draw_and_has_not_is_not_a_page_at_rest() {
+    let (mut page, _open, _sent) = held();
+    // The frames a host draws until the page says it wants no more.
+    let settle = |page: &mut Page| {
+        for _ in 0..10 {
+            assert!(page.module().flush(Duration::from_secs(5)));
+            if !page.drain().redraw {
+                return;
+            }
+            page.frame(frame());
+        }
+        panic!("the page never stopped asking for frames");
+    };
+    page.frame(frame());
+    settle(&mut page);
+    assert!(page.rest().resting(), "{:?}", page.rest());
+    // The host is told a page is to be drawn, and is not yet at the frame that draws it.
+    page.refresh();
+    page.frame(frame());
+    assert!(page.module().flush(Duration::from_secs(5)));
+    assert!(page.drain().redraw, "the page made again is to be drawn");
+    let rest = page.rest();
+    assert!(rest.unsettled && !rest.resting(), "{rest:?}");
+    // The frame is drawn.
+    page.frame(frame());
+    settle(&mut page);
+    assert!(page.rest().resting(), "{:?}", page.rest());
+}
+
+/// A module whose page asks for its next frame at once for `steps` renders, as one that fades or
+/// sweeps while a call is out does, and then is still. With `changing` its page is another each
+/// time, as it is where what moves is what the page shows.
+struct Moving {
+    changing: bool,
+    steps: u32,
+    made: u32,
+}
+
+impl Runner for Moving {
+    fn render(&mut self, _size: Size, _now: f64, _reduce: bool) -> Result<Frame, Fault> {
+        self.made += 1;
+        let animating = self.made < self.steps;
+        let words = if self.changing && animating {
+            format!("step {}", self.made)
+        } else {
+            "step".to_owned()
+        };
+        Ok(Frame {
+            root: div().child(text(words)),
+            animating,
+            wake_at: None,
+            wake: None,
+        })
+    }
+
+    fn settle(&mut self) -> Result<bool, Fault> {
+        Ok(false)
+    }
+
+    fn handle(&mut self, _event: Event) -> Result<Reply, Fault> {
+        Ok(Reply::none())
+    }
+
+    fn lay_out(&mut self, _laid: Arc<Laid>) {}
+
+    fn take_sent(&mut self) -> Vec<String> {
+        Vec::new()
+    }
+}
+
+#[test]
+fn a_page_whose_program_asks_for_each_frame_is_not_at_rest_while_it_does_and_is_when_it_stops() {
+    for changing in [false, true] {
+        let mut page = Page::spawn(
+            move || {
+                Ok(Moving {
+                    changing,
+                    steps: 12,
+                    made: 0,
+                })
+            },
+            Setup::default(),
+            || {},
+        );
+        let mut at = 1.0;
+        let mut rested_at = None;
+        for step in 0..40 {
+            assert!(page.module().flush(Duration::from_secs(5)));
+            page.drain();
+            let rest = page.rest();
+            if rest.resting() && rested_at.is_none() {
+                rested_at = Some(step);
+            }
+            at += 0.016;
+            page.frame(FrameAt { now: at, ..frame() });
+        }
+        // The page's own animation is waited for (it is the page taking in what it makes) and not
+        // for ever: when the program stops asking, the page comes to rest.
+        let rested = rested_at.unwrap_or_else(|| panic!("changing {changing}: never at rest"));
+        assert!(
+            rested >= 10,
+            "changing {changing}: at rest at {rested}, while it still asked for frames"
+        );
+        assert!(!page.rest().moving, "{:?}", page.rest());
+    }
+}
+
+#[test]
 fn a_reading_is_written_for_a_person_and_for_a_program_from_the_same_parts() {
     let go = Id::named("go");
     let reading = Reading {

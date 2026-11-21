@@ -48,17 +48,23 @@ pub enum Focus {
 }
 
 /// What is still going on after what a page was told: what an agent waits for before it reads.
-/// Motion is told and is not waited for (a page that always moves would never be at rest).
+/// Motion the host draws (a transition, a box that glides, a caret) is told and is not waited for,
+/// so a page that always moves can be at rest. A page whose own program makes a new page at every
+/// frame (`animating`) is not: it is always taking in a page, and an agent waits the time it is
+/// given.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Rest {
-    /// The module has more to do of what it was told, or what it has done is not taken.
+    /// The module has more to do of what it was told.
     pub unprocessed: bool,
     /// How many calls the page made to its program have no answer yet. A subscription is not a
     /// call, and neither is what the program pushes.
     pub calls: usize,
     /// An image is still being read or drawn.
     pub images: bool,
-    /// The page has not been laid out for what it last was, or its last layout asked for another.
+    /// The page has not been drawn for what it last was (a page the module made, or an image that
+    /// came, that no frame has laid out; a frame the host was asked for and has not drawn), or its
+    /// last layout asked for another. Wider than [`Page::unsettled`], which is the last of these
+    /// alone.
     pub unsettled: bool,
     /// Something moves (a transition, a gauge): not waited for.
     pub moving: bool,
@@ -258,14 +264,17 @@ pub fn full(id: Id) -> String {
     format!("{:016x}", id.number())
 }
 
-/// Whether `c` is a character that reads as nothing or as another: a control character or one that
-/// formats text (a zero-width space, the marks that turn it round).
+/// Whether `c` is a character that reads as nothing or as another: a control character, one that
+/// formats text (a zero-width space, a soft hyphen, the marks that turn it round, the tags that
+/// write text a person does not see) or one that ends a line or a paragraph in a way a line break
+/// of the reading does not.
 fn hidden(c: char) -> bool {
     c.is_control()
         || matches!(
             c,
-            '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}'
-                | '\u{2066}'..='\u{2069}' | '\u{feff}'
+            '\u{ad}' | '\u{61c}' | '\u{180e}' | '\u{200b}'..='\u{200f}'
+                | '\u{2028}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}'
+                | '\u{fff9}'..='\u{fffb}' | '\u{e0000}'..='\u{e007f}'
         )
 }
 
@@ -454,7 +463,7 @@ impl Reading {
             out.push_str(&format!("rest: {says}\n"));
         }
         for note in &self.notes {
-            out.push_str(&format!("note: {note}\n"));
+            out.push_str(&format!("note: {}\n", clean(note, WORDS_LIMIT)));
         }
         if !self.items.is_empty() {
             out.push_str("items:\n");
@@ -463,7 +472,7 @@ impl Reading {
             out.push_str(&format!(
                 "{} {} {}{}\n",
                 name(item.id),
-                item.role,
+                clean(&item.role, WORDS_LIMIT),
                 quoted(&clean(&item.words, WORDS_LIMIT)),
                 state_words(&item.state)
             ));
@@ -487,7 +496,12 @@ impl Reading {
                 name(Some(field.id)),
                 quoted(&clean(label, WORDS_LIMIT))
             ));
-            if let Some(value) = &field.value {
+            // A secret's value is in no reading, whatever the host that built it held.
+            if let Some(value) = field
+                .value
+                .as_ref()
+                .filter(|_| field.kind != FieldKind::Secret)
+            {
                 out.push_str(&format!(" = {}", quoted(&clean(value, VALUE_LIMIT))));
             }
             if field.covered {
@@ -525,7 +539,12 @@ impl Reading {
                 quoted(&clean(&command.title, WORDS_LIMIT))
             ));
             if !command.keys.is_empty() {
-                out.push_str(&format!(" [{}]", command.keys.join(", ")));
+                let keys: Vec<String> = command
+                    .keys
+                    .iter()
+                    .map(|key| clean(key, WORDS_LIMIT))
+                    .collect();
+                out.push_str(&format!(" [{}]", keys.join(", ")));
             }
             if !command.enabled {
                 out.push_str(" (disabled)");
@@ -610,7 +629,7 @@ impl Reading {
                     object.insert("ref".into(), Value::Null);
                     object.insert("id".into(), Value::Null);
                 }
-                object.insert("role".into(), json!(item.role));
+                object.insert("role".into(), json!(clean(&item.role, WORDS_LIMIT)));
                 object.insert("text".into(), json!(clean(&item.words, WORDS_LIMIT)));
                 object.insert("state".into(), state_json(&item.state));
                 object.insert("box".into(), rounded(item.rect));
@@ -633,7 +652,11 @@ impl Reading {
                     },
                     "label": field.label.as_deref().map(|l| clean(l, WORDS_LIMIT)),
                     "hint": field.hint.as_deref().map(|h| clean(h, WORDS_LIMIT)),
-                    "value": field.value.as_deref().map(|v| clean(v, VALUE_LIMIT)),
+                    "value": field
+                        .value
+                        .as_deref()
+                        .filter(|_| field.kind != FieldKind::Secret)
+                        .map(|v| clean(v, VALUE_LIMIT)),
                     "covered": field.covered,
                     "box": rounded(field.rect),
                 })
@@ -688,7 +711,7 @@ impl Reading {
             .map(|command| {
                 json!({
                     "title": clean(&command.title, WORDS_LIMIT),
-                    "keys": command.keys,
+                    "keys": command.keys.iter().map(|key| clean(key, WORDS_LIMIT)).collect::<Vec<_>>(),
                     "enabled": command.enabled,
                 })
             })
@@ -715,7 +738,7 @@ impl Reading {
                 "unsettled": self.rest.unsettled,
                 "moving": self.rest.moving,
             },
-            "notes": self.notes,
+            "notes": self.notes.iter().map(|note| clean(note, WORDS_LIMIT)).collect::<Vec<_>>(),
             "items": items,
             "fields": fields,
             "editors": editors,
@@ -926,6 +949,56 @@ pub(crate) fn read(page: &mut Page, input: &ReadingInput<'_>, rest: Rest) -> Rea
     }
 }
 
+/// The places in an editor's document at the top and at the bottom of what shows of it: `under`
+/// says what is at a height of the page (the document's place, where the editor is there and
+/// nothing covers it or scrolls it away). The room from `y` to `y + h` is probed at even steps;
+/// the first and the last that find the editor are narrowed to the edge by halving, so that an
+/// editor that a card covers in part or a box that scrolls cuts off, or that is taller than the
+/// page, gives the lines that show.
+pub(crate) fn shown_span(
+    mut under: impl FnMut(f32) -> Option<usize>,
+    y: f32,
+    h: f32,
+) -> Option<(usize, usize)> {
+    const PROBES: u8 = 24;
+    const HALVINGS: u8 = 10;
+    let span = (h - 2.0).max(0.0);
+    let at = |step: u8| y + 1.0 + span * f32::from(step) / f32::from(PROBES);
+    let hits: Vec<Option<usize>> = (0..=PROBES).map(|step| under(at(step))).collect();
+    let first = hits.iter().position(Option::is_some)?;
+    let last = hits.iter().rposition(Option::is_some)?;
+    let mut top = hits.get(first).copied().flatten()?;
+    let mut bottom = hits.get(last).copied().flatten()?;
+    let (first, last) = (u8::try_from(first).ok()?, u8::try_from(last).ok()?);
+    if first > 0 {
+        let (mut miss, mut hit) = (at(first - 1), at(first));
+        for _ in 0..HALVINGS {
+            let middle = f32::midpoint(miss, hit);
+            match under(middle) {
+                Some(found) => {
+                    hit = middle;
+                    top = found;
+                }
+                None => miss = middle,
+            }
+        }
+    }
+    if last < PROBES {
+        let (mut hit, mut miss) = (at(last), at(last + 1));
+        for _ in 0..HALVINGS {
+            let middle = f32::midpoint(hit, miss);
+            match under(middle) {
+                Some(found) => {
+                    hit = middle;
+                    bottom = found;
+                }
+                None => miss = middle,
+            }
+        }
+    }
+    Some((top, bottom))
+}
+
 /// What the page's editor `id` shows: the lines between the place under the top edge of its room
 /// and the place under the bottom edge, where the caret is and what is selected. An editor nothing
 /// reaches (covered, scrolled out of a box that scrolls) shows no line.
@@ -937,13 +1010,15 @@ fn editor_of(
 ) -> EditorReading {
     let rect = item.rect;
     let x = rect.x + rect.w / 2.0;
-    let mut under = |y: f32| {
-        page.place_in_editor(Point::new(x, y))
-            .filter(|(found, _)| *found == id)
-            .map(|(_, at)| at)
-    };
-    let top = under(rect.y + 1.0);
-    let bottom = under(rect.y + rect.h - 1.0);
+    let shown = shown_span(
+        |y| {
+            page.place_in_editor(Point::new(x, y))
+                .filter(|(found, _)| *found == id)
+                .map(|(_, at)| at)
+        },
+        rect.y,
+        rect.h,
+    );
     let label = (!item.words.is_empty()).then(|| item.words.clone());
     let Some(buffer) = page.editor(id) else {
         return EditorReading {
@@ -965,23 +1040,20 @@ fn editor_of(
             column: at.saturating_sub(buffer.line_start(line)) + 1,
         }
     };
-    let (first, last) = match (top, bottom) {
-        (Some(top), Some(bottom)) => (Some(buffer.line_of(top)), Some(buffer.line_of(bottom))),
-        (Some(only), None) | (None, Some(only)) => {
-            (Some(buffer.line_of(only)), Some(buffer.line_of(only)))
-        }
-        (None, None) => (None, None),
-    };
-    let (first, lines) = match (first, last) {
-        (Some(first), Some(last)) => {
+    let (first, lines) = match shown {
+        Some((top, bottom)) => {
+            let (first, last) = (buffer.line_of(top), buffer.line_of(bottom));
             let (first, last) = (first.min(last), first.max(last));
             let last = last.min(first + LINES_LIMIT - 1);
-            (
-                first + 1,
-                (first..=last).map(|line| buffer.line(line)).collect(),
-            )
+            // As much of a line as a reading holds, not the whole of a line of megabytes.
+            let line = |line: usize| {
+                let from = buffer.line_start(line);
+                let to = buffer.line_end(line).min(from + LINE_LIMIT + 1);
+                buffer.slice(from, to).unwrap_or_default()
+            };
+            (first + 1, (first..=last).map(line).collect())
         }
-        _ => (0, Vec::new()),
+        None => (0, Vec::new()),
     };
     let main = buffer.main();
     let selection = (!main.is_empty()).then(|| Selected {

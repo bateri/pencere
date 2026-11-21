@@ -240,8 +240,9 @@ agent will see.
 - **At rest** (`Page::rest`) says whether the module has more to do of what it was told, how many
   calls to the program have no answer (a subscription and what the program pushes are not calls), whether
   an image is on its way and whether the page is laid out for what it last was. It never waits: a host
-  asks at every drain and wake. Motion is told and is not waited for, so a page that always moves
-  can be at rest.
+  asks at every drain and wake. Motion the host draws (a transition, a box that glides) is told and is
+  not waited for, so a page that always moves can be at rest; a page whose own program makes a new page
+  at every frame is not at rest while it does.
 - **`Page::reach(id)`** is where a press reaches an element (its middle, if nothing covers it), the same
   place `Headless::click` presses.
 

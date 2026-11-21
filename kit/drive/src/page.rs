@@ -232,6 +232,9 @@ struct State {
     outline: Outline,
     /// A page arrived that the host has not been told of.
     redraw: bool,
+    /// The host was told of a page to draw ([`Drained::redraw`]) and has not drawn it yet: a frame
+    /// is owed, and what is read before it is read of the page as it was.
+    owed_frame: bool,
     /// What the module said that the host has not taken.
     replies: Vec<Answer>,
     /// The editor each entry of the menus last asked for pastes into where the host performs the
@@ -459,6 +462,7 @@ impl Page {
                 place: setup.placement,
                 outline: Outline::default(),
                 redraw: false,
+                owed_frame: false,
                 replies: Vec::new(),
                 menu_pastes: Vec::new(),
                 copied: Vec::new(),
@@ -1041,12 +1045,17 @@ impl Page {
     /// Whether the page wants the next frame: it is moving, its boxes are, or the frame just drawn
     /// left something for it.
     pub fn animating(&self) -> bool {
+        self.moves() || self.state.again
+    }
+
+    /// Whether something moves: the page's own program asks for its next step, a transition, a box
+    /// that scrolls or a caret that glides. What is left for the next frame to settle is not motion.
+    fn moves(&self) -> bool {
         let state = &self.state;
         state.animating
             || state.motions.moving()
             || state.scrolls.moving(state.clock.frame)
             || state.editing.glide.moving()
-            || state.again
     }
 
     /// Asks the page for itself again at the next frame, though nothing the drive knows of changed:
@@ -1140,10 +1149,12 @@ impl Page {
         // What was held waits for the frame that lays its field out, and a reply that a frame took
         // (so that it asked for none) has no other frame coming: the host is to draw one.
         state.redraw |= state.held.len() > held;
+        let redraw = std::mem::take(&mut state.redraw);
+        state.owed_frame |= redraw;
         Drained {
             replies,
             copied: std::mem::take(&mut state.copied),
-            redraw: std::mem::take(&mut state.redraw),
+            redraw,
             diagnostics: std::mem::take(&mut state.diagnostics),
             ended,
             sent: std::mem::take(&mut state.sent),
@@ -1192,13 +1203,17 @@ impl Page {
     /// that says it is idle has said everything it will say to what it was told.
     pub fn rest(&mut self) -> Rest {
         let idle = self.state.module.idle();
+        // Asked before what has come is taken in, as the module is: an image that arrives between
+        // the two is then taken in by `sync` and was still on its way when asked.
+        let images = self.images.as_ref().is_some_and(Images::busy);
         self.state.sync(false, self.images.as_ref());
+        let state = &self.state;
         Rest {
             unprocessed: !idle,
-            calls: self.state.owed.count(),
-            images: self.images.as_ref().is_some_and(Images::busy),
-            unsettled: self.state.again || self.state.fresh || self.state.redraw,
-            moving: self.animating(),
+            calls: state.owed.count(),
+            images,
+            unsettled: state.again || state.fresh || state.redraw || state.owed_frame,
+            moving: self.moves(),
         }
     }
 
@@ -1713,6 +1728,7 @@ impl State {
         let size = Size::new(width / scale, height / scale);
         let viewport = Size::new(width, height);
         self.again = false;
+        self.owed_frame = false;
         self.clock.frame(at.now);
         self.sync(true, images);
         // The time the page asked to be woken at has come: it is woken at this frame's time, before
