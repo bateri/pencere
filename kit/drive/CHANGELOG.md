@@ -130,6 +130,10 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 - **A reading gives the controls of a dialog.** A reading of a page with a dialog over a scrim that
   answers the pointer gave one button named by the dialog's title; the buttons and fields in it are in
   it now, each by its ref (`pencere_view::Laid::accessible`).
+- **A reading keeps a button that holds a heading and a row of controls, and says a label's words once.**
+  A button with only a heading, a picture or a progress in it, and a row (a grid's) with a control in
+  every cell, were not in a reading; and a tab or a head with a control in it said its title twice
+  (`pencere_view::Laid::accessible`).
 
 ## [0.4.1] - 2026-11-05
 

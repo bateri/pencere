@@ -1054,6 +1054,329 @@ fn a_button_with_no_control_in_it_is_still_said_by_all_the_words_inside_it() {
     assert_eq!(read_of(labelled), [(Button, "Open card".to_owned())]);
 }
 
+/// The page as a screen reader is told it, each item with its state.
+fn read_states(root: crate::Element) -> Vec<(crate::AccessibleRole, String, crate::State)> {
+    layout(root, Size::new(400.0, 400.0), 1.0, &mut Fixed)
+        .accessible()
+        .iter()
+        .map(|item| (item.role, item.words.clone(), item.state.clone()))
+        .collect()
+}
+
+#[test]
+fn a_button_that_holds_a_heading_a_picture_or_a_progress_is_still_said_by_its_words() {
+    use crate::AccessibleRole::{Button, Heading, Image, Progress};
+    // What only shows is not a control: the button is said by the words inside it, as it was.
+    let section = div()
+        .press(Id::named("sec"))
+        .h(20.0)
+        .child(text("Settings").role(Heading(2)));
+    assert_eq!(read_of(section), [(Button, "Settings".to_owned())]);
+    let card = div()
+        .press(Id::named("card"))
+        .h(20.0)
+        .child(div().size(8.0, 8.0).role(Image).label("Logo"))
+        .child(text("Build"))
+        .child(div().size(8.0, 8.0).role(Progress).value("40%"));
+    assert_eq!(read_of(card), [(Button, "Build".to_owned())]);
+    // What a person works on is one: the button is read apart from it.
+    let slider = div()
+        .press(Id::named("card"))
+        .h(20.0)
+        .child(text("Volume"))
+        .child(
+            div()
+                .press(Id::named("level"))
+                .role(crate::AccessibleRole::Slider)
+                .label("Level")
+                .size(8.0, 8.0),
+        );
+    assert_eq!(
+        read_of(slider),
+        [
+            (Button, "Volume".to_owned()),
+            (crate::AccessibleRole::Slider, "Level".to_owned())
+        ]
+    );
+}
+
+#[test]
+fn a_row_that_says_what_it_is_or_what_state_it_is_in_is_read_though_it_has_no_words_of_its_own() {
+    use crate::AccessibleRole::{Button, Checkbox, MenuItem};
+    let mark = |name: &str| {
+        div()
+            .press(Id::named(name))
+            .role(Checkbox)
+            .label("Mark")
+            .size(10.0, 10.0)
+    };
+    let row = |row: crate::Element| {
+        row.row()
+            .press(Id::named("row"))
+            .h(20.0)
+            .child(mark("a"))
+            .child(mark("b"))
+    };
+    // A row of a grid with every cell a control: it is the row, chosen, and the controls apart.
+    let read = read_states(row(div().role(MenuItem).selected(true)));
+    assert_eq!(read[0].0, MenuItem);
+    assert!(read[0].2.selected);
+    assert_eq!(read.len(), 3);
+    // A state alone is enough.
+    let read = read_states(row(div().expanded(false)));
+    assert_eq!((read[0].0, read[0].2.expanded), (Button, Some(false)));
+    assert_eq!(read.len(), 3);
+    // A plain one that holds controls and says nothing (a scrim) is not read.
+    assert_eq!(
+        read_of(row(div())),
+        [(Checkbox, "Mark".to_owned()), (Checkbox, "Mark".to_owned())]
+    );
+}
+
+#[test]
+fn what_a_label_says_is_not_said_again_by_the_words_inside_the_labelled_box() {
+    use crate::AccessibleRole::{Button, Slider, Tab, Text};
+    let close = || {
+        div()
+            .press(Id::named("close"))
+            .role(Button)
+            .label("Close")
+            .size(8.0, 8.0)
+    };
+    // A tab named by its title, with a close button in it: the title is not read twice.
+    let tab = div()
+        .row()
+        .press(Id::named("tab"))
+        .role(Tab)
+        .label("Files")
+        .h(20.0)
+        .child(text("Files"))
+        .child(close());
+    assert_eq!(
+        read_of(tab),
+        [(Tab, "Files".to_owned()), (Button, "Close".to_owned())]
+    );
+    // A head named "name, sorted ascending" with an edge in it: the word in it is the label's.
+    let edge = || {
+        div()
+            .press(Id::named("edge"))
+            .role(Slider)
+            .label("name column width")
+            .value("120 pt")
+            .size(4.0, 20.0)
+    };
+    let head = div()
+        .row()
+        .press(Id::named("head"))
+        .role(Button)
+        .label("name, sorted ascending")
+        .h(20.0)
+        .child(text("Name"))
+        .child(edge());
+    assert_eq!(
+        read_of(head),
+        [
+            (Button, "name, sorted ascending".to_owned()),
+            (Slider, "name column width".to_owned())
+        ]
+    );
+    // What the label does not say is read apart, as before; so is a word that only looks like a
+    // part of one ("a" is not in "tab").
+    let more = div()
+        .row()
+        .press(Id::named("tab"))
+        .role(Tab)
+        .label("Open tab")
+        .h(20.0)
+        .child(text("a"))
+        .child(text("Unsaved changes"))
+        .child(text("  OPEN   Tab "))
+        .child(close());
+    // A word of a part of the label is not the part: "Add rate limiting to the public API" says no
+    // chip "api" beside it, and "ACM-412" is the label's part.
+    let row = div()
+        .row()
+        .press(Id::named("row"))
+        .role(Tab)
+        .label("ACM-412, Add rate limiting to the public API")
+        .h(20.0)
+        .child(text("ACM-412"))
+        .child(text("api"))
+        .child(close());
+    assert_eq!(
+        read_of(row),
+        [
+            (
+                Tab,
+                "ACM-412, Add rate limiting to the public API".to_owned()
+            ),
+            (Text, "api".to_owned()),
+            (Button, "Close".to_owned())
+        ]
+    );
+    // Whole words only: the label "Settings" does not say "Set", nor "Setting", but says "settings".
+    let settings = div()
+        .row()
+        .press(Id::named("tab"))
+        .role(Tab)
+        .label("Settings")
+        .h(20.0)
+        .child(text("Set"))
+        .child(text("Setting"))
+        .child(text("settings"))
+        .child(text("ettings"))
+        .child(close());
+    assert_eq!(
+        read_of(settings),
+        [
+            (Tab, "Settings".to_owned()),
+            (Text, "Set".to_owned()),
+            (Text, "Setting".to_owned()),
+            (Text, "ettings".to_owned()),
+            (Button, "Close".to_owned())
+        ]
+    );
+    assert_eq!(
+        read_of(more),
+        [
+            (Tab, "Open tab".to_owned()),
+            (Text, "a".to_owned()),
+            (Text, "Unsaved changes".to_owned()),
+            (Button, "Close".to_owned())
+        ]
+    );
+}
+
+#[test]
+fn a_heading_or_a_picture_that_is_pressed_is_a_control_and_is_read_apart_in_a_box_with_a_label() {
+    use crate::AccessibleRole::{Button, Heading, Image};
+    // A heading that answers the pointer is read apart, with its name, in a box with a label.
+    let panel = div()
+        .row()
+        .press(Id::named("panel"))
+        .label("Panel")
+        .h(20.0)
+        .child(
+            text("Advanced")
+                .role(Heading(2))
+                .press(Id::named("advanced")),
+        )
+        .child(
+            div()
+                .press(Id::named("logo"))
+                .role(Image)
+                .label("Logo")
+                .size(8.0, 8.0),
+        );
+    assert_eq!(
+        read_of(panel),
+        [
+            (Button, "Panel".to_owned()),
+            (Heading(2), "Advanced".to_owned()),
+            (Image, "Logo".to_owned())
+        ]
+    );
+}
+
+#[test]
+fn a_label_is_not_cut_at_a_comma_or_a_colon_between_digits_and_an_overlay_is_not_said_by_it() {
+    use crate::AccessibleRole::{Button, Tab, Text};
+    let close = || {
+        div()
+            .press(Id::named("close"))
+            .role(Button)
+            .label("Close")
+            .size(8.0, 8.0)
+    };
+    let tab = |label: &str, inner: &str| {
+        div()
+            .row()
+            .press(Id::named("tab"))
+            .role(Tab)
+            .label(label)
+            .h(20.0)
+            .child(text(inner))
+            .child(close())
+    };
+    // "1,024 files" is one number and a noun: "024 files" is not a part of it.
+    assert_eq!(
+        read_of(tab("1,024 files", "024 files")),
+        [
+            (Tab, "1,024 files".to_owned()),
+            (Text, "024 files".to_owned()),
+            (Button, "Close".to_owned())
+        ]
+    );
+    assert_eq!(
+        read_of(tab("Time: 10:30", "30")),
+        [
+            (Tab, "Time: 10:30".to_owned()),
+            (Text, "30".to_owned()),
+            (Button, "Close".to_owned())
+        ]
+    );
+    assert_eq!(
+        read_of(tab("Time: 10:30", "Time")),
+        [
+            (Tab, "Time: 10:30".to_owned()),
+            (Button, "Close".to_owned())
+        ]
+    );
+    // A tip or a popover inside that says the label's words is the page's own, and is read.
+    let tipped = div()
+        .row()
+        .press(Id::named("tab"))
+        .role(Tab)
+        .label("Files")
+        .h(20.0)
+        .child(close())
+        .child(
+            div()
+                .overlay()
+                .inset(Some(0.0), Some(0.0), None, None)
+                .child(text("Files")),
+        );
+    assert_eq!(
+        read_of(tipped),
+        [
+            (Tab, "Files".to_owned()),
+            (Button, "Close".to_owned()),
+            (Text, "Files".to_owned())
+        ]
+    );
+}
+
+#[test]
+fn what_an_overlay_in_a_box_that_carries_controls_says_is_read_in_its_place_and_not_as_its_words() {
+    use crate::AccessibleRole::{Button, Checkbox, Text};
+    let row = div()
+        .row()
+        .press(Id::named("row"))
+        .h(20.0)
+        .child(
+            div()
+                .press(Id::named("mark"))
+                .role(Checkbox)
+                .label("Mark")
+                .size(10.0, 10.0),
+        )
+        .child(text("report.txt"))
+        .child(
+            div()
+                .overlay()
+                .inset(Some(0.0), Some(0.0), None, None)
+                .child(text("Last changed today")),
+        );
+    assert_eq!(
+        read_of(row),
+        [
+            (Button, "report.txt".to_owned()),
+            (Checkbox, "Mark".to_owned()),
+            (Text, "Last changed today".to_owned()),
+        ]
+    );
+}
+
 #[test]
 fn a_box_inside_padding_stands_in_its_middle_at_a_scale_that_is_not_whole() {
     // A segmented control's thumb: two points of padding round a box 24 tall, the page drawn at

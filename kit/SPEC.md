@@ -187,14 +187,20 @@ system's screen reader says the label of an element that has one, and the words 
 none. A button that is an icon alone needs one: where it has none and no words inside it, a control
 (a button, a link, a checkbox, a switch, a radio, a tab, a menu item) is said by the words of its
 tip, so that an icon with a tip is not nameless, but a page that writes the label says what it means.
-An element that holds a control (an element that answers the pointer or has a `role`, a text field, an
-editor, a browser, a link) is not one name for all it holds: its controls are said each apart. Where it
-has a label that is its name alone, and the words inside it that are in none of its controls are said
-apart, in their place, as words. Where it has none it is said by those words, or else its tip, and not
-at all where it has none. So a dialog laid over a scrim that answers the pointer is read as its buttons
-and fields (give the scrim a label that says what a press on it does, "Close dialog", and the
-dialog's own words are read as words and not as the scrim's name), and a row with a checkbox in it as
-the row and the checkbox.
+An element that holds a control (one that answers the pointer, a pressed heading or picture too, or has a
+`role` a person works on: `button`, `link`, `checkbox`, `switch`, `radio`, `tab`, `menu_item` or `slider`; a
+text field, an editor, a browser, a link; not a `heading`, an `image` or a `progress` that is not pressed,
+which only show) is not one name for all it holds: its controls are said each apart. Where it has a label
+that is its name alone, and the words inside it that are in none of its controls are said apart, in their
+place, as words, except those its label says already (a tab labelled "Files" with a close button in it does
+not say "Files" twice: a text that is the label's words, or one part of it set off by a comma, a colon or a
+semicolon, whole words only and not between digits, "1,024" and "10:30" being whole). What stands in an
+overlay inside it is the page's own, and is said apart whatever the label says. Where it has no label it is
+said by those words, or else its tip, and not at all where it has none, unless it has a `role` or is in a
+state (a row, chosen), which are said whatever its words. So a dialog laid over a scrim that answers the
+pointer is read as its buttons and fields (give the scrim a label that says what a press on it does, "Close
+dialog", and the dialog's own words are read as words and not as the scrim's name), and a row with a checkbox
+in it as the row and the checkbox.
 
 A **tip** is what the host says of an element while the pointer rests on it, with the keys that do
 the same where there are some (`tip("Containers", "1")`): a tooltip of the host's own. Its keys are
@@ -1627,8 +1633,10 @@ name)`), and says `{ kind = "dismiss" }` at what `dismiss` lists: `"escape"`, `"
   own, and a list with `multi` says `mark { marked }`. A `split`'s edge and a `grid`'s column say
   `resize { size, final }` (`{ column, width, final }`): `final = false` while it is dragged, `true` when
   it is let go after it moved and at each step of the keys; a press that does not move it says nothing.
-  A `grid`'s row is read by the words of its cells (its number first, no column's title) and the controls
-  in its cells apart from it; `row_label(row)` gives the words to say it by where the page has better.
+  A `grid`'s row is read by the words of its cells (its number first, no column's title; "Row N, loading"
+  where none is read yet) and the controls in its cells apart from it; `row_label(row)` gives the words to
+  say it by where the page has better. A `grid`'s edge is a `slider` said "<title> column width", with its
+  width in points, and a `tree`'s arrow a button said "Expand <name>" or "Collapse <name>".
 - An `icon` that a component or one of its items takes is an element the page made, a path of the
   page's own bundle (`"icons/save.svg"`: an SVG or a PNG, tinted in the colour the component draws it
   in), or the name of one of the library's glyphs: `check`, `chevron_down`, `chevron_left`,

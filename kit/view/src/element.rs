@@ -377,7 +377,11 @@ impl Element {
 
     /// What the element is in words, for a person who does not see it: a screen reader says it.
     /// A button that is an icon alone says what it does; an element with none is read by the
-    /// words inside it, and, where there are none, by its [`Element::tip`] (not its keys).
+    /// words inside it, and, where there are none and it is one a person presses (a button, a link,
+    /// a checkbox, a switch, a radio, a tab, a menu item), by its [`Element::tip`] (not its keys);
+    /// a heading, a picture or a progress with none is not named by its tip. The words inside an
+    /// element that has a label and holds controls are read apart only where the label does not
+    /// say them already.
     #[must_use]
     pub fn label(mut self, words: impl Into<String>) -> Self {
         self.meta.label = Some(words.into());

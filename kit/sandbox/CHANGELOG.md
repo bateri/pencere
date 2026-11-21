@@ -8,6 +8,8 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **`row_label(row)` of `ui.grid`**: the words a screen reader and an agent say a row by where the page
+  has better than its cells' (nil leaves it to them), checked to be a function.
 - **`Module::idle`**: whether the module has done everything it was told and what came of it is out,
   without waiting (`flush` waits), so that a host can tell a page that has more to say from one that
   has said it.
@@ -144,9 +146,13 @@ dy, blur, color)` (a glow with no offset), `pencere.linear` and `pencere.radial`
 
 - **A grid's rows are read by their cells.** `ui.grid` named every row "Row N" to a screen reader and
   an agent, and said nothing of what a cell held. A row is said by the words of its cells (its
-  number first, no column's title: the head says them once), and a control a cell holds (a mark, a
-  fold button) is read apart from it, with its state. `row_label(row)` gives the words to say a row
-  by where the page has better.
+  number first, no column's title: the head says them once; "Row N, loading" where none is read yet),
+  and a control a cell holds (a mark, a fold button) is read apart from it, with its state.
+- **A grid's edge and a tree's arrow have a name.** Each column's edge was a button with no name; it is a
+  slider said "<title> column width", with its width in points, as a split's edge says its own. A tree's
+  arrow is a button said "Expand <name>" or "Collapse <name>".
+- **A grid's head and a tab are not read twice.** The title in a head or a tab that holds a control was
+  read after the label that says it (`tab "X"` and `text "X"`); see `pencere-view`.
 - **A click into a field closes a popover.** The host keeps such a press (the page is told the field
   has the keyboard, not that a button went down), so a popover, and the new picker, stayed open when
   the person clicked into a field outside it. A click into the control it stands by (a field, or one

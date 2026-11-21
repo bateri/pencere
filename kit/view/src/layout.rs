@@ -1957,16 +1957,21 @@ impl Laid {
     /// inside are not said again. What is hidden, has no room or is cut off altogether by the boxes
     /// around it is not there. Boxes are points.
     ///
-    /// An element that carries a control (one that answers the pointer or says what it is, a field,
-    /// an editor, a browser, a link) is not one name for all it holds: its controls are each read
-    /// apart, in their place after it. Where it has a label that is its name alone, and the words
-    /// inside it that are in none of the controls are read apart in their place, as words; where it
-    /// has none it is said by those words (said once), or else by its tip, and where it has none of
-    /// these it is not read at all. So a dialog laid over a scrim that answers the pointer and has a
-    /// label ("Close dialog") is read as the scrim, the dialog's words, its buttons and its fields,
-    /// and a row with a checkbox in it as the row and the checkbox. An element with no control in
-    /// it is said by its label, or else by all the words inside it, as before. What stands in a zone
-    /// of an editor is the page's own and is read apart all the same.
+    /// An element that carries a control (one that answers the pointer, a pressed heading or picture
+    /// too, or is one a person works on, a field, an editor, a browser, a link; not a heading, a
+    /// picture or a progress that is not pressed, which only show) is not one name for all it holds:
+    /// its controls are each read apart, in their place after it. Where it has a label that is its
+    /// name alone, and the words inside it that are in none of the controls are read apart in their
+    /// place, as words, except those the label says already (the label's words, or one part of it set
+    /// off by a comma, a colon or a semicolon, not between digits: "1,024", "10:30"); where it has
+    /// none it is said by the words that are in none of the controls (said once), or else by its tip,
+    /// and where it has none of these it is not read at all, unless it says what it is or is in a
+    /// state (a row, chosen), when it is read by no words. So a dialog laid over a scrim that answers
+    /// the pointer and has a label ("Close dialog") is read as the scrim, the dialog's words, its
+    /// buttons and its fields, and a row with a checkbox in it as the row and the checkbox. An
+    /// element with no control in it is said by its label, or else by all the words inside it. What
+    /// stands in a zone of an editor, or in an overlay written inside it, is the page's own and is
+    /// read apart, whatever the label says.
     pub fn accessible(&self) -> Vec<Accessible> {
         let s = self.scale;
         let points = |rect: Rect| Rect::new(rect.x / s, rect.y / s, rect.w / s, rect.h / s);
@@ -1983,21 +1988,24 @@ impl Laid {
         // (the words inside it are its name), the controls, where it carries some and has no label
         // (the words that are in none of them are its name), or all, where it carries some and has a
         // label (its name is the label, and the words inside it are its dialog's, said in their place).
-        let mut said_by: Vec<(usize, Apart)> = Vec::new();
+        // With a label, the label's words too: a text inside that says no more than they do is not
+        // said again.
+        let mut said_by: Vec<(usize, Apart, Vec<Vec<String>>)> = Vec::new();
         for (index, node) in self.nodes.iter().enumerate() {
             while said_by
                 .last()
-                .is_some_and(|(outer, _)| !self.is_inside(index, *outer))
+                .is_some_and(|(outer, ..)| !self.is_inside(index, *outer))
             {
                 said_by.pop();
             }
             if !shown(node) {
                 continue;
             }
-            if let Some(&(outer, apart)) = said_by.last()
+            if let Some(&(outer, apart, _)) = said_by.last()
                 && apart != Apart::All
                 && !self.in_zone_of(index, outer)
-                && !(apart == Apart::Controls && on(&controls, index))
+                && !(apart == Apart::Controls
+                    && (on(&controls, index) || self.lifted_from(index, outer)))
             {
                 // Said for the element around it: the words, but not the links in them, which are
                 // controls of their own.
@@ -2018,7 +2026,15 @@ impl Laid {
                     (true, false) => Apart::Controls,
                     (true, true) => Apart::All,
                 };
-                said_by.push((index, apart));
+                said_by.push((
+                    index,
+                    apart,
+                    node.meta
+                        .label
+                        .as_deref()
+                        .map(label_parts)
+                        .unwrap_or_default(),
+                ));
                 let words = node.meta.label.clone().unwrap_or_else(|| match role {
                     AccessibleRole::Field(_) => self.hint_of(index).unwrap_or_default().to_owned(),
                     AccessibleRole::Editor => node
@@ -2037,8 +2053,14 @@ impl Laid {
                     Some(tip) if named_by_tip(role) && words.trim().is_empty() => tip.words.clone(),
                     _ => words,
                 };
-                // A box that holds controls and has no name of its own (a scrim) is not said.
-                if carrier && words.trim().is_empty() {
+                // A box that holds controls and has no name of its own, says nothing of what it is and
+                // is in no state (a scrim), is not said; one that is a row, a tab or chosen is, though
+                // every word in it be a control's.
+                if carrier
+                    && words.trim().is_empty()
+                    && node.meta.role.is_none()
+                    && node.meta.state == State::default()
+                {
                     continue;
                 }
                 items.push(Accessible {
@@ -2052,6 +2074,7 @@ impl Laid {
             }
             if let Content::Text(line) = &node.content
                 && !line.text.is_empty()
+                && !Self::said_by_label(&said_by, self, index, &line.text)
             {
                 items.push(Accessible {
                     role: AccessibleRole::Text,
@@ -2063,7 +2086,7 @@ impl Laid {
             }
             if let Content::Rich(rich) = &node.content {
                 let words = crate::rich::words(&rich.spans);
-                if !words.trim().is_empty() {
+                if !words.trim().is_empty() && !Self::said_by_label(&said_by, self, index, &words) {
                     items.push(Accessible {
                         role: AccessibleRole::Text,
                         id: node.meta.id,
@@ -2076,6 +2099,28 @@ impl Laid {
             }
         }
         items
+    }
+
+    /// Whether the words at `index` are said already by the label of the element around them, one
+    /// that carries controls and has a label: they are the label's words, or one part of it set off
+    /// by a comma, a colon or a semicolon (case, spacing and the marks between words aside). A label
+    /// says "name, sorted ascending" and the title in it is "Name"; a label "ACM-412, Add rate
+    /// limiting to the public API" does not say a chip "api" in it, which is a word of a part.
+    fn said_by_label(
+        said_by: &[(usize, Apart, Vec<Vec<String>>)],
+        laid: &Self,
+        index: usize,
+        words: &str,
+    ) -> bool {
+        let Some((outer, Apart::All, label)) = said_by.last() else {
+            return false;
+        };
+        // What a zone or an overlay in it says is the page's own, whatever the label says.
+        if laid.in_zone_of(index, *outer) || laid.lifted_from(index, *outer) {
+            return false;
+        }
+        let parts = word_parts(words);
+        !parts.is_empty() && label.contains(&parts)
     }
 
     /// What `node` is to a screen reader, where it is anything but words: a field, an editor, a
@@ -2102,16 +2147,17 @@ impl Laid {
     }
 
     /// Which elements are controls that are read (a field, an editor, a browser, an element that
-    /// says what it is or answers the pointer; a label alone is not one), and which of the elements
-    /// hold at least one inside, a control or a link, that is read.
+    /// answers the pointer or says it is one a person works on: a button, a link, a checkbox, a
+    /// switch, a radio, a tab, a menu item, a slider; a label alone is not one, and neither is what
+    /// only shows, a heading, a picture, a progress), and which of the elements hold at least one
+    /// inside, a control or a link, that is read.
     fn controls(&self, shown: &impl Fn(&Node) -> bool) -> (Vec<bool>, Vec<bool>) {
+        // What answers the pointer is a control whatever it says it is (a heading that is pressed).
         let controls: Vec<bool> = self
             .nodes
             .iter()
             .map(|node| {
-                shown(node)
-                    && (node.meta.role.is_some()
-                        || !matches!(Self::role_of(node), None | Some(AccessibleRole::Text)))
+                shown(node) && (node.meta.pressable || Self::role_of(node).is_some_and(works_on))
             })
             .collect();
         let linked: Vec<bool> = self
@@ -2136,7 +2182,7 @@ impl Laid {
     }
 
     /// The words of the lines of text inside the element at `outer` that are in none of the
-    /// controls inside it or of a zone, in order, a space between.
+    /// controls inside it, of a zone or of an overlay (each is read apart), in order, a space between.
     fn words_outside(&self, outer: usize, controls: &[bool]) -> String {
         let mut words: Vec<String> = Vec::new();
         let mut apart: Option<usize> = None;
@@ -2151,7 +2197,7 @@ impl Laid {
                 continue;
             }
             apart = None;
-            if index > outer && (on(controls, index) || node.meta.zone.is_some()) {
+            if index > outer && (on(controls, index) || node.meta.zone.is_some() || node.overlay) {
                 apart = Some(index);
                 continue;
             }
@@ -2441,8 +2487,6 @@ impl Extent {
     }
 }
 
-/// Whether an element of this role that has no label and no words inside it is said by its tip: the
-/// ones a person presses, and nothing that only shows (a heading, a picture, a progress).
 /// What an element that is said for its words lets be said apart from it ([`Laid::accessible`]).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Apart {
@@ -2456,6 +2500,8 @@ fn on(flags: &[bool], index: usize) -> bool {
     flags.get(index).copied().unwrap_or(false)
 }
 
+/// Whether an element of this role that has no label and no words inside it is said by its tip: the
+/// ones a person presses, and nothing that only shows (a heading, a picture, a progress).
 fn named_by_tip(role: AccessibleRole) -> bool {
     matches!(
         role,
@@ -2467,6 +2513,51 @@ fn named_by_tip(role: AccessibleRole) -> bool {
             | AccessibleRole::Tab
             | AccessibleRole::MenuItem
     )
+}
+
+/// Whether an element of this role is one a person works on, so one that is read apart from the
+/// element around it: the ones that are named by a tip, a slider, and a field, an editor, a browser.
+fn works_on(role: AccessibleRole) -> bool {
+    named_by_tip(role)
+        || matches!(
+            role,
+            AccessibleRole::Slider
+                | AccessibleRole::Field(_)
+                | AccessibleRole::Editor
+                | AccessibleRole::Browser
+        )
+}
+
+/// What a label says by its parts: the words of the whole of it, and of each part set off by a comma,
+/// a colon or a semicolon.
+fn label_parts(label: &str) -> Vec<Vec<String>> {
+    let mut parts = vec![word_parts(label)];
+    // A comma or a colon between two digits is a number's or a time's ("1,024", "10:30").
+    let chars: Vec<char> = label.chars().collect();
+    let mut part = String::new();
+    for (at, c) in chars.iter().enumerate() {
+        let between_digits = at > 0
+            && chars.get(at - 1).is_some_and(char::is_ascii_digit)
+            && chars.get(at + 1).is_some_and(char::is_ascii_digit);
+        if matches!(c, ',' | ':' | ';') && !between_digits {
+            parts.push(word_parts(&part));
+            part.clear();
+        } else {
+            part.push(*c);
+        }
+    }
+    parts.push(word_parts(&part));
+    parts.retain(|part| !part.is_empty());
+    parts
+}
+
+/// The words of a text, lowercase, with the spacing and the marks between them gone: what two texts
+/// that say alike have the same.
+fn word_parts(text: &str) -> Vec<String> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .map(str::to_lowercase)
+        .collect()
 }
 
 /// What an element is to a screen reader ([`Laid::accessible`], [`crate::Element::role`]).

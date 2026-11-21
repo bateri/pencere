@@ -108,6 +108,22 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
   it is said by that alone and the words inside it that are in none of its controls are read apart
   in their place, as words; with none it is said by those words, else by its tip, and is not read
   where it has none of these. An element with no control in it is said as before.
+- **A button that holds a heading, a picture or a progress is read, and so is a row with nothing but
+  controls in it.** A heading, a picture or a progress inside an element that answers the pointer was
+  taken for a control, so that a button with only such things in it lost its name and was not read at
+  all (`div().press(..).child(text("Settings").role(Heading(2)))` was a button "Settings" before the fix
+  above). A pressed heading or picture is a control all the same. Only what a person works on (a button, a link, a checkbox, a switch, a radio, a tab, a menu
+  item, a slider, a field, an editor, a browser) is read apart now. And a box that holds controls and has
+  no words of its own was dropped even when it said what it is or was chosen (a row of a grid whose cells
+  are all controls, with its `selected`); only a box with no role and no state (a scrim) is.
+- **A label's words are not said twice.** An element with a label that holds a control (a tab with a close
+  button, a head with an edge) read the words inside it apart after the label that says them (`tab
+"Files"` and `text "Files"`). A text inside that is the label's words, or one part of the label set off
+  by a comma, a colon or a semicolon, but not between digits ("name" of "name, sorted ascending"; "1,024" and "10:30" are whole), whatever the case, spacing and
+  marks between words, is left out: whole words only, so "Set" is not said by "Settings" nor "api" by
+  "Add rate limiting to the public API". The words the label does not say are read as before.
+- **An overlay inside an element that holds controls is read in its place, and a label does not silence it.** Its words were taken for the
+  element's own name; they are read apart now, as those of a zone are.
 
 ### Added
 

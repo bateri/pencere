@@ -103,6 +103,8 @@ local Tree = core.component("tree", {
 				local chevron = pencere.div():size(16, 16):no_shrink():items_center():justify_center()
 				if row.open ~= nil then
 					chevron:press(u:part(id, "chevron", row.key))
+						:role("button")
+						:label((row.open and "Collapse " or "Expand ") .. row.label)
 					chevron:child(look.glyph(row.open and "chevron_down" or "chevron_right", 12, t.ink_dim))
 				end
 				line:child(chevron)

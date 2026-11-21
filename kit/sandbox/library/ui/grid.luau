@@ -158,6 +158,36 @@ local function moved(props, state, name, page)
 	return { row = row, column = column }
 end
 
+-- The words a row is said by to a screen reader, from the values of the cells it draws (`values[first..last]`,
+-- nil where a cell is not read yet): the row's number first where it has one, then each cell's words. Nil
+-- where a cell is an element, whose words are the ones drawn in it; "Row N, loading" where cells are in view
+-- and none is read, and "Row N" where no column is in view.
+local function row_words(place, numbered, values, first, last)
+	local words = {}
+	if numbered then
+		table.insert(words, tostring(place))
+	end
+	-- No column in view to read: the row has a number and nothing else to say it by.
+	if first > last then
+		return "Row " .. place
+	end
+	local read = 0
+	for index = first, last do
+		local value = values[index]
+		if value ~= nil then
+			read += 1
+			if type(value) ~= "string" and type(value) ~= "number" then
+				return nil
+			end
+			table.insert(words, tostring(value))
+		end
+	end
+	if read == 0 then
+		return "Row " .. place .. ", loading"
+	end
+	return table.concat(words, " ")
+end
+
 -- A grid of what a query or a table gives: `columns` are `{ key, title, type, align, width }` (`align`
 -- "end" is for numbers), `count` how many rows there are, `cell(row, column)` the value of one cell as
 -- words, an element, or nil where its row has not been read yet. The rows are a long list's: only
@@ -178,9 +208,13 @@ end
 --
 -- To a screen reader a row is said by the words of its cells, its number first and no column's title
 -- (the head says them once), and a control a cell holds (a mark, a fold button, a button) is read apart
--- from it, with its state; the row is `selected` while its cell is chosen. `row_label(row)` is the words
--- to say a row by where the page has better than its cells' (nil leaves it to them); the words in its
--- cells that no control holds are then read apart, after it.
+-- from it, with its state; the row is `selected` while its cell is chosen. The words are the cells' values
+-- (`tostring` of each, a cell not read yet left out) of the cells it draws, where each is words or a number;
+-- a row none of whose cells is read yet is "Row N, loading", and where a cell is an element the row is
+-- said by the words drawn in it, as an element's are. `row_label(row)` is the words to say a row by
+-- where the page has better than its cells' (nil leaves it to them); the words in its cells that no
+-- control holds and the label does not say are then read apart, after it. A column's edge is a slider
+-- of the column's width, said "<title> column width", in points.
 local Grid = core.component("grid", {
 	state = function()
 		return { cursor = nil, widths = {}, sort = nil }
@@ -197,6 +231,9 @@ local Grid = core.component("grid", {
 		end
 		if props.select ~= nil and props.select ~= "cell" and props.select ~= "row" then
 			return 'a grid chooses a "cell" or a "row", not ' .. tostring(props.select)
+		end
+		if props.row_label ~= nil and type(props.row_label) ~= "function" then
+			return "a grid's row_label is a function (row) → the words to say the row by, or nil"
 		end
 		return nil
 	end,
@@ -272,8 +309,16 @@ local Grid = core.component("grid", {
 			local edge = u:part(id, "edge", column.key)
 			local held = u.capture ~= nil and u.capture.mount == id and u.capture.key == column.key
 			local active = u:hovered(edge) or held
+			local handle = pencere.div()
+				:press(edge)
+				:role("slider")
+				:label((column.title or tostring(column.key)) .. " column width")
+				:value(string.format("%d pt", math.floor(widths[index] + 0.5)))
+				:absolute()
+				:inset(0, 0, 0, nil)
+				:w(EDGE)
 			cell:child(
-				pencere.div():press(edge):absolute():inset(0, 0, 0, nil):w(EDGE):child(
+				handle:child(
 					pencere.div():absolute():inset(active and 0 or 8, 0, active and 0 or 8, nil):w(active and 2 or 1):bg(
 						active and t.ring or alpha(t.line, 0.7)
 					)
@@ -296,9 +341,16 @@ local Grid = core.component("grid", {
 				:no_shrink()
 			-- A row is said by the words of its cells (the number first), and the controls in its cells
 			-- (a mark, a fold button) apart from it; the page's `row_label` is its name where it gives one.
+			local values = {}
+			for index = first_column, last_column do
+				values[index] = props.cell(place, props.columns[index])
+			end
 			local named = props.row_label ~= nil and props.row_label(place) or nil
+			if named == nil then
+				named = row_words(place, number > 0, values, first_column, last_column)
+			end
 			if named ~= nil then
-				line:label(named)
+				line:label(tostring(named))
 			end
 			local rows_only = props.select == "row"
 			if rows_only and chosen ~= nil and chosen.row == place then
@@ -321,7 +373,7 @@ local Grid = core.component("grid", {
 			for index = first_column, last_column do
 				local column = props.columns[index]
 				local width = widths[index]
-				local value = props.cell(place, column)
+				local value = values[index]
 				local cell = pencere.div():w(width):h_full():no_shrink():px(8):row():items_center():clip()
 				if value == nil then
 					cell:child(pencere.text("·"):color(t.ink_quiet):grow(1):min_w(0):truncate())

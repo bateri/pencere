@@ -2883,3 +2883,366 @@ end
     }
     Ok(())
 }
+
+// --- What a screen reader is told of a component, whole -----------------------------------------------
+//
+// A golden reading: the whole of what a component says to a screen reader (and to an agent, which reads
+// the same), item by item, set against the text it is expected to be. The parts' own tests look at one
+// item each; what they miss is an item that is gone, twice there, or nameless, which is only seen in
+// the whole.
+
+/// What a screen reader is told of the page, a line for each item: its role, its words and its state.
+/// The page's own lines (where the keyboard is, what the log says), which every test page has, are
+/// left out.
+fn reading_of(page: &Headless) -> Vec<String> {
+    let logged = log(page);
+    page.outline()
+        .accessible
+        .iter()
+        .filter(|item| !item.words.starts_with("keys at ") && !logged.contains(&item.words))
+        .map(|item| {
+            let mut line = format!("{:?} {:?}", item.role, item.words);
+            let state = &item.state;
+            let flags = [
+                state.selected.then(|| "selected".to_owned()),
+                state
+                    .checked
+                    .map(|on| if on { "checked" } else { "unchecked" }.to_owned()),
+                state
+                    .expanded
+                    .map(|on| if on { "expanded" } else { "collapsed" }.to_owned()),
+                state.disabled.then(|| "disabled".to_owned()),
+                state.value.as_ref().map(|value| format!("value {value}")),
+            ];
+            for flag in flags.into_iter().flatten() {
+                line.push_str(&format!(" [{flag}]"));
+            }
+            line
+        })
+        .collect()
+}
+
+/// A grid of three rows of words, with widths, a sort and the cursor on a cell, for a golden reading.
+const GRID_READ: &str = r#"
+S.state = { cursor = { row = 2, column = 2 }, widths = {}, sort = { column = "name", descending = false } }
+view = function(u)
+    local columns = {
+        { key = "id", title = "id", type = "int", align = "end", width = 60 },
+        { key = "name", title = "name", width = 100 },
+        { key = "qty", title = "qty", width = 70 },
+    }
+    return pencere.div():size_full():child(u:grid("g", { columns = columns, count = 3, state = S.state,
+        numbers = S.numbers,
+        cell = function(row, column)
+            if S.loading then return nil end
+            return ({ id = row, name = "name " .. row, qty = row * 7 })[column.key]
+        end }))
+end
+"#;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_grid_row_is_named_by_the_text_its_cells_show_and_not_by_the_data_behind_them()
+-> Result<(), Error> {
+    // The page's `cell` gives what is shown ("101.0%", "110 MiB"); the raw data is never the name.
+    let page = open(
+        r#"
+S.state = { cursor = nil, widths = {}, sort = nil }
+S.data = { { name = "bateri", cpu = 101.0, mem = 115343360 }, { name = "toppen", cpu = 0.5, mem = 2048 } }
+view = function(u)
+    local columns = {
+        { key = "name", title = "name", width = 80 },
+        { key = "cpu", title = "cpu", width = 70 },
+        { key = "mem", title = "mem", width = 90 },
+        { key = "rows", title = "rows", width = 60 },
+    }
+    return pencere.div():size_full():child(u:grid("g", { columns = columns, count = 2, state = S.state, numbers = false,
+        cell = function(row, column)
+            local data = S.data[row]
+            if column.key == "cpu" then return string.format("%.1f%%", data.cpu) end
+            if column.key == "mem" then return string.format("%d MiB", data.mem / 1048576) end
+            if column.key == "rows" then return data.mem % 7 end
+            return data.name
+        end }))
+end
+"#,
+    )?;
+    let row = accessible(&page, "g/row/1").words.clone();
+    assert_eq!(row, "bateri 101.0% 110 MiB 6");
+    // What it says is what the cells draw, word for word.
+    let drawn = page.words();
+    for word in ["bateri", "101.0%", "110 MiB", "6"] {
+        assert!(drawn.contains(&word), "{word} is drawn: {drawn:?}");
+    }
+    assert!(!row.contains("101 ") && !row.contains("115343360"), "{row}");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_grid_row_label_that_is_not_a_function_is_refused() {
+    let why = failing(&GRID_READ.replace("numbers = S.numbers,", "row_label = \"Item\","));
+    assert!(why.contains("row_label is a function"), "{why}");
+}
+
+/// The head of `GRID_READ`, as it is read: the number's head where the rows are numbered, then each
+/// column's head with its type and its edge.
+fn grid_head(numbered: bool) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    if numbered {
+        lines.push(r##"Text "#""##.to_owned());
+    }
+    lines.extend(
+        [
+            r#"Button "id""#,
+            r#"Text "int""#,
+            r#"Slider "id column width" [value 60 pt]"#,
+            r#"Button "name, sorted ascending""#,
+            r#"Slider "name column width" [value 100 pt]"#,
+            r#"Button "qty""#,
+            r#"Slider "qty column width" [value 70 pt]"#,
+        ]
+        .map(str::to_owned),
+    );
+    lines
+}
+
+/// `lines` after the head of `GRID_READ`.
+fn after(mut head: Vec<String>, lines: &[&str]) -> Vec<String> {
+    head.extend(lines.iter().map(|line| (*line).to_owned()));
+    head
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_grid_is_read_whole_by_its_heads_edges_and_rows() -> Result<(), Error> {
+    let page = open(GRID_READ)?;
+    assert_eq!(
+        reading_of(&page),
+        [
+            r##"Text "#""##,
+            r#"Button "id""#,
+            // What the label does not say (the type under the title) is read apart; the title is not.
+            r#"Text "int""#,
+            r#"Slider "id column width" [value 60 pt]"#,
+            r#"Button "name, sorted ascending""#,
+            r#"Slider "name column width" [value 100 pt]"#,
+            r#"Button "qty""#,
+            r#"Slider "qty column width" [value 70 pt]"#,
+            r#"MenuItem "1 1 name 1 7""#,
+            r#"MenuItem "2 2 name 2 14" [selected]"#,
+            r#"MenuItem "3 3 name 3 21""#,
+        ]
+    );
+    // Without the numbers the rows are as they were, less the number.
+    let page = open(&GRID_READ.replace("numbers = S.numbers,", "numbers = false,"))?;
+    assert_eq!(
+        reading_of(&page),
+        after(
+            grid_head(false),
+            &[
+                r#"MenuItem "1 name 1 7""#,
+                r#"MenuItem "2 name 2 14" [selected]"#,
+                r#"MenuItem "3 name 3 21""#,
+            ]
+        )
+    );
+    // A row the page has not read is said so, and a name the page gives wins.
+    let page = open(&GRID_READ.replace("S.state =", "S.loading = true\nS.state ="))?;
+    assert_eq!(
+        reading_of(&page),
+        after(
+            grid_head(true),
+            &[
+                r#"MenuItem "Row 1, loading""#,
+                r#"MenuItem "Row 2, loading" [selected]"#,
+                r#"MenuItem "Row 3, loading""#,
+            ]
+        )
+    );
+    let page = open(&GRID_READ.replace(
+        "numbers = S.numbers,",
+        "row_label = function(row) return \"Item \" .. row end,",
+    ))?;
+    assert_eq!(
+        reading_of(&page),
+        after(
+            grid_head(true),
+            &[
+                r#"MenuItem "Item 1""#,
+                r#"MenuItem "Item 2" [selected]"#,
+                r#"MenuItem "Item 3""#,
+            ]
+        )
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_grid_with_a_control_in_every_cell_and_no_numbers_is_read_by_its_rows_and_its_controls()
+-> Result<(), Error> {
+    let page = open(&GRID_READ.replace(
+        r#"            if S.loading then return nil end
+            return ({ id = row, name = "name " .. row, qty = row * 7 })[column.key]"#,
+        r#"            local name = "c/" .. row .. "/" .. column.key
+            return pencere.div():id(name):press(name):role("button"):label(column.title .. " " .. row):size(12, 12)"#,
+    ).replace("numbers = S.numbers,", "numbers = false,"))?;
+    // Each row is there, with what it is and whether it is chosen, though every cell in it is a control
+    // and it has no words of its own; each control is there apart.
+    assert_eq!(
+        reading_of(&page),
+        after(
+            grid_head(false),
+            &[
+                r#"MenuItem """#,
+                r#"Button "id 1""#,
+                r#"Button "name 1""#,
+                r#"Button "qty 1""#,
+                r#"MenuItem "" [selected]"#,
+                r#"Button "id 2""#,
+                r#"Button "name 2""#,
+                r#"Button "qty 2""#,
+                r#"MenuItem """#,
+                r#"Button "id 3""#,
+                r#"Button "name 3""#,
+                r#"Button "qty 3""#,
+            ]
+        )
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_tree_is_read_whole_by_its_rows_and_its_arrows() -> Result<(), Error> {
+    let mut page = open(TREE)?;
+    assert_eq!(
+        reading_of(&page),
+        [r#"Button "src" [collapsed]"#, r#"Button "Expand src""#,]
+    );
+    page.click("files/chevron/src")?;
+    assert_eq!(
+        reading_of(&page),
+        [
+            r#"Button "src" [expanded]"#,
+            r#"Button "Collapse src""#,
+            r#"Button "a.lua""#,
+            r#"Button "lib" [collapsed]"#,
+            r#"Button "Expand lib""#,
+            r#"Button "z.lua""#,
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn tabs_are_read_whole_by_their_titles_and_their_close_buttons() -> Result<(), Error> {
+    let mut page = open(TABS)?;
+    assert_eq!(
+        reading_of(&page),
+        [
+            r#"Tab "a.lua" [selected]"#,
+            r#"Button "Close a.lua""#,
+            r#"Tab "b.lua""#,
+            r#"Tab "c.lua""#,
+        ]
+    );
+    page.click("tabs/tab/b.lua")?;
+    assert_eq!(
+        reading_of(&page),
+        [
+            r#"Tab "a.lua""#,
+            r#"Tab "b.lua" [selected]"#,
+            r#"Tab "c.lua""#,
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_list_is_read_whole_with_a_button_in_a_row_and_the_row_not_said_twice() -> Result<(), Error> {
+    let page = open(
+        r#"
+S.items = {
+    { key = "a", title = "Alpha", hint = "first" },
+    { key = "b", title = "Beta", expanded = false },
+    { key = "c", title = "Gamma", checked = true },
+}
+S.state = { cursor = "b", marks = {} }
+view = function(u)
+    return pencere.div():size_full():child(u:list("things", { items = S.items, state = S.state, height = 24,
+        row = function(item)
+            local row = pencere.div():row():items_center():gap(8):w_full()
+                :child(pencere.text(item.title):grow(1))
+            if item.key == "c" then
+                row:child(u:button("open/" .. item.key, { title = "Open" }))
+            end
+            return row
+        end }))
+end
+"#,
+    )?;
+    // The row's title is not said again by the words in it, and a button in it is apart.
+    assert_eq!(
+        reading_of(&page),
+        [
+            r#"MenuItem "Alpha""#,
+            r#"MenuItem "Beta" [selected] [collapsed]"#,
+            r#"MenuItem "Gamma" [checked]"#,
+            r#"Button "Open""#,
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_modal_is_read_whole_by_its_scrim_its_words_its_field_and_its_button() -> Result<(), Error> {
+    let page = open(
+        r#"
+view = function(u)
+    return pencere.div():gap(8):child(u:button("open", { title = "Open" }))
+        :child(u:modal("settings", { width = 400, label = "Settings" },
+            pencere.div():p(16):gap(8)
+                :child(pencere.text("Settings"))
+                :child(u:input("name", { label = "Name" }))
+                :child(u:button("ok", { title = "OK" }))))
+end
+"#,
+    )?;
+    // The scrim says what a press on it does; the card is no element, so its words are words.
+    assert_eq!(
+        reading_of(&page),
+        [
+            r#"Button "Open""#,
+            r#"Button "Close Settings""#,
+            r#"Text "Settings""#,
+            r#"Field(Line) "Name""#,
+            r#"Button "OK""#,
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_dialog_is_read_whole_by_its_title_its_message_its_field_and_its_buttons() -> Result<(), Error>
+{
+    let page = open(&DIALOG.replace("S.asking = false", "S.asking = true\nS.named = true"))?;
+    assert_eq!(
+        reading_of(&page),
+        [
+            r#"Button "Open""#,
+            r#"Button "Close Save changes to a.lua?""#,
+            r#"Heading(2) "Save changes to a.lua?""#,
+            r#"Text "Your changes will be lost.""#,
+            r#"Field(Line) "File name""#,
+            r#"Button "Don't Save""#,
+            r#"Button "Save""#,
+        ]
+    );
+    Ok(())
+}
