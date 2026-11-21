@@ -377,7 +377,7 @@ impl Element {
 
     /// What the element is in words, for a person who does not see it: a screen reader says it.
     /// A button that is an icon alone says what it does; an element with none is read by the
-    /// words inside it.
+    /// words inside it, and, where there are none, by its [`Element::tip`] (not its keys).
     #[must_use]
     pub fn label(mut self, words: impl Into<String>) -> Self {
         self.meta.label = Some(words.into());

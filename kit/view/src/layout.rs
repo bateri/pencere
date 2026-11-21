@@ -1948,7 +1948,9 @@ impl Laid {
 
     /// What the page is to a screen reader, in the order it is written: each element that says what
     /// it is ([`crate::Element::role`]) is that, and each other that answers the pointer is a
-    /// button, said by its label or else by the words inside it (which are not said again apart);
+    /// button, said by its label or else by the words inside it (which are not said again apart),
+    /// or, where it has none (an icon alone), by the words of its tip ([`crate::Element::tip`],
+    /// not its keys);
     /// each text field is a field, said by its label or else by its hint; each line of text that is
     /// in none of them is said as it is (and each link in it, apart, as a link), and so is an
     /// element that is none of them but has a label (an icon that says what it shows), whose words
@@ -2008,6 +2010,12 @@ impl Laid {
                         .unwrap_or_default(),
                     _ => self.words_in(index),
                 });
+                // A control with no words, whether of a label or inside it (an icon alone), is named by
+                // its tip: the words the pointer is told, which say what it does.
+                let words = match &node.meta.tip {
+                    Some(tip) if named_by_tip(role) && words.trim().is_empty() => tip.words.clone(),
+                    _ => words,
+                };
                 items.push(Accessible {
                     role,
                     id: node.meta.id,
@@ -2310,6 +2318,21 @@ impl Extent {
     pub fn max_offset_x(self) -> f32 {
         (self.content.w - self.view.w).max(0.0)
     }
+}
+
+/// Whether an element of this role that has no label and no words inside it is said by its tip: the
+/// ones a person presses, and nothing that only shows (a heading, a picture, a progress).
+fn named_by_tip(role: AccessibleRole) -> bool {
+    matches!(
+        role,
+        AccessibleRole::Button
+            | AccessibleRole::Link
+            | AccessibleRole::Checkbox
+            | AccessibleRole::Switch
+            | AccessibleRole::Radio
+            | AccessibleRole::Tab
+            | AccessibleRole::MenuItem
+    )
 }
 
 /// What an element is to a screen reader ([`Laid::accessible`], [`crate::Element::role`]).

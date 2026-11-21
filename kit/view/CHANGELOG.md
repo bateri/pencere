@@ -96,6 +96,10 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
   as the page has elements, where they grew to that by doubling at every layout: a page of some
   thousand elements that is built every second asked for and let go of twice its size in large
   blocks each time, which a system's allocator holds on to.
+- **A control with an icon alone is said by its tip.** `Laid::accessible` gave a button, a link, a
+  checkbox, a switch, a radio, a tab or a menu item with no label (or an empty one) and no words inside it
+  an empty name; it takes the words of its `tip` now (never its keys). A label or words inside still come
+  first.
 
 ### Added
 

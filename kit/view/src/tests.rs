@@ -831,6 +831,51 @@ fn a_page_is_read_as_its_buttons_fields_and_words_each_said_once() {
 }
 
 #[test]
+fn a_control_with_no_label_and_no_words_is_said_by_its_tip_and_not_by_its_keys() {
+    use crate::AccessibleRole;
+    let icon = |name: &str| div().row().press(Id::named(name)).size(20.0, 20.0);
+    let root = div()
+        .col()
+        .child(icon("alone").tip("Containers", Some("1".to_owned())))
+        .child(icon("labelled").label("Open").tip("Tip", None))
+        .child(icon("worded").tip("Tip", None).child(text("Words inside")))
+        .child(icon("untipped"))
+        .child(icon("emptied").label("").tip("Emptied label", None))
+        .child(icon("tab").role(AccessibleRole::Tab).tip("Images", None))
+        .child(
+            div()
+                .row()
+                .size(20.0, 20.0)
+                .role(AccessibleRole::Heading(2))
+                .tip("Not a name", None),
+        )
+        .child(
+            icon("blank")
+                .tip("Blank is not a name", None)
+                .child(text("  ")),
+        );
+    let laid = layout(root, Size::new(400.0, 400.0), 1.0, &mut Fixed);
+    let read: Vec<(AccessibleRole, String)> = laid
+        .accessible()
+        .iter()
+        .map(|item| (item.role, item.words.clone()))
+        .collect();
+    assert_eq!(
+        read,
+        [
+            (AccessibleRole::Button, "Containers".to_owned()),
+            (AccessibleRole::Button, "Open".to_owned()),
+            (AccessibleRole::Button, "Words inside".to_owned()),
+            (AccessibleRole::Button, String::new()),
+            (AccessibleRole::Button, "Emptied label".to_owned()),
+            (AccessibleRole::Tab, "Images".to_owned()),
+            (AccessibleRole::Heading(2), String::new()),
+            (AccessibleRole::Button, "Blank is not a name".to_owned()),
+        ]
+    );
+}
+
+#[test]
 fn a_box_inside_padding_stands_in_its_middle_at_a_scale_that_is_not_whole() {
     // A segmented control's thumb: two points of padding round a box 24 tall, the page drawn at
     // 2.2 pixels to a point (a terminal's zoom). Each padding is as many pixels, not 4 above and

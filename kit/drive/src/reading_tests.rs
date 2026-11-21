@@ -719,6 +719,46 @@ fn a_reading_of_the_container_app_gives_its_rows_by_names_that_stay() -> Result<
     Ok(())
 }
 
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_reading_names_an_icon_alone_by_its_tip_and_says_which_tab_is_chosen() -> Result<(), Error> {
+    let source = r#"
+return {
+    render = function()
+        local rail = pencere.div():col():gap(4)
+        for _, name in ipairs({ "containers", "images" }) do
+            rail:child(pencere.div():id("sec:" .. name):press("sec:" .. name):size(24, 24)
+                :role("tab"):selected(name == "images"):tip(name, "1")
+                :child(pencere.div():size(12, 12)))
+        end
+        return pencere.div():size_full():child(rail)
+            :child(pencere.div():id("plain"):press("plain"):size(24, 24):tip("Run it", "r"))
+    end,
+    handle = function(event) end,
+}
+"#;
+    let mut page = Headless::script(source).size(400.0, 300.0).open()?;
+    page.settle()?;
+    let text = page.reading().text();
+    let named = |name: &str| reference(Id::named(name));
+    assert!(
+        text.contains(&format!("{}  tab \"containers\"", named("sec:containers"))),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "{}  tab \"images\" [selected]",
+            named("sec:images")
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("{}  button \"Run it\"", named("plain"))),
+        "{text}"
+    );
+    Ok(())
+}
+
 /// The page, with a cover over all of it where `covered`.
 fn page(covered: bool) -> String {
     let cover = r#":child(pencere.div():id("cover"):press("cover"):overlay():inset(0, 0, 0, 0))"#;

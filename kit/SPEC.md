@@ -184,10 +184,13 @@ gives its fields chords besides these (a Mac's ⌃A and ⌃E) may keep those too
 
 A **label** is what an element is in words, for a person who does not see it: a host that offers its
 system's screen reader says the label of an element that has one, and the words inside one that has
-none. A button that is an icon alone needs one.
+none. A button that is an icon alone needs one: where it has none and no words inside it, a control
+(a button, a link, a checkbox, a switch, a radio, a tab, a menu item) is said by the words of its
+tip, so that an icon with a tip is not nameless, but a page that writes the label says what it means.
 
 A **tip** is what the host says of an element while the pointer rests on it, with the keys that do
-the same where there are some (`tip("Containers", "1")`): a tooltip of the host's own.
+the same where there are some (`tip("Containers", "1")`): a tooltip of the host's own. Its keys are
+never a name.
 
 An **overlay** (`overlay()`) is taken out of the flow and out of every box that holds it: it is placed
 by its `inset` against the page (`inset(0, 0, 0, 0)` is the whole page, the ground of a dialog), drawn
