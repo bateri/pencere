@@ -195,6 +195,8 @@ impl Laid {
             .map(|(index, quads)| (self.subtree_end(*index), quads))
             .collect();
         bars.sort_by_key(|(end, _)| std::cmp::Reverse(*end));
+        // A browser is drawn in one room: the first of its name, the one `Laid::browsers` holds.
+        let mut browsers = std::collections::HashSet::new();
         for (index, node) in self.nodes.iter().enumerate() {
             while let Some((_, quads)) = bars.pop_if(|(end, _)| *end <= index) {
                 list.items.extend(quads.iter().cloned().map(Paint::Quad));
@@ -249,7 +251,10 @@ impl Laid {
                     }
                 }
                 Content::Browser => {
-                    if let Some(id) = node.meta.id {
+                    if let Some(id) = node.meta.id
+                        && node.meta.browser.is_some()
+                        && browsers.insert(id)
+                    {
                         list.items.push(Paint::Browser(BrowserSlot {
                             id,
                             rect: node.rect,

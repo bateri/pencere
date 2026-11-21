@@ -17,8 +17,10 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
   its zoom (`Event::Browser`, `BrowserRefused`, `BrowserWindow`, which says whether the person asked
   for it behind the page). A browser goes only to `http`, `https`, `about:blank` and `data:`
   addresses (`go_refusal`), and an ask the kit does not know is refused (`BrowserRefusal::Ask`) and
-  does not fail the page. A key the browser has no use for is the page's. Its accessible role is
-  `browser`.
+  does not fail the page; so is a pattern to find that is not a search's, longer than
+  `PATTERN_BYTES` or with a control character (`find_refusal`, `BrowserRefusal::Pattern`). A key the
+  browser has no use for is the page's. Its accessible role is `browser`, and a second room of the
+  same name draws no browser.
 - **Sharp dots and pixel art** (`path().crisp(true)`): a path can be drawn with no smoothing, so
   dots and bars stay whole pixels and meet without a seam at any text size.
 - **An element can say what it carries out of the view** (`Element::carry(Carry)`, with

@@ -508,6 +508,30 @@ fn the_calls_a_page_made_wait_for_their_answers_and_nothing_else_is_waited_for()
     assert_eq!(owed.count(), 0);
 }
 
+#[test]
+fn a_wait_is_read_from_the_name_and_number_of_a_message_and_nothing_it_holds() {
+    let mut owed = Owed::default();
+    // What a call asks and what an answer holds are the page's and its program's: an answer the page
+    // takes is the end of the wait however the rest of it reads (the page is told `result` and
+    // `error` as they are), and a call is waited for whatever its method.
+    owed.said(r#"{"call":{"id":1,"method":"list"}}"#);
+    owed.said(r#"{"call":{"id":2,"method":"list"}}"#);
+    owed.said(r#"{"call":{"id":3,"method":7}}"#);
+    assert_eq!(owed.count(), 3);
+    owed.heard(r#"{"response":{"id":1,"result":{},"error":{"code":"x"}}}"#);
+    owed.heard(r#"{"response":{"id":2,"result":null}}"#);
+    owed.heard(r#"{"response":{"id":3}}"#);
+    assert_eq!(owed.count(), 0);
+    // A message with no number of a call's, or not a message at all, ends no wait.
+    owed.said(r#"{"call":{"id":4,"method":"x"}}"#);
+    owed.heard(r#"{"response":{"id":0,"result":{}}}"#);
+    owed.heard(r#"{"response":{"id":"4","result":{}}}"#);
+    owed.heard(r#"{"response":{"id":4,"result":{}}"#);
+    assert_eq!(owed.count(), 1);
+    owed.heard(r#"{"response":{"id":4.0,"result":[]}}"#);
+    assert_eq!(owed.count(), 0);
+}
+
 /// A module made by a test: its first page is made at once, and what it is told after it waits for
 /// the gate. What it says to its program is what the test puts in `sent`.
 struct Held {

@@ -867,10 +867,11 @@ impl Page {
     }
 
     /// The host's browser named `browser` is, or does, what `state` says: all of it, told each time
-    /// any of it changes.
+    /// any of it changes. What is said of a browser the page does not name (any more) is passed over.
     pub fn browser(&mut self, browser: Id, state: BrowserState) {
-        let event = self.state.browsers.said(browser, state);
-        self.state.event(event);
+        if let Some(event) = self.state.browsers.said(browser, state) {
+            self.state.event(event);
+        }
     }
 
     /// A link of the host's browser named `browser` opens a new window at `url`, and the page said it

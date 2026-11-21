@@ -38,6 +38,11 @@ impl<S: Store, E: Entropy> Session<S, E> {
     /// does not offer the probe ([`Session::offer_probe`]), when no view runs, or when `ttl` is not
     /// one the listener is asked for. A probe that is out when this is called is given up: the answer
     /// to it, if one comes, is ignored.
+    ///
+    /// §4.10 has a host send one `probe` at a time, and that is the host's to keep: it asks again
+    /// only once the probe that is out is answered, or once it has waited for the answer as long as it
+    /// waits (the session has no clock). The program may still be answering the one given up then,
+    /// and one with a listener up says `busy` to the next.
     pub fn probe(&mut self, ttl: u8) -> Option<u32> {
         if !self.probe || self.ended || !(1..=MOST_TTL).contains(&ttl) {
             return None;

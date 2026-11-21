@@ -8,6 +8,8 @@ All notable changes to the `pencere-wire` crate are recorded here. The format fo
 
 ### Added
 
+- **`messages::numbered`**: the name of a message's one member and its `id`, read without what the
+  member holds, for one that carries the messages and does not read them.
 - **The proof of a host's own route (specification §4.10)**: `probe` and `Probed`, the payloads of the
   `probe` a host sends and the `probed` that answers it, and `FEATURE_PROBE`.
 - **`carry`**: the rule of what a view may hand to its host's system drag (`is_carriable`, `is_carriable_url`,

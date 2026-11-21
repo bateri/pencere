@@ -27,6 +27,9 @@ namespace {
 constexpr int kMaxDepth = 256;
 constexpr size_t kMaxNodes = 1 << 16;
 constexpr size_t kMaxList = 4096;
+// The most asks of browsers a reply makes: the sandbox's bound (`MOST_BROWSER_ASKS`), held here as
+// well so that a page past it fails saying so, and not as a reply the sandbox cannot read.
+constexpr size_t kMaxBrowserAsks = 64;
 
 void* xmalloc(size_t n) {
     void* p = malloc(n ? n : 1);
@@ -2473,7 +2476,7 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
         case PENCERE_VIEW_TYPES_EVENT_BROWSER_REFUSED: {
             // { browser =, reason = "scheme" | "address" | "ask" }: what the page asked of it was not
             // done.
-            static const char* const kBrowserRefusals[] = {"scheme", "address", "ask"};
+            static const char* const kBrowserRefusals[] = {"scheme", "address", "ask", "pattern"};
             set_word(L, "type", "browser_refused");
             push_id(L, event.val.browser_refused.browser);
             lua_setfield(L, -2, "browser");
@@ -3278,7 +3281,8 @@ void read_browser_asks(lua_State* L, int t, pencere_view_types_list_browser_ask_
         if (!empty) lua_pop(L, 2);
         size_t count = empty ? 0 : (list ? list_length(L, value, "a browser's asks") : 1);
         for (size_t at = 0; at < count; at++) {
-            if (asks.size() >= kMaxNodes) luaL_error(L, "browser asks more than a reply may");
+            if (asks.size() >= kMaxBrowserAsks)
+                luaL_error(L, "browser asks more of the browsers than a reply may: at most %d asks", (int)kMaxBrowserAsks);
             int ask = value;
             if (list) {
                 lua_rawgeti(L, value, (int)at + 1);

@@ -7,7 +7,7 @@
 use std::io::Read;
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use pencere_fake_host::log;
 
@@ -32,6 +32,45 @@ impl Probing {
     /// Whether any option besides `ttl` is set.
     pub fn has_flaws(&self) -> bool {
         self.twice || self.late || self.reconnect
+    }
+}
+
+/// How long the stand-in waits for the program's `probed` (§4.10 has the wait bounded): a program
+/// that does not know the kind, or cannot listen, never answers, and what the script does next does
+/// not wait for it for ever. Long enough for any program that does answer, on a busy machine.
+pub const ANSWER_WAIT: Duration = Duration::from_secs(10);
+
+/// The `probe` that is out, and since when the stand-in has waited for its answer.
+#[derive(Debug, Default)]
+pub struct Waiting(Option<(u32, Instant)>);
+
+impl Waiting {
+    /// The `probe` of this id was sent at `now`: the one out from now on.
+    pub fn sent(&mut self, probe: u32, now: Instant) {
+        self.0 = Some((probe, now));
+    }
+
+    /// Whether a `probe` is out.
+    pub fn out(&self) -> bool {
+        self.0.is_some()
+    }
+
+    /// The program answered the `probe` of this id: whether it is the one out, which is out no more.
+    /// The answer to one given up is not believed.
+    pub fn answered(&mut self, probe: u32) -> bool {
+        self.0.take_if(|(out, _)| *out == probe).is_some()
+    }
+
+    /// Nothing is waited for: the view the `probe` was out for ended.
+    pub fn clear(&mut self) {
+        self.0 = None;
+    }
+
+    /// Whether the wait for the answer was over at `now`: the `probe` is given up then.
+    pub fn given_up(&mut self, now: Instant) -> bool {
+        self.0
+            .take_if(|(_, since)| now.duration_since(*since) >= ANSWER_WAIT)
+            .is_some()
     }
 }
 
@@ -101,5 +140,32 @@ pub fn prove(port: u16, token: &str, how: &Probing) {
                 format!("a second connection to port {port} was given a token"),
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_probe_is_waited_for_a_bounded_time_and_an_answer_after_it_is_not_believed() {
+        let at = Instant::now();
+        let mut waiting = Waiting::default();
+        assert!(!waiting.out() && !waiting.given_up(at + ANSWER_WAIT));
+        waiting.sent(3, at);
+        assert!(waiting.out());
+        assert!(!waiting.given_up(at + ANSWER_WAIT - Duration::from_millis(1)));
+        assert!(waiting.given_up(at + ANSWER_WAIT));
+        assert!(!waiting.out(), "given up once");
+        assert!(!waiting.given_up(at + ANSWER_WAIT * 2));
+        assert!(!waiting.answered(3), "a late answer is not believed");
+        // The answer to the one out, and not to another.
+        waiting.sent(4, at);
+        assert!(!waiting.answered(3));
+        assert!(waiting.answered(4));
+        assert!(!waiting.out());
+        waiting.sent(5, at);
+        waiting.clear();
+        assert!(!waiting.out() && !waiting.answered(5));
     }
 }

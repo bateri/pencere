@@ -15,6 +15,10 @@ pub const MOST_KEYS: usize = 32;
 /// The most bytes of an address a page asks a browser to go to.
 pub const ADDRESS_BYTES: usize = 8192;
 
+/// The most bytes of what a page asks a browser to find ([`BrowserAsk::Find`]): far more than a
+/// person types into a search, and a bound on what a page hands the host's engine.
+pub const PATTERN_BYTES: usize = 1024;
+
 /// The least a page may zoom a browser to ([`BrowserAsk::Zoom`]): a quarter of the size.
 pub const ZOOM_LEAST: f32 = 0.25;
 
@@ -87,7 +91,7 @@ pub enum BrowserAsk {
     /// what it finds and go to the first match at or after where the page is scrolled to; `case`
     /// matches the case written, else either. The browser tells what it finds in
     /// [`BrowserState::found`], until [`BrowserAsk::StopFinding`]. An empty `pattern` is a
-    /// `StopFinding`.
+    /// `StopFinding`, and one that is not a search's ([`find_refusal`]) is refused.
     Find { pattern: String, case: bool },
     /// Go to the next match of the search, and after the last to the first.
     FindNext,
@@ -117,6 +121,9 @@ pub enum BrowserRefusal {
     /// The ask is not one the kit this page runs on knows: a later kit's, or none at all. A page
     /// that asks it learns, and does not fail.
     Ask,
+    /// What the page asked to find is not a search's ([`find_refusal`]): too long, or with a control
+    /// character (a line break, a tab) in it.
+    Pattern,
 }
 
 impl BrowserRefusal {
@@ -127,6 +134,7 @@ impl BrowserRefusal {
             Self::Scheme => "scheme",
             Self::Address => "address",
             Self::Ask => "ask",
+            Self::Pattern => "pattern",
         }
     }
 }
@@ -149,6 +157,15 @@ pub fn go_refusal(url: &str) -> Option<BrowserRefusal> {
         return Some(BrowserRefusal::Address);
     }
     None
+}
+
+/// Whether a browser may be asked to find `pattern`, and if not, why: at most [`PATTERN_BYTES`], with
+/// no control character in it, as what a person types into a search is. A page that hands on what a
+/// field held, pasted lines and all, is told and does not fail.
+#[must_use]
+pub fn find_refusal(pattern: &str) -> Option<BrowserRefusal> {
+    (pattern.len() > PATTERN_BYTES || pattern.chars().any(char::is_control))
+        .then_some(BrowserRefusal::Pattern)
 }
 
 /// A load that failed.
@@ -321,5 +338,27 @@ mod tests {
             go_refusal(&format!("{longest}a")),
             Some(BrowserRefusal::Address)
         );
+    }
+
+    #[test]
+    fn a_pattern_is_what_a_search_holds_and_no_more() {
+        let longest = "é".repeat(PATTERN_BYTES / 2);
+        for pattern in ["", "café au lait", longest.as_str()] {
+            assert_eq!(find_refusal(pattern), None, "{pattern:?}");
+        }
+        for pattern in [
+            "two\nlines",
+            "a\tb",
+            "\u{7f}",
+            "\u{85}",
+            &format!("{longest}x"),
+        ] {
+            assert_eq!(
+                find_refusal(pattern),
+                Some(BrowserRefusal::Pattern),
+                "{pattern:?}"
+            );
+        }
+        assert_eq!(BrowserRefusal::Pattern.word(), "pattern");
     }
 }

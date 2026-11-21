@@ -8,16 +8,17 @@
 //! (`"unsupported"`) and draws a placeholder in the room, so that a page never waits for a state
 //! that no host will give. An address the page asks a browser to go to is held to the rule of
 //! [`pencere_view::go_refusal`]: one that is not is not given to the host, and the page is told
-//! why ([`Event::BrowserRefused`]), as it is told of an editor's ask that was refused; so is an ask
-//! the kit does not know ([`BrowserAsk::Unknown`]), and a zoom is put right to what a browser may
-//! be zoomed to ([`pencere_view::zoom_allowed`]).
+//! why ([`Event::BrowserRefused`]), as it is told of an editor's ask that was refused; so is a
+//! pattern to find that is not a search's ([`pencere_view::find_refusal`]) and an ask the kit does
+//! not know ([`BrowserAsk::Unknown`]). An empty pattern ends the search, and a zoom is put right to
+//! what a browser may be zoomed to ([`pencere_view::zoom_allowed`]).
 
 use std::collections::HashMap;
 
 use pencere_view::{
     BrowserAsk, BrowserOptions, BrowserRefusal, BrowserRoom, BrowserSlot, BrowserState, Color,
-    Event, Family, Font, Id, Measure, Paint, Point, Quad, Rect, Role, Run, go_refusal,
-    zoom_allowed,
+    Event, Family, Font, Id, Measure, Paint, Point, Quad, Rect, Role, Run, find_refusal,
+    go_refusal, zoom_allowed,
 };
 
 use crate::outline::Placement;
@@ -58,10 +59,10 @@ impl Browser {
 pub(crate) struct Browsers {
     /// The host shows browsers.
     pub shown: bool,
-    /// The browsers the page names, as they were made (the profile each was made with) and what
-    /// each was last said to be. A browser that is not on the page any more is forgotten, and a
-    /// browser of another profile under the name of one is another browser.
-    known: HashMap<Id, (Option<String>, BrowserState)>,
+    /// The browsers the page names, by the profile each was made with. A browser that is not on the
+    /// page any more is forgotten, and a browser of another profile under the name of one is another
+    /// browser.
+    known: HashMap<Id, Option<String>>,
 }
 
 impl Browsers {
@@ -76,47 +77,48 @@ impl Browsers {
             if self
                 .known
                 .get(&room.id)
-                .is_some_and(|(profile, _)| *profile == room.options.profile)
+                .is_some_and(|profile| *profile == room.options.profile)
             {
                 continue;
             }
-            let state = if self.shown {
-                // A host that shows browsers tells what each is.
-                BrowserState::default()
-            } else {
-                let state = BrowserState::with_status(BrowserState::UNSUPPORTED, Some(UNSUPPORTED));
+            // A host that shows none has the page told so; one that shows them tells what each is.
+            if !self.shown {
                 told.push(Event::Browser {
                     browser: room.id,
-                    state: Box::new(state.clone()),
+                    state: Box::new(BrowserState::with_status(
+                        BrowserState::UNSUPPORTED,
+                        Some(UNSUPPORTED),
+                    )),
                 });
-                state
-            };
-            self.known
-                .insert(room.id, (room.options.profile.clone(), state));
+            }
+            self.known.insert(room.id, room.options.profile.clone());
         }
         told
     }
 
-    /// The host says what the browser `id` is and does: kept, and told the page.
-    pub fn said(&mut self, id: Id, state: BrowserState) -> Event {
-        if let Some((_, known)) = self.known.get_mut(&id) {
-            known.clone_from(&state);
-        }
-        Event::Browser {
+    /// The host says what the browser `id` is and does: what is told the page, none for a browser
+    /// that is not on the page (one it took away, whose engine said a last word as it went).
+    pub fn said(&self, id: Id, state: BrowserState) -> Option<Event> {
+        self.known.contains_key(&id).then(|| Event::Browser {
             browser: id,
             state: Box::new(state),
-        }
+        })
     }
 
     /// What the page asks of its browsers, in `asks`, held to the rules every host has: what the
-    /// host may be asked is left in it, and for each address a browser does not go to and each ask
-    /// the kit does not know the page is told why; a zoom is put right to what a browser may be
-    /// zoomed to. A host that shows no browser is asked nothing.
+    /// host may be asked is left in it, and for each address a browser does not go to, each pattern
+    /// that is not a search's and each ask the kit does not know the page is told why; a find of
+    /// nothing is the end of the search, and a zoom is put right to what a browser may be zoomed
+    /// to. A host that shows no browser is asked nothing.
     pub fn check(&self, asks: &mut Vec<(Id, BrowserAsk)>) -> Vec<Event> {
         let mut told = Vec::new();
         asks.retain_mut(|(id, ask)| {
+            if matches!(ask, BrowserAsk::Find { pattern, .. } if pattern.is_empty()) {
+                *ask = BrowserAsk::StopFinding;
+            }
             let refusal = match ask {
                 BrowserAsk::Go(url) => go_refusal(url),
+                BrowserAsk::Find { pattern, .. } => find_refusal(pattern),
                 BrowserAsk::Unknown => Some(BrowserRefusal::Ask),
                 _ => None,
             };
@@ -252,6 +254,20 @@ mod tests {
     }
 
     #[test]
+    fn what_the_host_says_of_a_browser_the_page_does_not_name_is_not_told() {
+        let mut browsers = Browsers {
+            shown: true,
+            ..Browsers::default()
+        };
+        browsers.meet(&[room(1, None)]);
+        assert!(browsers.said(Id::new(1), BrowserState::default()).is_some());
+        assert_eq!(browsers.said(Id::new(2), BrowserState::default()), None);
+        // One that left the page is forgotten.
+        browsers.meet(&[]);
+        assert_eq!(browsers.said(Id::new(1), BrowserState::default()), None);
+    }
+
+    #[test]
     fn another_profile_under_the_same_name_is_another_browser() {
         let mut browsers = Browsers::default();
         assert_eq!(browsers.meet(&[room(1, Some("a"))]).len(), 1);
@@ -346,6 +362,50 @@ mod tests {
         ];
         assert_eq!(Browsers::default().check(&mut asks).len(), 1);
         assert!(asks.is_empty());
+    }
+
+    #[test]
+    fn an_empty_find_ends_the_search_and_a_pattern_no_browser_is_given_is_told_the_page() {
+        let browsers = Browsers {
+            shown: true,
+            ..Browsers::default()
+        };
+        let find = |pattern: &str| BrowserAsk::Find {
+            pattern: pattern.into(),
+            case: true,
+        };
+        let mut asks = vec![
+            (Id::new(1), find("")),
+            (Id::new(1), find("café au lait")),
+            (Id::new(1), find("two\nlines")),
+            (
+                Id::new(2),
+                find(&"x".repeat(pencere_view::PATTERN_BYTES + 1)),
+            ),
+            (Id::new(2), find(&"x".repeat(pencere_view::PATTERN_BYTES))),
+        ];
+        let told = browsers.check(&mut asks);
+        assert_eq!(
+            asks,
+            vec![
+                (Id::new(1), BrowserAsk::StopFinding),
+                (Id::new(1), find("café au lait")),
+                (Id::new(2), find(&"x".repeat(pencere_view::PATTERN_BYTES))),
+            ]
+        );
+        assert_eq!(
+            told,
+            vec![
+                Event::BrowserRefused {
+                    browser: Id::new(1),
+                    reason: BrowserRefusal::Pattern
+                },
+                Event::BrowserRefused {
+                    browser: Id::new(2),
+                    reason: BrowserRefusal::Pattern
+                },
+            ]
+        );
     }
 
     #[test]

@@ -2527,8 +2527,8 @@ impl<P: Peer> Headless<P> {
     /// agent sees, so a page can be tested for being read.
     pub fn reading(&mut self) -> Reading {
         let keyboard = match self.focus() {
-            Focus::Field(id) => Some(id),
-            _ => None,
+            Focus::Field(id) | Focus::Browser(id) => Some(id),
+            Focus::Page | Focus::Editor(_) => None,
         };
         let seen = &self.seen;
         let text = |id: Id| seen.fields.get(&id).map(|held| held.text.clone());

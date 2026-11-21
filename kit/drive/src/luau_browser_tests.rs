@@ -192,6 +192,47 @@ fn a_browser_takes_the_keyboard_on_a_press_and_the_keys_the_page_kept_are_the_pa
     Ok(())
 }
 
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn what_a_host_says_of_a_browser_that_is_not_on_the_page_is_not_told_the_page() -> Result<(), Error>
+{
+    let mut page = open(&script(r#"pencere.browser("web")"#))?;
+    // A browser the page never named, or one it named and took away: its engine may say a last word
+    // after the page has let it go.
+    page.page_mut()
+        .browser(Id::named("gone"), BrowserState::default());
+    page.settle()?;
+    assert!(
+        browser_events(&page).is_empty(),
+        "{:?}",
+        browser_events(&page)
+    );
+    page.browser_state("web", BrowserState::default())?;
+    assert_eq!(browser_events(&page).len(), 1);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn an_agent_reads_that_the_browser_has_the_keyboard() -> Result<(), Error> {
+    let mut page = open(&script(r#"pencere.browser("web")"#))?;
+    page.click("web")?;
+    assert_eq!(page.focus(), Focus::Browser(Id::named("web")));
+    let reading = page.reading();
+    let name = crate::reading::reference(Id::named("web"));
+    assert!(
+        reading
+            .text()
+            .starts_with(&format!("focus: browser {name}\n")),
+        "{}",
+        reading.text()
+    );
+    let json: serde_json::Value = serde_json::from_str(&reading.json()).expect("JSON");
+    assert_eq!(json["focus"]["kind"], "browser", "{json}");
+    assert_eq!(json["focus"]["ref"], name.as_str());
+    Ok(())
+}
+
 /// A script page whose browser asks what `asks` says, as a reply to a key, and whose words are what
 /// it was last told of it.
 fn asking(asks: &str) -> String {
@@ -538,5 +579,78 @@ fn what_the_page_asks_of_a_browser_on_a_timer_or_its_programs_answer_reaches_the
     assert!(page.says("fired answered"), "{:?}", page.words());
     assert_eq!(last(&page), go("https://call.example/"));
     assert_eq!(page.browser_asks().len(), 3, "{:?}", page.browser_asks());
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_reply_asks_its_browsers_64_things_at_most_and_a_page_that_asks_more_fails_saying_so()
+-> Result<(), Error> {
+    let mut page = open(
+        r#"
+return {
+	render = function()
+		return pencere.div():size_full():child(pencere.browser("web"):grow(1))
+	end,
+	handle = function(event)
+		if event.type == "key" then
+			local asks = {}
+			for i = 1, (event.key == "a" and 64 or 65) do
+				asks[i] = { command = "stop" }
+			end
+			return { browser = { web = asks } }
+		end
+	end,
+}
+"#,
+    )?;
+    page.key(Key::Character('a'), Mods::default())?;
+    assert_eq!(page.browser_asks().len(), 64);
+    let failed = match page.key(Key::Character('b'), Mods::default()) {
+        Err(Error::Ended(Fault::Failed(failed))) => failed,
+        other => panic!("expected the page to fail, it is {other:?}"),
+    };
+    assert!(failed.contains("at most 64"), "{failed}");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn what_timers_that_come_together_ask_of_the_browsers_all_reaches_the_host() -> Result<(), Error> {
+    let mut page = open(
+        r#"
+return {
+	render = function()
+		return pencere.div():size_full()
+			:child(pencere.browser("web"):grow(1))
+			:child(pencere.browser("side"):grow(1))
+	end,
+	handle = function(event)
+		if event.type == "key" then
+			pencere.time.after(0.1, function() return { browser = { web = { go = "https://one.example/" } } } end)
+			pencere.time.after(0.1, function() return { browser = { side = { command = "stop" } } } end)
+			pencere.time.after(0.1, function() return { browser = { web = { { command = "reload" } } } } end)
+		end
+	end,
+}
+"#,
+    )?;
+    page.key(Key::Character('x'), Mods::default())?;
+    page.advance(0.5)?;
+    let of = |name: &str| -> Vec<BrowserAsk> {
+        page.browser_asks()
+            .iter()
+            .filter(|(id, _)| *id == Id::named(name))
+            .map(|(_, ask)| ask.clone())
+            .collect()
+    };
+    assert_eq!(
+        of("web"),
+        [
+            BrowserAsk::Go("https://one.example/".to_owned()),
+            BrowserAsk::Reload { cache: true }
+        ]
+    );
+    assert_eq!(of("side"), [BrowserAsk::Stop]);
     Ok(())
 }

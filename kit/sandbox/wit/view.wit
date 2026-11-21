@@ -2161,7 +2161,8 @@ interface types {
         reload(bool),
         /// Stop loading.
         stop,
-        /// Look for text in the page the browser shows, and mark what is found.
+        /// Look for text in the page the browser shows, and mark what is found: at most 1024 bytes,
+        /// with no control character, any other refused (`pattern`); an empty one ends the search.
         find(browser-find),
         /// Go to the next match of the search, and after the last to the first.
         find-next,
@@ -2199,6 +2200,8 @@ interface types {
         address,
         /// The ask is not one the page's kit knows.
         ask,
+        /// What the page asked to find is not a search's: too long, or with a control character.
+        pattern,
     }
 
     /// A load that failed.

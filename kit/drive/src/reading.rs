@@ -21,7 +21,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use pencere_view::{AccessibleRole, FieldKind, Id, Key, Mods, Point, Rect, Shortcut, State};
-use pencere_wire::messages::Message;
+use pencere_wire::messages::numbered;
 use serde_json::{Map, Value, json};
 
 use crate::Page;
@@ -45,6 +45,8 @@ pub enum Focus {
     Field(Id),
     /// In the page's editor of this name.
     Editor(Id),
+    /// In the host's browser of this name: its web page has the keys the page does not keep.
+    Browser(Id),
 }
 
 /// What is still going on after what a page was told: what an agent waits for before it reads.
@@ -202,7 +204,8 @@ pub struct ReadingInput<'a> {
     /// What the host's field `id` holds, as a text; `None` for a field it does not know. Never
     /// asked of a secret field.
     pub field_text: Option<&'a dyn Fn(Id) -> Option<String>>,
-    /// The field the keyboard is in, where it is in one.
+    /// The field the keyboard is in, where it is in one; or the browser, which takes the keyboard as
+    /// a field does ([`pencere_view::Keyboard::Field`]).
     pub field_focus: Option<Id>,
     /// The lines of the menu held for the agent, where one is.
     pub menu: Option<Vec<MenuLine>>,
@@ -435,12 +438,13 @@ impl Reading {
         }
     }
 
-    /// Where the keyboard is, in words: `page`, `field k3f9qa`, `editor k3f9qa`.
+    /// Where the keyboard is, in words: `page`, `field k3f9qa`, `editor k3f9qa`, `browser k3f9qa`.
     fn focus_words(&self) -> String {
         match self.focus {
             Focus::Page => "page".to_owned(),
             Focus::Field(id) => format!("field {}", reference(id)),
             Focus::Editor(id) => format!("editor {}", reference(id)),
+            Focus::Browser(id) => format!("browser {}", reference(id)),
         }
     }
 
@@ -727,6 +731,9 @@ impl Reading {
             Focus::Page => json!({ "kind": "page" }),
             Focus::Field(id) => json!({ "kind": "field", "ref": reference(id), "id": full(id) }),
             Focus::Editor(id) => json!({ "kind": "editor", "ref": reference(id), "id": full(id) }),
+            Focus::Browser(id) => {
+                json!({ "kind": "browser", "ref": reference(id), "id": full(id) })
+            }
         };
         let value = json!({
             "focus": focus,
@@ -827,12 +834,12 @@ impl Owed {
         if !names(text, &["call", "cancel"]) {
             return;
         }
-        match Message::parse(text) {
-            Ok(Message::Call(call)) => {
-                self.0.insert(call.id);
+        match numbered(text) {
+            Some(("call", id)) => {
+                self.0.insert(id);
             }
-            Ok(Message::Cancel(cancel)) => {
-                self.0.remove(&cancel.id);
+            Some(("cancel", id)) => {
+                self.0.remove(&id);
             }
             _ => {}
         }
@@ -843,8 +850,8 @@ impl Owed {
         if !names(text, &["response"]) {
             return;
         }
-        if let Ok(Message::Response(response)) = Message::parse(text) {
-            self.0.remove(&response.id);
+        if let Some(("response", id)) = numbered(text) {
+            self.0.remove(&id);
         }
     }
 }
@@ -925,6 +932,9 @@ pub(crate) fn read(page: &mut Page, input: &ReadingInput<'_>, rest: Rest) -> Rea
     } else {
         match input.field_focus {
             Some(id) if field_ids.contains(&id) => Focus::Field(id),
+            Some(id) if page.browsers().iter().any(|browser| browser.id == id) => {
+                Focus::Browser(id)
+            }
             _ => Focus::Page,
         }
     };

@@ -748,6 +748,7 @@ fn event_in(event: Event) -> wit::Event {
                     BrowserRefusal::Scheme => wit::BrowserRefusal::Scheme,
                     BrowserRefusal::Address => wit::BrowserRefusal::Address,
                     BrowserRefusal::Ask => wit::BrowserRefusal::Ask,
+                    BrowserRefusal::Pattern => wit::BrowserRefusal::Pattern,
                 },
             })
         }

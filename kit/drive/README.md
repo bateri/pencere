@@ -233,7 +233,8 @@ agent will see.
   whoever reads: nothing is remembered between readings. If two elements of a reading come to the same
   name, both are marked and `Reading::find` refuses the name; the whole id (16 hex digits,
   `reading::full`) names either. Plain text has no name.
-- **What the host holds, it gives** (`ReadingInput`): the text of its fields and where its keyboard is.
+- **What the host holds, it gives** (`ReadingInput`): the text of its fields and where its keyboard is,
+  a field of its own or a browser.
   The value of a secret field is never asked for and is in no reading.
 - **A reading is cleaned**: control characters are `?`, long words are cut (a `…` says so), line breaks
   stay.

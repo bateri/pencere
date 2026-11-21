@@ -67,6 +67,34 @@ fn a_browser_is_found_where_its_room_is_hidden_or_not() {
 }
 
 #[test]
+fn a_second_room_of_the_same_name_draws_no_browser() {
+    let root = div()
+        .child(
+            div()
+                .browser(BROWSER, BrowserOptions::default())
+                .size(100.0, 50.0),
+        )
+        .child(
+            div()
+                .browser(BROWSER, BrowserOptions::default())
+                .size(80.0, 40.0),
+        );
+    let laid = lay(root);
+    let slots: Vec<Rect> = laid
+        .paint(&mut Host)
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Paint::Browser(slot) => Some(slot.rect),
+            _ => None,
+        })
+        .collect();
+    // The one the host's browser is in, as `Laid::browsers` has it: the first.
+    assert_eq!(slots, [laid.browsers()[0].pixels]);
+    assert_eq!(slots, [Rect::new(0.0, 0.0, 100.0, 50.0)]);
+}
+
+#[test]
 fn the_browser_is_drawn_in_its_place_over_its_room_and_under_what_is_inside_it() {
     let root = div().child(
         div()

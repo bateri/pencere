@@ -305,10 +305,80 @@ impl Message {
     }
 }
 
+/// The name of the one member of the message `text` and the number it belongs to, read with nothing
+/// else of it: what one that carries the messages may read of them, which is not what they hold (a
+/// call's method and params, an answer's result). `None` for what is not of a message's shape: no one
+/// member of the six names, or no number a message may carry (1 to [`MAX_ID`]).
+#[must_use]
+pub fn numbered(text: &str) -> Option<(&'static str, u64)> {
+    /// A message's member, of which only the number is read: the rest is passed over.
+    #[derive(Deserialize)]
+    struct Number {
+        #[serde(deserialize_with = "read_id")]
+        id: u64,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "lowercase")]
+    enum Named {
+        Call(Number),
+        Response(Number),
+        Subscribe(Number),
+        Push(Number),
+        Cancel(Number),
+        Progress(Number),
+    }
+    if text.len() > MAX_BYTES || crate::json::too_deep(text) {
+        return None;
+    }
+    let (name, number) = match serde_json::from_str::<Named>(text).ok()? {
+        Named::Call(number) => ("call", number),
+        Named::Response(number) => ("response", number),
+        Named::Subscribe(number) => ("subscribe", number),
+        Named::Push(number) => ("push", number),
+        Named::Cancel(number) => ("cancel", number),
+        Named::Progress(number) => ("progress", number),
+    };
+    (1..=MAX_ID)
+        .contains(&number.id)
+        .then_some((name, number.id))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn the_name_and_number_of_a_message_are_read_without_what_it_holds() {
+        assert_eq!(
+            numbered(r#"{"call":{"id":7,"method":"stop","params":{"name":"api"}}}"#),
+            Some(("call", 7))
+        );
+        // What a full reading refuses, for what the member holds, has its name and number still.
+        assert_eq!(
+            numbered(r#"{"response":{"id":3,"result":{},"error":{"code":"x"}}}"#),
+            Some(("response", 3))
+        );
+        assert_eq!(
+            numbered(r#"{"call":{"id":1e3,"method":7}}"#),
+            Some(("call", 1000))
+        );
+        assert_eq!(
+            numbered(r#"{"push":{"id":2,"value":null}}"#),
+            Some(("push", 2))
+        );
+        for text in [
+            r#"{"response":{"id":0,"result":{}}}"#,
+            r#"{"response":{"id":"3","result":{}}}"#,
+            r#"{"response":{"result":{}}}"#,
+            r#"{"answer":{"id":3}}"#,
+            r#"{"call":{"id":1},"cancel":{"id":1}}"#,
+            r#"{"call":{"id":1}"#,
+            "not a message",
+        ] {
+            assert_eq!(numbered(text), None, "{text}");
+        }
+    }
 
     fn round_trip(message: &Message) {
         let text = message.text();

@@ -26,7 +26,7 @@ use serde_json::Value;
 
 use crate::args::{Args, Ask, Gestures, Then};
 use crate::files::Desk;
-use crate::probe::{self, Probing};
+use crate::probe::{self, Probing, Waiting};
 use crate::stage::{Finished, Stage};
 use crate::view::{Reaction, ScriptedView};
 
@@ -95,8 +95,9 @@ pub struct Host {
     /// How it proves its own route to the program's machine, when the command line asks for it
     /// (§4.10).
     probing: Probing,
-    /// The proof of the route is out and not answered yet: what the script does next waits for it.
-    proof_out: bool,
+    /// The proof of the route that is out and not answered yet: what the script does next waits for
+    /// it, as long as §4.10 lets it.
+    proof: Waiting,
     /// The script is done and what comes next waits for the proof.
     script_waits: bool,
 }
@@ -159,7 +160,7 @@ impl Host {
             reads: 0,
             stage,
             probing: args.probing.clone(),
-            proof_out: false,
+            proof: Waiting::default(),
             script_waits: false,
         })
     }
@@ -398,6 +399,14 @@ impl Host {
             Action::DestroyView => {
                 log::line("view", "destroyed");
                 self.view = None;
+                // A probe is out only while its view runs (§4.10): what waited for it goes on.
+                if self.proof.out() {
+                    log::line(
+                        "host",
+                        "no route: the view ended before the program answered the probe",
+                    );
+                    self.proof_over();
+                }
             }
             Action::ReadFile {
                 read,
@@ -437,16 +446,28 @@ impl Host {
                 size,
                 pipe,
             } => self.fetch_file(fetch, &handle, offset, size, &pipe),
-            Action::ProbeConnect { port, token, .. } => {
-                probe::prove(port, &token, &self.probing);
-                self.proof_over();
+            Action::ProbeConnect {
+                probe: id,
+                port,
+                token,
+            } => {
+                if self.proof.answered(id) {
+                    probe::prove(port, &token, &self.probing);
+                    self.proof_over();
+                } else {
+                    log::line("host", "takes no answer to a probe it gave up");
+                }
             }
-            Action::ProbeFailed { code, .. } => {
-                log::line(
-                    "host",
-                    format!("no route: the program has no listener to give ({code})"),
-                );
-                self.proof_over();
+            Action::ProbeFailed { probe: id, code } => {
+                if self.proof.answered(id) {
+                    log::line(
+                        "host",
+                        format!("no route: the program has no listener to give ({code})"),
+                    );
+                    self.proof_over();
+                } else {
+                    log::line("host", "takes no answer to a probe it gave up");
+                }
             }
             Action::Unstage { transfer } => {
                 log::line("host", format!("takes back the pipe of {transfer}"));
@@ -594,7 +615,9 @@ impl Host {
         // starts, once, or twice to have it say it has one.
         if let Some(ttl) = self.probing.ttl {
             for _ in 0..(if self.probing.twice { 2 } else { 1 }) {
-                self.proof_out |= self.session.probe(ttl).is_some();
+                if let Some(id) = self.session.probe(ttl) {
+                    self.proof.sent(id, Instant::now());
+                }
             }
             self.settle();
         }
@@ -661,7 +684,7 @@ impl Host {
 
     /// The proof of the route has its answer: a script that was done and waited for it goes on.
     fn proof_over(&mut self) {
-        self.proof_out = false;
+        self.proof.clear();
         if std::mem::take(&mut self.script_waits) {
             self.calls_done();
         }
@@ -670,7 +693,7 @@ impl Host {
     /// The script is done: what the command line said to do next.
     fn calls_done(&mut self) {
         // The program answers the proof when it can, which may be after it has answered the page.
-        if self.proof_out {
+        if self.proof.out() {
             self.script_waits = true;
             return;
         }
@@ -719,6 +742,10 @@ impl Host {
 
     /// Gives up on what has been waited for too long.
     pub fn tick(&mut self, now: Instant) {
+        if self.proof.given_up(now) {
+            log::line("host", "no route: the program did not answer the probe");
+            self.proof_over();
+        }
         // What the transfers through the folder's pipes came to.
         let finished = self.stage.as_mut().map(Stage::take_finished);
         for finished in finished.into_iter().flatten() {

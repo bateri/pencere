@@ -67,7 +67,7 @@ local held = nil
 
 -- --- Replies put together ------------------------------------------------------------------------
 
--- An ask of an editor, or a list of them, as a list (nil for what is neither).
+-- An ask of an editor or a browser, or a list of them, as a list (nil for what is neither).
 local function asks_of(value)
 	if type(value) ~= "table" then
 		return nil
@@ -79,7 +79,7 @@ local function asks_of(value)
 end
 
 -- Two replies (nil, true, false or a table) as one: everything both ask, the first's asks of an
--- editor before the second's; a frame where either wants one, the page closed where either asks;
+-- editor or a browser before the second's; a frame where either wants one, the page closed where either asks;
 -- where both say the one thing (the keyboard, the pasteboard, a menu, a link, the size of the text, a
 -- panel — `pick` and `save` are one — the pointer's shape) the second's; and the earlier of two wakes. Neither is
 -- changed. (A menu or a panel in the reply to a wake or a timer is passed over by the host: they
@@ -109,19 +109,19 @@ local function merge_two(first, second)
 			elseif type(mine) == "number" then
 				out.wake = value
 			end
-		elseif key == "editor" and type(mine) == "table" and type(value) == "table" then
-			local editors = table.clone(mine)
+		elseif (key == "editor" or key == "browser") and type(mine) == "table" and type(value) == "table" then
+			local named = table.clone(mine)
 			for name, asks in next, value do
-				local before, after = asks_of(editors[name]), asks_of(asks)
+				local before, after = asks_of(named[name]), asks_of(asks)
 				if before == nil or after == nil then
-					editors[name] = asks
+					named[name] = asks
 				else
 					local all = table.clone(before)
 					table.move(after, 1, #after, #all + 1, all)
-					editors[name] = all
+					named[name] = all
 				end
 			end
-			out.editor = editors
+			out[key] = named
 		elseif key == "fill" and type(mine) == "table" and type(value) == "table" then
 			local fill = table.clone(mine)
 			for name, text in next, value do

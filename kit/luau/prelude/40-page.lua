@@ -65,8 +65,9 @@
 --       `found` ({ count =, current = } while a search is on, `current` from 1 or nil for none, else
 --       nil) and its `zoom` (1 is the page's size);
 --       "browser_refused", the `browser` and the `reason` ("scheme": an address a browser does not
---       go to; "address": one it is not given; "ask": one the kit does not know) it did not do what
---       the page asked; and, for a browser whose `windows` is "page", "browser_window", the
+--       go to; "address": one it is not given; "ask": one the kit does not know; "pattern": a find
+--       that is not a search's, longer than 1024 bytes or with a control character) it did not do
+--       what the page asked; and, for a browser whose `windows` is "page", "browser_window", the
 --       `browser`, the `url` a link opens and `background` (the person asked for it behind this page).
 --       An editor (`pencere.editor`) tells: "editor_ready", the `editor` and its `version`, once the
 --       host has made it (its text is posted: a page loads a document into it then); move, press
@@ -124,8 +125,11 @@
 --     and several carets; the page is told the pick as any and never reads the pasteboard, nor can
 --     it ask an editor to paste; it has no keys: no key picks it), ... } (a line's table is told back with its pick, as `entry`, with
 --     whatever else the page put in it) }, editor = { [name] = ask, or { ask, ... } },
---     browser = { [name] = { go = "https://..." } or { command = "back" | "forward" | "reload" |
---     "stop" }, or a list of them }, link = "https://...", wake = seconds,
+--     browser = { [name] = ask, or a list of them (at most 64 in a reply) }, each ask
+--     { go = "https://..." }, { zoom = size } (0.25 to 5), { command = "back" | "forward" | "stop" |
+--     "find_next" | "find_previous" | "stop_finding" | "devtools" }, { command = "reload", cache =
+--     false (load it again from where it is) }, or { command = "find", pattern = "text", case =
+--     false (either case) } (an empty pattern ends the search), link = "https://...", wake = seconds,
 --     text_size = points,
 --     pick = true or { multiple = true } (the Open panel), save = "name" or { name =, type = } (the
 --     Save panel) }

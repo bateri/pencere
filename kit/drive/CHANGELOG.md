@@ -10,7 +10,8 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 - **`Page::reading` and `reading::Reading`**: what an agent reads of a page: its elements by a six-letter
   name made of their `Id`, its fields, the lines its editors show and what is selected, the boxes that
-  scroll, its commands, where the keyboard is and whether it is at rest, written as text or as JSON.
+  scroll, its commands, where the keyboard is (a field, an editor or a browser) and whether it is at
+  rest, written as text or as JSON.
   `Headless::reading()` gives the same, so a page's author tests what an agent sees. The value of a
   secret field is never in it.
 - **`Page::rest`**: whether the module has more to do, how many calls to the program have no answer,
@@ -25,7 +26,9 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
   (`Headless::browser_asks`) and takes the state a test gives (`Headless::browser_state`). A zoom is
   held to what a browser may be zoomed to, an ask the kit does not know is refused to the page, a key
   the browser has no use for is given back to the page (`Headless::browser_unused`), and
-  `Page::browser_window` says whether the person asked for the window behind the page.
+  `Page::browser_window` says whether the person asked for the window behind the page. A find of
+  nothing ends the search, a pattern that is not a search's is refused to the page, and what a host
+  says of a browser that is not on the page is not told it.
 - **`shot::Scratch` and `shot::raster_rows_in`**: rows drawn in buffers the caller keeps from one
   frame to the next, with the page's edge repeated past them, so that a frame at the rate of keys asks
   the system for no picture's worth of memory.
