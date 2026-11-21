@@ -488,3 +488,55 @@ fn the_example_asks_for_its_first_address_when_the_browser_is_ready_and_says_wha
     );
     Ok(())
 }
+
+/// A page that asks its browser to go somewhere in the reply to a timer (`y`), to its program's
+/// answer (`z`) and to a key (any other).
+const LATER: &str = r#"
+local fired, answered = false, false
+return {
+	render = function()
+		return pencere.div():size_full()
+			:child(pencere.text((fired and "fired" or "waiting") .. " " .. (answered and "answered" or "asking")))
+			:child(pencere.browser("web"):grow(1))
+	end,
+	handle = function(event)
+		if event.type == "key" and event.key == "y" then
+			pencere.time.after(0.1, function()
+				fired = true
+				return { redraw = true, browser = { web = { go = "https://timer.example/" } } }
+			end)
+		elseif event.type == "key" and event.key == "z" then
+			pencere.call("probe", {}, function()
+				answered = true
+				return { redraw = true, browser = { web = { go = "https://call.example/" } } }
+			end)
+		elseif event.type == "key" then
+			return { browser = { web = { go = "https://key.example/" } } }
+		end
+	end,
+}
+"#;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn what_the_page_asks_of_a_browser_on_a_timer_or_its_programs_answer_reaches_the_host()
+-> Result<(), Error> {
+    let mut page = open(LATER)?;
+    page.browser_state("web", BrowserState::default())?;
+    let last = |page: &Headless| page.browser_asks().last().cloned();
+    let go = |url: &str| Some((Id::named("web"), BrowserAsk::Go(url.to_owned())));
+    page.key(Key::Character('x'), Mods::default())?;
+    assert_eq!(last(&page), go("https://key.example/"));
+    // A timer's reply: the timer ran (the page says so) and its ask reached the host.
+    page.key(Key::Character('y'), Mods::default())?;
+    page.advance(0.5)?;
+    assert!(page.says("fired asking"), "{:?}", page.words());
+    assert_eq!(last(&page), go("https://timer.example/"));
+    // The reply to the program's answer.
+    page.key(Key::Character('z'), Mods::default())?;
+    assert!(page.answer("probe", Ok(serde_json::json!({})))?);
+    assert!(page.says("fired answered"), "{:?}", page.words());
+    assert_eq!(last(&page), go("https://call.example/"));
+    assert_eq!(page.browser_asks().len(), 3, "{:?}", page.browser_asks());
+    Ok(())
+}

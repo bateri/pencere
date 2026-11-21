@@ -1149,14 +1149,16 @@ fn answered(mut reply: Reply, post: &Post<'_>) -> bool {
     reply.menu = None;
     // Whatever the reply asks of the host, it is posted: a page that hears its program puts what it
     // heard in a field or an editor (a file it read, a completion, the mark of a mistake), opens the
-    // address it was sent, and a reply that only redraws is the frame that follows.
+    // address it was sent, sends its browser to a server that came up, and a reply that only redraws
+    // is the frame that follows.
     let asks = reply.close
         || reply.keyboard.is_some()
         || reply.copy.is_some()
         || reply.link.is_some()
         || reply.text_size.is_some()
         || !reply.fill.is_empty()
-        || !reply.editor.is_empty();
+        || !reply.editor.is_empty()
+        || !reply.browser.is_empty();
     if asks {
         post.put(
             None,
@@ -1785,6 +1787,32 @@ mod tests {
         assert_eq!(waiting.replies.len(), 2, "{:?}", waiting.replies);
         assert_eq!(waiting.replies[0].reply.editor.len(), 1);
         assert_eq!(waiting.replies[1].reply.fill.len(), 1);
+    }
+
+    #[test]
+    fn what_a_page_asks_of_its_browsers_on_hearing_its_program_or_a_wake_is_posted() {
+        let mailbox = Mailbox::default();
+        let post = Post {
+            mailbox: &mailbox,
+            wake: &|| {},
+        };
+        // Only a browser's ask, as a page answers a probe that found its server up: posted, with
+        // no frame for it.
+        let mut reply = Reply::none();
+        reply.browser.push((
+            pencere_view::Id::named("web"),
+            pencere_view::BrowserAsk::Go("http://localhost:4100/".into()),
+        ));
+        assert!(!answered(reply, &post));
+        let waiting = mailbox.waiting.lock().unwrap();
+        assert_eq!(waiting.replies.len(), 1, "{:?}", waiting.replies);
+        assert_eq!(
+            waiting.replies[0].reply.browser,
+            [(
+                pencere_view::Id::named("web"),
+                pencere_view::BrowserAsk::Go("http://localhost:4100/".into())
+            )]
+        );
     }
 
     #[test]
