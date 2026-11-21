@@ -5,7 +5,7 @@
 //! the box's pixels, and the host turns them into pixels. The sandbox crate has the one rasteriser
 //! every host uses (`pencere_sandbox::figure`), so that a figure is the same on every terminal.
 
-use crate::{Color, Point};
+use crate::{Color, Point, Role, Shadow};
 
 /// A step of a path, in the points of the canvas's box (its top-left corner is the origin).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -22,20 +22,292 @@ pub enum Segment {
     Close,
 }
 
-/// How the line along a path is drawn.
+/// One colour of a gradient and where along it the colour is: `offset` is `0.0` at the gradient's
+/// start and `1.0` at its end. An offset outside that, or one that is not a number, is taken at the
+/// nearest end, and one that is less than the offset of the stop before it is taken at that.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Stroke {
-    /// Points.
-    pub width: f32,
+pub struct Stop {
+    pub offset: f32,
     pub color: Color,
 }
 
-/// One path of a canvas: its steps, the colour inside it and the line along it. One with neither
+impl Stop {
+    pub fn new(offset: f32, color: impl Into<Color>) -> Self {
+        Self {
+            offset,
+            color: color.into(),
+        }
+    }
+}
+
+/// What a fill or a line is painted with: a colour, or a gradient from one colour to others. The
+/// points of a gradient are the path's own, so that they go where the path's transform takes it.
+///
+/// A gradient with one stop is that colour, and one that cannot be drawn (its two points are the
+/// same, its radius is nothing, a point of it is not a number) is its last stop's colour all over.
+/// One with no stop paints nothing.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Brush {
+    Color(Color),
+    /// From `from` (offset `0.0`) to `to` (offset `1.0`); before and after them the first and the
+    /// last colour go on.
+    Linear {
+        from: Point,
+        to: Point,
+        stops: Vec<Stop>,
+    },
+    /// From `center` (offset `0.0`) out to `radius` from it (offset `1.0`); past it the last colour
+    /// goes on.
+    Radial {
+        center: Point,
+        radius: f32,
+        stops: Vec<Stop>,
+    },
+}
+
+impl Brush {
+    /// A gradient along the line from `(x0, y0)` to `(x1, y1)`.
+    pub fn linear(
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        stops: impl IntoIterator<Item = Stop>,
+    ) -> Self {
+        Self::Linear {
+            from: Point::new(x0, y0),
+            to: Point::new(x1, y1),
+            stops: stops.into_iter().collect(),
+        }
+    }
+
+    /// A gradient out from `(cx, cy)` to `radius` from it.
+    pub fn radial(cx: f32, cy: f32, radius: f32, stops: impl IntoIterator<Item = Stop>) -> Self {
+        Self::Radial {
+            center: Point::new(cx, cy),
+            radius,
+            stops: stops.into_iter().collect(),
+        }
+    }
+
+    /// The colour, when the brush is one and not a gradient.
+    pub fn color(&self) -> Option<Color> {
+        match self {
+            Self::Color(color) => Some(*color),
+            Self::Linear { .. } | Self::Radial { .. } => None,
+        }
+    }
+
+    /// The same brush with every colour `opacity` as faint.
+    #[must_use]
+    pub(crate) fn faded(&self, opacity: f32) -> Self {
+        let fade = |stops: &[Stop]| {
+            stops
+                .iter()
+                .map(|stop| Stop {
+                    color: stop.color.faded(opacity),
+                    ..*stop
+                })
+                .collect()
+        };
+        match self {
+            Self::Color(color) => Self::Color(color.faded(opacity)),
+            Self::Linear { from, to, stops } => Self::Linear {
+                from: *from,
+                to: *to,
+                stops: fade(stops),
+            },
+            Self::Radial {
+                center,
+                radius,
+                stops,
+            } => Self::Radial {
+                center: *center,
+                radius: *radius,
+                stops: fade(stops),
+            },
+        }
+    }
+}
+
+impl From<Color> for Brush {
+    fn from(color: Color) -> Self {
+        Self::Color(color)
+    }
+}
+
+/// How the ends of a line are drawn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Cap {
+    /// Half a circle past the end, as wide as the line.
+    #[default]
+    Round,
+    /// Cut square at the end.
+    Butt,
+    /// Cut square half the line's width past the end.
+    Square,
+}
+
+/// How a line is drawn where it turns.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Join {
+    #[default]
+    Round,
+    /// The two edges run on to meet in a point; a turn so sharp that the point would be longer than
+    /// four times half the line's width (a style sheet's default limit) is bevelled instead.
+    Miter,
+    /// Cut square across the turn.
+    Bevel,
+}
+
+/// How a path is drawn over what is under it in its canvas. Where nothing is under it (the canvas's
+/// own pixels are transparent) every one of them is the path's colour as it is, and nothing but
+/// what the same canvas drew earlier is mixed with: not the page behind the canvas.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Blend {
+    /// Laid over.
+    #[default]
+    Normal,
+    /// Added: each channel is the sum of the two, to its most. Lights that overlap grow brighter.
+    Add,
+    /// Each channel is as if two lights were shone one on the other: never darker than either.
+    Screen,
+    /// Each channel is the product of the two, as with two filters one behind the other: never
+    /// lighter than either.
+    Multiply,
+}
+
+/// How the line along a path is drawn.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Stroke {
+    /// Points.
+    pub width: f32,
+    pub brush: Brush,
+    /// The lengths, points, of the dashes and the gaps between them, in turn, from a dash. A list of
+    /// an odd number of lengths is read twice over (a style sheet's `stroke-dasharray`); one that is
+    /// empty, whose lengths are all nothing, or one of which is not a number or less than nothing,
+    /// is a line with no gaps.
+    pub dash: Vec<f32>,
+    /// How far into the dashes the line starts, points.
+    pub dash_offset: f32,
+    pub cap: Cap,
+    pub join: Join,
+}
+
+impl Stroke {
+    /// A line `width` points wide in `brush`, round where it turns and ends, with no gaps.
+    pub fn new(width: f32, brush: impl Into<Brush>) -> Self {
+        Self {
+            width,
+            brush: brush.into(),
+            dash: Vec::new(),
+            dash_offset: 0.0,
+            cap: Cap::Round,
+            join: Join::Round,
+        }
+    }
+}
+
+/// A path's own transform: where each of its points goes, and its gradients, and how wide its line
+/// is, in the canvas's points. It is the six numbers of a style sheet's `matrix(a b c d e f)`: the
+/// point `(x, y)` goes to `(a x + c y + e, b x + d y + f)`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Matrix {
+    pub a: f32,
+    pub b: f32,
+    pub c: f32,
+    pub d: f32,
+    pub e: f32,
+    pub f: f32,
+}
+
+impl Matrix {
+    /// Every point where it is.
+    pub const IDENTITY: Self = Self {
+        a: 1.0,
+        b: 0.0,
+        c: 0.0,
+        d: 1.0,
+        e: 0.0,
+        f: 0.0,
+    };
+
+    /// What a page says: scaled, then turned `rotate` degrees clockwise (the way `arc` and a spin
+    /// go), both about `origin`, then moved by `translate`. The one place the order is written.
+    #[must_use]
+    pub fn from_parts(
+        scale: (f32, f32),
+        rotate: f32,
+        translate: (f32, f32),
+        origin: Point,
+    ) -> Self {
+        let scaling = Self {
+            a: scale.0,
+            d: scale.1,
+            ..Self::IDENTITY
+        };
+        Self::moving(-origin.x, -origin.y)
+            .then(scaling)
+            .then(Self::turning(rotate, Point::new(0.0, 0.0)))
+            .then(Self::moving(origin.x + translate.0, origin.y + translate.1))
+    }
+
+    /// A turn of `degrees` clockwise about `center`.
+    #[must_use]
+    pub fn turning(degrees: f32, center: Point) -> Self {
+        let (sin, cos) = degrees.to_radians().sin_cos();
+        Self {
+            a: cos,
+            b: sin,
+            c: -sin,
+            d: cos,
+            e: center.x - (cos * center.x - sin * center.y),
+            f: center.y - (sin * center.x + cos * center.y),
+        }
+    }
+
+    fn moving(x: f32, y: f32) -> Self {
+        Self {
+            e: x,
+            f: y,
+            ..Self::IDENTITY
+        }
+    }
+
+    /// This transform, and then `next`.
+    #[must_use]
+    pub fn then(self, next: Self) -> Self {
+        Self {
+            a: next.a * self.a + next.c * self.b,
+            b: next.b * self.a + next.d * self.b,
+            c: next.a * self.c + next.c * self.d,
+            d: next.b * self.c + next.d * self.d,
+            e: next.a * self.e + next.c * self.f + next.e,
+            f: next.b * self.e + next.d * self.f + next.f,
+        }
+    }
+
+    /// Where `at` goes.
+    pub fn apply(self, at: Point) -> Point {
+        Point::new(
+            self.a * at.x + self.c * at.y + self.e,
+            self.b * at.x + self.d * at.y + self.f,
+        )
+    }
+}
+
+impl Default for Matrix {
+    fn default() -> Self {
+        Self::IDENTITY
+    }
+}
+
+/// One path of a canvas: its steps, the paint inside it and the line along it. One with neither
 /// draws nothing.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Path {
     pub segments: Vec<Segment>,
-    pub fill: Option<Color>,
+    pub fill: Option<Brush>,
     pub stroke: Option<Stroke>,
     /// Drawn with no smoothing: a pixel is the path's where its middle is inside it (or under its
     /// line), and is otherwise not touched. A point of the page is seldom a whole number of pixels
@@ -44,6 +316,14 @@ pub struct Path {
     /// shapes that touch leave a faint seam; crisp, they are whole pixels, some a pixel wider than
     /// others. A line thinner than a pixel may not be drawn at all.
     pub crisp: bool,
+    pub blend: Blend,
+    /// What the path drawn (its fill and its line) leaves behind it: moved by `(dx, dy)` and blurred
+    /// over `blur`, in the canvas's points **after** the transform (a turned shape's glow stays
+    /// round), drawn under the path in its blend. With no offset and a bright colour it is a glow.
+    /// The canvas's own pixels are all there is: a shadow past the box is cut.
+    pub shadow: Option<Shadow>,
+    /// Where the path is drawn: its points, its gradients and the width of its line all go by it.
+    pub transform: Matrix,
 }
 
 /// A path with no steps yet.
@@ -53,6 +333,9 @@ pub fn path() -> Path {
         fill: None,
         stroke: None,
         crisp: false,
+        blend: Blend::Normal,
+        shadow: None,
+        transform: Matrix::IDENTITY,
     }
 }
 
@@ -156,18 +439,62 @@ impl Path {
     /// them crosses the path an odd number of times).
     #[must_use]
     pub fn fill(mut self, color: impl Into<Color>) -> Self {
-        self.fill = Some(color.into());
+        self.fill = Some(Brush::Color(color.into()));
         self
     }
 
-    /// The line along the path, `width` points, round where it turns and ends.
+    /// The inside of the path painted with `brush`: a gradient, say.
     #[must_use]
-    pub fn stroke(mut self, width: f32, color: impl Into<Color>) -> Self {
-        self.stroke = Some(Stroke {
-            width,
-            color: color.into(),
-        });
+    pub fn fill_brush(mut self, brush: Brush) -> Self {
+        self.fill = Some(brush);
         self
+    }
+
+    /// The line along the path, `width` points, round where it turns and ends unless [`Path::cap`] and
+    /// [`Path::join`] say otherwise; the dashes it was given stay.
+    #[must_use]
+    pub fn stroke(self, width: f32, color: impl Into<Color>) -> Self {
+        self.stroke_brush(width, Brush::Color(color.into()))
+    }
+
+    /// The line along the path painted with `brush`.
+    #[must_use]
+    pub fn stroke_brush(mut self, width: f32, brush: Brush) -> Self {
+        let stroke = self.line();
+        stroke.width = width;
+        stroke.brush = brush;
+        self
+    }
+
+    /// The line broken into dashes `pattern` long and the gaps between them, in turn, starting
+    /// `offset` into it ([`Stroke::dash`]). Whichever of this and [`Path::stroke`] comes first.
+    #[must_use]
+    pub fn dash(mut self, pattern: Vec<f32>, offset: f32) -> Self {
+        let stroke = self.line();
+        stroke.dash = pattern;
+        stroke.dash_offset = offset;
+        self
+    }
+
+    /// How the ends of the line are drawn. Whichever of this and [`Path::stroke`] comes first.
+    #[must_use]
+    pub fn cap(mut self, cap: Cap) -> Self {
+        self.line().cap = cap;
+        self
+    }
+
+    /// How the line is drawn where it turns. Whichever of this and [`Path::stroke`] comes first.
+    #[must_use]
+    pub fn join(mut self, join: Join) -> Self {
+        self.line().join = join;
+        self
+    }
+
+    /// The line the options go to: one with no width until [`Path::stroke`] gives it one, which
+    /// draws nothing.
+    fn line(&mut self) -> &mut Stroke {
+        self.stroke
+            .get_or_insert_with(|| Stroke::new(0.0, Color::from(Role::Foreground)))
     }
 
     /// Whether the path is drawn with no smoothing, its pixels whole ([`Path::crisp`]): dots of a
@@ -178,29 +505,45 @@ impl Path {
         self
     }
 
-    /// The same path turned `degrees` clockwise about `center`, its own points.
+    /// How the path is drawn over what the canvas has under it ([`Blend`]).
+    #[must_use]
+    pub fn blend(mut self, blend: Blend) -> Self {
+        self.blend = blend;
+        self
+    }
+
+    /// What the path leaves behind it ([`Path::shadow`]): moved `(dx, dy)` points and blurred over
+    /// `blur` (a deviation of half of it, as a box's shadow is), in `color`. With no offset and a
+    /// bright colour, a glow.
+    #[must_use]
+    pub fn shadow(mut self, dx: f32, dy: f32, blur: f32, color: impl Into<Color>) -> Self {
+        self.shadow = Some(Shadow {
+            dx,
+            dy,
+            blur,
+            color: color.into(),
+        });
+        self
+    }
+
+    /// Where the path is drawn ([`Path::transform`]).
+    #[must_use]
+    pub fn transform(mut self, transform: Matrix) -> Self {
+        self.transform = transform;
+        self
+    }
+
+    /// The same path turned `degrees` clockwise about `center`, a point of the canvas: its transform
+    /// is its own and then the turn, the points are as they were, and a shadow's offset turns with
+    /// the picture.
     #[must_use]
     pub(crate) fn turned(mut self, degrees: f32, center: Point) -> Self {
-        let (sin, cos) = degrees.to_radians().sin_cos();
-        let turn = |at: Point| {
-            let (x, y) = (at.x - center.x, at.y - center.y);
-            Point::new(center.x + x * cos - y * sin, center.y + x * sin + y * cos)
-        };
-        for segment in &mut self.segments {
-            *segment = match *segment {
-                Segment::Move(at) => Segment::Move(turn(at)),
-                Segment::Line(at) => Segment::Line(turn(at)),
-                Segment::Quad { control, to } => Segment::Quad {
-                    control: turn(control),
-                    to: turn(to),
-                },
-                Segment::Cubic { a, b, to } => Segment::Cubic {
-                    a: turn(a),
-                    b: turn(b),
-                    to: turn(to),
-                },
-                Segment::Close => Segment::Close,
-            };
+        self.transform = self.transform.then(Matrix::turning(degrees, center));
+        if let Some(shadow) = &mut self.shadow {
+            let at = Matrix::turning(degrees, Point::new(0.0, 0.0))
+                .apply(Point::new(shadow.dx, shadow.dy));
+            shadow.dx = at.x;
+            shadow.dy = at.y;
         }
         self
     }
@@ -210,12 +553,22 @@ impl Path {
     pub(crate) fn faded(&self, opacity: f32) -> Self {
         Self {
             segments: self.segments.clone(),
-            fill: self.fill.map(|color| color.faded(opacity)),
-            stroke: self.stroke.map(|stroke| Stroke {
-                color: stroke.color.faded(opacity),
-                ..stroke
+            fill: self.fill.as_ref().map(|brush| brush.faded(opacity)),
+            stroke: self.stroke.as_ref().map(|stroke| Stroke {
+                width: stroke.width,
+                brush: stroke.brush.faded(opacity),
+                dash: stroke.dash.clone(),
+                dash_offset: stroke.dash_offset,
+                cap: stroke.cap,
+                join: stroke.join,
             }),
             crisp: self.crisp,
+            blend: self.blend,
+            shadow: self.shadow.map(|shadow| Shadow {
+                color: shadow.color.faded(opacity),
+                ..shadow
+            }),
+            transform: self.transform,
         }
     }
 }

@@ -20,11 +20,11 @@ use pencere_view::wire::{
 };
 use pencere_view::{
     AccessibleRole, Align, Anchor, Border, BrowserAsk, BrowserOptions, BrowserRefusal,
-    BrowserWindows, Button, Carry, Color, Command, Cursor, Ease, Element, Event, Extent, Family,
-    FileSource, Fill, GesturePhase, Gradient, Id, Input, Key, KeyConvention, Keyboard, Laid,
-    MOST_KEYS, Menu, MenuEntry, Mix, Mods, Motion, PROFILE_CHARS, Panel, Path, Payload, Phase,
-    Point, Rect, Reply, Rgba, Role, ScrollTo, Segment, Shadow, Shift, Shortcut, Side, Size, Source,
-    Span, State, Stroke, Tip, Track, Zoom, profile_allowed,
+    BrowserWindows, Brush, Button, Carry, Color, Command, Cursor, Ease, Element, Event, Extent,
+    Family, FileSource, Fill, GesturePhase, Gradient, Id, Input, Key, KeyConvention, Keyboard,
+    Laid, MOST_KEYS, Menu, MenuEntry, Mix, Mods, Motion, PROFILE_CHARS, Panel, Path, Payload,
+    Phase, Point, Rect, Reply, Rgba, Role, ScrollTo, Segment, Shadow, Shift, Shortcut, Side, Size,
+    Source, Span, State, Stroke, Tip, Track, Zoom, profile_allowed,
 };
 use pencere_wire::bundle::{LUA_MEDIA_TYPE, is_path};
 use pencere_wire::json::unescaped_len;
@@ -1439,12 +1439,12 @@ fn kind_out(
                     lists.items(lists.segments, &path.segments, limits.values, "a path")?;
                 out.push(Path {
                     segments: segments.iter().map(segment_out).collect(),
-                    fill: path.fill.as_ref().map(color_out),
-                    stroke: path.stroke.as_ref().map(|stroke| Stroke {
-                        width: share(stroke.width),
-                        color: color_out(&stroke.color),
+                    fill: path.fill.as_ref().map(|fill| Brush::Color(color_out(fill))),
+                    stroke: path.stroke.as_ref().map(|stroke| {
+                        Stroke::new(share(stroke.width), Brush::Color(color_out(&stroke.color)))
                     }),
                     crisp: path.crisp,
+                    ..pencere_view::path()
                 });
             }
             Kind::Canvas(out)
@@ -4850,7 +4850,10 @@ mod tests {
                 Segment::Close
             ]
         );
-        assert_eq!(paths[0].stroke.map(|stroke| stroke.width), Some(0.0));
+        assert_eq!(
+            paths[0].stroke.as_ref().map(|stroke| stroke.width),
+            Some(0.0)
+        );
         let style = &nodes[2].style;
         assert!(style.overlay);
         let anchor = style.anchor.expect("an anchor");

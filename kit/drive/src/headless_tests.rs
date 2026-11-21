@@ -1696,8 +1696,9 @@ return {
 "#;
     let first = |page: &Headless| {
         page.list().items.iter().find_map(|item| match item {
+            // The turn is in the path's transform, not in its points.
             Paint::Figure(figure) => match figure.paths[0].segments[0] {
-                pencere_view::Segment::Move(at) => Some(at),
+                pencere_view::Segment::Move(at) => Some(figure.paths[0].transform.apply(at)),
                 _ => None,
             },
             _ => None,

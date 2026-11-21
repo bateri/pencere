@@ -19,6 +19,10 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   to the page (`"ask"`) and not an error. A reply asks at most 64 things of its browsers, and a page
   that asks more fails saying so; `pencere.merge` keeps the browser asks of every reply it puts
   together, as it does an editor's. The interpreter component (`luau.wasm`) is rebuilt for it.
+- **`draw_figure` draws the effects of a path**: a shadow (blurred as a box's is, a glow with no
+  offset), linear and radial gradients (in a fill and in a line), a blend (`Add`, `Screen`,
+  `Multiply`), a line's dashes, ends and turns, and a transform. `Blur` is the blur a
+  box's shadow and a path's have in common.
 - **A picker** (`u:picker` of `@pencere/ui`): a card by the control that opened it, with a field that
   narrows its items, to choose one or several. With `multi` each row has a box and a click or enter
   turns it on or off while the card stays open, so that a page's labels or the values of a filter are

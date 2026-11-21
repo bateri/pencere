@@ -248,6 +248,8 @@ struct Tools {
     under: Vec<u8>,
     cover: Vec<f32>,
     own: Vec<f32>,
+    /// The room the blur of a shadow works in.
+    blur: pencere_sandbox::Blur,
     grown: u32,
 }
 
@@ -862,56 +864,6 @@ fn rounded(rect: Rect, radii: [f32; 4]) -> Option<tiny_skia::Path> {
     path.finish()
 }
 
-/// One pass of a box blur across and down a grid of `size` (width, height), the box as wide as three
-/// passes of it make a Gaussian of deviation `sigma` (the width of the classic "boxes for a
-/// Gaussian": `sqrt(12 sigma^2 / 3 + 1)`, odd).
-fn blur(grid: &mut [f32], (w, h): (usize, usize), sigma: f32) {
-    let wide = ((12.0 * sigma * sigma / 3.0 + 1.0).sqrt().floor() as usize) | 1;
-    let radius = wide / 2;
-    let mut line = vec![0.0_f32; w.max(h)];
-    for row in 0..h {
-        for (column, slot) in line.iter_mut().take(w).enumerate() {
-            *slot = grid.get(row * w + column).copied().unwrap_or(0.0);
-        }
-        smooth(&mut line, w, radius);
-        for (column, value) in line.iter().take(w).enumerate() {
-            if let Some(cell) = grid.get_mut(row * w + column) {
-                *cell = *value;
-            }
-        }
-    }
-    for column in 0..w {
-        for (row, slot) in line.iter_mut().take(h).enumerate() {
-            *slot = grid.get(row * w + column).copied().unwrap_or(0.0);
-        }
-        smooth(&mut line, h, radius);
-        for (row, value) in line.iter().take(h).enumerate() {
-            if let Some(cell) = grid.get_mut(row * w + column) {
-                *cell = *value;
-            }
-        }
-    }
-}
-
-/// The first `n` of `line`, each the mean of the ones `radius` either side (what is past an end is
-/// nothing).
-fn smooth(line: &mut [f32], n: usize, radius: usize) {
-    let source: Vec<f32> = line.iter().take(n).copied().collect();
-    let scale = 1.0 / (2 * radius + 1) as f32;
-    let mut sum: f32 = source.iter().take(radius + 1).sum();
-    for at in 0..n {
-        if let Some(out) = line.get_mut(at) {
-            *out = sum * scale;
-        }
-        if let Some(gone) = at.checked_sub(radius).and_then(|i| source.get(i)) {
-            sum -= gone;
-        }
-        if let Some(came) = source.get(at + radius + 1) {
-            sum += came;
-        }
-    }
-}
-
 fn ink([r, g, b, a]: [f32; 4]) -> Ink<'static> {
     let mut paint = Ink::default();
     if let Some(color) = tiny_skia::Color::from_rgba(
@@ -1052,9 +1004,7 @@ impl Canvas<'_, '_> {
                 return;
             }
         }
-        for _ in 0..3 {
-            blur(&mut tools.cover, (w, h), sigma);
-        }
+        tools.blur.coverage(&mut tools.cover, (w, h), sigma);
         let (cover, own) = (&tools.cover, &tools.own);
         let stride = self.pixmap.width() as usize;
         let pixels = self.pixmap.data_mut();

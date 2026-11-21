@@ -296,8 +296,9 @@ fn a_canvas_hands_its_paths_to_the_host_in_its_box_as_faint_as_it_is() {
     assert_eq!(figure.rect, Rect::new(10.0, 10.0, 40.0, 40.0));
     assert_eq!(figure.scale, 2.0);
     assert_eq!(figure.paths[0].segments, ring.segments);
-    let stroke = figure.paths[0].stroke.expect("a line");
-    assert_eq!((stroke.width, stroke.color.alpha), (2.0, 0.5));
+    let stroke = figure.paths[0].stroke.as_ref().expect("a line");
+    let color = stroke.brush.color().expect("a colour");
+    assert_eq!((stroke.width, color.alpha), (2.0, 0.5));
     // Three quarters of a turn: a move and three quarter curves, ending at nine o'clock.
     assert_eq!(ring.segments.len(), 4);
     let crate::Segment::Cubic { to, .. } = ring.segments[3] else {

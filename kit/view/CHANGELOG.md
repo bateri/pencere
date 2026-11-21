@@ -21,6 +21,13 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
   `PATTERN_BYTES` or with a control character (`find_refusal`, `BrowserRefusal::Pattern`). A key the
   browser has no use for is the page's. Its accessible role is `browser`, and a second room of the
   same name draws no browser.
+- **A path can glow, be painted with a gradient, mix with what is under it, have a dashed line and be
+  moved**: `Path::shadow(dx, dy, blur, colour)` (a shadow of the path, a glow with no offset),
+  `Brush` (a colour, `Brush::linear` or `Brush::radial` with `Stop`s) for `Path::fill_brush` and
+  `Path::stroke_brush`, `Path::blend(Blend)` (`Normal`, `Add`, `Screen`, `Multiply`),
+  `Path::dash(lengths, offset)`, `Path::cap(Cap)` and `Path::join(Join)` for the line, and
+  `Path::transform(Matrix)` (`Matrix::from_parts` scales, turns and moves in one fixed order).
+  `Brush::color` is the colour of a brush that is one.
 - **Sharp dots and pixel art** (`path().crisp(true)`): a path can be drawn with no smoothing, so
   dots and bars stay whole pixels and meet without a seam at any text size.
 - **An element can say what it carries out of the view** (`Element::carry(Carry)`, with
@@ -62,6 +69,10 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
 
 ### Changed
 
+- **Breaking: a path is painted with a `Brush`.** `Path::fill` is an `Option<Brush>` and `Stroke` has
+  a `brush` where it had a `color`, with `dash`, `dash_offset`, `cap` and `join`, and is no longer
+  `Copy`. `Path::fill(colour)` and `Path::stroke(width, colour)` are called as they were. A path
+  that is turned for a spin keeps its points and its `transform` turns instead.
 - **Breaking:** `Picture` has `shown`, so a host that builds one with a struct literal names it
   (`crop` where it knows no better: `(0, 0, 1, 1)` is all of the image).
 - **Breaking: an element that is no editor holds no room for an editor's options**

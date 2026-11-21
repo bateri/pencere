@@ -1982,7 +1982,10 @@ fn a_script_says_texts_of_many_looks_canvases_overlays_commands_and_roles_as_the
         panic!("a canvas: {:?}", nodes[2].kind);
     };
     assert_eq!(paths.len(), 2);
-    assert_eq!(paths[0].fill, Some(Role::Raised(3).solid()));
+    assert_eq!(
+        paths[0].fill,
+        Some(pencere_view::Brush::Color(Role::Raised(3).solid()))
+    );
     assert_eq!(paths[0].segments.len(), 5);
     assert!(paths[0].crisp, "crisp() draws the path with no smoothing");
     assert!(!paths[1].crisp, "crisp(false) takes it back");
@@ -1995,7 +1998,10 @@ fn a_script_says_texts_of_many_looks_canvases_overlays_commands_and_roles_as_the
         (to.x - 10.0).abs() < 1e-3 && (to.y - 18.0).abs() < 1e-3,
         "{to:?}"
     );
-    assert_eq!(paths[1].stroke.map(|stroke| stroke.width), Some(2.0));
+    assert_eq!(
+        paths[1].stroke.as_ref().map(|stroke| stroke.width),
+        Some(2.0)
+    );
     let anchor = nodes[3].style.anchor.expect("an anchor");
     assert!(nodes[3].style.overlay);
     assert_eq!(

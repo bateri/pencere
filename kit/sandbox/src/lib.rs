@@ -14,6 +14,7 @@
 //! This crate knows no window, no renderer and no terminal: it depends on the engine and on the
 //! runtime, and moves out of the workspace with the engine.
 
+mod blur;
 mod decode;
 mod engine_config;
 mod figure;
@@ -61,6 +62,7 @@ mod pdf_tests;
 #[cfg(test)]
 mod test_support;
 
+pub use blur::Blur;
 pub use figure::{FigureKey, draw_figure, figure_key};
 pub use images::{Arrival, Assets, Bitmap, Diagnostic, ImageLimits, Images};
 pub use luau::{COMPONENT as LUAU_COMPONENT, Script};

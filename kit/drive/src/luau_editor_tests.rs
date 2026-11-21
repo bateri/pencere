@@ -741,7 +741,7 @@ fn a_page_says_which_spaces_and_tabs_its_editor_shows_and_whether_its_indent_has
         .iter()
         .filter(|item| {
             matches!(item, Paint::Figure(figure)
-                if figure.paths.iter().any(|path| role(path.stroke.map(|line| line.color)) == Some(Role::Accent)))
+                if figure.paths.iter().any(|path| role(path.stroke.as_ref().and_then(|line| line.brush.color())) == Some(Role::Accent)))
         })
         .count();
     let guides = painted

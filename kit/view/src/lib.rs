@@ -74,7 +74,7 @@ pub use element::{
 };
 pub use fades::{FADE_SECONDS, Fades};
 pub use field::{FieldState, Fill};
-pub use figure::{Path, Segment, Stroke, path};
+pub use figure::{Blend, Brush, Cap, Join, Matrix, Path, Segment, Stop, Stroke, path};
 pub use geometry::{Point, Rect, Size};
 pub use id::Id;
 pub use input::{
@@ -107,6 +107,8 @@ mod carry_tests;
 mod commands_tests;
 #[cfg(test)]
 mod editor_tests;
+#[cfg(test)]
+mod figure_tests;
 #[cfg(test)]
 mod image_tests;
 #[cfg(test)]

@@ -1205,10 +1205,12 @@ fn marks_drawn(host: &mut Host, role: Role, lines: &[&str]) -> Vec<String> {
                 ('□', quad.rect)
             }
             Paint::Figure(figure)
-                if figure
-                    .paths
-                    .iter()
-                    .any(|path| path.stroke.and_then(|line| line.color.role()) == Some(role)) =>
+                if figure.paths.iter().any(|path| {
+                    path.stroke
+                        .as_ref()
+                        .and_then(|line| line.brush.color()?.role())
+                        == Some(role)
+                }) =>
             {
                 ('→', figure.rect)
             }
@@ -1649,10 +1651,13 @@ fn an_editor_that_says_neither_draws_as_it_did_and_what_they_draw_is_only_added(
                 ours(quad.fill.and_then(|fill| fill.role()))
                     || ours(quad.border.as_ref().and_then(|border| border.color.role()))
             }
-            Paint::Figure(figure) => figure
-                .paths
-                .iter()
-                .any(|path| ours(path.stroke.and_then(|line| line.color.role()))),
+            Paint::Figure(figure) => figure.paths.iter().any(|path| {
+                ours(
+                    path.stroke
+                        .as_ref()
+                        .and_then(|line| line.brush.color()?.role()),
+                )
+            }),
             _ => false,
         }
     };
