@@ -33,7 +33,11 @@ fn runs(list: &DrawList) -> Vec<&crate::Run> {
         .iter()
         .filter_map(|item| match item {
             Paint::Text(run) => Some(run),
-            Paint::Quad(_) | Paint::Image(_) | Paint::Figure(_) | Paint::Editor(_) => None,
+            Paint::Quad(_)
+            | Paint::Image(_)
+            | Paint::Figure(_)
+            | Paint::Editor(_)
+            | Paint::Browser(_) => None,
         })
         .collect()
 }
@@ -43,7 +47,11 @@ fn quads(list: &DrawList) -> Vec<&crate::Quad> {
         .iter()
         .filter_map(|item| match item {
             Paint::Quad(quad) => Some(quad),
-            Paint::Text(_) | Paint::Image(_) | Paint::Figure(_) | Paint::Editor(_) => None,
+            Paint::Text(_)
+            | Paint::Image(_)
+            | Paint::Figure(_)
+            | Paint::Editor(_)
+            | Paint::Browser(_) => None,
         })
         .collect()
 }

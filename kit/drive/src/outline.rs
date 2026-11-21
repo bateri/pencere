@@ -1,6 +1,7 @@
 //! Where a page stands in the host's view, and what the host keeps of it besides its pixels: the
 //! fields it puts over it, what a screen reader says of it, its tooltips and its commands.
 
+use crate::browsers::Browser;
 use pencere_view::{Accessible, AccessibleRole, Command, FieldKind, Id, Laid, Point, Rect, State};
 
 /// Where a page stands in the host's view: below the host's own `inset` points (a strip of its
@@ -83,6 +84,8 @@ pub struct Field {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Outline {
     pub fields: Vec<Field>,
+    /// The browsers of the page, as the page names them ([`crate::Browser`]).
+    pub browsers: Vec<Browser>,
     pub accessible: Vec<Accessible>,
     /// What the page says of a part of it while the pointer rests there, innermost last.
     pub tips: Vec<Tip>,
@@ -120,6 +123,11 @@ impl Outline {
     /// The outline of `laid`, placed in the host's view as `at` says.
     pub fn of(laid: &Laid, at: Placement) -> Self {
         Self {
+            browsers: laid
+                .browsers()
+                .into_iter()
+                .map(|room| Browser::of(room, at))
+                .collect(),
             fields: laid
                 .fields()
                 .into_iter()

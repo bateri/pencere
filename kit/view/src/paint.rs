@@ -145,6 +145,20 @@ pub struct EditorSlot {
     pub grounds: Vec<Color>,
 }
 
+/// Where a browser of the host's is drawn ([`crate::Element::browser`]): the host puts what its
+/// engine draws in this place of the list, over the room's fill and border and under what covers it
+/// (what the page drew inside the room, the overlays, the bars of the boxes that scroll).
+#[derive(Clone, Debug, PartialEq)]
+pub struct BrowserSlot {
+    pub id: Id,
+    /// The room, pixels.
+    pub rect: Rect,
+    /// What of it is seen: nothing is drawn outside it.
+    pub clip: Rect,
+    /// How much of what is drawn shows: the opacity of the room and the boxes that hold it.
+    pub opacity: f32,
+}
+
 /// One thing the page draws.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Paint {
@@ -154,6 +168,8 @@ pub enum Paint {
     Figure(Figure),
     /// The place of an editor: the host draws its editor there.
     Editor(EditorSlot),
+    /// The place of a browser: the host draws its engine's page there.
+    Browser(BrowserSlot),
 }
 
 /// A page's draw list.
@@ -229,6 +245,16 @@ impl Laid {
                             scroll: Point::new(node.scroll.0, node.scroll.1),
                             opacity,
                             grounds: self.grounds_under(index),
+                        }));
+                    }
+                }
+                Content::Browser => {
+                    if let Some(id) = node.meta.id {
+                        list.items.push(Paint::Browser(BrowserSlot {
+                            id,
+                            rect: node.rect,
+                            clip: node.clip.intersect(node.rect),
+                            opacity,
                         }));
                     }
                 }

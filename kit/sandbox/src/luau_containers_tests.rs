@@ -525,6 +525,9 @@ impl Pair {
             | Event::Saving(_)
             | Event::Pointer { .. }
             | Event::EditorReady { .. }
+            | Event::Browser { .. }
+            | Event::BrowserRefused { .. }
+            | Event::BrowserWindow { .. }
             | Event::Gutter(_)
             | Event::Hover(_)
             | Event::Target(_)

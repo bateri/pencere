@@ -250,6 +250,7 @@ local ROLES = {
 	field = "field",
 	textbox = "field",
 	editor = "editor",
+	browser = "browser",
 	text = "text",
 	link = "link",
 	checkbox = "checkbox",
@@ -452,6 +453,37 @@ function Locator:click(options)
 	return plain_click(self)
 end
 
+-- The browser the locator names by its id (`page:get_by_id("web")`).
+local function browser_of(loc, what)
+	if loc.kind ~= "id" then
+		fail(what .. ": a browser is named by its id: page:get_by_id(\"web\")")
+	end
+	if not loc.page.raw:has_browser(loc.args.id) then
+		fail(string.format("%s: nothing on the page is a browser named %q", what, loc.args.id))
+	end
+	return loc.args.id
+end
+
+-- locator:navigations(): what the page asked of this browser, oldest first, each { go = "https://…" }
+-- or { command = "back" | "forward" | "reload" | "stop" }: an address a browser does not go to is
+-- not among them (the page was told it was refused).
+function Locator:navigations()
+	return self.page.raw:browser_asks(browser_of(self, "navigations"))
+end
+
+-- locator:say({ status =, message =, url =, title =, loading =, back =, forward =, error = }): the
+-- engine of this browser says what it is and does; a state with no `status` is ready. The page is
+-- told it as it is by a host that shows browsers.
+function Locator:say(state)
+	return self.page.raw:browser_state(browser_of(self, "say"), state or {})
+end
+
+-- locator:open_window(url): a link of this browser opens a new window, told to a page whose browser
+-- has `windows = "page"`.
+function Locator:open_window(url)
+	return self.page.raw:browser_window(browser_of(self, "open_window"), url)
+end
+
 function Locator:wheel(dx, dy)
 	local item, x, y = reach(self, "wheel")
 	if item.role == "id" then
@@ -621,7 +653,7 @@ end
 function M.__role(page, role, options, scope)
 	local canonical = ROLES[role]
 	if not canonical then
-		fail("there is no role " .. tostring(role) .. " (the roles are button, field, editor, text, link, checkbox, switch, radio, tab, menuitem, heading, image, progress, slider)")
+		fail("there is no role " .. tostring(role) .. " (the roles are button, field, editor, browser, text, link, checkbox, switch, radio, tab, menuitem, heading, image, progress, slider)")
 	end
 	options = options or {}
 	return locator(page, "role", {
@@ -648,7 +680,8 @@ for _, name in ipairs({
 	"click_at", "double_click_at", "right_click_at", "focus_editor", "select", "caret_to", "edit",
 	"command", "pick", "resize", "zoom", "set_active", "set_terminal_look", "refresh", "advance", "step", "idle", "hide",
 	"now", "asks_at", "settle", "tell", "words", "says", "words_in", "tree_words", "bounds", "spills",
-	"editor", "editor_text", "focus", "field", "outline", "cursor", "pasteboard", "links", "text_size", "menu",
+	"editor", "editor_text", "browsers", "browser_asks", "browser_keys", "browser_state", "browser_window",
+	"has_browser", "focus", "field", "outline", "cursor", "pasteboard", "links", "text_size", "menu",
 	"closed", "diagnostics", "ended", "sent", "received", "push", "answer", "fail", "lent",
 	"give_back", "log", "fill", "scroll_to", "wheel", "drop_files", "click_gutter", "hover_gutter",
 	"gutter_cell", "zone", "anchor_rect", "dwell", "hold", "release", "click_holding",

@@ -8,6 +8,8 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
 
 ### Added
 
+- **A browser's room** shows a placeholder, "This terminal cannot show a browser.", where a page asks for
+  one.
 - **A program's own screen: `serve` and `run`.** Where no terminal hosts the program's view, the
   program's `lua` page is drawn as pictures in a terminal that speaks Kitty graphics, in its own faces,
   with shadows, rounded corners and icons. A terminal with no Kitty graphics, one that does not say how

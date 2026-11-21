@@ -10,6 +10,11 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 - **`Laid::scroll_areas`**: the boxes that scroll and have a name, each with how far it is scrolled and
   the part of it that shows.
+- **A browser the host keeps** (`Element::browser`, `BrowserOptions`, `BrowserAsk`, `BrowserState`,
+  `Laid::browsers`, `Paint::Browser`): the room of a browser the host draws, as an editor's room is.
+  The page asks it to go, back, forward, reload and stop, and is told its address, title, status and
+  errors (`Event::Browser`, `BrowserRefused`, `BrowserWindow`). A browser goes only to `http`,
+  `https`, `about:blank` and `data:` addresses (`go_refusal`). Its accessible role is `browser`.
 - **Sharp dots and pixel art** (`path().crisp(true)`): a path can be drawn with no smoothing, so
   dots and bars stay whole pixels and meet without a seam at any text size.
 - **An element can say what it carries out of the view** (`Element::carry(Carry)`, with

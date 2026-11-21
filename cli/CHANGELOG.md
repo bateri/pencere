@@ -6,6 +6,13 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ## [Unreleased]
 
+### Added
+
+- **`pencere test` knows a browser**: the role `browser`, `page:browsers()`, and for a browser's
+  locator `get_by_id(name)` the `navigations()` the page asked for, `say(state)` to tell the page
+  what its engine would and `open_window(url)`; `test.open({ browsers = false })` is a host that shows
+  none.
+
 ### Changed
 
 - **`pencere dist --files` takes the program without a terminal too**: a directory may have

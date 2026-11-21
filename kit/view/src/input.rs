@@ -6,7 +6,7 @@
 //! host can do: pop up a menu, move the keyboard into a text field, copy, close the page.
 
 use crate::edit::{Edited, EditorAsk, Found, Refusal, Selection};
-use crate::{Fill, Id, Phase, Point, Shortcut};
+use crate::{BrowserAsk, BrowserRefusal, BrowserState, Fill, Id, Phase, Point, Shortcut};
 
 /// A key the page reads. Letters, symbols and the space bar come as [`Key::Character`] — the
 /// character the key makes.
@@ -230,9 +230,28 @@ pub enum Event {
         field: Id,
         text: String,
     },
-    /// The keyboard went to the field the person clicked into, or back to the page (`None`)
-    /// when the field let it go of itself; not said when it went where the page sent it.
+    /// The keyboard went to the field (or the editor, or the browser) the person clicked into, or
+    /// back to the page (`None`) when it let it go of itself; not said when it went where the page
+    /// sent it.
     Focus(Option<Id>),
+    /// Where the host's browser named `browser` is and what it is doing, all of it, told each time
+    /// any of it changes ([`BrowserState`]).
+    Browser {
+        browser: Id,
+        state: Box<BrowserState>,
+    },
+    /// What the page asked of the browser named `browser` was not done, and nothing of it was
+    /// ([`BrowserRefusal`]).
+    BrowserRefused {
+        browser: Id,
+        reason: BrowserRefusal,
+    },
+    /// A link of the browser named `browser` opens a new window, and the page said it opens none
+    /// itself ([`crate::BrowserWindows::Page`]): the address, for the page to do with as it likes.
+    BrowserWindow {
+        browser: Id,
+        url: String,
+    },
     /// The person picked the entry with this `index` (from 0, separators counted) of the menu the
     /// host showed, the one that had this `serial` ([`Menu::serial`]): the host gives the number
     /// back with the pick, so that the page is told the entry of the menu the person saw even when
@@ -376,8 +395,9 @@ pub enum Cursor {
 pub enum Keyboard {
     /// The page's own keys.
     Page,
-    /// The text field or the editor named by this id, which the host put over the page (the room
-    /// of an element that said it is one): the page asks for the keyboard to type into it.
+    /// The text field, the editor or the browser named by this id, which the host put over the
+    /// page (the room of an element that said it is one): the page asks for the keyboard to type
+    /// into it.
     Field(Id),
 }
 
@@ -555,6 +575,9 @@ pub struct Reply {
     /// What the page asks of its editors, in order: a piece of a document to load, changes,
     /// selections, colours and marks ([`EditorAsk`]), each with the editor's name.
     pub editor: Vec<(Id, EditorAsk)>,
+    /// What the page asks of its browsers, in order, each with the browser's name
+    /// ([`BrowserAsk`]). The drive holds an address in them to the rule of `link`, below.
+    pub browser: Vec<(Id, BrowserAsk)>,
     /// A link the page asks the host to open in the person's browser, as a web page's `link`
     /// message asks (specification §9.7, §9.8): an `http` or `https` address, every byte of it
     /// printable ASCII without the space, at most 8192 bytes. The host should ask the person first,

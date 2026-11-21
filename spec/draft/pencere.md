@@ -1703,6 +1703,18 @@ view's or its program's: the host's editor knows none, and does only what the vi
 how it is written (how it comments, the rules of its indent, folding by the indent: `kit/SPEC.md`,
 Section 2.1). Places in a document are bytes of its UTF-8 text, counted from 1 (`kit/SPEC.md`, Section 2.7).
 
+**Browsers.** A kit view may hold browsers (`kit/SPEC.md`, Section 2.1): rooms in which the host puts
+a web browser of its own, which loads the pages and draws them, keeps their history, and takes the
+person's pointer and keys as a browser does. The browser and the pages in it are the host's: the view
+is told where the browser is and what it is doing (its address, its title, whether it loads, its
+status), and asks it to go to an address, back, forward, to reload and to stop, and nothing else; it
+is given no part of what is loaded, and a page in the browser has no bridge to the view or to its
+program (Section 9.4 is a page of the kind `web`'s, and this is not one). A browser lives as long as
+an element of its name is on the view, hidden or not, and its history goes when it leaves. A host that
+shows no browser (a terminal that draws in cells, one that has no engine) says so to the view as a
+status and draws a placeholder in the room; a view never waits for a state no host will give. What a
+browser may load, and what it keeps, is in Section 12.5.
+
 **Colours.** A page of the kit says a colour in one of two ways. The way to prefer is a **role**
 of the theme, which follows the theme the terminal wears: the nine roles of its theme
 (`background`, `foreground`, `dim`, `accent`, `cursor`, `success`, `error`, `info`, `warning`),
@@ -2237,6 +2249,60 @@ SHOULD keep an indication outside the view's area that a view is shown and
 where its program runs, because a view that covers the pane could imitate the
 terminal.
 
+### 12.5 Browsers of a kit view
+
+A browser (Section 9.8) shows pages of the web, which the view did not write and the program may
+not control, on the person's machine. The rules below are the host's, and none of them is the
+view's to change.
+
+**No question is asked.** The person who opened the program has accepted it, and what a browser
+loads comes from the machine the program runs on, so the program reaches nothing it did not
+reach before: the question of Section 12.2 (`access` and `permissions` of a view of the kind `web`) is
+not asked of a browser of a kit view, and it has no `access`.
+
+**The network is the program's.** Every request a browser makes, and every connection a page opens,
+goes out by a route that reaches the machine the program runs on and from there, not from the person's
+machine, so that `localhost` in a page is the program's `localhost`. A browser does not guess the
+route: where the host has none that it has shown reaches the program's own loopback, the browser's
+status says so (`no_route`) and it loads nothing. The engine's own channels are closed as Section 12.2
+closes them for a web view (a peer connection, a connection opened ahead of a request, a lookup of a
+name ahead of one) and so is every request of the engine's own that no page made (updates, the time,
+components): none of it leaves by any route.
+
+**Addresses.** A browser goes only to `http`, `https`, `about:blank` and `data:` addresses. The view's
+ask to go to another is not given to it (`kit/SPEC.md`, Section 2.1), and the host does not leave the
+set where the page goes elsewhere of itself: a redirect, a link, a script that sets `location` or
+opens a window. A `file:` address is the person's files, and the machine the program runs on may not
+be the person's.
+
+**Nothing opens of itself.** What a page does that leaves the browser's room is the person's to allow
+and the host's to do: a link that opens a new window opens in the same browser unless the view said it
+opens them itself, and then the host opens none; a file chosen for the page is chosen by the person in
+a panel of the host's; a page's request for a permission (the camera, the microphone, the position,
+notifications, the pasteboard) is refused, since the person was not asked of them.
+
+**Downloads are asked.** A file a page offers is saved only after the person has been asked, naming
+the file and its size, and then where the system puts the person's downloads and with the system's
+mark of a file that came from the internet. A host does not save what a page sends without asking:
+a browser that anything on the program's machine can make load a page would write the person's
+files.
+
+**What is kept.** What the sites of a browser keep (cookies, storage, the cache) is kept by the host
+on the person's machine under a key of three parts: the machine the program runs on, the name the
+program gave itself (Section 6.3), and the profile's name that the view gave. A browser with no
+profile keeps nothing: it is gone with the browser. What is kept under one key is not given to a
+browser of another, and is never given to the program. The boundary is the machine, no finer:
+the sessions of two servers, and of two programs, do not mix by mistake, and what the person's own
+browser keeps is not reachable; but a process on the machine the program runs on that the host lets
+drive its panes reaches the browsers of that machine's panes as it reaches their screens, and a
+program that says another program's name opens that program's profile. The session a person signs in
+to in a browser is open to that machine.
+
+**The cage.** The engine runs a page in a sandbox of its own (a process with no more of the
+system than the engine's own sandbox leaves it), apart from the host and from the engine's other
+pages. A host whose engine cannot run its pages in one does not open a browser: its status is
+`unsupported`.
+
 ## 13. Fallback
 
 - **stdin or stdout is not a tty**, and the program is not a filter (below). The program is started
@@ -2335,6 +2401,17 @@ out is a link it asks the host to open, which the host holds to the rule of a pa
 9.7 and 9.8). The words
 a failed view's `closed` carries (`message`) are the view's own and are printed by the program, not
 by the host: a program that prints them treats them as it treats any text from another party.
+
+**A browser in a view.** A view that holds a browser can have the person's machine load any page of
+the web, and the program, which may be on another machine, can ask it to: the harm is bounded by
+Section 12.5. The pages come from the program's machine, not the person's, by a route the host has
+shown reaches it; a `file:` address, and any other kind than the four of Section 12.5, is never given
+to the engine; the engine runs a page in a cage and opens nothing of itself; what a page keeps is the
+person's, kept apart from every other machine's and never given to the program; a page has no bridge
+to the view or the program, and the view has no part of what is loaded. What the protocol cannot
+stop is what the web does: a page the program asked for can show the person a form and take what is
+typed in it, so a view that opens a browser is as trusted as a program that opens a web page for the
+person.
 
 **Resource use.** Frame, message and bundle limits (Sections 4.6, 8.2) bound what a
 receiver buffers, and the limit on what waits for a program that does not read (Section 4.8) bounds

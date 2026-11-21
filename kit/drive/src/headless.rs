@@ -33,6 +33,7 @@
 //! feature `program`), or a program in another process. Every point is the host's: with no strip
 //! and no zoom, the page's own.
 
+mod browsing;
 mod field;
 mod files;
 #[cfg(feature = "program")]
@@ -50,10 +51,10 @@ use pencere_editor::Buffer;
 use pencere_sandbox::{Answer, Assets, Fault, Images, ModuleLimits, Program, Runner, Script};
 use pencere_view::wire::Kind;
 use pencere_view::{
-    Button, Cursor, DrawList, Drawing, Element, Event, FieldKind, FileEntry, FileSource, Fill,
-    Font, GesturePhase, Id, Input, Key, KeyConvention, Keyboard, Laid, Measure, Menu, MenuEntry,
-    Metrics, Mods, Paint, Panel, Phase, Point, Rect, Saving, Shortcut, Size, TerminalLook,
-    WallTime,
+    BrowserAsk, Button, Cursor, DrawList, Drawing, Element, Event, FieldKind, FileEntry,
+    FileSource, Fill, Font, GesturePhase, Id, Input, Key, KeyConvention, Keyboard, Laid, Measure,
+    Menu, MenuEntry, Metrics, Mods, Paint, Panel, Phase, Point, Rect, Saving, Shortcut, Size,
+    TerminalLook, WallTime,
 };
 
 use field::{Done, Held};
@@ -65,7 +66,9 @@ pub use pencere_wire::messages::Error as Failure;
 pub use serde_json::Value;
 
 use crate::reading::{Reading, ReadingInput};
-use crate::{CarryOut, Copied, Field, FrameAt, Host, Outline, Page, Route, Setup, Unreachable};
+use crate::{
+    Browser, CarryOut, Copied, Field, FrameAt, Host, Outline, Page, Route, Setup, Unreachable,
+};
 
 /// A frame of a host that draws sixty a second: how far apart [`Headless::advance`] draws the
 /// frames of a page that moves, and the soonest after one that the next is drawn.
@@ -289,6 +292,9 @@ pub enum Focus {
     Field(Id),
     /// The page's editor of this id.
     Editor(Id),
+    /// The host's browser of this id: its keys are the browser's, but for those the page keeps
+    /// ([`pencere_view::BrowserOptions::keys`]).
+    Browser(Id),
 }
 
 /// What the page is made of.
@@ -324,6 +330,8 @@ pub struct Opening<P: Peer = Calls> {
     patience: Duration,
     /// Files the program attached before the page opened (`sha256:` names).
     attached: Vec<Arc<[u8]>>,
+    /// The host shows browsers ([`Opening::browsers`]).
+    browsers: bool,
     peer: P,
 }
 
@@ -379,6 +387,10 @@ struct Seen {
     panel: Option<Panel>,
     /// The panels the page asked for while one was up: dropped, as a terminal drops them.
     dropped_panels: usize,
+    /// What the page asked of its browsers, oldest first.
+    browser_asks: Vec<(Id, BrowserAsk)>,
+    /// The keys the browser that had the keyboard took, oldest first.
+    browser_keys: Vec<(Id, Key, Mods)>,
 }
 
 /// The files beside the page's bundle, as the headless host holds them: those the test attached
@@ -463,6 +475,8 @@ struct Deliver<'a, P> {
     /// has a field of its own only once a frame has laid it out, so a text for another is passed
     /// over, and the keyboard sent to one goes back to the page.
     fields: &'a [Field],
+    /// The browsers the host has put on the page, as the last frame laid them out.
+    browsers: &'a [Browser],
 }
 
 impl<P: Peer> Host for Deliver<'_, P> {
@@ -489,9 +503,22 @@ impl<P: Peer> Host for Deliver<'_, P> {
         // An editor's is the drive's, and the drive has given it: a field of the host's that has it
         // is told apart from an editor when the keyboard is used.
         self.seen.field = match to {
-            Keyboard::Field(id) if self.fields.iter().any(|laid| laid.id == id) => Some(id),
+            Keyboard::Field(id)
+                if self.fields.iter().any(|laid| laid.id == id)
+                    || self.browsers.iter().any(|laid| laid.id == id) =>
+            {
+                Some(id)
+            }
             Keyboard::Field(_) | Keyboard::Page => None,
         };
+    }
+
+    fn browser(&mut self, browser: Id, ask: BrowserAsk) {
+        // A browser the host has not made yet (one the page names in this reply) is passed over, as a
+        // field's is.
+        if self.browsers.iter().any(|laid| laid.id == browser) {
+            self.seen.browser_asks.push((browser, ask));
+        }
     }
 
     fn text_size(&mut self, points: i32) {
@@ -592,6 +619,7 @@ impl Opening<Calls> {
             draws: vec![Drawing::Shadow],
             patience: Duration::from_secs(60),
             attached: Vec::new(),
+            browsers: true,
             peer: Calls::new(),
         }
     }
@@ -701,6 +729,7 @@ impl<P: Peer> Opening<P> {
             draws: self.draws,
             patience: self.patience,
             attached: self.attached,
+            browsers: self.browsers,
             peer,
         }
     }
@@ -762,6 +791,7 @@ impl<P: Peer> Opening<P> {
         };
         page.record(true);
         page.set_carry(true);
+        page.set_browsers(self.browsers);
         let mut headless = Headless {
             page,
             clock,
@@ -834,6 +864,7 @@ impl<P: Peer> Headless<P> {
                 seen: &mut self.seen,
                 peer: &mut self.peer,
                 fields: self.page.fields(),
+                browsers: self.page.browsers(),
             });
             // A program that owes the page an answer is given the time it takes, all of the
             // settling's patience at the most: one that says nothing in all of it never answered.
@@ -1065,6 +1096,7 @@ impl<P: Peer> Headless<P> {
             seen: &mut self.seen,
             peer: &mut self.peer,
             fields: self.page.fields(),
+            browsers: self.page.browsers(),
         };
         for held in painted.held {
             held.deliver(&mut host);
@@ -1102,6 +1134,11 @@ impl<P: Peer> Headless<P> {
         }
         if let Focus::Field(field) = self.focus() {
             self.field_key(field, key, mods);
+            self.settle()?;
+            return Ok(Route::NotEditor);
+        }
+        if let Focus::Browser(browser) = self.focus() {
+            self.browser_key(browser, key, mods);
             self.settle()?;
             return Ok(Route::NotEditor);
         }
@@ -1179,7 +1216,7 @@ impl<P: Peer> Headless<P> {
                 self.page.text(field, &held);
             }
             Focus::Editor(_) => self.page.editors().type_text(text),
-            Focus::Page => return Err(Error::NoEditor),
+            Focus::Page | Focus::Browser(_) => return Err(Error::NoEditor),
         }
         self.settle()
     }
@@ -1877,6 +1914,24 @@ impl<P: Peer> Headless<P> {
                 }
                 return self.settle();
             }
+            // A browser is the host's, drawn over the page: a press in it is its own, to its release,
+            // and gives it the keyboard. One that page content covers there is not pressed.
+            let browser = self
+                .page
+                .browsers()
+                .iter()
+                .find(|browser| {
+                    !browser.hidden && contains(browser.rect, at) && self.reaches_id(browser.id, at)
+                })
+                .map(|browser| browser.id);
+            if let Some(browser) = browser {
+                self.seen.taken = true;
+                if self.focus() != Focus::Browser(browser) {
+                    self.seen.field = Some(browser);
+                    self.page.focus(Some(browser));
+                }
+                return self.settle();
+            }
             if self.seen.field.take().is_some() {
                 self.page.focus(None);
             }
@@ -1895,7 +1950,12 @@ impl<P: Peer> Headless<P> {
 
     /// Whether a press at `at` (the host's points) reaches the element named `name`.
     fn reaches(&self, name: &str, at: Point) -> bool {
-        self.page.reaches(Id::named(name), at)
+        self.reaches_id(Id::named(name), at)
+    }
+
+    /// As [`Headless::reaches`], for the element of `id`.
+    fn reaches_id(&self, id: Id, at: Point) -> bool {
+        self.page.reaches(id, at)
     }
 
     // --- What else the host does -------------------------------------------------------------------
@@ -2321,11 +2381,17 @@ impl<P: Peer> Headless<P> {
         // The fields are the host's, drawn over the page as a system's are.
         let focus = match self.focus() {
             Focus::Field(id) => Some(id),
-            Focus::Page | Focus::Editor(_) => None,
+            Focus::Page | Focus::Editor(_) | Focus::Browser(_) => None,
         };
         #[allow(clippy::cast_possible_truncation)]
         let scale = self.scale as f32;
         let mut list = self.list.clone();
+        // A browser's engine is not here: where its room is, a box.
+        for item in &mut list.items {
+            if let Paint::Browser(slot) = item {
+                *item = crate::browsers::frame(slot);
+            }
+        }
         list.items.extend(field::drawn(
             self.page.fields(),
             &self.seen.fields,
@@ -2419,6 +2485,9 @@ impl<P: Peer> Headless<P> {
         match self.seen.field {
             Some(field) if self.page.fields().iter().any(|held| held.id == field) => {
                 Focus::Field(field)
+            }
+            Some(browser) if self.page.browsers().iter().any(|held| held.id == browser) => {
+                Focus::Browser(browser)
             }
             _ => Focus::Page,
         }

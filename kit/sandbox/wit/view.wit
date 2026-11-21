@@ -1076,6 +1076,12 @@ interface types {
         /// lines, and scrolls it as a box that scrolls; the box's fill and border are the page's.
         /// Its document lives as long as an editor of its name is on the page, hidden or not.
         editor: option<u32>,
+        /// The box is the room of a browser the application puts there, named by the element's
+        /// `id` (one with no id is none), set up as the options at this place of the frame's
+        /// `browsers` say. The application's engine loads the pages and draws them in the room;
+        /// the box's fill and border are the page's, and what stands in it is drawn over the
+        /// browser. The browser lives as long as one of its name is on the page, hidden or not.
+        browser: option<u32>,
         /// What the page can be told to do while the keyboard is on this element or inside it:
         /// a part of the frame's `commands`. The commands of the outermost element can be done
         /// whatever has the keyboard; where two say the same keys, the nearer the keyboard is done.
@@ -1127,6 +1133,8 @@ interface types {
         commands: list<command>,
         /// The options of every editor (`node.editor`).
         editors: list<editor-options>,
+        /// The options of every browser (`node.browser`).
+        browsers: list<browser-options>,
         /// The page is still moving: the application asks for the next frame itself until this
         /// says no, so a page at rest costs no frames.
         animating: bool,
@@ -1587,6 +1595,12 @@ interface types {
         /// What the application says of how its terminal draws its cursor and its selection
         /// (`system.terminal-look`) is not what it was: the person changed a setting.
         terminal-look,
+        /// Where a browser is and what it is doing, all of it, told each time any of it changes.
+        browser(browser-state),
+        /// What the page asked of a browser was not done.
+        browser-refused(browser-refused),
+        /// A link of a browser whose windows are the page's opens one.
+        browser-window(browser-window),
     }
 
     record editor-target {
@@ -1740,7 +1754,7 @@ interface types {
     variant keyboard {
         /// The page's own keys.
         page,
-        /// The field named by this id.
+        /// The field, the editor or the browser named by this id.
         field(id),
     }
 
@@ -2112,6 +2126,96 @@ interface types {
         ask: editor-ask-kind,
     }
 
+    /// What a browser does with a link that opens a new window.
+    enum browser-windows {
+        /// It opens in the same browser.
+        here,
+        /// The application opens none: the page is told (`browser-window`) and decides.
+        page,
+    }
+
+    /// What a page says of a browser when it names its room. Where it goes first is an ask.
+    record browser-options {
+        /// The name of its profile, a part of the frame's text: 1 to 32 of `a` to `z`, `0` to `9`
+        /// and `-`. What the browser keeps of the sites it has been to is kept apart under this
+        /// name. None: a profile that is gone when the browser is.
+        profile: option<slice>,
+        windows: browser-windows,
+        /// The keys that go to the page while the browser has the keyboard; the rest are the
+        /// browser's.
+        keys: list<shortcut>,
+    }
+
+    /// What the page asks of a browser.
+    variant browser-ask-kind {
+        /// Go to an address: `http`, `https`, `about:blank` or `data:`, every byte of it printable
+        /// ASCII without the space, at most 8192 bytes; any other is refused.
+        go(string),
+        /// Back to the page before, if there is one.
+        back,
+        /// On to the page after, if there is one.
+        forward,
+        /// Load the page again: the way out of a browser that crashed.
+        reload,
+        /// Stop loading.
+        stop,
+    }
+
+    record browser-ask {
+        browser: id,
+        ask: browser-ask-kind,
+    }
+
+    /// Why a browser was not asked to go where the page said.
+    enum browser-refusal {
+        /// The address is of a kind a browser does not go to.
+        scheme,
+        /// The address is not one a browser is given.
+        address,
+    }
+
+    /// A load that failed.
+    record browser-error {
+        /// The address that did not load.
+        url: string,
+        /// The number the application's engine gives to what went wrong.
+        code: s32,
+        /// What went wrong, in a sentence.
+        message: string,
+    }
+
+    /// Where a browser is and what it is doing, all of it.
+    record browser-state {
+        browser: id,
+        /// The address the browser is at (empty before the first load).
+        url: string,
+        /// The title of the page it shows (empty where it has none).
+        title: string,
+        loading: bool,
+        /// There is a page to go back to, and one to go on to.
+        back: bool,
+        forward: bool,
+        /// What the browser is, as a whole: `ready`, `starting`, `crashed`, `no_route` or
+        /// `unsupported`, or a word a later application says (an open set).
+        status: string,
+        /// A sentence for the person, in every status but `ready`.
+        message: option<string>,
+        /// The last load failed, until the next one begins.
+        error: option<browser-error>,
+    }
+
+    /// What the page asked of a browser was not done, and nothing of it was.
+    record browser-refused {
+        browser: id,
+        reason: browser-refusal,
+    }
+
+    /// A link of a browser whose `windows` is `page` opens a new window.
+    record browser-window {
+        browser: id,
+        url: string,
+    }
+
     record menu-item {
         /// A part of the menu's `titles`.
         title: slice,
@@ -2198,6 +2302,8 @@ interface types {
         /// changes, its layers' names, what it finds) is at most 1 MiB, its decorations at most
         /// 20 000: a reply past them is not one.
         editor: list<editor-ask>,
+        /// What the page asks of its browsers, in order.
+        browser: list<browser-ask>,
         /// A link the page asks the application to open in the person's browser, by the rule of
         /// a web page's `link` (the protocol, sections 9.7 and 9.8): an `http` or `https`
         /// address, every byte of it printable ASCII without the space, at most 8192 bytes. The

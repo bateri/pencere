@@ -616,6 +616,8 @@ struct Spec {
     at: f64,
     look: pencere_view::TerminalLook,
     draws: Option<Vec<pencere_view::Drawing>>,
+    /// The host shows browsers (`browsers = false`: it shows none).
+    browsers: bool,
     patience: Duration,
     place: Where,
 }
@@ -682,6 +684,7 @@ fn spec_of(session: &Shared, options: &Table) -> mlua::Result<Spec> {
             Some(table) => crate::look::terminal_look(&table)?,
             None => pencere_view::TerminalLook::default(),
         },
+        browsers: options.get::<Option<bool>>("browsers")?.unwrap_or(true),
         draws: match options.get::<Option<Vec<String>>>("draws")? {
             Some(names) => Some(crate::look::draws(&names)?),
             None => None,
@@ -718,6 +721,7 @@ impl Spec {
             .reduce_motion(self.reduce_motion)
             .at(self.at)
             .terminal_look(self.look)
+            .browsers(self.browsers)
             .patience(self.patience);
         Ok(match &self.draws {
             Some(draws) => opening.draws(draws.clone()),
@@ -924,6 +928,7 @@ fn start_command(
         .reduce_motion(spec.reduce_motion)
         .at(spec.at)
         .terminal_look(spec.look)
+        .browsers(spec.browsers)
         .patience(spec.patience);
     let opening = match &spec.draws {
         Some(draws) => opening.draws(draws.clone()),

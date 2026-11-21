@@ -13,6 +13,7 @@ use taffy::style::{
 };
 use taffy::{NodeId, TaffyTree, compute_leaf_layout};
 
+use crate::BrowserOptions;
 use crate::edit::EditorOptions;
 use crate::element::{Carry, FieldKind, Fit, Kind, Meta, Spark, State};
 use crate::paint::Quad;
@@ -95,6 +96,8 @@ pub(crate) enum Content {
     None,
     /// The room of an editor of the host's: the host draws in it.
     Editor(EditorLook),
+    /// The room of a browser of the host's: the host draws in it.
+    Browser,
     Text(TextLine),
     Rich(Rich),
     Spark(Spark),
@@ -1077,6 +1080,10 @@ fn build(
                 && entry.meta.editor.is_some()
             {
                 entry.content = Content::Editor(EditorLook { font, color });
+            } else if let Some(entry) = pending.get_mut(index)
+                && entry.meta.browser.is_some()
+            {
+                entry.content = Content::Browser;
             }
             let mut ids: Vec<NodeId> = Vec::with_capacity(children.len());
             for child in children {
@@ -1514,11 +1521,12 @@ impl Laid {
             !node.hidden && !node.meta.state.disabled && Self::shown(node).contains(x, y)
         };
         for node in self.nodes.iter().rev().filter(|node| under(node)) {
-            // A text field and an editor take the pointer for their own (a selection is dragged),
-            // whether or not they are what carries.
+            // A text field, an editor and a browser take the pointer for their own (a selection is
+            // dragged), whether or not they are what carries.
             if node.meta.field.is_some()
                 || node.meta.editor.is_some()
-                || matches!(node.content, Content::Editor(_))
+                || node.meta.browser.is_some()
+                || matches!(node.content, Content::Editor(_) | Content::Browser)
             {
                 return None;
             }
@@ -1881,6 +1889,42 @@ impl Laid {
             .collect()
     }
 
+    /// The browsers the host puts on the page ([`crate::Element::browser`]), in the order they are
+    /// written: each named, with its options and where its room stands — the hidden ones too (a
+    /// hidden browser keeps its page: a page with tabs hides the browsers of the tabs not in
+    /// front). Of two by the same name, the first is the browser. One with no name is none.
+    pub fn browsers(&self) -> Vec<BrowserRoom> {
+        let s = self.scale;
+        let mut seen = HashSet::new();
+        self.nodes
+            .iter()
+            .filter_map(|node| {
+                let (Some(id), Some(options), Content::Browser) =
+                    (node.meta.id, node.meta.browser.as_deref(), &node.content)
+                else {
+                    return None;
+                };
+                if !seen.insert(id) {
+                    return None;
+                }
+                Some(BrowserRoom {
+                    id,
+                    options: options.clone(),
+                    rect: Rect::new(
+                        node.rect.x / s,
+                        node.rect.y / s,
+                        node.rect.w / s,
+                        node.rect.h / s,
+                    ),
+                    pixels: node.rect,
+                    clip: Self::shown(node),
+                    hidden: node.hidden,
+                    label: node.meta.label.clone(),
+                })
+            })
+            .collect()
+    }
+
     /// The elements that say something while the pointer rests on them ([`crate::Element::tip`]),
     /// with the part of each that is seen, in points; the innermost last, so a host that looks
     /// for the tip under the pointer takes the last that holds it.
@@ -1935,10 +1979,13 @@ impl Laid {
             }
             let field = node.meta.field.filter(|_| node.meta.id.is_some());
             let editor = node.meta.id.is_some() && matches!(node.content, Content::Editor(_));
+            let browser = node.meta.id.is_some() && matches!(node.content, Content::Browser);
             let role = if let Some(kind) = field {
                 Some(AccessibleRole::Field(kind))
             } else if editor {
                 Some(AccessibleRole::Editor)
+            } else if browser {
+                Some(AccessibleRole::Browser)
             } else if let Some(role) = node.meta.role {
                 Some(role)
             } else if node.meta.pressable {
@@ -2274,6 +2321,9 @@ pub enum AccessibleRole {
     Field(FieldKind),
     /// An editor of text of the host's ([`crate::Element::editor`]).
     Editor,
+    /// A browser of the host's ([`crate::Element::browser`]): its label and its title are what a
+    /// screen reader says of it, the page inside is the engine's.
+    Browser,
     /// Words to read.
     Text,
     /// It goes somewhere: a link of a text, or an element that is one.
@@ -2349,6 +2399,24 @@ pub struct EditorRoom {
     pub color: Color,
     /// What it says while its document is empty: its options' hint, or the first text inside it.
     pub hint: Option<String>,
+    /// What it is to a screen reader, where the page said ([`crate::Element::label`]).
+    pub label: Option<String>,
+}
+
+/// A browser the host puts on the page ([`Laid::browsers`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct BrowserRoom {
+    /// Its name: the id of the element that is its room.
+    pub id: Id,
+    pub options: BrowserOptions,
+    /// Where it stands, points.
+    pub rect: Rect,
+    /// The same, pixels.
+    pub pixels: Rect,
+    /// The part of the room that shows, pixels: its box, cut by the boxes around it.
+    pub clip: Rect,
+    /// It, or a box that holds it, is hidden: it keeps its page and draws nothing.
+    pub hidden: bool,
     /// What it is to a screen reader, where the page said ([`crate::Element::label`]).
     pub label: Option<String>,
 }

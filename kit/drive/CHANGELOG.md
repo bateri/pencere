@@ -17,6 +17,12 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
   whether an image is on its way and whether the page is laid out for what it last was, without waiting.
 - **`Page::reach` and `Page::reaches`**: where a press reaches an element, which `Headless` took from
   its own clicks.
+- **Browsers: `Page::set_browsers`, `Page::browser`, `Page::browsers`, `Host::browser`.** A host that
+  shows browsers says so and tells the page what each is and does; one that does not has the drive
+  draw a placeholder in each room and tell the page it is `unsupported`. An address a browser does not
+  go to is refused to the page and never reaches the host. The headless host stands for one that shows
+  browsers (`Opening::browsers(false)` for one that does not), keeps what the page asks of them
+  (`Headless::browser_asks`) and takes the state a test gives (`Headless::browser_state`).
 - **`shot::Scratch` and `shot::raster_rows_in`**: rows drawn in buffers the caller keeps from one
   frame to the next, with the page's edge repeated past them, so that a frame at the rate of keys asks
   the system for no picture's worth of memory.

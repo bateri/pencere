@@ -799,6 +799,46 @@ fn differing(a: &[u8], b: &[u8], width: u32) -> Option<(u32, u32, u32, u32)> {
     found
 }
 
+/// A terminal that shows no browser draws the placeholder of the drive in a browser's room: a frame
+/// round the room, and the words that say so in the middle of it.
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn a_browser_of_the_page_is_a_placeholder_in_its_room() {
+    let mut terminal = Terminal::start_with(
+        &["--script", &page("browser.lua")],
+        100,
+        30,
+        &[],
+        pictures(),
+    );
+    terminal.until_picture();
+    let width = 100 * CELL.0;
+    let height = 30 * CELL.1;
+    let window = terminal.pixels(100, 30);
+    let at = |x: u32, y: u32| {
+        let n = (y * width + x) as usize * 4;
+        window[n..n + 4].to_vec()
+    };
+    // The room is what is under the line of words, and the frame is round its edge: the left edge,
+    // a little in from the window's, at the height of its middle.
+    let middle = height / 2;
+    assert!(
+        (0..2 * CELL.0).any(|x| at(x, middle) != GROUND_PIXEL),
+        "a frame is drawn at the room's left edge"
+    );
+    // The words are in the middle of the room: some pixel there is not the ground.
+    let words = (middle - CELL.1..middle + CELL.1)
+        .flat_map(|y| (width / 4..3 * width / 4).map(move |x| (x, y)))
+        .any(|(x, y)| at(x, y) != GROUND_PIXEL);
+    assert!(
+        words,
+        "the words that say the terminal shows no browser are in the room"
+    );
+    terminal.type_bytes(b"\x03");
+    let status = terminal.ended();
+    assert_eq!(status.code(), Some(130), "{status:?}");
+}
+
 #[test]
 #[ignore = "heavy: starts a page, which compiles the interpreter"]
 fn a_field_that_is_pressed_and_typed_in_is_drawn_in_its_room_and_a_key_is_an_edit_of_the_picture() {

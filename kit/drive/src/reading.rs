@@ -314,6 +314,7 @@ fn role_of(role: AccessibleRole) -> String {
         AccessibleRole::Image => "image".to_owned(),
         AccessibleRole::Progress => "progress".to_owned(),
         AccessibleRole::Slider => "slider".to_owned(),
+        AccessibleRole::Browser => "browser".to_owned(),
     }
 }
 

@@ -49,7 +49,7 @@ pub fn spread(item: &Paint) -> (f32, f32) {
             quad.rect.x.max(quad.clip.x),
             quad.rect.right().min(quad.clip.right()),
         ),
-        Paint::Quad(_) | Paint::Editor(_) => (f32::NEG_INFINITY, f32::INFINITY),
+        Paint::Quad(_) | Paint::Editor(_) | Paint::Browser(_) => (f32::NEG_INFINITY, f32::INFINITY),
         Paint::Text(run) => (run.clip.x, run.clip.right()),
         Paint::Image(picture) if picture.turn == 0.0 => (
             picture.rect.x.max(picture.clip.x),

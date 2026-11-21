@@ -554,6 +554,71 @@ function pencere.editor(id, options)
 	return make("box"):editor(id, options)
 end
 
+-- The box is the room of a browser the host puts there, named `id` (the element's own name when
+-- `id` is nil): the host's engine loads the pages and draws them in the room. It lives as long as
+-- an element of that name is on the page, hidden or not, and its history goes with it; the same
+-- `id` is the same browser. Where it goes is not an option but an ask, in the `browser` of a reply:
+-- `{ go = "https://..." }`, `{ command = "back" | "forward" | "reload" | "stop" }`. `options` are
+-- `profile` (the name its cookies and storage are kept under, apart from any other's, 1 to 32 of
+-- a-z, 0-9 and -; none, and they are gone with the browser; read when the browser is first made),
+-- `windows` ("here": a link that opens a new window opens in the browser itself, the default; "page":
+-- the host opens none and tells the page, `browser_window`) and `keys` (the keys that go to the page
+-- as `key` events while the browser has the keyboard, written as a command's are: { "mod+l" }; the
+-- rest are the browser's). The page is told where the browser is and what it is doing by `browser`
+-- events and reads nothing of the page the browser shows. What the page writes inside the room is
+-- drawn over the browser.
+function Element:browser(id, options)
+	if id ~= nil then
+		self.meta.id = id
+	end
+	if self.meta.id == nil then
+		refuse("a browser is named: browser(id, options)")
+	end
+	if options ~= nil and type(options) ~= "table" then
+		refuse("a browser's options are a table, not " .. type(options))
+	end
+	local said = {}
+	for key, value in options or {} do
+		if key == "profile" then
+			if
+				type(value) ~= "string"
+				or #value < 1
+				or #value > 32
+				or string.find(value, "[^a-z0-9%-]") ~= nil
+			then
+				refuse("a browser's profile is 1 to 32 of a to z, 0 to 9 and -, not " .. tostring(value))
+			end
+		elseif key == "windows" then
+			if value ~= "here" and value ~= "page" then
+				refuse('a browser\'s windows are "here" or "page", not ' .. tostring(value))
+			end
+		elseif key == "keys" then
+			if type(value) ~= "table" then
+				refuse("a browser's keys are a list of keys written as words: { \"mod+l\" }")
+			end
+			if #value > 32 then
+				refuse("a browser keeps at most 32 keys for the page")
+			end
+			for _, words in value do
+				-- Said where it is written, not where the page is read: a key that is not one is the
+				-- page's mistake.
+				pencere.keys(words)
+			end
+		else
+			refuse("a browser has no option " .. tostring(key) .. " (it has profile, windows and keys)")
+		end
+		said[key] = value
+	end
+	self.meta.browser = said
+	self.style.overflow = "hidden"
+	return self
+end
+
+-- A browser named `id`, as `pencere.div():browser(id, options)`.
+function pencere.browser(id, options)
+	return make("box"):browser(id, options)
+end
+
 -- The element is the content of the zone `id` of the editor it is a child of: a gap the editor
 -- keeps open after a line (a decoration `{ from =, to =, zone = id, height = points }`), in whole
 -- rows. It is laid out as a box as wide as the editor, as tall as the page says (`:height(...)`, the

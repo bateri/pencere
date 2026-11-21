@@ -15,6 +15,7 @@
 //!
 //! The crate knows no window, no renderer, no font and no terminal.
 
+mod browsers;
 mod editing;
 mod glide;
 pub mod headless;
@@ -27,6 +28,7 @@ mod scrolling;
 pub mod shot;
 mod waking;
 
+pub use browsers::{Browser, UNSUPPORTED, frame, placeholder};
 pub use host::{CarryOut, Copied, Drained, Held, Host};
 pub use outline::{Field, Outline, Placement, Tip, ZOOM_TEXT};
 pub use page::{FrameAt, NoText, Page, PageEditors, Painted, Setup, Unreachable, carriable};
@@ -34,6 +36,8 @@ pub use pencere_editor::Route;
 pub use reading::{Reading, ReadingInput, Rest};
 pub use scrolling::Scrolling;
 
+#[cfg(all(test, feature = "shot"))]
+mod browser_shot_tests;
 #[cfg(all(test, feature = "shot"))]
 mod fonts_tests;
 #[cfg(test)]
@@ -50,6 +54,8 @@ mod library_languages_tests;
 mod library_markdown_tests;
 #[cfg(test)]
 mod library_ui_tests;
+#[cfg(test)]
+mod luau_browser_tests;
 #[cfg(test)]
 mod luau_editor_tests;
 #[cfg(test)]

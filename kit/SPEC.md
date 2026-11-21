@@ -97,16 +97,17 @@ A script **returns the page**, a table of the functions the host calls:
 
 An element is a plain table that a chain of builder methods fills. Lengths are points.
 
-| Constructor                      | Element                                                                                                            |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `pencere.div()`                  | A box: a column of its children until told otherwise.                                                              |
-| `pencere.text(string \| number)` | One line of text, in the font, size and colour of the boxes it is in; with `wrap`, as many lines as its box needs. |
-| `pencere.spark(values, color)`   | A sparkline of numbers, newest last; `:peak(value)` is its largest.                                                |
-| `pencere.image(path)`            | A picture: a file of the view's own bundle (protocol, Section 9.8); a page of it, for a PDF: `:page(n)`.           |
-| `pencere.rich(parts)`            | A text of many looks: its parts (`pencere.span(words)`, or a string) one after the other, as one paragraph.        |
-| `pencere.canvas(paths)`          | A box with paths drawn in it (`pencere.path()`), in its own points. It has no size of its own.                     |
-| `pencere.editor(id, options)`    | The room of an editor of text the host keeps, lays out and draws (below); `div():editor(id, options)` the same.    |
-| `pencere.spacer()`               | A box that takes the room left over.                                                                               |
+| Constructor                      | Element                                                                                                              |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `pencere.div()`                  | A box: a column of its children until told otherwise.                                                                |
+| `pencere.text(string \| number)` | One line of text, in the font, size and colour of the boxes it is in; with `wrap`, as many lines as its box needs.   |
+| `pencere.spark(values, color)`   | A sparkline of numbers, newest last; `:peak(value)` is its largest.                                                  |
+| `pencere.image(path)`            | A picture: a file of the view's own bundle (protocol, Section 9.8); a page of it, for a PDF: `:page(n)`.             |
+| `pencere.rich(parts)`            | A text of many looks: its parts (`pencere.span(words)`, or a string) one after the other, as one paragraph.          |
+| `pencere.canvas(paths)`          | A box with paths drawn in it (`pencere.path()`), in its own points. It has no size of its own.                       |
+| `pencere.editor(id, options)`    | The room of an editor of text the host keeps, lays out and draws (below); `div():editor(id, options)` the same.      |
+| `pencere.browser(id, options)`   | The room of a browser the host keeps and draws (below); `div():browser(id, options)` the same. `if pencere.browser`. |
+| `pencere.spacer()`               | A box that takes the room left over.                                                                                 |
 
 The builders return the element:
 
@@ -268,7 +269,7 @@ An element says what it is to a **screen reader** where its look says it and its
 "progress" | "slider" | "button" | "text", level)` (a heading's level is 1 to 6), and where it stands:
 `checked(on)` (a checkbox, a switch, a radio), `selected(chosen)` (the tab in front, the row picked),
 `expanded(open)`, `disabled(on)` (it does not answer the pointer, nor take the keyboard) and
-`value(words)` (a progress's `"40%"`). A text field is one by `text_field`, and an editor by `editor`,
+`value(words)` (a progress's `"40%"`). A text field is one by `text_field`, an editor by `editor` and a browser by `browser`,
 not by a role.
 
 An **editor** (`pencere.editor(id, options)`) is the host's, as a text field is: its document, its
@@ -422,6 +423,56 @@ the element is followed by its id, so one with no id does not move. Nothing move
 on the frame the page changes size, or for what scrolling brings into view or takes out of it. A row
 of a list is `motion({ place = true, enter = { dy = 6 }, exit = { dy = -3, seconds = 0.14 } })`; a
 hover is `bg(hovered and "raised2" or nil):motion({ seconds = 0.12, color = true })`.
+
+A **browser** (`pencere.browser(id, options)`) is the host's, as a text field and an editor are: the room
+of the element is where the host puts a browser, which loads and draws web pages and keeps the
+person's way of using them (scrolling, selecting, finding, the pasteboard, the page's own
+keyboard); the page gets nothing of what is loaded, not a document, a console or a cookie, only
+where the browser is and what it is doing. The box's fill and border are the page's, and what the
+page puts inside the room is drawn over the browser. A browser is named by the element's id (the
+element's own, or the `id` given), and an element that says it is one and has no name is not one.
+The same `id` is the same browser: it lives as long as an element of that name is on the page,
+hidden or not (the host keeps its page and its history, and draws nothing while it is hidden), and
+it is closed, its history gone, when the page no longer has one. `options` are all optional:
+
+- `profile` is a name (1 to 32 of `a` to `z`, `0` to `9` and `-`) under which what the browser's sites
+  keep (cookies, storage) is kept, apart from every other name's, so that a view of a program is a
+  place the person signs in to and signs out of as of its own. It is read when the browser is made:
+  another `profile` under the same `id` closes the browser and makes another. None is a browser with
+  a profile of its own that is gone when it is. A name that is not one is the page's mistake, where
+  `pencere.browser` is called.
+- `windows` is what a link that opens a new window does: `"here"` (the default) opens it in the same
+  browser; `"page"` has the host open none and tell the page (`browser_window`), which decides.
+- `keys` is a list of keys written as a command's are (`{ "mod+l", "mod+t", "mod+w" }`, at most 32;
+  none by default): while the browser has the keyboard these are the page's, told as `key` events, and
+  every other key is the browser's.
+
+Where a browser goes is not an option, since a page gives its options again at every frame and the
+person's links take the browser away from any address the page wrote: it is asked, in a reply
+(`browser = { [name] = ask, or { ask, ... } }`, Section 2.3). A page asks for the first address when
+the browser says it is ready. The browser tells the page what it is and does in `browser` events.
+Its **status** is one of `"ready"` (it shows pages), `"starting"` (the host is getting what it shows
+pages with ready), `"crashed"` (what it showed pages with ended; a `reload` makes it again),
+`"no_route"` (the host cannot, or may not, reach where the page's program runs from this view) and
+`"unsupported"` (the host shows no browsers); the set is open, and a status a page does not know is a
+browser that is not ready. In every status but `"ready"` the host gives a `message`, a sentence for the
+person (the page may show it, or write its own); the page, not the browser, says what it does about
+each. A host that shows no browser draws a placeholder in the room and tells the page the status
+`"unsupported"` once for each browser it makes, so a page waits for no state that no host will give.
+
+The page can only ask a browser to go where a person could not be hurt by it going: a `go` is an
+`http`, `https`, `about:blank` or `data:` address (printable ASCII with no space, at most 8 192 bytes),
+and any other (`file:`, `chrome:`, `devtools:`, `view-source:`, `javascript:` …) is not given to the
+browser, and the page is told (`browser_refused`, `"scheme"` or `"address"`; the reasons are an open
+set, and a page takes one it does not know as a refusal). The host does not
+leave this set where the page it shows goes elsewhere of itself (a redirect, a link): the engine
+runs on the person's machine and the page's program may not, so what a `file:` address names is the
+person's, not the program's.
+
+While a browser has the keyboard its keys are the browser's, but the ones the page listed in `keys`,
+which are the page's, as a text field's keys the field has no use for are; it keeps the keyboard unless
+the reply sends it elsewhere (`keyboard = "page"`, or a field's name), and a person's press in the room
+gives it to the browser, and a press elsewhere takes it back (`focus`, Section 2.3), as for a field.
 
 ### 2.2 What a page remembers, and asks of the layout
 
@@ -615,6 +666,9 @@ anything.
 | `target`                       | `editor`, `kind` (`"enter"`, `"leave"`, `"press"`), `source` (`"word"`, `"link"`, `"widget"`), `at`, `from`, `to`, `id` (of a link), `word` (the box), `mods`, `button`, `count` (of a press) and `version`: in an editor with `events = { "target" }`, the pointer came to a word (or went from it) while exactly the modifiers of the press that is the page's (`gestures`: `"target"`) are held, at most once in `links.delay`, or that press: `source = "link"` where it is on a look that is `held`, has an `id` and is drawn now                                                                                                      |
 | `keymap_pending`               | `editor`, `keys` (the chord's keys so far, as written; none when it is not waited on any more)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `editor_ready`                 | `editor`, `version`: the host made the editor, as the page was laid out with it, shown or hidden; its text is posted before this is told, and what the page asks of it is done from now on. A page loads a document into an editor it has just made (a tab's that is not in front too) when it hears this                                                                                                                                                                                                                                                                                                                                   |
+| `browser`                      | `browser` (its name), `url` (where it is; empty before the first load), `title` (empty where it has none), `loading`, `back` and `forward` (there is a page to go to), `status` (`"ready"`, `"starting"`, `"crashed"`, `"no_route"`, `"unsupported"`, or a word a later host says), `message` (a sentence for the person in every status but `"ready"`, else nil) and `error` (`{ url =, code =, message = }` for the load that failed, until the next begins, else nil): all of what the browser is, told each time any of it changes                                                                                                      |
+| `browser_refused`              | `browser`, `reason` (`"scheme"`: the address is not of a kind a browser goes to; `"address"`: it is not one it is given): what the page asked was not done                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `browser_window`               | `browser`, `url`: a link of a browser whose `windows` is `"page"` opens a new window, for the page to open or not                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 `move`, `press` and `release` over an editor have `place`, `{ editor =, at =, inside =, version = }`
 (`inside`: the place was in a selection or at a caret before a press moved the caret): the place of its
@@ -637,7 +691,7 @@ puts in its table: a `key` of its own is the page's and is not read as keys), an
 entry may be is `"-"`, a line between entries; a menu without `entries` is an error; an entry with `paste` is one the host performs itself when it is picked, below; the table of an
 entry is told back with its pick, so a function or a field the page put in it is there when it is picked:
 `menu` below), `link` (an address to open in the person's browser, below), `wake` (in how many seconds to wake the
-page, below), `text_size` (how many points larger than the host's own text the view is drawn, below), and `editor = { [name] = ask, or { ask, ... } }`, what the page asks of its editors,
+page, below), `text_size` (how many points larger than the host's own text the view is drawn, below), `browser = { [name] = ask, or { ask, ... } }`, what the page asks of its browsers (`{ go = address }`, or `{ command = "back" | "forward" | "reload" | "stop" }`; the address is held to the rule of Section 2.1, and a browser the host has not made is passed over), and `editor = { [name] = ask, or { ask, ... } }`, what the page asks of its editors,
 each ask one of:
 
 | Ask                                                                                  | What                                                                                                                                                                                                                                                                                                                                                                  |
@@ -1765,6 +1819,14 @@ A host:
   that ⌘ made: `Drained::cursor`, the shape the host takes where the pointer is over the page);
 - times the pointer's rest over a word of an editor that hears of it on its own clock, as it does the
   caret's blink (`Page::wake_at` has the time), and tells the page `hover` once, and its leaving;
+- puts a browser in each browser's room (`Laid::browsers`) where it shows browsers, and says so
+  (`Page::set_browsers`): it tells the page what each is and does (`Page::browser`; a host does not
+  leave the set of addresses of Section 2.1, whoever asks), keeps its history as long as a browser of
+  that name is on the page, hidden or not, draws it where its draw list says (`Paint::Browser`, over
+  the room's fill and under what is inside it), draws none while it is hidden, gives it the keyboard
+  on a press in its room and keeps the keys of `keys` for the page, and tells its screen reader the
+  room as a browser. A host that shows none draws the placeholder of `kit/drive` there and does
+  nothing of what the page asks of it;
 - posts the page the text of each editor before it tells the page of the version it is (the copy
   costs nothing that grows with the document), and holds a reply to what one may hand the editors
   (1 MiB of text, 20 000 decorations) and the editors to the floors of the protocol (Section 9.8).

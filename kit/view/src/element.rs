@@ -8,6 +8,7 @@
 //! border and a shadow, and sets the text of the boxes under it; a box is a column unless
 //! told otherwise.
 
+use crate::BrowserOptions;
 use crate::edit::EditorOptions;
 use crate::style::{
     Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Shadow, Side,
@@ -108,6 +109,8 @@ pub struct Meta {
     /// apart from the element: an editor's options are several times what the rest of an element
     /// is, and nearly no element of a page is an editor.
     pub editor: Option<Box<EditorOptions>>,
+    /// The box is the room of a browser of the host's, set up so ([`Element::browser`]).
+    pub browser: Option<Box<BrowserOptions>>,
     /// What the element is in words, for a person who does not see it ([`Element::label`]).
     pub label: Option<String>,
     /// The element is the content of the zone of this name in the editor it is a child of
@@ -345,6 +348,20 @@ impl Element {
         self.set(|s| s.overflow = Overflow::Scroll)
     }
 
+    /// The box is the room of a browser the host puts there, named `id`, set up as `options` say
+    /// (`div().browser(id, BrowserOptions::default()).grow(1.0)`): the host's engine loads the pages
+    /// and draws them in the room, which it scrolls and takes the pointer and the keyboard in. The
+    /// page says where the browser goes ([`crate::BrowserAsk`]) and is told where it is and what it
+    /// is doing ([`crate::BrowserState`]), and nothing of what it shows. The box's fill and border
+    /// are the page's, and what stands in it is drawn over the browser. A browser lives as long as
+    /// one of that name is on the page, hidden or not ([`crate::Laid::browsers`]).
+    #[must_use]
+    pub fn browser(mut self, id: Id, options: BrowserOptions) -> Self {
+        self.meta.id = Some(id);
+        self.meta.browser = Some(Box::new(options));
+        self.set(|s| s.overflow = Overflow::Hidden)
+    }
+
     /// The element stands in the gap the editor it is a child of keeps open for the zone named `id`
     /// ([`crate::edit::Zone`]): its top is where the gap starts (it is laid out as a box of the
     /// editor's room that is wide as the room and as tall as the page says, and then put there, so
@@ -391,10 +408,13 @@ impl Element {
 
     /// What the element is to a screen reader, where its look says it and its answers do not: a
     /// checkbox, a switch, a tab, a link, a heading. (A text field is one by [`Element::field`], an
-    /// editor by [`Element::editor`], and neither is made one here.)
+    /// editor by [`Element::editor`], a browser by [`Element::browser`], and none is made one here.)
     #[must_use]
     pub fn role(mut self, role: AccessibleRole) -> Self {
-        if !matches!(role, AccessibleRole::Field(_) | AccessibleRole::Editor) {
+        if !matches!(
+            role,
+            AccessibleRole::Field(_) | AccessibleRole::Editor | AccessibleRole::Browser
+        ) {
             self.meta.role = Some(role);
         }
         self

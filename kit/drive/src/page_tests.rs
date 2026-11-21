@@ -2192,7 +2192,7 @@ fn what_replies_ask_of_fields_not_yet_laid_is_held_in_order() {
         }),
     ];
     let mut held = Vec::new();
-    hold(&mut replies, &fields, &mut held);
+    hold(&mut replies, &fields, &[], true, &mut held);
     assert_eq!(replies[0].reply.fill, [(there, Fill::text("a"))]);
     assert_eq!(replies[0].reply.keyboard, Some(Keyboard::Field(there)));
     assert_eq!(replies[1].reply.fill, [(there, Fill::text("b"))]);
@@ -2208,6 +2208,93 @@ fn what_replies_ask_of_fields_not_yet_laid_is_held_in_order() {
             Held::Keyboard(Keyboard::Page),
         ]
     );
+}
+
+/// What replies ask of a browser the host has not made yet (an ask, and the keyboard) is held with
+/// all that comes after it, as a field's is; what names a browser it has is told at once, and the
+/// keyboard may go to one.
+#[test]
+fn what_replies_ask_of_browsers_not_yet_laid_is_held_in_order() {
+    use crate::page::hold;
+    use crate::{Browser, Held};
+    use pencere_sandbox::Answer;
+    use pencere_view::{BrowserAsk, BrowserOptions, Fill, Keyboard, Reply};
+
+    let there = Id::named("there");
+    let coming = Id::named("coming");
+    let browsers = [Browser {
+        id: there,
+        options: BrowserOptions::default(),
+        rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+        hidden: false,
+        label: None,
+    }];
+    let answer = |reply: Reply| Answer {
+        reply,
+        pointer: false,
+        person: false,
+    };
+    let mut replies = [
+        answer(Reply {
+            browser: vec![(there, BrowserAsk::Reload)],
+            keyboard: Some(Keyboard::Field(there)),
+            ..Reply::none()
+        }),
+        answer(Reply {
+            browser: vec![
+                (coming, BrowserAsk::Go("about:blank".into())),
+                (there, BrowserAsk::Stop),
+            ],
+            fill: vec![(there, Fill::text("a"))],
+            ..Reply::none()
+        }),
+    ];
+    let mut held = Vec::new();
+    hold(&mut replies, &[], &browsers, true, &mut held);
+    assert_eq!(replies[0].reply.browser, [(there, BrowserAsk::Reload)]);
+    assert_eq!(replies[0].reply.keyboard, Some(Keyboard::Field(there)));
+    assert!(replies[1].reply.browser.is_empty());
+    assert!(replies[1].reply.fill.is_empty());
+    assert_eq!(
+        held,
+        [
+            Held::Browser(coming, BrowserAsk::Go("about:blank".into())),
+            Held::Browser(there, BrowserAsk::Stop),
+            Held::Fill(there, Fill::text("a")),
+        ]
+    );
+}
+
+/// A host that shows no browser has none to give the keyboard to: a reply that gives it to a
+/// browser's room is not held for a field that will never come, and what follows it is not held
+/// behind it.
+#[test]
+fn the_keyboard_given_to_a_browser_a_host_does_not_show_is_dropped_and_holds_nothing_back() {
+    use crate::page::hold;
+    use crate::{Browser, Held};
+    use pencere_sandbox::Answer;
+    use pencere_view::{BrowserOptions, Keyboard, Reply};
+
+    let room = Id::named("room");
+    let browsers = [Browser {
+        id: room,
+        options: BrowserOptions::default(),
+        rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+        hidden: false,
+        label: None,
+    }];
+    let mut replies = [Answer {
+        reply: Reply {
+            keyboard: Some(Keyboard::Field(room)),
+            ..Reply::none()
+        },
+        pointer: false,
+        person: false,
+    }];
+    let mut held: Vec<Held> = Vec::new();
+    hold(&mut replies, &[], &browsers, false, &mut held);
+    assert_eq!(replies[0].reply.keyboard, None);
+    assert!(held.is_empty());
 }
 
 /// A reply that gives the keyboard to the page's editor and asks for no page of its own, taken by a

@@ -19,11 +19,12 @@ use pencere_view::wire::{
     Overflow, Spark, Style, TextStyle,
 };
 use pencere_view::{
-    AccessibleRole, Align, Anchor, Border, Button, Carry, Color, Command, Cursor, Ease, Element,
-    Event, Extent, Family, FileSource, Fill, GesturePhase, Gradient, Id, Input, Key, KeyConvention,
-    Keyboard, Laid, Menu, MenuEntry, Mix, Mods, Motion, Panel, Path, Payload, Phase, Point, Rect,
-    Reply, Rgba, Role, ScrollTo, Segment, Shadow, Shift, Shortcut, Side, Size, Source, Span, State,
-    Stroke, Tip, Track, Zoom,
+    AccessibleRole, Align, Anchor, Border, BrowserAsk, BrowserOptions, BrowserRefusal,
+    BrowserWindows, Button, Carry, Color, Command, Cursor, Ease, Element, Event, Extent, Family,
+    FileSource, Fill, GesturePhase, Gradient, Id, Input, Key, KeyConvention, Keyboard, Laid,
+    MOST_KEYS, Menu, MenuEntry, Mix, Mods, Motion, PROFILE_CHARS, Panel, Path, Payload, Phase,
+    Point, Rect, Reply, Rgba, Role, ScrollTo, Segment, Shadow, Shift, Shortcut, Side, Size, Source,
+    Span, State, Stroke, Tip, Track, Zoom, profile_allowed,
 };
 use pencere_wire::bundle::{LUA_MEDIA_TYPE, is_path};
 use pencere_wire::json::unescaped_len;
@@ -720,6 +721,34 @@ fn event_in(event: Event) -> wit::Event {
         }),
         Event::Wake { now } => wit::Event::Wake(now),
         Event::TerminalLook => wit::Event::TerminalLook,
+        Event::Browser { browser, state } => wit::Event::Browser(wit::BrowserState {
+            browser: id_out(browser),
+            url: state.url,
+            title: state.title,
+            loading: state.loading,
+            back: state.back,
+            forward: state.forward,
+            status: state.status,
+            message: state.message,
+            error: state.error.map(|error| wit::BrowserError {
+                url: error.url,
+                code: error.code,
+                message: error.message,
+            }),
+        }),
+        Event::BrowserRefused { browser, reason } => {
+            wit::Event::BrowserRefused(wit::BrowserRefused {
+                browser: id_out(browser),
+                reason: match reason {
+                    BrowserRefusal::Scheme => wit::BrowserRefusal::Scheme,
+                    BrowserRefusal::Address => wit::BrowserRefusal::Address,
+                },
+            })
+        }
+        Event::BrowserWindow { browser, url } => wit::Event::BrowserWindow(wit::BrowserWindow {
+            browser: id_out(browser),
+            url,
+        }),
         Event::EditorReady { editor, version } => wit::Event::EditorReady(wit::EditorReady {
             editor: id_out(editor),
             version,
@@ -939,6 +968,7 @@ struct Lists<'a> {
     segments: &'a [wit::Segment],
     commands: &'a [wit::Command],
     editors: &'a [wit::EditorOptions],
+    browsers: &'a [wit::BrowserOptions],
     /// Bytes of parts read so far.
     read: usize,
     /// The most bytes a frame may say.
@@ -957,6 +987,7 @@ impl<'a> Lists<'a> {
             segments: &frame.segments,
             commands: &frame.commands,
             editors: &frame.editors,
+            browsers: &frame.browsers,
             read: 0,
             most,
         };
@@ -969,7 +1000,8 @@ impl<'a> Lists<'a> {
             .saturating_add(size_of_val(lists.paths))
             .saturating_add(size_of_val(lists.segments))
             .saturating_add(size_of_val(lists.commands))
-            .saturating_add(size_of_val(lists.editors));
+            .saturating_add(size_of_val(lists.editors))
+            .saturating_add(size_of_val(lists.browsers));
         if held > most {
             return Err(Fault::Malformed(format!(
                 "a page that says {held} bytes (at most {most})"
@@ -995,6 +1027,7 @@ impl<'a> Lists<'a> {
             segments: &[],
             commands: &[],
             editors: &[],
+            browsers: &[],
             read: 0,
             most,
         })
@@ -1032,6 +1065,22 @@ impl<'a> Lists<'a> {
                 ))
             })?;
         self.charge(size_of::<wit::EditorOptions>())?;
+        Ok(options)
+    }
+
+    /// The options of the browser at `index` of the frame's browsers, counted at their size.
+    fn browser(&mut self, index: u32) -> Result<&'a wit::BrowserOptions, Fault> {
+        let browsers = self.browsers;
+        let options = usize::try_from(index)
+            .ok()
+            .and_then(|at| browsers.get(at))
+            .ok_or_else(|| {
+                Fault::Malformed(format!(
+                    "a browser's options: the {index}th of a list of {}",
+                    browsers.len()
+                ))
+            })?;
+        self.charge(size_of::<wit::BrowserOptions>())?;
         Ok(options)
     }
 
@@ -1211,8 +1260,9 @@ fn zoom_out(style: &wit::Style) -> Result<Option<Zoom>, Fault> {
     }))
 }
 
-/// Whether an editor is inside a box that zooms (or is one): its text is measured and drawn at the
-/// size of the page's, which a zoom of what is inside it does not move.
+/// Whether an editor or a browser is inside a box that zooms (or is one): an editor's text is
+/// measured and drawn at the size of the page's, which a zoom of what is inside it does not move, and
+/// a browser's room is the engine's, which a zoom does not reach.
 fn editor_in_zoom(nodes: &[Node]) -> bool {
     // For each node still open: how many of its children are yet to come, and whether it zooms.
     let mut open: Vec<(u32, bool)> = Vec::new();
@@ -1226,7 +1276,9 @@ fn editor_in_zoom(nodes: &[Node]) -> bool {
             }
         }
         let zooms = node.style.zoom.is_some();
-        if node.meta.editor.is_some() && (zooms || open.iter().any(|(_, zooms)| *zooms)) {
+        if (node.meta.editor.is_some() || node.meta.browser.is_some())
+            && (zooms || open.iter().any(|(_, zooms)| *zooms))
+        {
             return true;
         }
         open.push((node.children, zooms));
@@ -1574,6 +1626,13 @@ fn node_out(node: &wit::Node, limits: &ModuleLimits, lists: &mut Lists<'_>) -> R
                     editor_options_out(options, limits, lists).map(Box::new)
                 })
                 .transpose()?,
+            browser: node
+                .browser
+                .map(|index| {
+                    let options = lists.browser(index)?;
+                    browser_options_out(options, limits, lists).map(Box::new)
+                })
+                .transpose()?,
             label: node
                 .label
                 .as_ref()
@@ -1694,7 +1753,7 @@ fn frame_out(
     }
     if editor_in_zoom(&nodes) {
         return Err(Fault::Malformed(
-            "an editor inside a box that zooms (or one that zooms): a zoom does not reach an editor's text"
+            "an editor or a browser inside a box that zooms (or one that zooms): a zoom does not reach an editor's text or a browser's page"
                 .to_owned(),
         ));
     }
@@ -1838,6 +1897,7 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
         fill,
         copy: reply.copy.map(text).transpose()?,
         editor: editor_asks_out(reply.editor, limits)?,
+        browser: browser_asks_out(reply.browser)?,
         // The rule of a web page's `link` (the protocol, §9.7): a link the host may not open is
         // dropped, and the page is neither closed for it nor told. What is handed on is one the
         // host's own session takes (`pencere_wire::link`), never more than 8192 bytes.
@@ -1941,6 +2001,46 @@ impl Patterns {
         self.known = said;
         Ok(())
     }
+}
+
+/// The options of a browser, read: its profile is a part of the frame's text. The profile is a name
+/// the host keeps a folder by, so one that is not a name is a page that fails, and so is a list of
+/// keys longer than [`MOST_KEYS`].
+fn browser_options_out(
+    options: &wit::BrowserOptions,
+    limits: &ModuleLimits,
+    lists: &mut Lists<'_>,
+) -> Result<BrowserOptions, Fault> {
+    let profile = options
+        .profile
+        .as_ref()
+        .map(|part| {
+            lists
+                .words(part, limits.text, "the profile of a browser")
+                .map(str::to_owned)
+        })
+        .transpose()?;
+    if let Some(profile) = &profile
+        && !profile_allowed(profile)
+    {
+        return Err(Fault::Malformed(format!(
+            "the profile of a browser is 1 to {PROFILE_CHARS} of a to z, 0 to 9 and -"
+        )));
+    }
+    if options.keys.len() > MOST_KEYS {
+        return Err(Fault::Malformed(format!(
+            "a browser that keeps {} keys for the page (at most {MOST_KEYS})",
+            options.keys.len()
+        )));
+    }
+    Ok(BrowserOptions {
+        profile,
+        windows: match options.windows {
+            wit::BrowserWindows::Here => BrowserWindows::Here,
+            wit::BrowserWindows::Page => BrowserWindows::Page,
+        },
+        keys: options.keys.iter().map(shortcut_out).collect(),
+    })
 }
 
 /// The options of an editor, read: its hint, its comments, its pairs and the rules of its indent
@@ -2234,6 +2334,38 @@ fn editor_colors_out(colors: &wit::EditorColors) -> EditorColors {
         matches: tint_out(&colors.matches),
         mark_hover: tint_out(&colors.mark_hover),
     }
+}
+
+/// The most asks of browsers one reply makes. An ask is a few bytes and a browser one that many a
+/// person's click makes, so the number is a bound on a page that does not stop and no more.
+const MOST_BROWSER_ASKS: usize = 64;
+
+/// What a reply asks of its browsers. An address is not looked at here: the drive holds it to the
+/// rule of an address a browser goes to ([`pencere_view::go_refusal`]) and tells the page of one that
+/// is not, as a page is told of an editor's ask that was refused; a reply that asks more than
+/// [`MOST_BROWSER_ASKS`] is not one.
+fn browser_asks_out(asks: Vec<wit::BrowserAsk>) -> Result<Vec<(Id, BrowserAsk)>, Fault> {
+    if asks.len() > MOST_BROWSER_ASKS {
+        return Err(Fault::Malformed(format!(
+            "{} asks of browsers in a reply (at most {MOST_BROWSER_ASKS})",
+            asks.len()
+        )));
+    }
+    Ok(asks
+        .into_iter()
+        .map(|ask| {
+            (
+                Id::new(ask.browser),
+                match ask.ask {
+                    wit::BrowserAskKind::Go(url) => BrowserAsk::Go(url),
+                    wit::BrowserAskKind::Back => BrowserAsk::Back,
+                    wit::BrowserAskKind::Forward => BrowserAsk::Forward,
+                    wit::BrowserAskKind::Reload => BrowserAsk::Reload,
+                    wit::BrowserAskKind::Stop => BrowserAsk::Stop,
+                },
+            )
+        })
+        .collect())
 }
 
 /// What a reply asks of its editors, held to what one reply may hand them: text, decorations,
@@ -3005,6 +3137,7 @@ mod tests {
             focusable: false,
             field: None,
             editor: None,
+            browser: None,
             label: None,
             zone: None,
             motion: None,
@@ -3083,6 +3216,7 @@ mod tests {
                 segments: self.segments,
                 commands: self.commands,
                 editors: self.editors,
+                browsers: Vec::new(),
                 animating: false,
                 wake_at: None,
                 wake: None,
@@ -3137,6 +3271,61 @@ mod tests {
         // The box that zooms is the editor.
         assert!(editor_in_zoom(&[edits(zooms(wired(0)))]));
         assert!(!editor_in_zoom(&[wired(1), edits(wired(0))]));
+    }
+
+    #[test]
+    fn a_browser_is_found_in_a_box_that_zooms_as_an_editor_is() {
+        let browses = |mut node: Node| {
+            node.meta.browser = Some(Box::default());
+            node
+        };
+        assert!(editor_in_zoom(&[
+            wired(2),
+            zooms(wired(1)),
+            browses(wired(0))
+        ]));
+        assert!(!editor_in_zoom(&[
+            wired(2),
+            browses(wired(0)),
+            zooms(wired(0))
+        ]));
+        assert!(editor_in_zoom(&[browses(zooms(wired(0)))]));
+    }
+
+    #[test]
+    fn what_a_reply_asks_of_browsers_is_read_by_its_names_and_held_to_a_count() {
+        let ask = |browser: u64, ask: wit::BrowserAskKind| wit::BrowserAsk { browser, ask };
+        let read = browser_asks_out(vec![
+            ask(
+                7,
+                wit::BrowserAskKind::Go("https://example.com/".to_owned()),
+            ),
+            ask(7, wit::BrowserAskKind::Back),
+            ask(8, wit::BrowserAskKind::Forward),
+            ask(8, wit::BrowserAskKind::Reload),
+            ask(9, wit::BrowserAskKind::Stop),
+            // An address is held to a rule by the drive and not here.
+            ask(7, wit::BrowserAskKind::Go("file:///etc/passwd".to_owned())),
+        ])
+        .expect("asks");
+        assert_eq!(
+            read,
+            [
+                (
+                    Id::new(7),
+                    BrowserAsk::Go("https://example.com/".to_owned())
+                ),
+                (Id::new(7), BrowserAsk::Back),
+                (Id::new(8), BrowserAsk::Forward),
+                (Id::new(8), BrowserAsk::Reload),
+                (Id::new(9), BrowserAsk::Stop),
+                (Id::new(7), BrowserAsk::Go("file:///etc/passwd".to_owned())),
+            ]
+        );
+        let many = (0..=MOST_BROWSER_ASKS)
+            .map(|_| ask(1, wit::BrowserAskKind::Stop))
+            .collect();
+        assert!(matches!(browser_asks_out(many), Err(Fault::Malformed(_))));
     }
 
     #[test]
@@ -3778,6 +3967,7 @@ mod tests {
             copy: None,
             cursor: wit::Cursor::Arrow,
             editor,
+            browser: Vec::new(),
             link: None,
             wake: None,
             text_size: None,
@@ -3912,6 +4102,7 @@ mod tests {
             copy,
             cursor: wit::Cursor::Pointer,
             editor: Vec::new(),
+            browser: Vec::new(),
             link: None,
             wake: None,
             text_size: None,
@@ -4014,6 +4205,7 @@ mod tests {
             copy: None,
             cursor: wit::Cursor::Arrow,
             editor: Vec::new(),
+            browser: Vec::new(),
             link: None,
             wake: None,
             text_size: None,
@@ -4078,6 +4270,7 @@ mod tests {
             copy: None,
             cursor: wit::Cursor::Arrow,
             editor: Vec::new(),
+            browser: Vec::new(),
             link,
             wake: None,
             text_size: None,
@@ -4126,6 +4319,7 @@ mod tests {
             copy: Some("kept".into()),
             cursor: wit::Cursor::Arrow,
             editor: Vec::new(),
+            browser: Vec::new(),
             link: None,
             wake,
             text_size: None,

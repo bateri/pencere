@@ -11,6 +11,10 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 - **`Module::idle`**: whether the module has done everything it was told and what came of it is out,
   without waiting (`flush` waits), so that a host can tell a page that has more to say from one that
   has said it.
+- **`pencere.browser(id, options)`**: the room of a browser the host keeps, with `profile`, `windows`
+  and `keys`. A page asks it to go somewhere in a reply (`browser = { web = { go = address } }`) and
+  is told what it is and does by `browser`, `browser_refused` and `browser_window` events. The
+  interpreter component (`luau.wasm`) is rebuilt for it.
 - **A picker** (`u:picker` of `@pencere/ui`): a card by the control that opened it, with a field that
   narrows its items, to choose one or several. With `multi` each row has a box and a click or enter
   turns it on or off while the card stays open, so that a page's labels or the values of a filter are

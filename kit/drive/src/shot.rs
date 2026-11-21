@@ -611,7 +611,7 @@ pub fn reach(item: &Paint, fonts: &Fonts) -> Option<(f32, f32)> {
             }
         }
         Paint::Figure(figure) => (figure.rect.y - 1.0, figure.rect.bottom() + 1.0, figure.clip),
-        Paint::Editor(_) => return None,
+        Paint::Editor(_) | Paint::Browser(_) => return None,
     };
     let (top, bottom) = (top.max(clip.y), bottom.min(clip.bottom()));
     (bottom > top).then_some((top, bottom))
@@ -648,7 +648,7 @@ pub fn across(item: &Paint, fonts: &Fonts) -> Option<(f32, f32)> {
             }
         }
         Paint::Figure(figure) => (figure.rect.x - 1.0, figure.rect.right() + 1.0, figure.clip),
-        Paint::Editor(_) => return None,
+        Paint::Editor(_) | Paint::Browser(_) => return None,
     };
     let (left, right) = (left.max(clip.x), right.min(clip.right()));
     (right > left).then_some((left, right))
@@ -726,6 +726,7 @@ fn shifted(item: &Paint, dx: f32, dy: f32) -> Paint {
             Paint::Figure(figure)
         }
         Paint::Editor(slot) => Paint::Editor(slot.clone()),
+        Paint::Browser(slot) => Paint::Browser(slot.clone()),
     }
 }
 
@@ -782,6 +783,9 @@ fn draw<'a>(
             }
             // An editor's place no editor filled: its room's fill, under it, is what shows.
             Paint::Editor(_) => {}
+            // A browser's room is where the host's engine draws; a picture has only its frame
+            // (`Headless::shot_in` draws one), the engine being the host's.
+            Paint::Browser(_) => {}
         }
     }
 }

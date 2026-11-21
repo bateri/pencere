@@ -13,6 +13,8 @@ use pencere_view::edit::EditCommand;
 use pencere_view::{AccessibleRole, FieldKind, Id, Payload, Point, Rect};
 use serde_json::Value as Json;
 
+mod browsing;
+
 use crate::peer::Any;
 use crate::program::App;
 
@@ -229,6 +231,7 @@ fn role_name(role: AccessibleRole) -> (&'static str, Option<u8>) {
         AccessibleRole::Button => ("button", None),
         AccessibleRole::Field(_) => ("field", None),
         AccessibleRole::Editor => ("editor", None),
+        AccessibleRole::Browser => ("browser", None),
         AccessibleRole::Text => ("text", None),
         AccessibleRole::Link => ("link", None),
         AccessibleRole::Checkbox => ("checkbox", None),
@@ -500,6 +503,7 @@ fn index_of(value: f64) -> usize {
 impl UserData for Handle {
     #[allow(clippy::too_many_lines)]
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        browsing::add(methods);
         // ---- the keyboard ----
         methods.add_method("press", |_, this, keys: String| {
             this.act(|page| page.press(&keys).map(drop))
@@ -1044,6 +1048,7 @@ impl UserData for Handle {
                     Focus::Page => "page",
                     Focus::Field(_) => "field",
                     Focus::Editor(_) => "editor",
+                    Focus::Browser(_) => "browser",
                 },
             )?;
             Ok(table)
@@ -1051,7 +1056,7 @@ impl UserData for Handle {
         methods.add_method("has_focus", |_, this, name: String| {
             this.look(|page| match page.focus() {
                 Focus::Page => name == "page",
-                Focus::Field(id) | Focus::Editor(id) => id == Id::named(&name),
+                Focus::Field(id) | Focus::Editor(id) | Focus::Browser(id) => id == Id::named(&name),
             })
         });
         methods.add_method("field", |_, this, name: String| {

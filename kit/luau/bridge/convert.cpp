@@ -55,6 +55,7 @@ struct Arenas {
     std::vector<pencere_view_types_command_t> commands;
     // What few elements have, a list of its own: an element names its place in it.
     std::vector<pencere_view_types_editor_options_t> editors;
+    std::vector<pencere_view_types_browser_options_t> browsers;
 };
 
 // A list for the host: a malloc'ed copy of `items` (the generated `_free` functions release it),
@@ -1143,6 +1144,33 @@ pencere_view_types_option_slice_t words_at(lua_State* L, int t, const char* name
     return out;
 }
 
+// `meta.browser`: { profile = "name", windows = "here" | "page", keys = { "mod+l", ... } }. The
+// prelude has said what is not a name or a key, where the page wrote it.
+pencere_view_types_browser_options_t browser_options_at(lua_State* L, int t, Arenas& arenas) {
+    pencere_view_types_browser_options_t out = {};
+    out.profile = words_at(L, t, "profile", "the profile of a browser", arenas);
+    static const char* const kWindows[] = {"here", "page"};
+    out.windows = (uint8_t)word(L, t, "windows", kWindows, 2, 0);
+    get(L, t, "keys");
+    if (lua_type(L, -1) == LUA_TTABLE) {
+        int keys = lua_gettop(L);
+        size_t many = (size_t)lua_objlen(L, keys);
+        if (many > kMaxList) luaL_error(L, "a browser has more keys than it may");
+        if (many) {
+            out.keys.ptr = (pencere_view_types_shortcut_t*)xmalloc(many * sizeof(pencere_view_types_shortcut_t));
+            memset(out.keys.ptr, 0, many * sizeof(pencere_view_types_shortcut_t));
+            out.keys.len = many;
+        }
+        for (size_t k = 0; k < many; k++) {
+            lua_rawgeti(L, keys, (int)k + 1);
+            out.keys.ptr[k] = shortcut_of_words(L, lua_gettop(L));
+            lua_pop(L, 1);
+        }
+    }
+    lua_pop(L, 1);
+    return out;
+}
+
 // `comment = "--"` (a line comment alone) or `comment = { line = "--", block = { "--[[", "]]" } }`,
 // the block's tokens a pair or `{ open =, close = }`.
 pencere_view_types_comment_tokens_t comment_at(lua_State* L, int t, Arenas& arenas) {
@@ -1518,6 +1546,15 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
             luaL_error(L, "an editor's options are a table");
         }
         lua_pop(L, 1);
+        get(L, meta, "browser");
+        if (lua_type(L, -1) == LUA_TTABLE) {
+            pencere_view_types_browser_options_t options = browser_options_at(L, lua_gettop(L), flat.arenas);
+            flat.arenas.browsers.push_back(options);
+            nodes.ptr[at].browser = {true, (uint32_t)(flat.arenas.browsers.size() - 1)};
+        } else if (!lua_isnil(L, -1)) {
+            luaL_error(L, "a browser's options are a table");
+        }
+        lua_pop(L, 1);
         get(L, meta, "zone");
         if (!lua_isnil(L, -1)) {
             nodes.ptr[at].zone.is_some = true;
@@ -1794,6 +1831,7 @@ int frame_call(lua_State* L) {
     take_list(job->out->segments, flat.arenas.segments);
     take_list(job->out->commands, flat.arenas.commands);
     take_list(job->out->editors, flat.arenas.editors);
+    take_list(job->out->browsers, flat.arenas.browsers);
     job->out->animating = job->animating;
     job->out->wake_at.is_some = job->has_wake_at;
     job->out->wake_at.val = job->wake_at;
@@ -2386,6 +2424,60 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             push_id(L, event.val.editor_ready.editor);
             lua_setfield(L, -2, "editor");
             set_number(L, "version", (double)event.val.editor_ready.version);
+            break;
+        case PENCERE_VIEW_TYPES_EVENT_BROWSER: {
+            // { browser =, url =, title =, loading =, back =, forward =, status =, message =,
+            // error = { url =, code =, message = } }: all of what a browser is, told at each change.
+            const pencere_view_types_browser_state_t& browser = event.val.browser;
+            set_word(L, "type", "browser");
+            push_id(L, browser.browser);
+            lua_setfield(L, -2, "browser");
+            lua_pushlstring(L, (const char*)browser.url.ptr, browser.url.len);
+            lua_setfield(L, -2, "url");
+            lua_pushlstring(L, (const char*)browser.title.ptr, browser.title.len);
+            lua_setfield(L, -2, "title");
+            lua_pushboolean(L, browser.loading);
+            lua_setfield(L, -2, "loading");
+            lua_pushboolean(L, browser.back);
+            lua_setfield(L, -2, "back");
+            lua_pushboolean(L, browser.forward);
+            lua_setfield(L, -2, "forward");
+            lua_pushlstring(L, (const char*)browser.status.ptr, browser.status.len);
+            lua_setfield(L, -2, "status");
+            if (browser.message.is_some) {
+                lua_pushlstring(L, (const char*)browser.message.val.ptr, browser.message.val.len);
+                lua_setfield(L, -2, "message");
+            }
+            if (browser.error.is_some) {
+                lua_createtable(L, 0, 3);
+                lua_pushlstring(L, (const char*)browser.error.val.url.ptr, browser.error.val.url.len);
+                lua_setfield(L, -2, "url");
+                set_number(L, "code", (double)browser.error.val.code);
+                lua_pushlstring(L, (const char*)browser.error.val.message.ptr, browser.error.val.message.len);
+                lua_setfield(L, -2, "message");
+                lua_setfield(L, -2, "error");
+            }
+            break;
+        }
+        case PENCERE_VIEW_TYPES_EVENT_BROWSER_REFUSED: {
+            // { browser =, reason = "scheme" | "address" }: what the page asked of it was not done.
+            static const char* const kBrowserRefusals[] = {"scheme", "address"};
+            set_word(L, "type", "browser_refused");
+            push_id(L, event.val.browser_refused.browser);
+            lua_setfield(L, -2, "browser");
+            set_word(L, "reason",
+                     event.val.browser_refused.reason < sizeof(kBrowserRefusals) / sizeof(kBrowserRefusals[0])
+                         ? kBrowserRefusals[event.val.browser_refused.reason]
+                         : "unknown");
+            break;
+        }
+        case PENCERE_VIEW_TYPES_EVENT_BROWSER_WINDOW:
+            // { browser =, url = }: a link opens a new window, and the page said it does that itself.
+            set_word(L, "type", "browser_window");
+            push_id(L, event.val.browser_window.browser);
+            lua_setfield(L, -2, "browser");
+            lua_pushlstring(L, (const char*)event.val.browser_window.url.ptr, event.val.browser_window.url.len);
+            lua_setfield(L, -2, "url");
             break;
     }
 }
@@ -3103,6 +3195,64 @@ pencere_view_types_editor_ask_kind_t ask_at(lua_State* L, int t) {
     return out;
 }
 
+// One ask of a browser, at the absolute index `t`: `{ go = "address" }`, or
+// `{ command = "back" | "forward" | "reload" | "stop" }`.
+pencere_view_types_browser_ask_kind_t browser_ask_at(lua_State* L, int t) {
+    pencere_view_types_browser_ask_kind_t out = {};
+    get(L, t, "go");
+    bool go = !lua_isnil(L, -1);
+    lua_pop(L, 1);
+    get(L, t, "command");
+    bool command = !lua_isnil(L, -1);
+    lua_pop(L, 1);
+    if (go == command) luaL_error(L, "an ask of a browser is a go or a command");
+    if (go) {
+        out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_GO;
+        out.val.go = string_of(L, t, "go");
+    } else {
+        get(L, t, "command");
+        const char* word = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "";
+        if (strcmp(word, "back") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_BACK;
+        else if (strcmp(word, "forward") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_FORWARD;
+        else if (strcmp(word, "reload") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_RELOAD;
+        else if (strcmp(word, "stop") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_STOP;
+        else luaL_error(L, "the command of a browser is back, forward, reload or stop");
+        lua_pop(L, 1);
+    }
+    return out;
+}
+
+// `browser = { [name] = ask or { ask, ... }, ... }`.
+void read_browser_asks(lua_State* L, int t, pencere_view_types_list_browser_ask_t& out) {
+    std::vector<pencere_view_types_browser_ask_t> asks;
+    lua_pushnil(L);
+    while (lua_next(L, t) != 0) {
+        int value = lua_gettop(L);
+        if (lua_type(L, value) != LUA_TTABLE) luaL_error(L, "browser gives each browser an ask, or a list of them");
+        uint64_t browser = id_of(L, value - 1);
+        lua_rawgeti(L, value, 1);
+        bool list = lua_type(L, -1) == LUA_TTABLE;
+        lua_pop(L, 1);
+        size_t count = list ? list_length(L, value, "a browser's asks") : 1;
+        for (size_t at = 0; at < count; at++) {
+            if (asks.size() >= kMaxNodes) luaL_error(L, "browser asks more than a reply may");
+            int ask = value;
+            if (list) {
+                lua_rawgeti(L, value, (int)at + 1);
+                ask = lua_gettop(L);
+                if (lua_type(L, ask) != LUA_TTABLE) luaL_error(L, "an ask of a browser is a table");
+            }
+            pencere_view_types_browser_ask_t one = {};
+            one.browser = browser;
+            one.ask = browser_ask_at(L, ask);
+            asks.push_back(one);
+            if (list) lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+    }
+    take_list(out, asks);
+}
+
 // `editor = { [name] = ask or { ask, ... }, ... }`.
 void read_editor_asks(lua_State* L, int t, pencere_view_types_list_editor_ask_t& out) {
     std::vector<pencere_view_types_editor_ask_t> asks;
@@ -3234,6 +3384,14 @@ int reply_call(lua_State* L) {
         read_editor_asks(L, lua_gettop(L), out.editor);
     } else if (!lua_isnil(L, -1)) {
         luaL_error(L, "editor is a table of the editors' names and what is asked of each");
+    }
+    lua_pop(L, 1);
+    // What the page asks of its browsers: { [name] = ask, or { ask, ... } }.
+    get(L, 1, "browser");
+    if (lua_type(L, -1) == LUA_TTABLE) {
+        read_browser_asks(L, lua_gettop(L), out.browser);
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "browser is a table of the browsers' names and what is asked of each");
     }
     lua_pop(L, 1);
     get(L, 1, "copy");

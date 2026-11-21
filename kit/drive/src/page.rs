@@ -50,15 +50,16 @@ use pencere_sandbox::{
 };
 use pencere_view::edit::{EditCommand, EditorAsk, Range};
 use pencere_view::{
-    Button, Carrying, Cursor, DRAG_START, DrawList, EditorMetrics, Element, Event, FileEntry,
-    FileSource, Font, GesturePhase, Id, Input, Key, KeyConvention, Keyboard, Laid, Measure,
-    MenuEntry, Metrics, Mods, Motions, Phase, Place, Point, Rect, Reply, Role, Saving, ScrollTo,
-    Size, div, text,
+    BrowserState, Button, Carrying, Cursor, DRAG_START, DrawList, EditorMetrics, Element, Event,
+    FileEntry, FileSource, Font, GesturePhase, Id, Input, Key, KeyConvention, Keyboard, Laid,
+    Measure, MenuEntry, Metrics, Mods, Motions, Phase, Place, Point, Rect, Reply, Role, Saving,
+    ScrollTo, Size, div, text,
 };
 
+use crate::browsers::{self, Browser, Browsers};
 use crate::editing::{Editing, Told, in_a_room};
 use crate::host::{CarryOut, Copied, Drained, Held, Host};
-use crate::outline::{Field, Outline, Placement};
+use crate::outline::{Field, Outline, Placement, ZOOM_TEXT};
 use crate::reading::{Owed, Reading, ReadingInput, Rest};
 use crate::scrolling::{HostScrolls, Scrolling};
 use crate::waking::Wakes;
@@ -260,6 +261,8 @@ struct State {
     owed: Owed,
     /// The page's editors.
     editing: Editing,
+    /// The page's browsers: whether the host shows them, and what each was last said to be.
+    browsers: Browsers,
     /// The shape the editor says the pointer has where it last was, over an editor's room.
     cursor_over: Option<Cursor>,
     /// The shape changed with no move of the pointer (a modifier held that makes a link) and the host
@@ -473,6 +476,7 @@ impl Page {
                 sent: Vec::new(),
                 owed: Owed::default(),
                 editing: Editing::new(),
+                browsers: Browsers::default(),
                 cursor_over: None,
                 cursor_told: None,
                 again: false,
@@ -845,6 +849,37 @@ impl Page {
         });
     }
 
+    /// The host says whether it shows browsers (the rooms of [`pencere_view::Element::browser`]): it
+    /// puts its engine's page where [`pencere_view::Paint::Browser`] says and does what the page asks
+    /// ([`crate::Host::browser`]), telling the page what each is and does ([`Page::browser`]). A
+    /// host that says nothing shows none: the drive draws a placeholder in each room and tells the
+    /// page, once for each browser, that this host shows none, so that a page never waits for a state
+    /// no host will give.
+    pub fn set_browsers(&mut self, shown: bool) {
+        self.state.browsers.shown = shown;
+    }
+
+    /// The host's browser named `browser` is, or does, what `state` says: all of it, told each time
+    /// any of it changes.
+    pub fn browser(&mut self, browser: Id, state: BrowserState) {
+        let event = self.state.browsers.said(browser, state);
+        self.state.event(event);
+    }
+
+    /// A link of the host's browser named `browser` opens a new window at `url`, and the page said it
+    /// is the page that opens it ([`pencere_view::BrowserWindows::Page`]).
+    pub fn browser_window(&mut self, browser: Id, url: &str) {
+        self.state.event(Event::BrowserWindow {
+            browser,
+            url: url.to_owned(),
+        });
+    }
+
+    /// The browsers of the page, as of the last frame, in the host's points.
+    pub fn browsers(&self) -> &[Browser] {
+        &self.state.outline.browsers
+    }
+
     /// The person clicked into the host's field named `field`, or the keyboard went back to the
     /// page of itself (`None`); not told when it went where the page's reply sent it.
     pub fn focus(&mut self, field: Option<Id>) {
@@ -1144,8 +1179,22 @@ impl Page {
             state.ended.clone().inspect(|_| state.told_end = true)
         };
         let mut replies = std::mem::take(&mut state.replies);
+        // What the page asks of its browsers is held to the rule of the addresses a browser goes to
+        // before the host sees it, and the page is told what was refused.
+        for answer in &mut replies {
+            for event in state.browsers.check(&mut answer.reply.browser) {
+                state.event(event);
+                state.redraw = true;
+            }
+        }
         let held = state.held.len();
-        hold(&mut replies, &state.outline.fields, &mut state.held);
+        hold(
+            &mut replies,
+            &state.outline.fields,
+            &state.outline.browsers,
+            state.browsers.shown,
+            &mut state.held,
+        );
         // What was held waits for the frame that lays its field out, and a reply that a frame took
         // (so that it asked for none) has no other frame coming: the host is to draw one.
         state.redraw |= state.held.len() > held;
@@ -1821,10 +1870,17 @@ impl State {
         let draws = laid.paint(measure);
         let editing = &mut self.editing;
         let (now, still) = (at.now, at.reduce_motion);
-        let list = editing.editors.paint(draws, measure, caret, &mut |spots| {
+        let mut list = editing.editors.paint(draws, measure, caret, &mut |spots| {
             editing.glide.shifts(spots, now, still)
         });
         editing.glide.drawn();
+        // A host that shows no browser has a placeholder where the room of one is.
+        browsers::settle(
+            &mut list.items,
+            self.browsers.shown,
+            ZOOM_TEXT * scale,
+            measure,
+        );
         // The module may ask of this layout from now on, and brings what depends on it back within
         // it; a page that was already within it answers nothing. The line that stands in for a page
         // is not the module's.
@@ -1838,6 +1894,15 @@ impl State {
             self.tell_scrolled();
             // And what the editors have for it, read against this layout.
             self.tell(told, true, false);
+        }
+        if !starting {
+            // A browser seen for the first time is told what the drive can say of it (a host that
+            // shows none: that it is unsupported), and the next frame has what the page makes of it.
+            let told = self.browsers.meet(&laid.browsers());
+            self.again |= !told.is_empty();
+            for event in told {
+                self.event(event);
+            }
         }
         let mut outline = Outline::of(&laid, self.place);
         outline.add_markers(self.editing.editors.labels(&laid), self.place);
@@ -2187,15 +2252,37 @@ fn into_page(input: Input, place: Placement) -> Input {
 /// has) does not name yet — the texts and the keyboard — and puts it, in order, in `held`. Once
 /// anything is held, what comes after it is held too, so that what a reply asked is done in the
 /// order it asked it.
-pub(crate) fn hold(replies: &mut [Answer], fields: &[Field], held: &mut Vec<Held>) {
-    let has = |id: Id| fields.iter().any(|field| field.id == id);
+pub(crate) fn hold(
+    replies: &mut [Answer],
+    fields: &[Field],
+    browsers: &[Browser],
+    shown: bool,
+    held: &mut Vec<Held>,
+) {
+    // A field, an editor or a browser of the page: the names the keyboard goes to. A host that
+    // shows no browser has none to give it to.
+    let is_browser = |id: Id| browsers.iter().any(|browser| browser.id == id);
+    let has = |id: Id| fields.iter().any(|field| field.id == id) || (shown && is_browser(id));
     for Answer { reply, .. } in replies {
+        for (browser, ask) in std::mem::take(&mut reply.browser) {
+            if held.is_empty() && browsers.iter().any(|room| room.id == browser) {
+                reply.browser.push((browser, ask));
+            } else {
+                held.push(Held::Browser(browser, ask));
+            }
+        }
         for (field, fill) in std::mem::take(&mut reply.fill) {
             if held.is_empty() && has(field) {
                 reply.fill.push((field, fill));
             } else {
                 held.push(Held::Fill(field, fill));
             }
+        }
+        if let Some(Keyboard::Field(field)) = reply.keyboard
+            && !shown
+            && is_browser(field)
+        {
+            reply.keyboard = None;
         }
         if let Some(to) = reply.keyboard {
             let waits = match to {

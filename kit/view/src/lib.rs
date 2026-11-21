@@ -29,12 +29,16 @@
 //! draws its document (the `pencere-editor` crate); [`edit`] is what the page and the editor say to
 //! each other.
 //!
+//! A page can hold a browser too, which is the host's as an editor is: it loads the pages and draws
+//! them; [`browser`] is what the page and the browser say to each other.
+//!
 //! A page need not live in the host that shows it: [`wire`] lays an [`Element`] tree down as a flat
 //! list and picks it up again, and [`Queries`] is what a page asks of itself laid out — the pair a
 //! page kept in a sandbox is written against, as [`Laid`] answers the same questions to one that
 //! is not.
 
 pub mod bands;
+mod browser;
 mod color;
 mod command;
 pub mod edit;
@@ -57,6 +61,10 @@ mod text;
 mod ui;
 pub mod wire;
 
+pub use browser::{
+    ADDRESS_BYTES, BrowserAsk, BrowserError, BrowserOptions, BrowserRefusal, BrowserState,
+    BrowserWindows, MOST_KEYS, PROFILE_CHARS, go_refusal, profile_allowed,
+};
 pub use color::{Color, Mix, Rgba, Role, Source};
 pub use command::{Command, Shortcut};
 pub use element::{
@@ -73,10 +81,11 @@ pub use input::{
     MenuEntry, Mods, Panel, Place, Reply, Saving, Scrolled, copy_key,
 };
 pub use layout::{
-    Accessible, AccessibleRole, Carrying, EditorRoom, Extent, Field, Laid, Queries, Spill, layout,
+    Accessible, AccessibleRole, BrowserRoom, Carrying, EditorRoom, Extent, Field, Laid, Queries,
+    Spill, layout,
 };
 pub use motion::{Ease, Motion, Motions, Shift, Tip};
-pub use paint::{DrawList, EditorSlot, Figure, Paint, Picture, Quad, Run};
+pub use paint::{BrowserSlot, DrawList, EditorSlot, Figure, Paint, Picture, Quad, Run};
 pub use rich::{Span, span};
 pub use rows::{Built, List, Rows};
 pub use scrolls::{Bars, Phase, ScrollTo, Scrolls, Wheeled};
@@ -89,6 +98,8 @@ pub use ui::{DRAG_START, Drag, Dropped, Ui};
 
 #[cfg(test)]
 mod bands_tests;
+#[cfg(test)]
+mod browser_tests;
 #[cfg(test)]
 mod carry_tests;
 #[cfg(test)]

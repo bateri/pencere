@@ -10,7 +10,7 @@
 //! the drive holds it and gives it with the frame ([`crate::Painted::held`]).
 
 use pencere_sandbox::{Answer, Fault};
-use pencere_view::{Carry, Cursor, Fill, Id, Keyboard, Menu, Panel, Point, Rect};
+use pencere_view::{BrowserAsk, Carry, Cursor, Fill, Id, Keyboard, Menu, Panel, Point, Rect};
 
 /// What a page had besides its replies, since the host last looked ([`crate::Page::drain`]).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -86,6 +86,8 @@ pub enum Held {
     /// Text a page had an editor copy or cut within this frame, for the host's pasteboard
     /// ([`Host::copy`]).
     Copy(Copied),
+    /// What the page asked of a browser the host has not made yet ([`Host::browser`]).
+    Browser(Id, BrowserAsk),
 }
 
 impl Held {
@@ -95,6 +97,7 @@ impl Held {
             Self::Fill(field, fill) => host.fill(field, fill),
             Self::Keyboard(to) => host.keyboard(to),
             Self::Copy(Copied { text, by_person }) => host.copy(text, by_person),
+            Self::Browser(browser, ask) => host.browser(browser, ask),
         }
     }
 }
@@ -124,6 +127,11 @@ pub trait Host {
     /// frame ([`crate::Painted::held`]), after its texts; a name the page still does not have then
     /// sends the keyboard to the page.
     fn keyboard(&mut self, _to: Keyboard) {}
+    /// What the page asks of the browser named `browser`, one of those the host made for the page
+    /// (a name it has not made is passed over, as a field's is). Told only to a host that said it
+    /// shows browsers ([`crate::Page::set_browsers`]), and only an ask the browser may be given: an
+    /// address of a kind it does not go to is refused before it gets here, and the page told.
+    fn browser(&mut self, _browser: Id, _ask: BrowserAsk) {}
     /// How many points larger than the host's own text the page asks to be drawn (below 0: smaller):
     /// the size of this view, which the host puts into the size it draws it at, within what it can
     /// draw ([`crate::Placement::zoom_for`]), and leaves its own text as it was. The page says it
@@ -212,6 +220,9 @@ impl Drained {
             }
             if let Some(to) = reply.keyboard {
                 host.keyboard(to);
+            }
+            for (browser, ask) in reply.browser {
+                host.browser(browser, ask);
             }
             if let Some(points) = reply.text_size {
                 host.text_size(points);

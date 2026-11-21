@@ -56,6 +56,15 @@
 --       dropped) are for showing where they would go. "saving": the person chose a place in the
 --       Save panel the page asked for, its `handle` (passed on to the program, which writes the
 --       file by it) and the `name` given; neither when the person turned the panel away.
+--       A browser (`pencere.browser`) tells "browser", the `browser` and all of what it is, at each
+--       change: the `url` it is at and the `title` of its page, whether it is `loading`, whether there
+--       is a page to go `back` or `forward` to, its `status` ("ready", "starting", "crashed",
+--       "no_route" or "unsupported"; a set that is open, and a word a page does not know is a browser
+--       that is not ready), a `message` (a sentence for the person, in every status but "ready") and,
+--       for a load that failed, the `error` ({ url =, code =, message = }) until the next load begins;
+--       "browser_refused", the `browser` and the `reason` ("scheme": an address a browser does not
+--       go to; "address": one it is not given) it did not do what the page asked; and, for a browser
+--       whose `windows` is "page", "browser_window", the `browser` and the `url` a link opens.
 --       An editor (`pencere.editor`) tells: "editor_ready", the `editor` and its `version`, once the
 --       host has made it (its text is posted: a page loads a document into it then); move, press
 --       and release over it have a `place` ({ editor =, at =, inside = (the place was in a selection, or at a caret, before a press moved the caret), version = }, the place of its document under the
@@ -111,7 +120,9 @@
 --     pasteboard's text pasted in that editor as its paste key would, honouring a read-only editor
 --     and several carets; the page is told the pick as any and never reads the pasteboard, nor can
 --     it ask an editor to paste; it has no keys: no key picks it), ... } (a line's table is told back with its pick, as `entry`, with
---     whatever else the page put in it) }, editor = { [name] = ask, or { ask, ... } }, link = "https://...", wake = seconds,
+--     whatever else the page put in it) }, editor = { [name] = ask, or { ask, ... } },
+--     browser = { [name] = { go = "https://..." } or { command = "back" | "forward" | "reload" |
+--     "stop" }, or a list of them }, link = "https://...", wake = seconds,
 --     text_size = points,
 --     pick = true or { multiple = true } (the Open panel), save = "name" or { name =, type = } (the
 --     Save panel) }
