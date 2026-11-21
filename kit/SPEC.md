@@ -187,6 +187,14 @@ system's screen reader says the label of an element that has one, and the words 
 none. A button that is an icon alone needs one: where it has none and no words inside it, a control
 (a button, a link, a checkbox, a switch, a radio, a tab, a menu item) is said by the words of its
 tip, so that an icon with a tip is not nameless, but a page that writes the label says what it means.
+An element that holds a control (an element that answers the pointer or has a `role`, a text field, an
+editor, a browser, a link) is not one name for all it holds: its controls are said each apart. Where it
+has a label that is its name alone, and the words inside it that are in none of its controls are said
+apart, in their place, as words. Where it has none it is said by those words, or else its tip, and not
+at all where it has none. So a dialog laid over a scrim that answers the pointer is read as its buttons
+and fields (give the scrim a label that says what a press on it does, "Close dialog", and the
+dialog's own words are read as words and not as the scrim's name), and a row with a checkbox in it as
+the row and the checkbox.
 
 A **tip** is what the host says of an element while the pointer rests on it, with the keys that do
 the same where there are some (`tip("Containers", "1")`): a tooltip of the host's own. Its keys are
@@ -1834,7 +1842,8 @@ A host:
 - tells its system's screen reader what the page is: each element as what it says it is (its `role`),
   the other pressable elements as buttons, the fields as fields, the links of a text as links, and the
   words of the rest, each by its `label` where it has one, with its state (checked, selected,
-  expanded, of no use, its value) (`Laid::accessible`);
+  expanded, of no use, its value), the controls inside an element that answers the pointer apart from
+  it (`Laid::accessible`);
 - draws a box's fill from one colour to another as a style sheet's `linear-gradient` of that angle
   draws it, over its plain fill and under its border, and a canvas's paths as `pencere_sandbox`'s
   `draw_figure` draws them (the one rasteriser, so that a figure is the same on every host: their

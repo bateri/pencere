@@ -875,6 +875,185 @@ fn a_control_with_no_label_and_no_words_is_said_by_its_tip_and_not_by_its_keys()
     );
 }
 
+/// The page as a screen reader is told it: each item's role and words.
+fn read_of(root: crate::Element) -> Vec<(crate::AccessibleRole, String)> {
+    layout(root, Size::new(400.0, 400.0), 1.0, &mut Fixed)
+        .accessible()
+        .iter()
+        .map(|item| (item.role, item.words.clone()))
+        .collect()
+}
+
+#[test]
+fn a_dialog_over_a_scrim_that_answers_the_pointer_is_read_as_its_buttons_and_fields() {
+    use crate::AccessibleRole::{Button, Field};
+    let button = |name: &str, words: &str| {
+        div()
+            .row()
+            .press(Id::named(name))
+            .h(20.0)
+            .child(text(words))
+    };
+    let dialog = div()
+        .col()
+        .child(text("Dialog title"))
+        .child(
+            div()
+                .text_field(Id::named("name"))
+                .h(18.0)
+                .child(text("Name")),
+        )
+        .child(
+            div()
+                .row()
+                .child(button("ok", "OK"))
+                .child(button("cancel", "Cancel")),
+        );
+    let scrim = |label: Option<&str>| {
+        let scrim = div()
+            .press(Id::named("scrim"))
+            .overlay()
+            .inset(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+            .child(dialog.clone());
+        match label {
+            Some(label) => scrim.label(label),
+            None => scrim,
+        }
+    };
+    let page = |scrim| div().child(text("Page")).child(scrim);
+    // Said by the words inside it that are in none of the controls, and each control apart.
+    assert_eq!(
+        read_of(page(scrim(None))),
+        [
+            (crate::AccessibleRole::Text, "Page".to_owned()),
+            (Button, "Dialog title".to_owned()),
+            (Field(FieldKind::Line), "Name".to_owned()),
+            (Button, "OK".to_owned()),
+            (Button, "Cancel".to_owned()),
+        ]
+    );
+    // Said by its label alone where it has one: the title is the dialog's, read in its place as
+    // words, and the buttons and the field apart.
+    assert_eq!(
+        read_of(page(scrim(Some("Close dialog")))),
+        [
+            (crate::AccessibleRole::Text, "Page".to_owned()),
+            (Button, "Close dialog".to_owned()),
+            (crate::AccessibleRole::Text, "Dialog title".to_owned()),
+            (Field(FieldKind::Line), "Name".to_owned()),
+            (Button, "OK".to_owned()),
+            (Button, "Cancel".to_owned()),
+        ]
+    );
+    // With no words and no tip it is not read at all, and what it holds still is.
+    let bare = div().press(Id::named("scrim")).child(
+        div()
+            .row()
+            .child(button("ok", "OK"))
+            .child(button("cancel", "Cancel")),
+    );
+    assert_eq!(
+        read_of(bare.clone()),
+        [(Button, "OK".to_owned()), (Button, "Cancel".to_owned())]
+    );
+    // Its tip names it, as it does a control with no words.
+    assert_eq!(
+        read_of(bare.tip("Dismiss", None)),
+        [
+            (Button, "Dismiss".to_owned()),
+            (Button, "OK".to_owned()),
+            (Button, "Cancel".to_owned())
+        ]
+    );
+}
+
+#[test]
+fn a_row_with_a_checkbox_in_it_is_the_row_and_the_checkbox_apart() {
+    use crate::AccessibleRole::{Button, Checkbox, Link, Text};
+    use crate::{rich, rich::span};
+    let mark = || {
+        div()
+            .press(Id::named("mark"))
+            .role(Checkbox)
+            .checked(true)
+            .label("Marked")
+            .size(10.0, 10.0)
+    };
+    let row = div()
+        .row()
+        .press(Id::named("row"))
+        .h(20.0)
+        .child(mark())
+        .child(text("report.txt"))
+        .child(text("12 KB"));
+    assert_eq!(
+        read_of(row),
+        [
+            (Button, "report.txt 12 KB".to_owned()),
+            (Checkbox, "Marked".to_owned()),
+        ]
+    );
+    // A label is the row's name alone; the words inside it that are no control's are read apart.
+    let labelled = div()
+        .row()
+        .press(Id::named("row"))
+        .label("Open report")
+        .h(20.0)
+        .child(mark())
+        .child(text("report.txt"));
+    assert_eq!(
+        read_of(labelled),
+        [
+            (Button, "Open report".to_owned()),
+            (Checkbox, "Marked".to_owned()),
+            (Text, "report.txt".to_owned()),
+        ]
+    );
+    // A link in the words of a button is a control: the button is said by the words, the link apart.
+    let linked = div()
+        .press(Id::named("note"))
+        .h(20.0)
+        .child(rich([span("see "), span("docs").link(Id::named("docs"))]));
+    assert_eq!(
+        read_of(linked),
+        [(Button, "see docs".to_owned()), (Link, "docs".to_owned())]
+    );
+    // An element that says what it is carries controls too; a box with a label alone is not one.
+    let heading = div()
+        .role(crate::AccessibleRole::Heading(2))
+        .child(text("Files"))
+        .child(div().press(Id::named("sort")).child(text("Sort")));
+    let plain = div().label("Running").child(text("inside"));
+    assert_eq!(
+        read_of(div().child(heading).child(plain)),
+        [
+            (crate::AccessibleRole::Heading(2), "Files".to_owned()),
+            (Button, "Sort".to_owned()),
+            (Text, "Running".to_owned()),
+        ]
+    );
+}
+
+#[test]
+fn a_button_with_no_control_in_it_is_still_said_by_all_the_words_inside_it() {
+    use crate::AccessibleRole::Button;
+    let button = div()
+        .col()
+        .press(Id::named("card"))
+        .child(text("Title"))
+        .child(div().size(8.0, 8.0).label("Badge"))
+        .child(div().child(text("Detail")));
+    assert_eq!(read_of(button), [(Button, "Title Detail".to_owned())]);
+    // With a label it is that and nothing else: the words inside it are not said.
+    let labelled = div()
+        .col()
+        .press(Id::named("card"))
+        .label("Open card")
+        .child(text("Title"))
+        .child(div().child(text("Detail")));
+    assert_eq!(read_of(labelled), [(Button, "Open card".to_owned())]);
+}
+
 #[test]
 fn a_box_inside_padding_stands_in_its_middle_at_a_scale_that_is_not_whole() {
     // A segmented control's thumb: two points of padding round a box 24 tall, the page drawn at

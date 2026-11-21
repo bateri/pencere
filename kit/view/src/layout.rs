@@ -1956,6 +1956,17 @@ impl Laid {
     /// element that is none of them but has a label (an icon that says what it shows), whose words
     /// inside are not said again. What is hidden, has no room or is cut off altogether by the boxes
     /// around it is not there. Boxes are points.
+    ///
+    /// An element that carries a control (one that answers the pointer or says what it is, a field,
+    /// an editor, a browser, a link) is not one name for all it holds: its controls are each read
+    /// apart, in their place after it. Where it has a label that is its name alone, and the words
+    /// inside it that are in none of the controls are read apart in their place, as words; where it
+    /// has none it is said by those words (said once), or else by its tip, and where it has none of
+    /// these it is not read at all. So a dialog laid over a scrim that answers the pointer and has a
+    /// label ("Close dialog") is read as the scrim, the dialog's words, its buttons and its fields,
+    /// and a row with a checkbox in it as the row and the checkbox. An element with no control in
+    /// it is said by its label, or else by all the words inside it, as before. What stands in a zone
+    /// of an editor is the page's own and is read apart all the same.
     pub fn accessible(&self) -> Vec<Accessible> {
         let s = self.scale;
         let points = |rect: Rect| Rect::new(rect.x / s, rect.y / s, rect.w / s, rect.h / s);
@@ -1966,39 +1977,48 @@ impl Laid {
             }
         };
         let mut items = Vec::new();
-        // The element whose words are said for it (a button, a field, a labelled box): what is
-        // inside it is not said apart.
-        let mut said_by: Option<usize> = None;
+        let (controls, holds) = self.controls(&shown);
+        // The elements whose words are said for them (a button, a field, a labelled box), the
+        // innermost last, and what each lets be said apart: nothing, where it carries no control
+        // (the words inside it are its name), the controls, where it carries some and has no label
+        // (the words that are in none of them are its name), or all, where it carries some and has a
+        // label (its name is the label, and the words inside it are its dialog's, said in their place).
+        let mut said_by: Vec<(usize, Apart)> = Vec::new();
         for (index, node) in self.nodes.iter().enumerate() {
-            if said_by
-                .is_some_and(|outer| self.is_inside(index, outer) && !self.in_zone_of(index, outer))
+            while said_by
+                .last()
+                .is_some_and(|(outer, _)| !self.is_inside(index, *outer))
             {
-                continue;
+                said_by.pop();
             }
-            said_by = None;
             if !shown(node) {
                 continue;
             }
-            let field = node.meta.field.filter(|_| node.meta.id.is_some());
-            let editor = node.meta.id.is_some() && matches!(node.content, Content::Editor(_));
-            let browser = node.meta.id.is_some() && matches!(node.content, Content::Browser);
-            let role = if let Some(kind) = field {
-                Some(AccessibleRole::Field(kind))
-            } else if editor {
-                Some(AccessibleRole::Editor)
-            } else if browser {
-                Some(AccessibleRole::Browser)
-            } else if let Some(role) = node.meta.role {
-                Some(role)
-            } else if node.meta.pressable {
-                Some(AccessibleRole::Button)
-            } else if node.meta.label.is_some() {
-                Some(AccessibleRole::Text)
-            } else {
-                None
-            };
+            if let Some(&(outer, apart)) = said_by.last()
+                && apart != Apart::All
+                && !self.in_zone_of(index, outer)
+                && !(apart == Apart::Controls && on(&controls, index))
+            {
+                // Said for the element around it: the words, but not the links in them, which are
+                // controls of their own.
+                if apart == Apart::Controls {
+                    self.say_links(node, &mut items);
+                }
+                continue;
+            }
+            let role = Self::role_of(node);
             if let Some(role) = role {
-                said_by = Some(index);
+                let carrier = on(&holds, index)
+                    && !matches!(
+                        role,
+                        AccessibleRole::Field(_) | AccessibleRole::Editor | AccessibleRole::Browser
+                    );
+                let apart = match (carrier, node.meta.label.is_some()) {
+                    (false, _) => Apart::Nothing,
+                    (true, false) => Apart::Controls,
+                    (true, true) => Apart::All,
+                };
+                said_by.push((index, apart));
                 let words = node.meta.label.clone().unwrap_or_else(|| match role {
                     AccessibleRole::Field(_) => self.hint_of(index).unwrap_or_default().to_owned(),
                     AccessibleRole::Editor => node
@@ -2008,6 +2028,7 @@ impl Laid {
                         .and_then(|options| options.hint.clone())
                         .or_else(|| self.hint_of(index).map(str::to_owned))
                         .unwrap_or_default(),
+                    _ if carrier => self.words_outside(index, &controls),
                     _ => self.words_in(index),
                 });
                 // A control with no words, whether of a label or inside it (an icon alone), is named by
@@ -2016,6 +2037,10 @@ impl Laid {
                     Some(tip) if named_by_tip(role) && words.trim().is_empty() => tip.words.clone(),
                     _ => words,
                 };
+                // A box that holds controls and has no name of its own (a scrim) is not said.
+                if carrier && words.trim().is_empty() {
+                    continue;
+                }
                 items.push(Accessible {
                     role,
                     id: node.meta.id,
@@ -2047,31 +2072,127 @@ impl Laid {
                         state: node.meta.state.clone(),
                     });
                 }
-                // Each link, apart, as a link: the words of all its pieces, and the box of the
-                // first.
-                let mut said: Vec<Id> = Vec::new();
-                for (rect, link) in self.links_of(node) {
-                    if said.contains(&link) {
-                        continue;
-                    }
-                    said.push(link);
-                    let words = rich
-                        .spans
-                        .iter()
-                        .filter(|span| span.link == Some(link))
-                        .map(|span| span.text.as_str())
-                        .collect::<String>();
-                    items.push(Accessible {
-                        role: AccessibleRole::Link,
-                        id: Some(link),
-                        rect: points(rect),
-                        words,
-                        state: State::default(),
-                    });
-                }
+                self.say_links(node, &mut items);
             }
         }
         items
+    }
+
+    /// What `node` is to a screen reader, where it is anything but words: a field, an editor, a
+    /// browser, what the page said it is, a button or a box with a label.
+    fn role_of(node: &Node) -> Option<AccessibleRole> {
+        let field = node.meta.field.filter(|_| node.meta.id.is_some());
+        let editor = node.meta.id.is_some() && matches!(node.content, Content::Editor(_));
+        let browser = node.meta.id.is_some() && matches!(node.content, Content::Browser);
+        if let Some(kind) = field {
+            Some(AccessibleRole::Field(kind))
+        } else if editor {
+            Some(AccessibleRole::Editor)
+        } else if browser {
+            Some(AccessibleRole::Browser)
+        } else if let Some(role) = node.meta.role {
+            Some(role)
+        } else if node.meta.pressable {
+            Some(AccessibleRole::Button)
+        } else if node.meta.label.is_some() {
+            Some(AccessibleRole::Text)
+        } else {
+            None
+        }
+    }
+
+    /// Which elements are controls that are read (a field, an editor, a browser, an element that
+    /// says what it is or answers the pointer; a label alone is not one), and which of the elements
+    /// hold at least one inside, a control or a link, that is read.
+    fn controls(&self, shown: &impl Fn(&Node) -> bool) -> (Vec<bool>, Vec<bool>) {
+        let controls: Vec<bool> = self
+            .nodes
+            .iter()
+            .map(|node| {
+                shown(node)
+                    && (node.meta.role.is_some()
+                        || !matches!(Self::role_of(node), None | Some(AccessibleRole::Text)))
+            })
+            .collect();
+        let linked: Vec<bool> = self
+            .nodes
+            .iter()
+            .map(|node| {
+                shown(node)
+                    && matches!(&node.content, Content::Rich(rich)
+                        if rich.spans.iter().any(|span| span.link.is_some()))
+            })
+            .collect();
+        let mut holds = vec![false; self.nodes.len()];
+        // A box comes before what is in it, so one pass from the end tells each what it holds.
+        for (index, node) in self.nodes.iter().enumerate().rev() {
+            if (on(&controls, index) || on(&linked, index) || on(&holds, index))
+                && let Some(slot) = node.parent.and_then(|outer| holds.get_mut(outer))
+            {
+                *slot = true;
+            }
+        }
+        (controls, holds)
+    }
+
+    /// The words of the lines of text inside the element at `outer` that are in none of the
+    /// controls inside it or of a zone, in order, a space between.
+    fn words_outside(&self, outer: usize, controls: &[bool]) -> String {
+        let mut words: Vec<String> = Vec::new();
+        let mut apart: Option<usize> = None;
+        for (index, node) in self.nodes.iter().enumerate().skip(outer) {
+            if !self.is_inside(index, outer) {
+                if index > outer {
+                    break;
+                }
+                continue;
+            }
+            if apart.is_some_and(|inner| self.is_inside(index, inner)) {
+                continue;
+            }
+            apart = None;
+            if index > outer && (on(controls, index) || node.meta.zone.is_some()) {
+                apart = Some(index);
+                continue;
+            }
+            if !node.hidden {
+                match &node.content {
+                    Content::Text(line) if !line.text.is_empty() => words.push(line.text.clone()),
+                    Content::Rich(rich) => words.push(crate::rich::words(&rich.spans)),
+                    _ => {}
+                }
+            }
+        }
+        words.join(" ")
+    }
+
+    /// Each link in the text of `node`, apart, as a link: the words of all its pieces, and the box
+    /// of the first.
+    fn say_links(&self, node: &Node, items: &mut Vec<Accessible>) {
+        let Content::Rich(rich) = &node.content else {
+            return;
+        };
+        let s = self.scale;
+        let mut said: Vec<Id> = Vec::new();
+        for (rect, link) in self.links_of(node) {
+            if said.contains(&link) {
+                continue;
+            }
+            said.push(link);
+            let words = rich
+                .spans
+                .iter()
+                .filter(|span| span.link == Some(link))
+                .map(|span| span.text.as_str())
+                .collect::<String>();
+            items.push(Accessible {
+                role: AccessibleRole::Link,
+                id: Some(link),
+                rect: Rect::new(rect.x / s, rect.y / s, rect.w / s, rect.h / s),
+                words,
+                state: State::default(),
+            });
+        }
     }
 
     /// The words of the lines of text inside the element at `outer`, in order, a space between.
@@ -2322,6 +2443,19 @@ impl Extent {
 
 /// Whether an element of this role that has no label and no words inside it is said by its tip: the
 /// ones a person presses, and nothing that only shows (a heading, a picture, a progress).
+/// What an element that is said for its words lets be said apart from it ([`Laid::accessible`]).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Apart {
+    Nothing,
+    Controls,
+    All,
+}
+
+/// Whether the flag at `index` is set (one that is not there is not).
+fn on(flags: &[bool], index: usize) -> bool {
+    flags.get(index).copied().unwrap_or(false)
+}
+
 fn named_by_tip(role: AccessibleRole) -> bool {
     matches!(
         role,

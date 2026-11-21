@@ -100,6 +100,14 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
   checkbox, a switch, a radio, a tab or a menu item with no label (or an empty one) and no words inside it
   an empty name; it takes the words of its `tip` now (never its keys). A label or words inside still come
   first.
+- **A dialog over a scrim is read.** `Laid::accessible` said an element that answers the pointer, or
+  says what it is, as one name with all it holds, so a scrim that answers the pointer swallowed the
+  dialog laid inside it (one button named by its title, no OK, no Cancel, no field), and a row swallowed the
+  checkbox in it. An element that holds a control (an element that answers the pointer or has a
+  role, a field, an editor, a browser, a link) has its controls read each apart after it. With a label
+  it is said by that alone and the words inside it that are in none of its controls are read apart
+  in their place, as words; with none it is said by those words, else by its tip, and is not read
+  where it has none of these. An element with no control in it is said as before.
 
 ### Added
 

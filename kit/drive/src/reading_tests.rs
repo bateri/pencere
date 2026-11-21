@@ -759,6 +759,82 @@ return {
     Ok(())
 }
 
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_reading_of_a_dialog_over_a_scrim_gives_its_buttons_and_a_press_on_one_reaches_it()
+-> Result<(), Error> {
+    let source = r#"
+local ui = pencere.Ui.new()
+local said = "nothing pressed"
+return {
+    render = function()
+        local dialog = pencere.div():col():gap(4):p(8):w(200)
+            :child(pencere.text("Dialog title"))
+            :child(pencere.div():id("name"):text_field("name"):h(24):child(pencere.text("Name")))
+            :child(pencere.div():row():gap(4)
+                :child(pencere.div():id("ok"):press("ok"):h(24):child(pencere.text("OK")))
+                :child(pencere.div():id("cancel"):press("cancel"):h(24):child(pencere.text("Cancel"))))
+        return pencere.div():size_full():child(pencere.text(said))
+            :child(pencere.div():id("scrim"):press("scrim"):label("Close dialog"):overlay():inset(0, 0, 0, 0):child(dialog))
+    end,
+    handle = function(event)
+        if event.type == "press" then
+            ui:press(pencere.layout, event)
+        elseif event.type == "release" then
+            if ui:release(pencere.layout, event) == "ok" then
+                said = "ok pressed"
+            end
+            return true
+        end
+    end,
+}
+"#;
+    let mut page = Headless::script(source).size(400.0, 300.0).open()?;
+    page.settle()?;
+    let first = page.reading();
+    let text = first.text();
+    let named = |name: &str| reference(Id::named(name));
+    // The dialog is not one button named by its title: its buttons and its field are there.
+    assert!(
+        text.contains(&format!("{}  button \"OK\"", named("ok"))),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("{}  button \"Cancel\"", named("cancel"))),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("{}  button \"Close dialog\"", named("scrim"))),
+        "{text}"
+    );
+    // The dialog's own words are words, not the scrim's name.
+    assert!(
+        first
+            .items
+            .iter()
+            .any(|item| item.role == "text" && item.words == "Dialog title"),
+        "{text}"
+    );
+    assert!(
+        first
+            .fields
+            .iter()
+            .any(|field| field.id == Id::named("name"))
+    );
+    // The ref of the button, as an agent has it, finds it and a click on it is what it does.
+    assert_eq!(first.find(&named("ok")), Found::One(Id::named("ok")));
+    page.click("ok")?;
+    assert!(
+        page.reading()
+            .items
+            .iter()
+            .any(|item| item.words == "ok pressed"),
+        "{}",
+        page.reading().text()
+    );
+    Ok(())
+}
+
 /// The page, with a cover over all of it where `covered`.
 fn page(covered: bool) -> String {
     let cover = r#":child(pencere.div():id("cover"):press("cover"):overlay():inset(0, 0, 0, 0))"#;

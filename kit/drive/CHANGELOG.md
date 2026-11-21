@@ -127,6 +127,9 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
   was typed in it, and with no hint: it now draws what each field holds in the terminal's face at the
   kit's text size (a secret as dots), or its hint, quiet, where it holds nothing, what is selected in
   it and the caret of the one that has the keyboard, as a system draws its own over the page.
+- **A reading gives the controls of a dialog.** A reading of a page with a dialog over a scrim that
+  answers the pointer gave one button named by the dialog's title; the buttons and fields in it are in
+  it now, each by its ref (`pencere_view::Laid::accessible`).
 
 ## [0.4.1] - 2026-11-05
 
