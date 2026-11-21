@@ -6,7 +6,8 @@
 
 use pencere_sandbox::Fault;
 use pencere_view::{
-    BrowserAsk, BrowserRefusal, BrowserState, BrowserWindows, Event, Id, Key, Mods, Paint,
+    BrowserAsk, BrowserFound, BrowserRefusal, BrowserState, BrowserWindows, Event, Id, Key, Mods,
+    Paint,
 };
 
 use crate::UNSUPPORTED;
@@ -114,7 +115,7 @@ fn what_the_browser_says_reaches_the_page_and_what_the_page_asks_reaches_the_hos
         Some(Event::Browser { browser, state: told }) if *browser == Id::named("web") && **told == state
     ));
     // A link that opens a window is the page's to follow.
-    page.browser_window("web", "https://example.org/")?;
+    page.browser_window("web", "https://example.org/", false)?;
     assert_eq!(
         page.browser_asks().last(),
         Some(&(
@@ -175,6 +176,201 @@ fn a_browser_takes_the_keyboard_on_a_press_and_the_keys_the_page_kept_are_the_pa
         browser_events(&page).last(),
         Some(Event::BrowserRefused { .. })
     ));
+    // A key the browser had no use for, and the web page in it, is the page's after all: it is told
+    // as a key of its own, which the script answers as it does the others.
+    let told = browser_events(&page).len();
+    page.browser_unused("web", "cmd+t")?;
+    assert_eq!(browser_events(&page).len(), told + 1);
+    assert!(matches!(
+        page.browser_unused("nowhere", "cmd+t"),
+        Err(Error::NoSuch(_))
+    ));
+    assert!(matches!(
+        page.browser_unused("web", "cmd+"),
+        Err(Error::NoKey(_))
+    ));
+    Ok(())
+}
+
+/// A script page whose browser asks what `asks` says, as a reply to a key, and whose words are what
+/// it was last told of it.
+fn asking(asks: &str) -> String {
+    format!(
+        r#"
+local line = "nothing"
+return {{
+	render = function()
+		return pencere.div():size_full():child(pencere.text(line)):child(pencere.browser("web"):grow(1))
+	end,
+	handle = function(event)
+		if event.type == "browser" then
+			local found = event.found
+			line = string.format(
+				"state found=%s/%s zoom=%s",
+				found and found.count or "-",
+				found and found.current or "-",
+				event.zoom
+			)
+			return true
+		elseif event.type == "browser_refused" then
+			line = "refused " .. event.reason
+			return true
+		elseif event.type == "browser_window" then
+			line = "window " .. event.url .. " " .. tostring(event.background)
+			return true
+		elseif event.type == "key" then
+			return {{ browser = {{ web = {asks} }} }}
+		end
+	end,
+}}
+"#
+    )
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_page_finds_zooms_reloads_and_opens_the_tools_by_the_words_of_its_asks() -> Result<(), Error> {
+    let mut page = open(&asking(
+        r#"{
+			{ command = "find", pattern = "word", case = false },
+			{ command = "find", pattern = "Word" },
+			{ command = "find_next" },
+			{ command = "find_previous" },
+			{ command = "stop_finding" },
+			{ zoom = 9 },
+			{ zoom = 1.25 },
+			{ command = "reload", cache = false },
+			{ command = "reload" },
+			{ command = "devtools" },
+		}"#,
+    ))?;
+    page.browser_state("web", BrowserState::default())?;
+    page.key(Key::Character('x'), Mods::default())?;
+    let web = Id::named("web");
+    assert_eq!(
+        page.browser_asks(),
+        [
+            (
+                web,
+                BrowserAsk::Find {
+                    pattern: "word".to_owned(),
+                    case: false
+                }
+            ),
+            // As an editor's search does, one that does not say matches the case written.
+            (
+                web,
+                BrowserAsk::Find {
+                    pattern: "Word".to_owned(),
+                    case: true
+                }
+            ),
+            (web, BrowserAsk::FindNext),
+            (web, BrowserAsk::FindPrevious),
+            (web, BrowserAsk::StopFinding),
+            // A zoom outside what a browser may be zoomed to is put right before the host has it.
+            (web, BrowserAsk::Zoom(5.0)),
+            (web, BrowserAsk::Zoom(1.25)),
+            (web, BrowserAsk::Reload { cache: false }),
+            (web, BrowserAsk::Reload { cache: true }),
+            (web, BrowserAsk::Devtools),
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn an_ask_the_kit_does_not_know_is_refused_to_the_page_and_does_not_fail_it() -> Result<(), Error> {
+    for asks in [
+        r#"{ command = "teleport" }"#,
+        r#"{ teleport = true }"#,
+        r#"{ { command = "stop" }, { command = "teleport" } }"#,
+    ] {
+        let mut page = open(&asking(asks))?;
+        page.browser_state("web", BrowserState::default())?;
+        page.key(Key::Character('x'), Mods::default())?;
+        assert!(page.says("refused ask"), "{asks}: {:?}", page.words());
+        assert!(
+            page.browser_asks()
+                .iter()
+                .all(|(_, ask)| *ask != BrowserAsk::Unknown),
+            "{asks}: the host was given it"
+        );
+    }
+    // A table of no asks is no asks.
+    let mut page = open(&asking("{}"))?;
+    page.browser_state("web", BrowserState::default())?;
+    page.key(Key::Character('x'), Mods::default())?;
+    assert!(page.browser_asks().is_empty());
+    assert!(!page.says("refused"), "{:?}", page.words());
+    // A page that says two things of one ask, or a command that is no word, is still a mistake.
+    for asks in [
+        r#"{ go = "https://example.com/", zoom = 2 }"#,
+        r#"{ command = 5 }"#,
+        r#"{ command = "find" }"#,
+        r#"{ zoom = "big" }"#,
+    ] {
+        let mut page = open(&asking(asks))?;
+        page.browser_state("web", BrowserState::default())?;
+        assert!(
+            matches!(
+                page.key(Key::Character('x'), Mods::default()),
+                Err(Error::Ended(Fault::Failed(_)))
+            ),
+            "{asks}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn what_a_search_finds_and_how_large_the_page_is_shown_reach_the_page_with_the_rest_of_the_state()
+-> Result<(), Error> {
+    let mut page = open(&asking("{}"))?;
+    page.browser_state("web", BrowserState::default())?;
+    assert!(page.says("state found=-/- zoom=1"), "{:?}", page.words());
+    let state = BrowserState {
+        found: Some(BrowserFound {
+            count: 12,
+            current: Some(3),
+        }),
+        zoom: 1.5,
+        ..BrowserState::default()
+    };
+    page.browser_state("web", state)?;
+    assert!(page.says("state found=12/3 zoom=1.5"), "{:?}", page.words());
+    // A search with no match is a count of none and no match the browser is at.
+    let state = BrowserState {
+        found: Some(BrowserFound {
+            count: 0,
+            current: None,
+        }),
+        ..BrowserState::default()
+    };
+    page.browser_state("web", state)?;
+    assert!(page.says("state found=0/- zoom=1"), "{:?}", page.words());
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_link_to_a_new_window_says_whether_the_person_asked_for_it_behind_the_page() -> Result<(), Error>
+{
+    let mut page = open(&asking("{}"))?;
+    page.browser_window("web", "https://example.org/", false)?;
+    assert!(
+        page.says("window https://example.org/ false"),
+        "{:?}",
+        page.words()
+    );
+    page.browser_window("web", "https://example.net/", true)?;
+    assert!(
+        page.says("window https://example.net/ true"),
+        "{:?}",
+        page.words()
+    );
     Ok(())
 }
 
@@ -208,7 +404,7 @@ fn a_host_that_shows_no_browser_is_asked_nothing_and_has_a_placeholder_in_the_ro
     // What the page asks of it (here a refused address as well as a good one) never reaches a host
     // that shows none.
     page.key(Key::Character('x'), Mods::default())?;
-    page.browser_window("web", "https://example.org/")?;
+    page.browser_window("web", "https://example.org/", false)?;
     assert!(page.browser_asks().is_empty());
     Ok(())
 }

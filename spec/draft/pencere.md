@@ -1772,10 +1772,12 @@ Section 2.1). Places in a document are bytes of its UTF-8 text, counted from 1 (
 
 **Browsers.** A kit view may hold browsers (`kit/SPEC.md`, Section 2.1): rooms in which the host puts
 a web browser of its own, which loads the pages and draws them, keeps their history, and takes the
-person's pointer and keys as a browser does. The browser and the pages in it are the host's: the view
-is told where the browser is and what it is doing (its address, its title, whether it loads, its
-status), and asks it to go to an address, back, forward, to reload and to stop, and nothing else; it
-is given no part of what is loaded, and a page in the browser has no bridge to the view or to its
+person's pointer and keys as a browser does, and gives the view the keys that the browser and the page
+in it have no use for. The browser and the pages in it are the host's: the view is told where the
+browser is and what it is doing (its address, its title, whether it loads, its status, what a search
+finds, how large the page is shown), and asks it to go to an address, back, forward, to reload and to
+stop, to find text in the page, to show it larger or smaller, and to open the host's tools for
+looking into it, and nothing else; it is given no part of what is loaded, and a page in the browser has no bridge to the view or to its
 program (Section 9.4 is a page of the kind `web`'s, and this is not one). A browser lives as long as
 an element of its name is on the view, hidden or not, and its history goes when it leaves. A host that
 shows no browser (a terminal that draws in cells, one that has no engine) says so to the view as a
@@ -2346,7 +2348,9 @@ be the person's.
 and the host's to do: a link that opens a new window opens in the same browser unless the view said it
 opens them itself, and then the host opens none; a file chosen for the page is chosen by the person in
 a panel of the host's; a page's request for a permission (the camera, the microphone, the position,
-notifications, the pasteboard) is refused, since the person was not asked of them.
+notifications, the pasteboard) is refused, since the person was not asked of them. The host's tools for
+looking into the page open, in a window of the host's, only when the view asks or the person does; the
+view is given nothing of what they show.
 
 **Downloads are asked.** A file a page offers is saved only after the person has been asked, naming
 the file and its size, and then where the system puts the person's downloads and with the system's

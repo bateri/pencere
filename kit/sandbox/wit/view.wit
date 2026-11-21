@@ -2141,8 +2141,9 @@ interface types {
         /// name. None: a profile that is gone when the browser is.
         profile: option<slice>,
         windows: browser-windows,
-        /// The keys that go to the page while the browser has the keyboard; the rest are the
-        /// browser's.
+        /// The keys that go to the page while the browser has the keyboard, and the browser never
+        /// sees them; the rest go to the browser first, and to the page only where the browser has
+        /// no use for them.
         keys: list<shortcut>,
     }
 
@@ -2155,10 +2156,34 @@ interface types {
         back,
         /// On to the page after, if there is one.
         forward,
-        /// Load the page again: the way out of a browser that crashed.
-        reload,
+        /// Load the page again: the way out of a browser that crashed. False loads it again from
+        /// where it is, and not from what the browser keeps of it.
+        reload(bool),
         /// Stop loading.
         stop,
+        /// Look for text in the page the browser shows, and mark what is found.
+        find(browser-find),
+        /// Go to the next match of the search, and after the last to the first.
+        find-next,
+        /// Go to the match before, and before the first to the last.
+        find-previous,
+        /// End the search.
+        stop-finding,
+        /// Show the page at this much of its size, from a quarter to five times (the application
+        /// holds it there).
+        zoom(f32),
+        /// Open the application's tools for looking into the page.
+        devtools,
+        /// An ask the page's kit does not know, as a later kit's: it is not given to the browser,
+        /// and the page is told it was refused (`ask`).
+        unknown,
+    }
+
+    /// A search of a browser: plain text, not a regular expression.
+    record browser-find {
+        pattern: string,
+        /// In the case written (not either).
+        matching-case: bool,
     }
 
     record browser-ask {
@@ -2172,6 +2197,8 @@ interface types {
         scheme,
         /// The address is not one a browser is given.
         address,
+        /// The ask is not one the page's kit knows.
+        ask,
     }
 
     /// A load that failed.
@@ -2182,6 +2209,14 @@ interface types {
         code: s32,
         /// What went wrong, in a sentence.
         message: string,
+    }
+
+    /// What a search of a browser finds.
+    record browser-found {
+        /// How many matches there are in the page.
+        count: u32,
+        /// The match the browser is at, counted from 1; none where there are none.
+        current: option<u32>,
     }
 
     /// Where a browser is and what it is doing, all of it.
@@ -2202,6 +2237,10 @@ interface types {
         message: option<string>,
         /// The last load failed, until the next one begins.
         error: option<browser-error>,
+        /// What the search finds, while there is one.
+        found: option<browser-found>,
+        /// How large the page is shown against its size.
+        zoom: f32,
     }
 
     /// What the page asked of a browser was not done, and nothing of it was.
@@ -2214,6 +2253,8 @@ interface types {
     record browser-window {
         browser: id,
         url: string,
+        /// The person asked for it behind the page they are on.
+        background: bool,
     }
 
     record menu-item {

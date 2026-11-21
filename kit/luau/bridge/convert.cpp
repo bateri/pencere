@@ -2427,7 +2427,8 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             break;
         case PENCERE_VIEW_TYPES_EVENT_BROWSER: {
             // { browser =, url =, title =, loading =, back =, forward =, status =, message =,
-            // error = { url =, code =, message = } }: all of what a browser is, told at each change.
+            // error = { url =, code =, message = }, found = { count =, current = }, zoom = }: all of
+            // what a browser is, told at each change.
             const pencere_view_types_browser_state_t& browser = event.val.browser;
             set_word(L, "type", "browser");
             push_id(L, browser.browser);
@@ -2457,11 +2458,22 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
                 lua_setfield(L, -2, "message");
                 lua_setfield(L, -2, "error");
             }
+            if (browser.found.is_some) {
+                lua_createtable(L, 0, 2);
+                set_number(L, "count", (double)browser.found.val.count);
+                if (browser.found.val.current.is_some) {
+                    set_number(L, "current", (double)browser.found.val.current.val);
+                }
+                lua_setfield(L, -2, "found");
+            }
+            // To three places, so that 1.1 is 1.1 to the page and not the single float nearest it.
+            set_number(L, "zoom", std::round((double)browser.zoom * 1000.0) / 1000.0);
             break;
         }
         case PENCERE_VIEW_TYPES_EVENT_BROWSER_REFUSED: {
-            // { browser =, reason = "scheme" | "address" }: what the page asked of it was not done.
-            static const char* const kBrowserRefusals[] = {"scheme", "address"};
+            // { browser =, reason = "scheme" | "address" | "ask" }: what the page asked of it was not
+            // done.
+            static const char* const kBrowserRefusals[] = {"scheme", "address", "ask"};
             set_word(L, "type", "browser_refused");
             push_id(L, event.val.browser_refused.browser);
             lua_setfield(L, -2, "browser");
@@ -2472,12 +2484,15 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             break;
         }
         case PENCERE_VIEW_TYPES_EVENT_BROWSER_WINDOW:
-            // { browser =, url = }: a link opens a new window, and the page said it does that itself.
+            // { browser =, url =, background = }: a link opens a new window, and the page said it does
+            // that itself; the person asked for it behind the page they are on.
             set_word(L, "type", "browser_window");
             push_id(L, event.val.browser_window.browser);
             lua_setfield(L, -2, "browser");
             lua_pushlstring(L, (const char*)event.val.browser_window.url.ptr, event.val.browser_window.url.len);
             lua_setfield(L, -2, "url");
+            lua_pushboolean(L, event.val.browser_window.background);
+            lua_setfield(L, -2, "background");
             break;
     }
 }
@@ -3195,28 +3210,52 @@ pencere_view_types_editor_ask_kind_t ask_at(lua_State* L, int t) {
     return out;
 }
 
-// One ask of a browser, at the absolute index `t`: `{ go = "address" }`, or
-// `{ command = "back" | "forward" | "reload" | "stop" }`.
+// One ask of a browser, at the absolute index `t`: `{ go = "address" }`, `{ zoom = 1.25 }` or
+// `{ command = "back" | "forward" | "reload" | "stop" | "find" | "find_next" | "find_previous" |
+// "stop_finding" | "devtools", ... }`. A table that is none of them, or a command that is not one, is
+// not a mistake of the page's: a later kit has asks this one does not, and a page that runs on this
+// one learns it was refused (`unknown`), as it is of an address that is not one.
 pencere_view_types_browser_ask_kind_t browser_ask_at(lua_State* L, int t) {
     pencere_view_types_browser_ask_kind_t out = {};
     get(L, t, "go");
     bool go = !lua_isnil(L, -1);
     lua_pop(L, 1);
+    get(L, t, "zoom");
+    bool zoom = !lua_isnil(L, -1);
+    lua_pop(L, 1);
     get(L, t, "command");
     bool command = !lua_isnil(L, -1);
     lua_pop(L, 1);
-    if (go == command) luaL_error(L, "an ask of a browser is a go or a command");
+    if ((go ? 1 : 0) + (zoom ? 1 : 0) + (command ? 1 : 0) > 1) {
+        luaL_error(L, "an ask of a browser is one thing: a go, a zoom or a command");
+    }
+    out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_UNKNOWN;
     if (go) {
         out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_GO;
         out.val.go = string_of(L, t, "go");
-    } else {
+    } else if (zoom) {
+        out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_ZOOM;
+        out.val.zoom = number(L, t, "zoom", 1.0f);
+    } else if (command) {
         get(L, t, "command");
-        const char* word = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "";
+        if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "the command of a browser is a word");
+        const char* word = lua_tostring(L, -1);
         if (strcmp(word, "back") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_BACK;
         else if (strcmp(word, "forward") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_FORWARD;
-        else if (strcmp(word, "reload") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_RELOAD;
-        else if (strcmp(word, "stop") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_STOP;
-        else luaL_error(L, "the command of a browser is back, forward, reload or stop");
+        else if (strcmp(word, "reload") == 0) {
+            out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_RELOAD;
+            view_option_bool_t cache = optional_flag(L, t, "cache");
+            out.val.reload = cache.is_some ? cache.val : true;
+        } else if (strcmp(word, "stop") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_STOP;
+        else if (strcmp(word, "find") == 0) {
+            out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_FIND;
+            out.val.find.pattern = string_of(L, t, "pattern");
+            view_option_bool_t matching = optional_flag(L, t, "case");
+            out.val.find.matching_case = matching.is_some ? matching.val : true;
+        } else if (strcmp(word, "find_next") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_FIND_NEXT;
+        else if (strcmp(word, "find_previous") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_FIND_PREVIOUS;
+        else if (strcmp(word, "stop_finding") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_STOP_FINDING;
+        else if (strcmp(word, "devtools") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_DEVTOOLS;
         lua_pop(L, 1);
     }
     return out;
@@ -3233,7 +3272,11 @@ void read_browser_asks(lua_State* L, int t, pencere_view_types_list_browser_ask_
         lua_rawgeti(L, value, 1);
         bool list = lua_type(L, -1) == LUA_TTABLE;
         lua_pop(L, 1);
-        size_t count = list ? list_length(L, value, "a browser's asks") : 1;
+        // A table with nothing in it is a list of no asks, and not an ask the kit does not know.
+        lua_pushnil(L);
+        bool empty = lua_next(L, value) == 0;
+        if (!empty) lua_pop(L, 2);
+        size_t count = empty ? 0 : (list ? list_length(L, value, "a browser's asks") : 1);
         for (size_t at = 0; at < count; at++) {
             if (asks.size() >= kMaxNodes) luaL_error(L, "browser asks more than a reply may");
             int ask = value;

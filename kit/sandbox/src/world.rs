@@ -735,6 +735,11 @@ fn event_in(event: Event) -> wit::Event {
                 code: error.code,
                 message: error.message,
             }),
+            found: state.found.map(|found| wit::BrowserFound {
+                count: found.count,
+                current: found.current,
+            }),
+            zoom: state.zoom,
         }),
         Event::BrowserRefused { browser, reason } => {
             wit::Event::BrowserRefused(wit::BrowserRefused {
@@ -742,12 +747,18 @@ fn event_in(event: Event) -> wit::Event {
                 reason: match reason {
                     BrowserRefusal::Scheme => wit::BrowserRefusal::Scheme,
                     BrowserRefusal::Address => wit::BrowserRefusal::Address,
+                    BrowserRefusal::Ask => wit::BrowserRefusal::Ask,
                 },
             })
         }
-        Event::BrowserWindow { browser, url } => wit::Event::BrowserWindow(wit::BrowserWindow {
+        Event::BrowserWindow {
+            browser,
+            url,
+            background,
+        } => wit::Event::BrowserWindow(wit::BrowserWindow {
             browser: id_out(browser),
             url,
+            background,
         }),
         Event::EditorReady { editor, version } => wit::Event::EditorReady(wit::EditorReady {
             editor: id_out(editor),
@@ -2360,8 +2371,18 @@ fn browser_asks_out(asks: Vec<wit::BrowserAsk>) -> Result<Vec<(Id, BrowserAsk)>,
                     wit::BrowserAskKind::Go(url) => BrowserAsk::Go(url),
                     wit::BrowserAskKind::Back => BrowserAsk::Back,
                     wit::BrowserAskKind::Forward => BrowserAsk::Forward,
-                    wit::BrowserAskKind::Reload => BrowserAsk::Reload,
+                    wit::BrowserAskKind::Reload(cache) => BrowserAsk::Reload { cache },
                     wit::BrowserAskKind::Stop => BrowserAsk::Stop,
+                    wit::BrowserAskKind::Find(find) => BrowserAsk::Find {
+                        pattern: find.pattern,
+                        case: find.matching_case,
+                    },
+                    wit::BrowserAskKind::FindNext => BrowserAsk::FindNext,
+                    wit::BrowserAskKind::FindPrevious => BrowserAsk::FindPrevious,
+                    wit::BrowserAskKind::StopFinding => BrowserAsk::StopFinding,
+                    wit::BrowserAskKind::Zoom(zoom) => BrowserAsk::Zoom(zoom),
+                    wit::BrowserAskKind::Devtools => BrowserAsk::Devtools,
+                    wit::BrowserAskKind::Unknown => BrowserAsk::Unknown,
                 },
             )
         })
@@ -3302,10 +3323,23 @@ mod tests {
             ),
             ask(7, wit::BrowserAskKind::Back),
             ask(8, wit::BrowserAskKind::Forward),
-            ask(8, wit::BrowserAskKind::Reload),
+            ask(8, wit::BrowserAskKind::Reload(false)),
             ask(9, wit::BrowserAskKind::Stop),
             // An address is held to a rule by the drive and not here.
             ask(7, wit::BrowserAskKind::Go("file:///etc/passwd".to_owned())),
+            ask(
+                7,
+                wit::BrowserAskKind::Find(wit::BrowserFind {
+                    pattern: "word".to_owned(),
+                    matching_case: false,
+                }),
+            ),
+            ask(7, wit::BrowserAskKind::FindNext),
+            ask(7, wit::BrowserAskKind::FindPrevious),
+            ask(7, wit::BrowserAskKind::StopFinding),
+            ask(7, wit::BrowserAskKind::Zoom(9.0)),
+            ask(7, wit::BrowserAskKind::Devtools),
+            ask(7, wit::BrowserAskKind::Unknown),
         ])
         .expect("asks");
         assert_eq!(
@@ -3317,9 +3351,23 @@ mod tests {
                 ),
                 (Id::new(7), BrowserAsk::Back),
                 (Id::new(8), BrowserAsk::Forward),
-                (Id::new(8), BrowserAsk::Reload),
+                (Id::new(8), BrowserAsk::Reload { cache: false }),
                 (Id::new(9), BrowserAsk::Stop),
                 (Id::new(7), BrowserAsk::Go("file:///etc/passwd".to_owned())),
+                (
+                    Id::new(7),
+                    BrowserAsk::Find {
+                        pattern: "word".to_owned(),
+                        case: false
+                    }
+                ),
+                (Id::new(7), BrowserAsk::FindNext),
+                (Id::new(7), BrowserAsk::FindPrevious),
+                (Id::new(7), BrowserAsk::StopFinding),
+                // The zoom is held to its range by the drive and not here.
+                (Id::new(7), BrowserAsk::Zoom(9.0)),
+                (Id::new(7), BrowserAsk::Devtools),
+                (Id::new(7), BrowserAsk::Unknown),
             ]
         );
         let many = (0..=MOST_BROWSER_ASKS)

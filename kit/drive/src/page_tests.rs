@@ -2236,7 +2236,7 @@ fn what_replies_ask_of_browsers_not_yet_laid_is_held_in_order() {
     };
     let mut replies = [
         answer(Reply {
-            browser: vec![(there, BrowserAsk::Reload)],
+            browser: vec![(there, BrowserAsk::Reload { cache: true })],
             keyboard: Some(Keyboard::Field(there)),
             ..Reply::none()
         }),
@@ -2251,7 +2251,10 @@ fn what_replies_ask_of_browsers_not_yet_laid_is_held_in_order() {
     ];
     let mut held = Vec::new();
     hold(&mut replies, &[], &browsers, true, &mut held);
-    assert_eq!(replies[0].reply.browser, [(there, BrowserAsk::Reload)]);
+    assert_eq!(
+        replies[0].reply.browser,
+        [(there, BrowserAsk::Reload { cache: true })]
+    );
     assert_eq!(replies[0].reply.keyboard, Some(Keyboard::Field(there)));
     assert!(replies[1].reply.browser.is_empty());
     assert!(replies[1].reply.fill.is_empty());

@@ -8,13 +8,16 @@
 //! (`"unsupported"`) and draws a placeholder in the room, so that a page never waits for a state
 //! that no host will give. An address the page asks a browser to go to is held to the rule of
 //! [`pencere_view::go_refusal`]: one that is not is not given to the host, and the page is told
-//! why ([`Event::BrowserRefused`]), as it is told of an editor's ask that was refused.
+//! why ([`Event::BrowserRefused`]), as it is told of an editor's ask that was refused; so is an ask
+//! the kit does not know ([`BrowserAsk::Unknown`]), and a zoom is put right to what a browser may
+//! be zoomed to ([`pencere_view::zoom_allowed`]).
 
 use std::collections::HashMap;
 
 use pencere_view::{
-    BrowserAsk, BrowserOptions, BrowserRoom, BrowserSlot, BrowserState, Color, Event, Family, Font,
-    Id, Measure, Paint, Point, Quad, Rect, Role, Run, go_refusal,
+    BrowserAsk, BrowserOptions, BrowserRefusal, BrowserRoom, BrowserSlot, BrowserState, Color,
+    Event, Family, Font, Id, Measure, Paint, Point, Quad, Rect, Role, Run, go_refusal,
+    zoom_allowed,
 };
 
 use crate::outline::Placement;
@@ -105,20 +108,27 @@ impl Browsers {
         }
     }
 
-    /// What the page asks of its browsers, in `asks`, held to the rule of the address a browser goes
-    /// to: what the host may be asked is left in it, and for each address a browser does not go to
-    /// the page is told why. A host that shows no browser is asked nothing.
+    /// What the page asks of its browsers, in `asks`, held to the rules every host has: what the
+    /// host may be asked is left in it, and for each address a browser does not go to and each ask
+    /// the kit does not know the page is told why; a zoom is put right to what a browser may be
+    /// zoomed to. A host that shows no browser is asked nothing.
     pub fn check(&self, asks: &mut Vec<(Id, BrowserAsk)>) -> Vec<Event> {
         let mut told = Vec::new();
-        asks.retain(|(id, ask)| {
-            if let BrowserAsk::Go(url) = ask
-                && let Some(reason) = go_refusal(url)
-            {
+        asks.retain_mut(|(id, ask)| {
+            let refusal = match ask {
+                BrowserAsk::Go(url) => go_refusal(url),
+                BrowserAsk::Unknown => Some(BrowserRefusal::Ask),
+                _ => None,
+            };
+            if let Some(reason) = refusal {
                 told.push(Event::BrowserRefused {
                     browser: *id,
                     reason,
                 });
                 return false;
+            }
+            if let BrowserAsk::Zoom(zoom) = ask {
+                *zoom = zoom_allowed(*zoom);
             }
             self.shown
         });
@@ -273,14 +283,14 @@ mod tests {
             (Id::new(1), BrowserAsk::Go("javascript:alert(1)".into())),
             (Id::new(1), BrowserAsk::Go("https://example.com/".into())),
             (Id::new(2), BrowserAsk::Go("https://exa mple.com/".into())),
-            (Id::new(1), BrowserAsk::Reload),
+            (Id::new(1), BrowserAsk::Reload { cache: true }),
         ];
         let told = browsers.check(&mut asks);
         assert_eq!(
             asks,
             vec![
                 (Id::new(1), BrowserAsk::Go("https://example.com/".into())),
-                (Id::new(1), BrowserAsk::Reload)
+                (Id::new(1), BrowserAsk::Reload { cache: true })
             ]
         );
         assert_eq!(
@@ -296,6 +306,46 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn an_ask_the_kit_does_not_know_is_told_the_page_and_a_zoom_is_put_right_before_the_host_has_it()
+     {
+        let browsers = Browsers {
+            shown: true,
+            ..Browsers::default()
+        };
+        let mut asks = vec![
+            (Id::new(1), BrowserAsk::Unknown),
+            (Id::new(1), BrowserAsk::Zoom(40.0)),
+            (Id::new(1), BrowserAsk::Zoom(0.0)),
+            (Id::new(1), BrowserAsk::Zoom(1.5)),
+            (Id::new(2), BrowserAsk::Devtools),
+        ];
+        let told = browsers.check(&mut asks);
+        assert_eq!(
+            asks,
+            vec![
+                (Id::new(1), BrowserAsk::Zoom(pencere_view::ZOOM_MOST)),
+                (Id::new(1), BrowserAsk::Zoom(pencere_view::ZOOM_LEAST)),
+                (Id::new(1), BrowserAsk::Zoom(1.5)),
+                (Id::new(2), BrowserAsk::Devtools),
+            ]
+        );
+        assert_eq!(
+            told,
+            vec![Event::BrowserRefused {
+                browser: Id::new(1),
+                reason: BrowserRefusal::Ask
+            }]
+        );
+        // The page of a host that shows none is told as well, and asked nothing.
+        let mut asks = vec![
+            (Id::new(1), BrowserAsk::Unknown),
+            (Id::new(1), BrowserAsk::Stop),
+        ];
+        assert_eq!(Browsers::default().check(&mut asks).len(), 1);
+        assert!(asks.is_empty());
     }
 
     #[test]

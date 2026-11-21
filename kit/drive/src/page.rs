@@ -855,6 +855,13 @@ impl Page {
     /// host that says nothing shows none: the drive draws a placeholder in each room and tells the
     /// page, once for each browser, that this host shows none, so that a page never waits for a state
     /// no host will give.
+    ///
+    /// The keyboard goes to a browser as it does to a field ([`pencere_view::Keyboard::Field`]): a
+    /// key in the browser's [`pencere_view::BrowserOptions::keys`] is the page's and the host gives
+    /// it to the page ([`Page::input`]) without the browser seeing it, and every other key the host
+    /// gives the browser first. The host's engine runs apart from the host, so it says some time after
+    /// whether the web page and the engine had a use for the key: a key they had none for the host
+    /// then gives the page, as it does a field's key the field has no use for.
     pub fn set_browsers(&mut self, shown: bool) {
         self.state.browsers.shown = shown;
     }
@@ -867,11 +874,14 @@ impl Page {
     }
 
     /// A link of the host's browser named `browser` opens a new window at `url`, and the page said it
-    /// is the page that opens it ([`pencere_view::BrowserWindows::Page`]).
-    pub fn browser_window(&mut self, browser: Id, url: &str) {
+    /// is the page that opens it ([`pencere_view::BrowserWindows::Page`]). `background` is that the
+    /// person asked for it behind the page they are on (a click with the command key, a click of the
+    /// middle button).
+    pub fn browser_window(&mut self, browser: Id, url: &str, background: bool) {
         self.state.event(Event::BrowserWindow {
             browser,
             url: url.to_owned(),
+            background,
         });
     }
 

@@ -11,7 +11,7 @@ dist/browser-lua     # the view, in a terminal that hosts pencere views and thei
 
 The browser is the terminal's (`pencere.browser`): it loads the pages and draws them in its room,
 and the page gets nothing of what is loaded: where the browser is and what it is doing, in `browser`
-events, and the asks the page makes of it in a reply (`go`, `back`, `forward`, `reload`, `stop`). The
+events, and the asks the page makes of it in a reply (`go`, `back`, `forward`, `reload`, `stop`, `find`, `zoom`). The
 page asks for its first address when the browser says it is ready, follows the browser with its
 address line, says what it was told (the title, a load that failed, a status that is not ready), and
 keeps ⌘L for itself (`keys`) while the browser has the keyboard. A terminal that shows no browser says

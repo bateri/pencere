@@ -464,24 +464,34 @@ local function browser_of(loc, what)
 	return loc.args.id
 end
 
--- locator:navigations(): what the page asked of this browser, oldest first, each { go = "https://…" }
--- or { command = "back" | "forward" | "reload" | "stop" }: an address a browser does not go to is
--- not among them (the page was told it was refused).
+-- locator:navigations(): what the page asked of this browser, oldest first, each { go = "https://…" },
+-- { zoom = 1.5 } (held to 0.25 to 5) or { command = name }: "back", "forward", "reload" (`cache = false`
+-- where it asked for a load from where it is), "stop", "find" (`pattern`, `case`), "find_next",
+-- "find_previous", "stop_finding" or "devtools". An address a browser does not go to, and an ask the
+-- kit does not know, are not among them (the page was told it was refused).
 function Locator:navigations()
 	return self.page.raw:browser_asks(browser_of(self, "navigations"))
 end
 
--- locator:say({ status =, message =, url =, title =, loading =, back =, forward =, error = }): the
--- engine of this browser says what it is and does; a state with no `status` is ready. The page is
--- told it as it is by a host that shows browsers.
+-- locator:say({ status =, message =, url =, title =, loading =, back =, forward =, error =, found =,
+-- zoom = }): the engine of this browser says what it is and does; a state with no `status` is ready,
+-- and one with no `zoom` is at the page's size. The page is told it as it is by a host that shows
+-- browsers.
 function Locator:say(state)
 	return self.page.raw:browser_state(browser_of(self, "say"), state or {})
 end
 
--- locator:open_window(url): a link of this browser opens a new window, told to a page whose browser
--- has `windows = "page"`.
-function Locator:open_window(url)
-	return self.page.raw:browser_window(browser_of(self, "open_window"), url)
+-- locator:open_window(url, background): a link of this browser opens a new window, told to a page
+-- whose browser has `windows = "page"`; `background` is that the person asked for it behind the page
+-- (a click with the command key).
+function Locator:open_window(url, background)
+	return self.page.raw:browser_window(browser_of(self, "open_window"), url, background == true)
+end
+
+-- locator:unused_key(keys): this browser, and the web page in it, had no use for keys it was given
+-- (`page:browser_keys()`): the page gets them as keys of its own.
+function Locator:unused_key(keys)
+	return self.page.raw:browser_unused(browser_of(self, "unused_key"), keys)
 end
 
 function Locator:wheel(dx, dy)
@@ -680,7 +690,7 @@ for _, name in ipairs({
 	"click_at", "double_click_at", "right_click_at", "focus_editor", "select", "caret_to", "edit",
 	"command", "pick", "resize", "zoom", "set_active", "set_terminal_look", "refresh", "advance", "step", "idle", "hide",
 	"now", "asks_at", "settle", "tell", "words", "says", "words_in", "tree_words", "bounds", "spills",
-	"editor", "editor_text", "browsers", "browser_asks", "browser_keys", "browser_state", "browser_window",
+	"editor", "editor_text", "browsers", "browser_asks", "browser_keys", "browser_state", "browser_window", "browser_unused",
 	"has_browser", "focus", "field", "outline", "cursor", "pasteboard", "links", "text_size", "menu",
 	"closed", "diagnostics", "ended", "sent", "received", "push", "answer", "fail", "lent",
 	"give_back", "log", "fill", "scroll_to", "wheel", "drop_files", "click_gutter", "hover_gutter",

@@ -251,6 +251,9 @@ pub enum Event {
     BrowserWindow {
         browser: Id,
         url: String,
+        /// The person asked for it behind the page they are on (a click with the command key, a
+        /// click of the middle button): the page opens it so, where it has a place to keep it.
+        background: bool,
     },
     /// The person picked the entry with this `index` (from 0, separators counted) of the menu the
     /// host showed, the one that had this `serial` ([`Menu::serial`]): the host gives the number

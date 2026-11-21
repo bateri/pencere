@@ -34,8 +34,9 @@ impl<P: Peer> Headless<P> {
         &self.seen.browser_asks
     }
 
-    /// The keys the browser that had the keyboard took for itself, oldest first: those that are not
-    /// the page's ([`pencere_view::BrowserOptions::keys`]).
+    /// The keys the browser that had the keyboard was given, oldest first: those that are not the
+    /// page's ([`pencere_view::BrowserOptions::keys`]). A key the browser had no use for is the
+    /// page's still ([`Headless::browser_unused`]).
     pub fn browser_keys(&self) -> &[(Id, Key, Mods)] {
         &self.seen.browser_keys
     }
@@ -52,14 +53,33 @@ impl<P: Peer> Headless<P> {
     }
 
     /// A link of the browser named `name` opens a new window at `url`, and the page said it is the
-    /// page that opens it.
+    /// page that opens it; `background` is that the person asked for it behind the page.
     ///
     /// # Errors
     ///
     /// As [`Headless::browser_state`].
-    pub fn browser_window(&mut self, name: &str, url: &str) -> Result<(), Error> {
+    pub fn browser_window(&mut self, name: &str, url: &str, background: bool) -> Result<(), Error> {
         let id = self.browser_named(name)?;
-        self.page.browser_window(id, url);
+        self.page.browser_window(id, url, background);
+        self.settle()
+    }
+
+    /// The browser named `name` had no use for the keys `keys` say (written as [`Headless::press`]
+    /// takes them), which it was given ([`Headless::browser_keys`]), and nor had the web page in it:
+    /// the page gets them as keys of its own, as a host gives them when its engine says so some time
+    /// after they were typed.
+    ///
+    /// # Errors
+    ///
+    /// No such browser ([`Error::NoSuch`]), not keys ([`Error::NoKey`]), or as [`Headless::settle`].
+    pub fn browser_unused(&mut self, name: &str, keys: &str) -> Result<(), Error> {
+        self.browser_named(name)?;
+        let shortcut = Shortcut::parse_for(keys, self.clock.system.keyboard)
+            .ok_or_else(|| Error::NoKey(keys.to_owned()))?;
+        self.page.input(pencere_view::Input::Key {
+            key: shortcut.key,
+            mods: shortcut.mods,
+        });
         self.settle()
     }
 

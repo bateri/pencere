@@ -22,7 +22,10 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
   draw a placeholder in each room and tell the page it is `unsupported`. An address a browser does not
   go to is refused to the page and never reaches the host. The headless host stands for one that shows
   browsers (`Opening::browsers(false)` for one that does not), keeps what the page asks of them
-  (`Headless::browser_asks`) and takes the state a test gives (`Headless::browser_state`).
+  (`Headless::browser_asks`) and takes the state a test gives (`Headless::browser_state`). A zoom is
+  held to what a browser may be zoomed to, an ask the kit does not know is refused to the page, a key
+  the browser has no use for is given back to the page (`Headless::browser_unused`), and
+  `Page::browser_window` says whether the person asked for the window behind the page.
 - **`shot::Scratch` and `shot::raster_rows_in`**: rows drawn in buffers the caller keeps from one
   frame to the next, with the page's edge repeated past them, so that a frame at the rate of keys asks
   the system for no picture's worth of memory.

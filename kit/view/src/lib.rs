@@ -62,8 +62,9 @@ mod ui;
 pub mod wire;
 
 pub use browser::{
-    ADDRESS_BYTES, BrowserAsk, BrowserError, BrowserOptions, BrowserRefusal, BrowserState,
-    BrowserWindows, MOST_KEYS, PROFILE_CHARS, go_refusal, profile_allowed,
+    ADDRESS_BYTES, BrowserAsk, BrowserError, BrowserFound, BrowserOptions, BrowserRefusal,
+    BrowserState, BrowserWindows, MOST_KEYS, PROFILE_CHARS, ZOOM_LEAST, ZOOM_MOST, go_refusal,
+    profile_allowed, zoom_allowed,
 };
 pub use color::{Color, Mix, Rgba, Role, Source};
 pub use command::{Command, Shortcut};

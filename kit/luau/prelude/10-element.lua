@@ -558,13 +558,17 @@ end
 -- `id` is nil): the host's engine loads the pages and draws them in the room. It lives as long as
 -- an element of that name is on the page, hidden or not, and its history goes with it; the same
 -- `id` is the same browser. Where it goes is not an option but an ask, in the `browser` of a reply:
--- `{ go = "https://..." }`, `{ command = "back" | "forward" | "reload" | "stop" }`. `options` are
+-- `{ go = "https://..." }`, `{ zoom = 1.25 }` (from 0.25 to 5), or `{ command = name }`: "back", "forward",
+-- "reload" (`cache = false` loads the page again from where it is), "stop", "find" (`pattern`, `case`),
+-- "find_next", "find_previous", "stop_finding" and "devtools". An ask the kit does not know is refused
+-- (`browser_refused`, "ask"). `options` are
 -- `profile` (the name its cookies and storage are kept under, apart from any other's, 1 to 32 of
 -- a-z, 0-9 and -; none, and they are gone with the browser; read when the browser is first made),
 -- `windows` ("here": a link that opens a new window opens in the browser itself, the default; "page":
 -- the host opens none and tells the page, `browser_window`) and `keys` (the keys that go to the page
 -- as `key` events while the browser has the keyboard, written as a command's are: { "mod+l" }; the
--- rest are the browser's). The page is told where the browser is and what it is doing by `browser`
+-- rest go to the browser first, and to the page as `key` events only where it has no use for them).
+-- The page is told where the browser is and what it is doing by `browser`
 -- events and reads nothing of the page the browser shows. What the page writes inside the room is
 -- drawn over the browser.
 function Element:browser(id, options)

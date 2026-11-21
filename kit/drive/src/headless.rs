@@ -293,7 +293,8 @@ pub enum Focus {
     /// The page's editor of this id.
     Editor(Id),
     /// The host's browser of this id: its keys are the browser's, but for those the page keeps
-    /// ([`pencere_view::BrowserOptions::keys`]).
+    /// ([`pencere_view::BrowserOptions::keys`]) and those it has no use for
+    /// ([`Headless::browser_unused`]).
     Browser(Id),
 }
 
@@ -389,7 +390,7 @@ struct Seen {
     dropped_panels: usize,
     /// What the page asked of its browsers, oldest first.
     browser_asks: Vec<(Id, BrowserAsk)>,
-    /// The keys the browser that had the keyboard took, oldest first.
+    /// The keys the browser that had the keyboard was given, oldest first.
     browser_keys: Vec<(Id, Key, Mods)>,
 }
 

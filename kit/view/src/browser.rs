@@ -15,6 +15,23 @@ pub const MOST_KEYS: usize = 32;
 /// The most bytes of an address a page asks a browser to go to.
 pub const ADDRESS_BYTES: usize = 8192;
 
+/// The least a page may zoom a browser to ([`BrowserAsk::Zoom`]): a quarter of the size.
+pub const ZOOM_LEAST: f32 = 0.25;
+
+/// The most a page may zoom a browser to ([`BrowserAsk::Zoom`]): five times the size.
+pub const ZOOM_MOST: f32 = 5.0;
+
+/// `zoom` held to what a browser may be zoomed to: from [`ZOOM_LEAST`] to [`ZOOM_MOST`], a number
+/// that is not one taken for no zoom (1).
+#[must_use]
+pub fn zoom_allowed(zoom: f32) -> f32 {
+    if zoom.is_nan() {
+        1.0
+    } else {
+        zoom.clamp(ZOOM_LEAST, ZOOM_MOST)
+    }
+}
+
 /// Whether `name` is a profile name: 1 to [`PROFILE_CHARS`] of `a` to `z`, `0` to `9` and `-`. The
 /// host keeps a folder by it, so it is a word and never a path.
 #[must_use]
@@ -47,12 +64,13 @@ pub struct BrowserOptions {
     pub profile: Option<String>,
     pub windows: BrowserWindows,
     /// The keys that go to the page, as [`crate::Event::Input`] keys, while the browser has the
-    /// keyboard; every other key is the browser's.
+    /// keyboard, and the browser never sees them. Every other key goes to the browser first, and to
+    /// the page as one of these only where the browser, and the web page in it, has no use for it.
     pub keys: Vec<Shortcut>,
 }
 
 /// What a page asks of a browser, in the reply to what it was told.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum BrowserAsk {
     /// Go to an address ([`go_refusal`] says which a browser goes to).
     Go(String),
@@ -60,10 +78,32 @@ pub enum BrowserAsk {
     Back,
     /// On to the page after, if there is one.
     Forward,
-    /// Load the page again: the way out of a browser that crashed.
-    Reload,
+    /// Load the page again: the way out of a browser that crashed. Without `cache` the browser
+    /// loads it again from where it is, and not from what it keeps of it.
+    Reload { cache: bool },
     /// Stop loading.
     Stop,
+    /// Look for `pattern` (plain text, not a regular expression) in the page the browser shows, mark
+    /// what it finds and go to the first match at or after where the page is scrolled to; `case`
+    /// matches the case written, else either. The browser tells what it finds in
+    /// [`BrowserState::found`], until [`BrowserAsk::StopFinding`]. An empty `pattern` is a
+    /// `StopFinding`.
+    Find { pattern: String, case: bool },
+    /// Go to the next match of the search, and after the last to the first.
+    FindNext,
+    /// Go to the match before, and before the first to the last.
+    FindPrevious,
+    /// End the search: nothing is marked, and [`BrowserState::found`] is none.
+    StopFinding,
+    /// Show the page at this much of its size ([`zoom_allowed`] holds it from [`ZOOM_LEAST`] to
+    /// [`ZOOM_MOST`]); the browser keeps it for the pages it goes to, and tells it in
+    /// [`BrowserState::zoom`].
+    Zoom(f32),
+    /// Open the host's tools for looking into the page.
+    Devtools,
+    /// An ask this kit does not know (a command a later kit has, or none the page's table is):
+    /// never given to a host, the page is told it was refused ([`BrowserRefusal::Ask`]).
+    Unknown,
 }
 
 /// Why a browser was not asked to go where the page said.
@@ -74,6 +114,9 @@ pub enum BrowserRefusal {
     /// The address is not one a browser is given: too long, or with a space or a control character
     /// or a character that is not ASCII in it.
     Address,
+    /// The ask is not one the kit this page runs on knows: a later kit's, or none at all. A page
+    /// that asks it learns, and does not fail.
+    Ask,
 }
 
 impl BrowserRefusal {
@@ -83,6 +126,7 @@ impl BrowserRefusal {
         match self {
             Self::Scheme => "scheme",
             Self::Address => "address",
+            Self::Ask => "ask",
         }
     }
 }
@@ -119,8 +163,17 @@ pub struct BrowserError {
     pub message: String,
 }
 
+/// What a search of a browser finds ([`BrowserAsk::Find`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BrowserFound {
+    /// How many matches there are in the page.
+    pub count: u32,
+    /// The match the browser is at, counted from 1; none where there are none.
+    pub current: Option<u32>,
+}
+
 /// What the host tells the page of a browser: all of it, each time any of it changes.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BrowserState {
     /// The address the browser is at (empty before the first load).
     pub url: String,
@@ -141,6 +194,10 @@ pub struct BrowserState {
     pub message: Option<String>,
     /// The last load failed, until the next one begins.
     pub error: Option<BrowserError>,
+    /// What the search finds, while there is one ([`BrowserAsk::Find`]), else none.
+    pub found: Option<BrowserFound>,
+    /// How large the page is shown, against its size (1 is its size; [`BrowserAsk::Zoom`]).
+    pub zoom: f32,
 }
 
 impl BrowserState {
@@ -177,6 +234,8 @@ impl Default for BrowserState {
             status: Self::READY.to_owned(),
             message: None,
             error: None,
+            found: None,
+            zoom: 1.0,
         }
     }
 }
@@ -184,6 +243,16 @@ impl Default for BrowserState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_zoom_is_held_from_a_quarter_to_five_times_and_a_number_that_is_not_one_is_no_zoom() {
+        assert!((zoom_allowed(1.5) - 1.5).abs() < f32::EPSILON);
+        assert!((zoom_allowed(0.0) - ZOOM_LEAST).abs() < f32::EPSILON);
+        assert!((zoom_allowed(-3.0) - ZOOM_LEAST).abs() < f32::EPSILON);
+        assert!((zoom_allowed(99.0) - ZOOM_MOST).abs() < f32::EPSILON);
+        assert!((zoom_allowed(f32::INFINITY) - ZOOM_MOST).abs() < f32::EPSILON);
+        assert!((zoom_allowed(f32::NAN) - 1.0).abs() < f32::EPSILON);
+    }
 
     #[test]
     fn a_profile_name_is_a_word_a_folder_can_be_named() {

@@ -12,9 +12,13 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
   the part of it that shows.
 - **A browser the host keeps** (`Element::browser`, `BrowserOptions`, `BrowserAsk`, `BrowserState`,
   `Laid::browsers`, `Paint::Browser`): the room of a browser the host draws, as an editor's room is.
-  The page asks it to go, back, forward, reload and stop, and is told its address, title, status and
-  errors (`Event::Browser`, `BrowserRefused`, `BrowserWindow`). A browser goes only to `http`,
-  `https`, `about:blank` and `data:` addresses (`go_refusal`). Its accessible role is `browser`.
+  The page asks it to go, back, forward, reload (with or without its cache), stop, find text, zoom
+  and open the host's tools, and is told its address, title, status, errors, what a search finds and
+  its zoom (`Event::Browser`, `BrowserRefused`, `BrowserWindow`, which says whether the person asked
+  for it behind the page). A browser goes only to `http`, `https`, `about:blank` and `data:`
+  addresses (`go_refusal`), and an ask the kit does not know is refused (`BrowserRefusal::Ask`) and
+  does not fail the page. A key the browser has no use for is the page's. Its accessible role is
+  `browser`.
 - **Sharp dots and pixel art** (`path().crisp(true)`): a path can be drawn with no smoothing, so
   dots and bars stay whole pixels and meet without a seam at any text size.
 - **An element can say what it carries out of the view** (`Element::carry(Carry)`, with

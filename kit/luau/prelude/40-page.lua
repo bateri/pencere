@@ -61,10 +61,13 @@
 --       is a page to go `back` or `forward` to, its `status` ("ready", "starting", "crashed",
 --       "no_route" or "unsupported"; a set that is open, and a word a page does not know is a browser
 --       that is not ready), a `message` (a sentence for the person, in every status but "ready") and,
---       for a load that failed, the `error` ({ url =, code =, message = }) until the next load begins;
+--       for a load that failed, the `error` ({ url =, code =, message = }) until the next load begins,
+--       `found` ({ count =, current = } while a search is on, `current` from 1 or nil for none, else
+--       nil) and its `zoom` (1 is the page's size);
 --       "browser_refused", the `browser` and the `reason` ("scheme": an address a browser does not
---       go to; "address": one it is not given) it did not do what the page asked; and, for a browser
---       whose `windows` is "page", "browser_window", the `browser` and the `url` a link opens.
+--       go to; "address": one it is not given; "ask": one the kit does not know) it did not do what
+--       the page asked; and, for a browser whose `windows` is "page", "browser_window", the
+--       `browser`, the `url` a link opens and `background` (the person asked for it behind this page).
 --       An editor (`pencere.editor`) tells: "editor_ready", the `editor` and its `version`, once the
 --       host has made it (its text is posted: a page loads a document into it then); move, press
 --       and release over it have a `place` ({ editor =, at =, inside = (the place was in a selection, or at a caret, before a press moved the caret), version = }, the place of its document under the

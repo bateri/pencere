@@ -9,9 +9,11 @@ All notable changes to the `pencere` command are recorded here. The format follo
 ### Added
 
 - **`pencere test` knows a browser**: the role `browser`, `page:browsers()`, and for a browser's
-  locator `get_by_id(name)` the `navigations()` the page asked for, `say(state)` to tell the page
-  what its engine would and `open_window(url)`; `test.open({ browsers = false })` is a host that shows
-  none.
+  locator `get_by_id(name)` the `navigations()` the page asked for (a `go`, a `zoom`, or a command:
+  `find`, `find_next`, `reload` with or without its cache, `devtools`, …), `say(state)` to tell the
+  page what its engine would (a search's `found`, the `zoom`), `open_window(url, background)` and
+  `unused_key(keys)` for a key the browser had no use for; `test.open({ browsers = false })` is a host
+  that shows none.
 
 ### Changed
 
