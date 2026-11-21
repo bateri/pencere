@@ -30,6 +30,12 @@ const { says } = elements();
               <CodeBlock code={element.demo.code} />
             </div>
           )}
+          {element.more.map((extra) => (
+            <div class="element__pair">
+              <Shot name={extra.name} width={extra.width} height={extra.height} alt={`More of what ${element.constructor} draws`} />
+              <CodeBlock code={extra.code} />
+            </div>
+          ))}
         </section>
       ))
     }

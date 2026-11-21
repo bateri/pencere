@@ -2041,6 +2041,205 @@ fn a_script_says_texts_of_many_looks_canvases_overlays_commands_and_roles_as_the
     assert_eq!(nodes[9].meta.state.expanded, Some(false));
 }
 
+/// What a path's effects are as a page says them, and where it says them in any order.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_script_says_a_paths_shadow_gradients_blend_dashes_and_transform_as_the_engine_has_them() {
+    use pencere_view::{Blend, Brush, Cap, Join, Matrix, Point, Shadow, Stop};
+    let update = first(
+        r##"return { render = function()
+            return pencere.div():child(pencere.canvas({
+                pencere.path():rect(0, 0, 10, 10)
+                    :fill(pencere.linear(0, 0, 10, 0, { { 0, "accent" }, { 1, { "success", 0.5 } } }))
+                    :stroke(2, pencere.radial(5, 5, 4, { { 0, "accent" }, { 1, "dim" } }))
+                    :dash({ 3, 1, 2 }, 1.5):cap("butt"):join("miter")
+                    :blend("add"):shadow(1, 2, 8, "accent")
+                    :transform({ scale = { 2, 1 }, rotate = 90, translate = { 10, 0 }, origin = { 5, 5 } }),
+                pencere.path():circle(5, 5, 3):dash({ 4, 2 }):cap("square"):stroke(1, "accent"),
+                pencere.path():rect(0, 0, 4, 4):fill("accent"):transform({ scale = 2 }),
+                pencere.path():rect(0, 0, 4, 4):fill("accent"):stroke(1, "dim"),
+            }):size(20, 20))
+        end }"##,
+        ModuleLimits::default(),
+    );
+    assert_eq!(update.closed, None, "{:?}", update.closed);
+    let nodes = update.frame.expect("a page").root.fold();
+    let Kind::Canvas(paths) = &nodes[1].kind else {
+        panic!("a canvas: {:?}", nodes[1].kind);
+    };
+    assert_eq!(paths.len(), 4);
+    let dressed = &paths[0];
+    assert_eq!(
+        dressed.fill,
+        Some(Brush::Linear {
+            from: Point::new(0.0, 0.0),
+            to: Point::new(10.0, 0.0),
+            stops: vec![
+                Stop::new(0.0, Role::Accent),
+                Stop::new(1.0, Role::Success.solid().faded(0.5)),
+            ],
+        })
+    );
+    let stroke = dressed.stroke.as_ref().expect("a line");
+    assert_eq!(
+        stroke.brush,
+        Brush::Radial {
+            center: Point::new(5.0, 5.0),
+            radius: 4.0,
+            stops: vec![Stop::new(0.0, Role::Accent), Stop::new(1.0, Role::Dim)],
+        }
+    );
+    assert_eq!(
+        (stroke.width, stroke.dash.clone(), stroke.dash_offset),
+        (2.0, vec![3.0, 1.0, 2.0], 1.5)
+    );
+    assert_eq!((stroke.cap, stroke.join), (Cap::Butt, Join::Miter));
+    assert_eq!(dressed.blend, Blend::Add);
+    assert_eq!(
+        dressed.shadow,
+        Some(Shadow {
+            dx: 1.0,
+            dy: 2.0,
+            blur: 8.0,
+            color: Role::Accent.solid()
+        })
+    );
+    assert_eq!(
+        dressed.transform,
+        Matrix::from_parts((2.0, 1.0), 90.0, (10.0, 0.0), Point::new(5.0, 5.0))
+    );
+    // The dash and the ends came before the line, and the line has them.
+    let early = paths[1].stroke.as_ref().expect("a line");
+    assert_eq!(
+        (early.dash.clone(), early.cap, early.join, early.width),
+        (vec![4.0, 2.0], Cap::Square, Join::Round, 1.0)
+    );
+    assert_eq!(early.brush, Brush::Color(Role::Accent.solid()));
+    // A number alone is the scale both ways, and the rest is what it was.
+    assert_eq!(
+        paths[2].transform,
+        Matrix::from_parts((2.0, 2.0), 0.0, (0.0, 0.0), Point::new(0.0, 0.0))
+    );
+    // A path that says none of it is as it was.
+    let plain = &paths[3];
+    assert_eq!(plain.blend, Blend::Normal);
+    assert!(plain.shadow.is_none());
+    assert_eq!(plain.transform, Matrix::IDENTITY);
+    let line = plain.stroke.as_ref().expect("a line");
+    assert_eq!(
+        (line.dash.clone(), line.cap, line.join),
+        (vec![], Cap::Round, Join::Round)
+    );
+}
+
+/// A page finds out what the host knows by asking for the names, and a name or a type it was not
+/// meant to have is the script's mistake at the script's line.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_path_effect_that_is_not_one_is_the_scripts_mistake_and_the_names_can_be_asked_for() {
+    let update = first(
+        r##"
+        local function says(call)
+            local ok, why = pcall(call)
+            return ok and "fine" or why
+        end
+        return { render = function()
+            local path = pencere.path
+            local said = {
+                tostring(pencere.Path.shadow ~= nil and pencere.Path.blend ~= nil
+                    and pencere.Path.dash ~= nil and pencere.Path.cap ~= nil
+                    and pencere.Path.join ~= nil and pencere.Path.transform ~= nil
+                    and pencere.linear ~= nil and pencere.radial ~= nil),
+                says(function() path():blend("xor") end),
+                says(function() path():cap("flat") end),
+                says(function() path():join("sharp") end),
+                says(function() path():dash(4) end),
+                says(function() path():dash({ 4, "two" }) end),
+                says(function() path():shadow(0, "far", 4, "accent") end),
+                says(function() path():transform({ spin = 4 }) end),
+                says(function() path():transform({ scale = "big" }) end),
+                says(function() path():transform({ origin = { 1 } }) end),
+                says(function() path():transform(4) end),
+                says(function() pencere.linear(0, 0, 4, nil, { { 0, "accent" } }) end),
+                says(function() pencere.linear(0, 0, 4, 4, {}) end),
+                says(function() pencere.radial(0, 0, 4, { { 0 } }) end),
+                says(function() pencere.radial(0, 0, 4, { { 0, "accent" }, { 1, "dim" } }) end),
+                says(function() path():transform({}):dash({}):shadow(0, 0, 0, "dim") end),
+                says(function() path():shadow(0, 0, 4) end),
+                says(function() path():dash({ 4, nil, 2 }) end),
+            }
+            local div = pencere.div()
+            for _, line in said do
+                div:child(pencere.text(line))
+            end
+            return div
+        end }"##,
+        ModuleLimits::default(),
+    );
+    assert_eq!(update.closed, None, "{:?}", update.closed);
+    let said = words(&update.frame.expect("a page").root);
+    assert_eq!(said[0], "true", "the names can be asked for");
+    for (at, wanted) in [
+        (1, "a blend is"),
+        (2, "a cap is"),
+        (3, "a join is"),
+        (4, "path:dash takes a list"),
+        (5, "length 2 of path:dash"),
+        (6, "path:shadow takes its offset and its blur as numbers"),
+        (7, "a transform has scale, rotate, translate and origin"),
+        (8, "transform's scale is two numbers"),
+        (9, "transform's origin is two numbers"),
+        (10, "path:transform takes"),
+        (11, "pencere.linear takes the two points"),
+        (12, "pencere.linear takes its stops"),
+        (13, "stop 1 of pencere.radial"),
+    ] {
+        assert!(said[at].contains(wanted), "{at}: {}", said[at]);
+    }
+    assert_eq!(said[14], "fine");
+    assert_eq!(said[15], "fine");
+    assert!(
+        said[16].contains("path:shadow takes its colour"),
+        "{}",
+        said[16]
+    );
+    assert!(said[17].contains("length 2 of path:dash"), "{}", said[17]);
+}
+
+/// A gradient of more stops than a page may say, or a dash of more lengths, is not a page.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_gradient_of_seventeen_stops_and_a_dash_of_seventeen_lengths_are_not_a_page() {
+    let stops = r##"
+        local stops = {}
+        for at = 0, 16 do stops[#stops + 1] = { at / 16, "accent" } end
+        return { render = function()
+            return pencere.canvas({
+                pencere.path():rect(0, 0, 4, 4):fill(pencere.linear(0, 0, 4, 0, stops)),
+            }):size(10, 10)
+        end }"##;
+    let update = first(stops, ModuleLimits::default());
+    assert!(
+        failed(&update).contains("pencere.linear takes at most 16 stops, not 17"),
+        "{:?}",
+        update.closed
+    );
+    let dash = r##"
+        local lengths = {}
+        for _ = 1, 17 do lengths[#lengths + 1] = 2 end
+        return { render = function()
+            return pencere.canvas({
+                pencere.path():move_to(0, 0):line_to(8, 0):stroke(1, "accent"):dash(lengths),
+            }):size(10, 10)
+        end }"##;
+    let update = first(dash, ModuleLimits::default());
+    assert!(
+        failed(&update).contains("path:dash takes at most 16 lengths, not 17"),
+        "{:?}",
+        update.closed
+    );
+}
+
 /// A page lists its commands again at every frame, in the same words: the words are read once, so
 /// that what the commands hold of them is one table for the same words, in every frame, and none
 /// that a page can change under the others; `pencere.keys` still gives its caller one of its own.

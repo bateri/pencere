@@ -12,8 +12,8 @@ the list into what it draws. Each line of text in the list names the fills under
 unresolved, so that a host can keep the text readable against what it comes to. An element can be
 an image (`image(src, fit)`): the host says how large the file of that path is and draws the picture
 the list holds (`Paint::Image`), and the engine makes its room and says how it fills it. A text can be
-of many looks (`rich`), a box can hold paths (`canvas`, `Paint::Figure`) and a fill that runs from one
-colour to another (`bg_gradient`), and an element can stand over the rest of the page (`overlay`,
+of many looks (`rich`), a box can hold paths (`canvas`, `Paint::Figure`) that can glow, be painted with gradients, mix with what is
+under them, be dashed and be moved, and a fill that runs from one colour to another (`bg_gradient`), and an element can stand over the rest of the page (`overlay`,
 `anchor`). A page also says what it can be told to do (`command`, which the host lists and does by its
 keys), what can be dragged where (`draggable`, `drop_target`), and what each element is to a screen
 reader (`role`, `checked`, `selected`, …). It depends on the

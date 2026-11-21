@@ -119,6 +119,11 @@
     "height": 164.0,
     "width": 360.0
   },
+  "elements/canvas-effects": {
+    "diagnostics": [],
+    "height": 220.0,
+    "width": 520.0
+  },
   "elements/div": {
     "diagnostics": [],
     "height": 131.5,

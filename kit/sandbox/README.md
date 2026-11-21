@@ -23,7 +23,8 @@ It also decodes the images of a page (`Images`): the PNG, JPEG, SVG and PDF file
 bundle, off the thread that draws, held to the same limits in every terminal that uses it, with a
 diagnostic for the image it refuses. An SVG draws its shapes and reads nothing it names; a PDF is
 drawn a page at a time, at the size asked, with no file, network or font of the machine. And it draws the paths of
-a canvas (`draw_figure`), so that a figure is the same pixels in every terminal.
+a canvas (`draw_figure`), with their shadows and glows, gradients, blends, dashes and transforms, so that a
+figure is the same pixels in every terminal.
 
 Two of its parts are features, both on by default. `compiler` is the code generator of the WebAssembly
 runtime, which compiles the interpreter as the first page opens; without it the interpreter has to

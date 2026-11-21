@@ -144,7 +144,15 @@ for (const row of table[1].trim().split("\n")) {
   if (!name) continue;
   const demo = picture(`elements/${name}`);
   if (!demo) wrong.push(`${name}: no page under demos/elements/ pictures it`);
-  elements.push({ name, constructor: made.replace(/`/g, ""), doc: html(words), demo });
+  // Further pictures of the same element, as `elements/<name>-<what>.lua`, are shown after the first.
+  const more = readdirSync(join(demos, "elements"))
+    .filter((file) => file.startsWith(`${name}-`) && file.endsWith(".lua"))
+    .map((file) => ({
+      name: `elements/${file.replace(/\.lua$/, "")}`,
+      ...picture(`elements/${file.replace(/\.lua$/, "")}`),
+    }))
+    .filter((extra) => extra.code);
+  elements.push({ name, constructor: made.replace(/`/g, ""), doc: html(words), demo, more });
 }
 
 // The whole pages the site shows as they are: a page of the kit, its code from the first line.

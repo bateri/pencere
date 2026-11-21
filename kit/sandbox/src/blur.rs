@@ -1,6 +1,6 @@
 //! A grid of coverage blurred: how a shadow is softened, a box's in a host's picture
-//! (`pencere_drive::shot`) and a path's in a canvas ([`crate::draw_figure`]), so that the same
-//! `blur` is the same softness in both.
+//! (`pencere_drive::shot`) and a path's in a canvas ([`crate::draw_figure`]), so that a deviation is
+//! the same softness in both (what a `blur` of points comes to as a deviation is each one's own).
 
 /// The room a blur works in: what a blur of a grid needs besides the grid, a copy of its cells and a
 /// sum to each column. Kept, it is not asked for again by the next blur of a grid no larger.

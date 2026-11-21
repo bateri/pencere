@@ -25,9 +25,20 @@ const MOST_SIDE: u32 = 8192;
 /// The most a shadow is blurred over, points: a deviation of half of it.
 const MOST_BLUR: f32 = 64.0;
 
-/// A dash list whose lengths come to less than this, points, is a line with no gaps: it would be
-/// drawn as a million dashes, which a person cannot tell from a line.
+/// A dash list whose lengths come to less than this, points, is a line with no gaps: a person cannot
+/// tell its dashes from a line.
 const LEAST_DASH: f32 = 0.1;
+
+/// The most dashes a line is broken into: one that would come to more is a line with no gaps (it is
+/// as long as no page is and its dashes, drawn, would be none that a person can tell from a line;
+/// and the rasteriser that draws them gives up past a million and draws nothing).
+const MOST_DASHES: f32 = 100_000.0;
+
+/// The most pixels the shadows of one figure are made in, the layers of them together: the room each
+/// one works in is its path's and the blur's reach past it, and a figure of many shadows that each
+/// cover a large canvas (animated, drawn again every frame) is held to what a screen is many times
+/// over. A shadow that would go past it is not drawn; the path is.
+const MOST_SHADE_PIXELS: u64 = 1 << 25;
 
 /// The ids of figures have the top bit set and those of images ([`crate::Images`]) never do: a host
 /// that keeps the textures of both by id keeps them apart.
@@ -57,9 +68,21 @@ pub fn figure_key(figure: &Figure, resolve: impl FnMut(Color) -> [f32; 4]) -> Op
 /// The bitmap's `id` is the same for the same figure in the same colours: a host that drew it
 /// once need not upload it again, nor draw it ([`figure_key`]).
 pub fn draw_figure(figure: &Figure, resolve: impl FnMut(Color) -> [f32; 4]) -> Option<Bitmap> {
+    drawn_within(figure, resolve, MOST_SHADE_PIXELS)
+}
+
+/// [`draw_figure`] with `shade_pixels` for the layers of its shadows to take together.
+fn drawn_within(
+    figure: &Figure,
+    resolve: impl FnMut(Color) -> [f32; 4],
+    shade_pixels: u64,
+) -> Option<Bitmap> {
     let Plan { key, scale, parts } = planned(figure, resolve)?;
     let mut pixmap = Pixmap::new(key.width, key.height)?;
-    let mut room = Room::default();
+    let mut room = Room {
+        left: shade_pixels,
+        ..Room::default()
+    };
     for part in &parts {
         let transform = part.matrix.post_scale(scale, scale);
         if let Some(shade) = &part.shadow {
@@ -122,11 +145,12 @@ struct Line {
 }
 
 /// What the shadows of one figure are made in, one after another: the coverage of a shadow and the room
-/// its blur works in.
+/// its blur works in, and how many pixels of layers the figure may still take.
 #[derive(Default)]
 struct Room {
     grid: Vec<f32>,
     blur: Blur,
+    left: u64,
 }
 
 /// A shadow: its offset and its blur in points, and its colour.
@@ -181,7 +205,7 @@ fn planned(figure: &Figure, mut resolve: impl FnMut(Color) -> [f32; 4]) -> Optio
             };
             hash_ink(&ink, &mut hasher);
             width.to_bits().hash(&mut hasher);
-            let dash = dash_of(&line.dash, line.dash_offset);
+            let dash = dash_of(&line.dash, line.dash_offset, length_of(&path.segments));
             hash_dash(&dash, &mut hasher);
             (line.cap as u8, line.join as u8).hash(&mut hasher);
             Some(Line {
@@ -325,9 +349,10 @@ fn stops_of(stops: &[Stop], resolve: &mut impl FnMut(Color) -> [f32; 4]) -> Vec<
 }
 
 /// The dashes and gaps of a line as it is drawn: an odd number of lengths read twice; `None`, no
-/// gaps, for no lengths, ones that come to nothing (or to less than [`LEAST_DASH`]) and ones that
-/// are not numbers or are less than nothing.
-fn dash_of(list: &[f32], offset: f32) -> Option<(Vec<f32>, f32)> {
+/// gaps, for no lengths, ones that come to nothing (or to less than [`LEAST_DASH`]), ones that are
+/// not numbers or are less than nothing, and ones that would break a line `length` long (in its
+/// own points, before its transform) into more than [`MOST_DASHES`].
+fn dash_of(list: &[f32], offset: f32, length: f32) -> Option<(Vec<f32>, f32)> {
     let total: f32 = list.iter().sum();
     if list
         .iter()
@@ -341,8 +366,53 @@ fn dash_of(list: &[f32], offset: f32) -> Option<(Vec<f32>, f32)> {
     if lengths.len() % 2 == 1 {
         lengths.extend_from_slice(list);
     }
+    #[allow(clippy::cast_precision_loss)]
+    let pieces = length / lengths.iter().sum::<f32>() * lengths.len() as f32;
+    if pieces.is_nan() || pieces > MOST_DASHES {
+        return None;
+    }
     let offset = if offset.is_finite() { offset } else { 0.0 };
     Some((lengths, offset))
+}
+
+/// How long the steps of a path are, in its own points: the lines as they go and the curves by the
+/// polygon of their points (never less than the curve), a step that is not a number passed over as
+/// [`shape`] passes it. For a count of dashes, not for a measure.
+fn length_of(segments: &[Segment]) -> f32 {
+    let finite = |p: pencere_view::Point| p.x.is_finite() && p.y.is_finite();
+    let mut length = 0.0_f32;
+    let (mut at, mut start) = (None, None);
+    let mut walk = |from: &mut Option<pencere_view::Point>, to: pencere_view::Point| {
+        if let Some(from) = from {
+            length += (to.x - from.x).hypot(to.y - from.y);
+        }
+        *from = Some(to);
+    };
+    for segment in segments {
+        match *segment {
+            Segment::Move(to) if finite(to) => {
+                at = Some(to);
+                start = Some(to);
+            }
+            Segment::Line(to) if finite(to) => walk(&mut at, to),
+            Segment::Quad { control, to } if finite(control) && finite(to) => {
+                walk(&mut at, control);
+                walk(&mut at, to);
+            }
+            Segment::Cubic { a, b, to } if finite(a) && finite(b) && finite(to) => {
+                walk(&mut at, a);
+                walk(&mut at, b);
+                walk(&mut at, to);
+            }
+            Segment::Close => {
+                if let Some(to) = start {
+                    walk(&mut at, to);
+                }
+            }
+            _ => {}
+        }
+    }
+    length
 }
 
 /// A shadow as it is drawn; `None` for one that has nothing to draw or a number that is not one.
@@ -589,9 +659,15 @@ fn cast(
     }
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let (across, down) = ((right - left) as u32, (bottom - top) as u32);
+    // The layers of a figure's shadows are held to a budget: a shadow past it is not drawn.
+    let area = u64::from(across) * u64::from(down);
+    if area > room.left {
+        return;
+    }
     let Some(mut layer) = Pixmap::new(across, down) else {
         return;
     };
+    room.left -= area;
     // The coverage: the part in black, where the shadow lies.
     let to_layer = transform.post_translate(dx - left, dy - top);
     let mut black = Paint::default();
@@ -603,7 +679,7 @@ fn cast(
     if let Some(line) = &part.line {
         layer.stroke_path(&part.shape, &black, &stroked(line), to_layer, None);
     }
-    let Room { grid, blur } = room;
+    let Room { grid, blur, .. } = room;
     grid.clear();
     grid.extend(
         layer
@@ -981,6 +1057,58 @@ mod tests {
             let solid = drawn(vec![line(pattern.clone())], 1.0);
             assert_eq!(pixel(&solid, 6, 10), [255, 0, 0, 255], "{pattern:?}");
         }
+    }
+
+    #[test]
+    fn a_line_that_would_break_into_more_dashes_than_the_most_is_a_line_with_no_gaps() {
+        // 200000 points long in its own, shrunk by its transform to what the canvas holds: a dash of
+        // half a point and a gap of as much would make 400000 of them.
+        let line = |pattern: Vec<f32>| {
+            path()
+                .move_to(0.0, 50_000.0)
+                .line_to(200_000.0, 50_000.0)
+                .stroke(20_000.0, Role::Accent)
+                .cap(Cap::Butt)
+                .dash(pattern, 0.0)
+                .transform(Matrix::from_parts(
+                    (0.0002, 0.0002),
+                    0.0,
+                    (0.0, 0.0),
+                    Point::new(0.0, 0.0),
+                ))
+        };
+        let many = drawn(vec![line(vec![0.5, 0.5])], 1.0);
+        assert_eq!(pixel(&many, 10, 10), [255, 0, 0, 255], "drawn, and whole");
+        // One that stays within the most is dashed, as a line is.
+        let few = drawn(vec![line(vec![50_000.0, 50_000.0])], 1.0);
+        assert_eq!(pixel(&few, 5, 10), [255, 0, 0, 255]);
+        assert_eq!(pixel(&few, 15, 10), [0, 0, 0, 0]);
+        // The same by the count of a curve's own polygon, and a closed path's way back.
+        assert!(dash_of(&[0.5], 0.0, 200_000.0).is_none());
+        assert!(dash_of(&[0.5], 0.0, 2_000.0).is_some());
+        let closed = [
+            Segment::Move(Point::new(0.0, 0.0)),
+            Segment::Line(Point::new(30.0, 0.0)),
+            Segment::Line(Point::new(30.0, 40.0)),
+            Segment::Close,
+        ];
+        assert_eq!(length_of(&closed), 120.0);
+    }
+
+    #[test]
+    fn the_shadows_of_a_figure_share_a_budget_and_one_that_goes_past_it_is_not_drawn() {
+        let dot = |y: f32| {
+            square(10.0, y, 4.0)
+                .fill(Role::Accent)
+                .shadow(5.0, 0.0, 0.0, Role::Success)
+        };
+        let figure = figure(vec![dot(10.0), dot(2.0)], 1.0);
+        let bitmap = drawn_within(&figure, palette, 100).expect("drawn");
+        assert_eq!(pixel(&bitmap, 15, 11), [0, 255, 0, 255], "the first, in it");
+        assert_eq!(pixel(&bitmap, 11, 3), [255, 0, 0, 255], "the path is drawn");
+        assert_eq!(pixel(&bitmap, 15, 3), [0, 0, 0, 0], "the second is past it");
+        let all = drawn_within(&figure, palette, MOST_SHADE_PIXELS).expect("drawn");
+        assert_eq!(pixel(&all, 15, 3), [0, 255, 0, 255]);
     }
 
     #[test]

@@ -460,22 +460,98 @@ interface types {
         close,
     }
 
-    /// The line along a path: `width` points, round where it turns and ends.
-    record stroke {
-        width: f32,
+    /// One colour of a gradient and where along it the colour is: `offset` is `0.0` at the
+    /// gradient's start and `1.0` at its end.
+    record stop {
+        offset: f32,
         color: color,
     }
 
-    /// A path of a canvas: its steps (a part of the frame's `segments`), the colour inside it (where
+    /// A gradient along the line from `start` to `end`, in the path's own points. Its stops are a
+    /// part of the frame's `stops`.
+    record linear-gradient {
+        start: point,
+        end: point,
+        stops: slice,
+    }
+
+    /// A gradient out from `center` to `radius` from it, in the path's own points. Its stops are a
+    /// part of the frame's `stops`.
+    record radial-gradient {
+        center: point,
+        radius: f32,
+        stops: slice,
+    }
+
+    /// What a fill or a line is painted with.
+    variant brush {
+        color(color),
+        linear(linear-gradient),
+        radial(radial-gradient),
+    }
+
+    /// How the ends of a line are drawn.
+    enum cap {
+        round,
+        butt,
+        square,
+    }
+
+    /// How a line is drawn where it turns.
+    enum join {
+        round,
+        miter,
+        bevel,
+    }
+
+    /// The line along a path: `width` points, in `brush`, with the gaps `dash` says (a part of the
+    /// frame's `numbers`: the lengths of the dashes and the gaps in turn, starting `dash-offset`
+    /// into them; none is no gaps), and the ends and turns `cap` and `join` say.
+    record stroke {
+        width: f32,
+        brush: brush,
+        dash: slice,
+        dash-offset: f32,
+        cap: cap,
+        join: join,
+    }
+
+    /// How a path is drawn over what its canvas has under it.
+    enum blend {
+        normal,
+        add,
+        screen,
+        multiply,
+    }
+
+    /// Where a path is drawn: scaled, then turned `rotate` degrees clockwise, both about
+    /// `origin` (a point of the canvas), then moved by `translate`; its gradients and the width of its line go
+    /// by it too.
+    record transform {
+        scale-x: f32,
+        scale-y: f32,
+        rotate: f32,
+        translate-x: f32,
+        translate-y: f32,
+        origin: point,
+    }
+
+    /// A path of a canvas: its steps (a part of the frame's `segments`), what is inside it (where
     /// a line out of a point crosses the path an odd number of times) and the line along it.
     record path {
         segments: slice,
-        fill: option<color>,
+        fill: option<brush>,
         stroke: option<stroke>,
         /// Drawn with no smoothing: a pixel is the path's where its middle is inside it (or under
         /// its line), so that edges that fall between pixels are not blurred and shapes that touch
         /// leave no seam. A line thinner than a pixel may not be drawn at all.
         crisp: bool,
+        blend: blend,
+        /// What the path leaves behind it, drawn under it in its blend: its fill and its line moved by
+        /// `dx` and `dy` points and blurred over `blur` (a deviation of half of it). With no
+        /// offset and a bright colour it is a glow.
+        shadow: option<shadow>,
+        transform: option<transform>,
     }
 
     /// What an element is.
@@ -1107,7 +1183,7 @@ interface types {
     /// A page ready to be laid out.
     ///
     /// What a frame says that is not of a fixed size (the words, the paths of pictures, the values
-    /// of sparklines, the tracks of grids, the steps of paths, the commands) is in lists, once for
+    /// of sparklines, the tracks of grids, the steps of paths, the colours of gradients, the commands) is in lists, once for
     /// the whole frame, and an element names the part it means. So the application copies each
     /// byte of a frame once, and what it takes in is the size of the module's own memory: it is
     /// not the size of a buffer times the number of elements that point at it. What few elements
@@ -1129,6 +1205,8 @@ interface types {
         paths: list<path>,
         /// The steps of every path.
         segments: list<segment>,
+        /// The colours of every gradient.
+        stops: list<stop>,
         /// The commands of every element.
         commands: list<command>,
         /// The options of every editor (`node.editor`).

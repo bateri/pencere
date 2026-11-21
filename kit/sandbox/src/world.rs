@@ -19,12 +19,12 @@ use pencere_view::wire::{
     Overflow, Spark, Style, TextStyle,
 };
 use pencere_view::{
-    AccessibleRole, Align, Anchor, Border, BrowserAsk, BrowserOptions, BrowserRefusal,
-    BrowserWindows, Brush, Button, Carry, Color, Command, Cursor, Ease, Element, Event, Extent,
-    Family, FileSource, Fill, GesturePhase, Gradient, Id, Input, Key, KeyConvention, Keyboard,
-    Laid, MOST_KEYS, Menu, MenuEntry, Mix, Mods, Motion, PROFILE_CHARS, Panel, Path, Payload,
-    Phase, Point, Rect, Reply, Rgba, Role, ScrollTo, Segment, Shadow, Shift, Shortcut, Side, Size,
-    Source, Span, State, Stroke, Tip, Track, Zoom, profile_allowed,
+    AccessibleRole, Align, Anchor, Blend, Border, BrowserAsk, BrowserOptions, BrowserRefusal,
+    BrowserWindows, Brush, Button, Cap, Carry, Color, Command, Cursor, Ease, Element, Event,
+    Extent, Family, FileSource, Fill, GesturePhase, Gradient, Id, Input, Join, Key, KeyConvention,
+    Keyboard, Laid, MOST_KEYS, Matrix, Menu, MenuEntry, Mix, Mods, Motion, PROFILE_CHARS, Panel,
+    Path, Payload, Phase, Point, Rect, Reply, Rgba, Role, ScrollTo, Segment, Shadow, Shift,
+    Shortcut, Side, Size, Source, Span, State, Stop, Stroke, Tip, Track, Zoom, profile_allowed,
 };
 use pencere_wire::bundle::{LUA_MEDIA_TYPE, is_path};
 use pencere_wire::json::unescaped_len;
@@ -978,6 +978,7 @@ struct Lists<'a> {
     spans: &'a [wit::Span],
     paths: &'a [wit::Path],
     segments: &'a [wit::Segment],
+    stops: &'a [wit::Stop],
     commands: &'a [wit::Command],
     editors: &'a [wit::EditorOptions],
     browsers: &'a [wit::BrowserOptions],
@@ -997,6 +998,7 @@ impl<'a> Lists<'a> {
             spans: &frame.spans,
             paths: &frame.paths,
             segments: &frame.segments,
+            stops: &frame.stops,
             commands: &frame.commands,
             editors: &frame.editors,
             browsers: &frame.browsers,
@@ -1011,6 +1013,7 @@ impl<'a> Lists<'a> {
             .saturating_add(size_of_val(lists.spans))
             .saturating_add(size_of_val(lists.paths))
             .saturating_add(size_of_val(lists.segments))
+            .saturating_add(size_of_val(lists.stops))
             .saturating_add(size_of_val(lists.commands))
             .saturating_add(size_of_val(lists.editors))
             .saturating_add(size_of_val(lists.browsers));
@@ -1037,6 +1040,7 @@ impl<'a> Lists<'a> {
             spans: &[],
             paths: &[],
             segments: &[],
+            stops: &[],
             commands: &[],
             editors: &[],
             browsers: &[],
@@ -1384,12 +1388,7 @@ fn style_out(
             share(style.radii.bottom_right),
             share(style.radii.bottom_left),
         ],
-        shadow: style.shadow.as_ref().map(|shadow| Shadow {
-            dx: pt(shadow.dx),
-            dy: pt(shadow.dy),
-            blur: share(shadow.blur),
-            color: color_out(&shadow.color),
-        }),
+        shadow: style.shadow.as_ref().map(shadow_out),
         // Not a share of an element that is not one: all of it shows.
         opacity: Some(unit(style.opacity, 1.0)).filter(|opacity| *opacity < 1.0),
         text: text_style_out(&style.text),
@@ -1437,14 +1436,36 @@ fn kind_out(
             for path in paths {
                 let segments =
                     lists.items(lists.segments, &path.segments, limits.values, "a path")?;
+                let fill = path
+                    .fill
+                    .as_ref()
+                    .map(|brush| brush_out(brush, lists))
+                    .transpose()?;
+                let stroke = path
+                    .stroke
+                    .as_ref()
+                    .map(|stroke| stroke_out(stroke, lists))
+                    .transpose()?;
                 out.push(Path {
                     segments: segments.iter().map(segment_out).collect(),
-                    fill: path.fill.as_ref().map(|fill| Brush::Color(color_out(fill))),
-                    stroke: path.stroke.as_ref().map(|stroke| {
-                        Stroke::new(share(stroke.width), Brush::Color(color_out(&stroke.color)))
-                    }),
+                    fill,
+                    stroke,
                     crisp: path.crisp,
-                    ..pencere_view::path()
+                    blend: match path.blend {
+                        wit::Blend::Normal => Blend::Normal,
+                        wit::Blend::Add => Blend::Add,
+                        wit::Blend::Screen => Blend::Screen,
+                        wit::Blend::Multiply => Blend::Multiply,
+                    },
+                    shadow: path.shadow.as_ref().map(shadow_out),
+                    transform: path.transform.as_ref().map_or(Matrix::IDENTITY, |t| {
+                        Matrix::from_parts(
+                            (pt(t.scale_x), pt(t.scale_y)),
+                            pt(t.rotate),
+                            (pt(t.translate_x), pt(t.translate_y)),
+                            Point::new(pt(t.origin.x), pt(t.origin.y)),
+                        )
+                    }),
                 });
             }
             Kind::Canvas(out)
@@ -1468,6 +1489,86 @@ fn span_out(span: &wit::Span, limits: &ModuleLimits, lists: &mut Lists<'_>) -> R
         family: span.family.map(family_out),
         background: span.background.as_ref().map(color_out),
         link: span.link.map(Id::new),
+    })
+}
+
+fn shadow_out(shadow: &wit::Shadow) -> Shadow {
+    Shadow {
+        dx: pt(shadow.dx),
+        dy: pt(shadow.dy),
+        blur: share(shadow.blur),
+        color: color_out(&shadow.color),
+    }
+}
+
+/// The most stops a gradient has and the most lengths a dash list has: a path that says more is not a
+/// page.
+const MOST_STOPS: usize = 16;
+const MOST_DASH: usize = 16;
+
+/// A point of a gradient: a number of it that is not one is kept as it is, for a gradient that has such
+/// a point is its last stop's colour all over; any other is as [`pt`] has it.
+fn gradient_point(point: &wit::Point) -> Point {
+    let keep = |value: f32| {
+        if value.is_finite() {
+            pt(value)
+        } else {
+            f32::NAN
+        }
+    };
+    Point::new(keep(point.x), keep(point.y))
+}
+
+fn brush_out(brush: &wit::Brush, lists: &mut Lists<'_>) -> Result<Brush, Fault> {
+    let at = gradient_point;
+    let mut stops = |part: &wit::Slice| -> Result<Vec<Stop>, Fault> {
+        let stops = lists.items(lists.stops, part, MOST_STOPS, "a gradient")?;
+        Ok(stops
+            .iter()
+            .map(|stop| Stop {
+                offset: unit(stop.offset, 0.0),
+                color: color_out(&stop.color),
+            })
+            .collect())
+    };
+    Ok(match brush {
+        wit::Brush::Color(color) => Brush::Color(color_out(color)),
+        wit::Brush::Linear(line) => Brush::Linear {
+            from: at(&line.start),
+            to: at(&line.end),
+            stops: stops(&line.stops)?,
+        },
+        wit::Brush::Radial(ring) => Brush::Radial {
+            center: at(&ring.center),
+            radius: share(ring.radius),
+            stops: stops(&ring.stops)?,
+        },
+    })
+}
+
+fn stroke_out(stroke: &wit::Stroke, lists: &mut Lists<'_>) -> Result<Stroke, Fault> {
+    let dash = lists.items(lists.numbers, &stroke.dash, MOST_DASH, "a dash")?;
+    // A length that is not a number makes the line one with no gaps, not one with a gap of nothing.
+    let dash = if dash.iter().all(|length| length.is_finite()) {
+        dash.iter().map(|length| pt(*length)).collect()
+    } else {
+        Vec::new()
+    };
+    Ok(Stroke {
+        width: share(stroke.width),
+        brush: brush_out(&stroke.brush, lists)?,
+        dash,
+        dash_offset: pt(stroke.dash_offset),
+        cap: match stroke.cap {
+            wit::Cap::Round => Cap::Round,
+            wit::Cap::Butt => Cap::Butt,
+            wit::Cap::Square => Cap::Square,
+        },
+        join: match stroke.join {
+            wit::Join::Round => Join::Round,
+            wit::Join::Miter => Join::Miter,
+            wit::Join::Bevel => Join::Bevel,
+        },
     })
 }
 
@@ -3195,6 +3296,7 @@ mod tests {
         spans: Vec<wit::Span>,
         paths: Vec<wit::Path>,
         segments: Vec<wit::Segment>,
+        stops: Vec<wit::Stop>,
         commands: Vec<wit::Command>,
         editors: Vec<wit::EditorOptions>,
     }
@@ -3236,6 +3338,7 @@ mod tests {
                 spans: self.spans,
                 paths: self.paths,
                 segments: self.segments,
+                stops: self.stops,
                 commands: self.commands,
                 editors: self.editors,
                 browsers: Vec::new(),
@@ -4755,9 +4858,16 @@ mod tests {
             fill: None,
             stroke: Some(wit::Stroke {
                 width: -2.0,
-                color: accent(),
+                brush: wit::Brush::Color(accent()),
+                dash: nothing(),
+                dash_offset: 0.0,
+                cap: wit::Cap::Round,
+                join: wit::Join::Round,
             }),
             crisp: false,
+            blend: wit::Blend::Normal,
+            shadow: None,
+            transform: None,
         });
         let mut canvas = node(wit::Content::Canvas(wit::Slice { start: 0, len: 1 }), 0);
         canvas.style.overlay = true;
@@ -4903,6 +5013,9 @@ mod tests {
             fill: None,
             stroke: None,
             crisp: false,
+            blend: wit::Blend::Normal,
+            shadow: None,
+            transform: None,
         });
         let canvas = node(wit::Content::Canvas(wit::Slice { start: 0, len: 1 }), 0);
         assert!(matches!(
@@ -4916,6 +5029,189 @@ mod tests {
             frame_out(frame(vec![canvas]), &limits),
             Err(Fault::Malformed(_))
         ));
+    }
+
+    #[test]
+    fn the_effects_of_a_path_come_out_as_the_engine_has_them_and_too_many_stops_or_lengths_are_no_page()
+     {
+        let limits = ModuleLimits::default();
+        let dim = wit::Color {
+            mix: None,
+            source: wit::Source::Role(wit::Role::Dim),
+            alpha: 1.0,
+        };
+        let at = |x: f32, y: f32| wit::Point { x, y };
+        let canvas = || node(wit::Content::Canvas(wit::Slice { start: 0, len: 1 }), 0);
+        let path = |fill: Option<wit::Brush>, stroke: Option<wit::Stroke>| wit::Path {
+            segments: wit::Slice { start: 0, len: 1 },
+            fill,
+            stroke,
+            crisp: false,
+            blend: wit::Blend::Add,
+            shadow: Some(wit::Shadow {
+                dx: 1.0,
+                dy: 2.0,
+                blur: -3.0,
+                color: dim,
+            }),
+            transform: Some(wit::Transform {
+                scale_x: 2.0,
+                scale_y: 1.0,
+                rotate: 90.0,
+                translate_x: 10.0,
+                translate_y: 0.0,
+                origin: at(0.0, 0.0),
+            }),
+        };
+        let slice = |start: u32, len: u32| wit::Slice { start, len };
+
+        let mut lists = Lists::default();
+        lists.segments.push(wit::Segment::Close);
+        lists.stops.extend([
+            wit::Stop {
+                offset: 0.0,
+                color: accent(),
+            },
+            wit::Stop {
+                offset: 3.0,
+                color: dim,
+            },
+        ]);
+        lists.numbers.extend([3.0, f32::NAN]);
+        lists.paths.push(path(
+            Some(wit::Brush::Linear(wit::LinearGradient {
+                start: at(0.0, 0.0),
+                end: at(10.0, 0.0),
+                stops: slice(0, 2),
+            })),
+            Some(wit::Stroke {
+                width: 2.0,
+                brush: wit::Brush::Radial(wit::RadialGradient {
+                    center: at(5.0, 5.0),
+                    radius: -1.0,
+                    stops: slice(0, 1),
+                }),
+                dash: slice(0, 2),
+                dash_offset: 1.0,
+                cap: wit::Cap::Butt,
+                join: wit::Join::Miter,
+            }),
+        ));
+        let made = frame_out(lists.frame(vec![canvas()]), &limits).expect("a page");
+        let nodes = made.root.fold();
+        let Kind::Canvas(paths) = &nodes[0].kind else {
+            panic!("a canvas");
+        };
+        let path = &paths[0];
+        assert_eq!(
+            path.fill,
+            Some(Brush::Linear {
+                from: Point::new(0.0, 0.0),
+                to: Point::new(10.0, 0.0),
+                stops: vec![Stop::new(0.0, Role::Accent), Stop::new(1.0, Role::Dim),],
+            }),
+            "an offset past the end is at the end"
+        );
+        let stroke = path.stroke.as_ref().expect("a line");
+        assert_eq!(
+            stroke.brush,
+            Brush::Radial {
+                center: Point::new(5.0, 5.0),
+                radius: 0.0,
+                stops: vec![Stop::new(0.0, Role::Accent)],
+            }
+        );
+        assert_eq!(
+            (
+                stroke.dash.clone(),
+                stroke.dash_offset,
+                stroke.cap,
+                stroke.join
+            ),
+            (vec![], 1.0, Cap::Butt, Join::Miter),
+            "a length that is not a number makes a line with no gaps"
+        );
+        assert_eq!(path.blend, Blend::Add);
+        let shadow = path.shadow.expect("a shadow");
+        assert_eq!((shadow.dx, shadow.dy, shadow.blur), (1.0, 2.0, 0.0));
+        assert_eq!(
+            path.transform,
+            Matrix::from_parts((2.0, 1.0), 90.0, (10.0, 0.0), Point::new(0.0, 0.0))
+        );
+
+        // A point of a gradient that is not a number is kept: the gradient is its last colour.
+        let mut lists = Lists::default();
+        lists.segments.push(wit::Segment::Close);
+        lists.stops.push(wit::Stop {
+            offset: 0.0,
+            color: accent(),
+        });
+        lists
+            .paths
+            .push(path_with(Some(wit::Brush::Linear(wit::LinearGradient {
+                start: at(f32::NAN, 0.0),
+                end: at(10.0, 1.0e9),
+                stops: slice(0, 1),
+            }))));
+        let made = frame_out(lists.frame(vec![canvas()]), &limits).expect("a page");
+        let nodes = made.root.fold();
+        let Kind::Canvas(paths) = &nodes[0].kind else {
+            panic!("a canvas");
+        };
+        let Some(Brush::Linear { from, to, .. }) = &paths[0].fill else {
+            panic!("a linear gradient: {:?}", paths[0].fill);
+        };
+        assert!(from.x.is_nan() && from.y == 0.0 && (to.x, to.y) == (10.0, 1.0e6));
+
+        // A gradient of more stops than a page may say, and a dash of more lengths.
+        let mut lists = Lists::default();
+        lists.segments.push(wit::Segment::Close);
+        lists.stops.extend((0..17).map(|_| wit::Stop {
+            offset: 0.5,
+            color: accent(),
+        }));
+        lists.numbers.extend([1.0; 17]);
+        lists
+            .paths
+            .push(path_with(Some(wit::Brush::Radial(wit::RadialGradient {
+                center: at(0.0, 0.0),
+                radius: 4.0,
+                stops: slice(0, 17),
+            }))));
+        assert!(matches!(
+            frame_out(lists.frame(vec![canvas()]), &limits),
+            Err(Fault::Malformed(why)) if why.contains("a gradient of 17 items (at most 16)")
+        ));
+        let mut lists = Lists::default();
+        lists.segments.push(wit::Segment::Close);
+        lists.numbers.extend([1.0; 17]);
+        let mut dashed = path_with(None);
+        dashed.stroke = Some(wit::Stroke {
+            width: 1.0,
+            brush: wit::Brush::Color(accent()),
+            dash: slice(0, 17),
+            dash_offset: 0.0,
+            cap: wit::Cap::Round,
+            join: wit::Join::Round,
+        });
+        lists.paths.push(dashed);
+        assert!(matches!(
+            frame_out(lists.frame(vec![canvas()]), &limits),
+            Err(Fault::Malformed(why)) if why.contains("a dash of 17 items (at most 16)")
+        ));
+    }
+
+    /// A path of the canvas tests: one step, filled as `fill` says, with none of the effects.
+    fn path_with(fill: Option<wit::Brush>) -> wit::Path {
+        wit::Path {
+            segments: wit::Slice { start: 0, len: 1 },
+            fill,
+            stroke: None,
+            crisp: false,
+            blend: wit::Blend::Normal,
+            shadow: None,
+            transform: None,
+        }
     }
 
     #[test]

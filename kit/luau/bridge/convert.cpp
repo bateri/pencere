@@ -55,6 +55,7 @@ struct Arenas {
     std::vector<pencere_view_types_span_t> spans;
     std::vector<pencere_view_types_path_t> paths;
     std::vector<pencere_view_types_segment_t> segments;
+    std::vector<pencere_view_types_stop_t> stops;
     std::vector<pencere_view_types_command_t> commands;
     // What few elements have, a list of its own: an element names its place in it.
     std::vector<pencere_view_types_editor_options_t> editors;
@@ -743,9 +744,89 @@ pencere_view_types_point_t point_at(lua_State* L, int step, int from) {
     return out;
 }
 
+// The stops of a gradient at `list`, `{ { offset, colour }, ... }`, as a part of the frame's stops.
+pencere_view_types_slice_t stops_at(lua_State* L, int list, Arenas& arenas) {
+    size_t count = (size_t)lua_objlen(L, list);
+    if (count > kMaxList) luaL_error(L, "a gradient has more stops than it may");
+    size_t start = arenas.stops.size();
+    for (size_t k = 0; k < count; k++) {
+        lua_rawgeti(L, list, (int)k + 1);
+        int stop = lua_gettop(L);
+        if (lua_type(L, stop) != LUA_TTABLE) luaL_error(L, "a stop of a gradient is a table");
+        pencere_view_types_stop_t out = {};
+        lua_rawgeti(L, stop, 1);
+        out.offset = (float)lua_tonumber(L, -1);
+        lua_pop(L, 1);
+        lua_rawgeti(L, stop, 2);
+        out.color = color_at(L, lua_gettop(L));
+        lua_pop(L, 1);
+        arenas.stops.push_back(out);
+        lua_pop(L, 1);
+    }
+    return part(start, count);
+}
+
+// What a fill or a line is painted with, at the table's place `index`: a colour, or what
+// `pencere.linear` (`{ kind = "linear", x0, y0, x1, y1, stops }`) and `pencere.radial`
+// (`{ kind = "radial", cx, cy, radius, stops }`) made.
+pencere_view_types_brush_t brush_at(lua_State* L, int index, Arenas& arenas) {
+    pencere_view_types_brush_t out = {};
+    if (lua_type(L, index) == LUA_TTABLE) {
+        lua_rawgetfield(L, index, "kind");
+        const char* kind = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "";
+        bool linear = strcmp(kind, "linear") == 0;
+        bool radial = strcmp(kind, "radial") == 0;
+        lua_pop(L, 1);
+        if (linear || radial) {
+            get(L, index, "stops");
+            if (lua_type(L, -1) != LUA_TTABLE) luaL_error(L, "a gradient has its stops in a list");
+            pencere_view_types_slice_t stops = stops_at(L, lua_gettop(L), arenas);
+            lua_pop(L, 1);
+            if (linear) {
+                out.tag = PENCERE_VIEW_TYPES_BRUSH_LINEAR;
+                out.val.linear.start.x = number(L, index, "x0", 0.0f);
+                out.val.linear.start.y = number(L, index, "y0", 0.0f);
+                out.val.linear.end.x = number(L, index, "x1", 0.0f);
+                out.val.linear.end.y = number(L, index, "y1", 0.0f);
+                out.val.linear.stops = stops;
+            } else {
+                out.tag = PENCERE_VIEW_TYPES_BRUSH_RADIAL;
+                out.val.radial.center.x = number(L, index, "cx", 0.0f);
+                out.val.radial.center.y = number(L, index, "cy", 0.0f);
+                out.val.radial.radius = number(L, index, "radius", 0.0f);
+                out.val.radial.stops = stops;
+            }
+            return out;
+        }
+    }
+    out.tag = PENCERE_VIEW_TYPES_BRUSH_COLOR;
+    out.val.color = color_at(L, index);
+    return out;
+}
+
+// The place of the string `name` of the table `t`'s field `key` among `names` (nothing is -1); a
+// name that is not one is the script's mistake.
+int name_of(lua_State* L, int t, const char* key, const char* const* names, int count, const char* what) {
+    get(L, t, key);
+    int found = -1;
+    if (lua_type(L, -1) == LUA_TSTRING) {
+        const char* name = lua_tostring(L, -1);
+        for (int at = 0; at < count; at++) {
+            if (strcmp(name, names[at]) == 0) found = at;
+        }
+        if (found < 0) luaL_error(L, "%s is not one of the names %s has", name, what);
+    } else if (lua_type(L, -1) != LUA_TNIL) {
+        luaL_error(L, "%s must be a name", key);
+    }
+    lua_pop(L, 1);
+    return found;
+}
+
 // The paths of a canvas at `list`: each `{ segments = { {"move", x, y}, {"line", x, y},
-// {"quad", cx, cy, x, y}, {"cubic", ax, ay, bx, by, x, y}, {"close"} }, fill =, stroke =,
-// crisp = }`.
+// {"quad", cx, cy, x, y}, {"cubic", ax, ay, bx, by, x, y}, {"close"} }, fill =, stroke = { width =,
+// color =, dash =, dash_offset =, cap =, join = }, crisp =, blend =, shadow = { dx =, dy =, blur =,
+// color = }, transform = { sx =, sy =, rotate =, tx =, ty =, ox =, oy = } }`; a fill and a line's
+// colour are a colour or a gradient.
 pencere_view_types_slice_t paths_at(lua_State* L, int list, Arenas& arenas) {
     static const char* const kSteps[] = {"move", "line", "quad", "cubic", "close"};
     size_t count = (size_t)lua_objlen(L, list);
@@ -807,18 +888,72 @@ pencere_view_types_slice_t paths_at(lua_State* L, int list, Arenas& arenas) {
             out.segments = part(start, many);
         }
         lua_pop(L, 1);
-        out.fill = optional_color(L, path, "fill");
+        get(L, path, "fill");
+        if (!lua_isnil(L, -1)) {
+            out.fill.is_some = true;
+            out.fill.val = brush_at(L, lua_gettop(L), arenas);
+        }
+        lua_pop(L, 1);
         get(L, path, "stroke");
         if (lua_type(L, -1) == LUA_TTABLE) {
             int stroke = lua_gettop(L);
             out.stroke.is_some = true;
             out.stroke.val.width = number(L, stroke, "width", 1.0f);
             lua_rawgetfield(L, stroke, "color");
-            out.stroke.val.color = color_at(L, lua_gettop(L));
+            out.stroke.val.brush = brush_at(L, lua_gettop(L), arenas);
             lua_pop(L, 1);
+            get(L, stroke, "dash");
+            if (lua_type(L, -1) == LUA_TTABLE) {
+                int lengths = lua_gettop(L);
+                size_t many = (size_t)lua_objlen(L, lengths);
+                if (many > kMaxList) luaL_error(L, "a dash has more lengths than it may");
+                size_t first = arenas.numbers.size();
+                for (size_t k = 0; k < many; k++) {
+                    lua_rawgeti(L, lengths, (int)k + 1);
+                    arenas.numbers.push_back((float)lua_tonumber(L, -1));
+                    lua_pop(L, 1);
+                }
+                out.stroke.val.dash = part(first, many);
+            }
+            lua_pop(L, 1);
+            out.stroke.val.dash_offset = number(L, stroke, "dash_offset", 0.0f);
+            static const char* const kCaps[] = {"round", "butt", "square"};
+            int cap = name_of(L, stroke, "cap", kCaps, 3, "a cap");
+            out.stroke.val.cap = cap < 0 ? PENCERE_VIEW_TYPES_CAP_ROUND : (pencere_view_types_cap_t)cap;
+            static const char* const kJoins[] = {"round", "miter", "bevel"};
+            int join = name_of(L, stroke, "join", kJoins, 3, "a join");
+            out.stroke.val.join = join < 0 ? PENCERE_VIEW_TYPES_JOIN_ROUND : (pencere_view_types_join_t)join;
         }
         lua_pop(L, 1);
         out.crisp = flag(L, path, "crisp");
+        static const char* const kBlends[] = {"normal", "add", "screen", "multiply"};
+        int blend = name_of(L, path, "blend", kBlends, 4, "a blend");
+        out.blend = blend < 0 ? PENCERE_VIEW_TYPES_BLEND_NORMAL : (pencere_view_types_blend_t)blend;
+        get(L, path, "shadow");
+        if (lua_type(L, -1) == LUA_TTABLE) {
+            int shadow = lua_gettop(L);
+            out.shadow.is_some = true;
+            out.shadow.val.dx = number(L, shadow, "dx", 0.0f);
+            out.shadow.val.dy = number(L, shadow, "dy", 0.0f);
+            out.shadow.val.blur = number(L, shadow, "blur", 0.0f);
+            lua_rawgetfield(L, shadow, "color");
+            out.shadow.val.color = color_at(L, lua_gettop(L));
+            lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+        get(L, path, "transform");
+        if (lua_type(L, -1) == LUA_TTABLE) {
+            int moved = lua_gettop(L);
+            out.transform.is_some = true;
+            out.transform.val.scale_x = number(L, moved, "sx", 1.0f);
+            out.transform.val.scale_y = number(L, moved, "sy", 1.0f);
+            out.transform.val.rotate = number(L, moved, "rotate", 0.0f);
+            out.transform.val.translate_x = number(L, moved, "tx", 0.0f);
+            out.transform.val.translate_y = number(L, moved, "ty", 0.0f);
+            out.transform.val.origin.x = number(L, moved, "ox", 0.0f);
+            out.transform.val.origin.y = number(L, moved, "oy", 0.0f);
+        }
+        lua_pop(L, 1);
         made.push_back(out);
         lua_pop(L, 1);
     }
@@ -1832,6 +1967,7 @@ int frame_call(lua_State* L) {
     take_list(job->out->spans, flat.arenas.spans);
     take_list(job->out->paths, flat.arenas.paths);
     take_list(job->out->segments, flat.arenas.segments);
+    take_list(job->out->stops, flat.arenas.stops);
     take_list(job->out->commands, flat.arenas.commands);
     take_list(job->out->editors, flat.arenas.editors);
     take_list(job->out->browsers, flat.arenas.browsers);

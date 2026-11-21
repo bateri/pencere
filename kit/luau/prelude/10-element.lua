@@ -221,13 +221,17 @@ end
 --   pencere.path():arc(12, 12, 9, 0, 270):stroke(3, "accent")       -- a ring three quarters full
 --   pencere.path():rect(0, 0, 8, 20):fill("raised3")
 --   pencere.path():rect(0, 0, 2, 2):fill("accent"):crisp()           -- a dot of whole pixels
+--   pencere.path():circle(8, 8, 3):fill("accent"):shadow(0, 0, 12, "accent"):blend("add")  -- a glow
+--   pencere.path():rect(0, 0, 40, 6):fill(pencere.linear(0, 0, 40, 0, { { 0, "accent" }, { 1, "success" } }))
+--   pencere.path():circle(20, 20, 9):stroke(2, "dim"):dash({ 3, 3 }):cap("butt")  -- a dashed ring
+--   pencere.path():rect(0, 0, 8, 8):fill("accent"):transform({ rotate = 45, origin = { 4, 4 } })
 local Path = {}
 Path.__index = Path
 pencere.Path = Path
 
 function pencere.path()
-	-- How it is drawn lives in a table of its own: `fill`, `stroke` and `crisp` are the methods'
-	-- names too.
+	-- How it is drawn lives in a table of its own: `fill`, `stroke`, `crisp`, `blend`, `shadow`,
+	-- `dash`, `cap`, `join` and `transform` are the methods' names too.
 	return setmetatable({ segments = {}, paint = {} }, Path)
 end
 
@@ -284,9 +288,67 @@ function Path:circle(cx, cy, r)
 	return self:arc(cx, cy, r, 0, 360):close()
 end
 
--- The colour inside the path; and the line along it, `width` points, round where it turns and ends.
+-- What a fill or a line is painted with when it is not one colour: a colour that changes along a
+-- line or out from a point, from its stops, `{ { 0, "accent" }, { 1, "background" } }` (a number from
+-- 0 at its start to 1 at its end, then a colour; at most 16). Its points are the path's own, so they
+-- go where the path's transform takes it. One stop is that colour all over; a gradient whose two
+-- points are one, or whose radius is nothing, is its last stop's colour.
+--
+--   pencere.linear(0, 0, 100, 0, { { 0, "accent" }, { 1, "success" } })
+--   pencere.radial(50, 50, 40, { { 0, "accent" }, { 1, { "accent", 0 } } })
+local Brush = {}
+table.insert(internal.classes, Brush)
+
+local function numbers(name, what, ...)
+	for index = 1, select("#", ...) do
+		local value = select(index, ...)
+		if type(value) ~= "number" then
+			refuse(name .. " takes " .. what .. " as numbers, not " .. type(value))
+		end
+	end
+end
+
+local function stops_of(name, stops)
+	if type(stops) ~= "table" or #stops == 0 then
+		refuse(name .. " takes its stops as a list, { { 0, \"accent\" }, { 1, \"background\" } }")
+	end
+	if #stops > 16 then
+		refuse(name .. " takes at most 16 stops, not " .. #stops)
+	end
+	local made = {}
+	for index = 1, #stops do
+		local stop = stops[index]
+		if type(stop) ~= "table" or type(stop[1]) ~= "number" or stop[2] == nil then
+			refuse("stop " .. index .. " of " .. name .. " is an offset and a colour, { 0, \"accent\" }")
+		end
+		made[index] = { stop[1], stop[2] }
+	end
+	return made
+end
+
+function pencere.linear(x0, y0, x1, y1, stops)
+	numbers("pencere.linear", "the two points of its line", x0, y0, x1, y1)
+	return setmetatable({
+		kind = "linear",
+		x0 = x0, y0 = y0, x1 = x1, y1 = y1,
+		stops = stops_of("pencere.linear", stops),
+	}, Brush)
+end
+
+function pencere.radial(cx, cy, radius, stops)
+	numbers("pencere.radial", "its middle and its radius", cx, cy, radius)
+	return setmetatable({
+		kind = "radial",
+		cx = cx, cy = cy, radius = radius,
+		stops = stops_of("pencere.radial", stops),
+	}, Brush)
+end
+
+-- The colour (or gradient) inside the path.
 function Path:fill(color) self.paint.fill = color return self end
 
+-- The line along the path, `width` points, in a colour or a gradient; round where it turns and
+-- ends, and with no gaps, unless `dash`, `cap` and `join` say otherwise (before or after this).
 function Path:stroke(width, color)
 	self.paint.stroke = { width = width, color = color }
 	return self
@@ -295,6 +357,125 @@ end
 -- Drawn with no smoothing, its pixels whole: the dots of a dithered fill, pixel art.
 function Path:crisp(...)
 	self.paint.crisp = told(...)
+	return self
+end
+
+local blends = { normal = true, add = true, screen = true, multiply = true }
+
+-- How the path is drawn over what the canvas has drawn under it (not the page behind the canvas):
+-- "normal", "add" (lights that overlap grow brighter), "screen" or "multiply".
+function Path:blend(name)
+	if not blends[name] then
+		refuse("a blend is \"normal\", \"add\", \"screen\" or \"multiply\", not " .. tostring(name))
+	end
+	self.paint.blend = name
+	return self
+end
+
+-- What the path leaves behind it, drawn under it in its blend: its fill and its line moved `dx` and
+-- `dy` points and blurred over `blur` points (0 to 64; 0 is not blurred at all), in `color`. With no
+-- offset and a bright colour, a glow. The canvas's own pixels are all there is: past its box a
+-- shadow is cut.
+function Path:shadow(dx, dy, blur, color)
+	numbers("path:shadow", "its offset and its blur", dx, dy, blur)
+	if type(color) ~= "string" and type(color) ~= "table" then
+		refuse("path:shadow takes its colour as a colour, \"accent\" or \"#rrggbb\", not " .. type(color))
+	end
+	self.paint.shadow = { dx = dx, dy = dy, blur = blur, color = color }
+	return self
+end
+
+-- The line broken into dashes and gaps of the lengths in `pattern` ({ 4, 2 }: four points of line,
+-- two of none, in turn; at most 16; an odd number is read twice), starting `offset` points into it.
+function Path:dash(pattern, offset)
+	if type(pattern) ~= "table" then
+		refuse("path:dash takes a list of lengths, { 4, 2 }, not " .. type(pattern))
+	end
+	if #pattern > 16 then
+		refuse("path:dash takes at most 16 lengths, not " .. #pattern)
+	end
+	local lengths = {}
+	for index = 1, #pattern do
+		local length = pattern[index]
+		if type(length) ~= "number" then
+			refuse("length " .. index .. " of path:dash is a number, not " .. type(length))
+		end
+		lengths[index] = length
+	end
+	if offset ~= nil and type(offset) ~= "number" then
+		refuse("path:dash takes its offset as a number, not " .. type(offset))
+	end
+	self.paint.dash = lengths
+	self.paint.dash_offset = offset or 0
+	return self
+end
+
+local caps = { round = true, butt = true, square = true }
+
+-- How the ends of the line are drawn: "round" (the default), "butt" or "square".
+function Path:cap(name)
+	if not caps[name] then
+		refuse("a cap is \"round\", \"butt\" or \"square\", not " .. tostring(name))
+	end
+	self.paint.cap = name
+	return self
+end
+
+local joins = { round = true, miter = true, bevel = true }
+
+-- How the line is drawn where it turns: "round" (the default), "miter" (a point; one too sharp for it,
+-- longer than four times half the line's width, is bevelled) or "bevel".
+function Path:join(name)
+	if not joins[name] then
+		refuse("a join is \"round\", \"miter\" or \"bevel\", not " .. tostring(name))
+	end
+	self.paint.join = name
+	return self
+end
+
+local transforms = { scale = true, rotate = true, translate = true, origin = true }
+
+local function pair(name, value)
+	if type(value) ~= "table" or type(value[1]) ~= "number" or type(value[2]) ~= "number" then
+		refuse("transform's " .. name .. " is two numbers, { x, y }")
+	end
+	return value[1], value[2]
+end
+
+-- Where the path is drawn, `{ scale =, rotate =, translate =, origin = }` (each as it is wanted):
+-- scaled (`scale`, a number or `{ sx, sy }`), then turned (`rotate`, degrees clockwise, as `arc`
+-- goes), both about `origin` (`{ x, y }`, the canvas's top-left corner when it is not given), then
+-- moved (`translate`, `{ x, y }`). Its line's width, its dashes and its gradients go by it too.
+-- Called again, it replaces the one before.
+function Path:transform(parts)
+	if type(parts) ~= "table" then
+		refuse("path:transform takes { scale =, rotate =, translate =, origin = }, not " .. type(parts))
+	end
+	for key in parts do
+		if not transforms[key] then
+			refuse("a transform has scale, rotate, translate and origin, not " .. tostring(key))
+		end
+	end
+	local made = { sx = 1, sy = 1, rotate = 0, tx = 0, ty = 0, ox = 0, oy = 0 }
+	local scale = parts.scale
+	if type(scale) == "number" then
+		made.sx, made.sy = scale, scale
+	elseif scale ~= nil then
+		made.sx, made.sy = pair("scale", scale)
+	end
+	if parts.rotate ~= nil then
+		if type(parts.rotate) ~= "number" then
+			refuse("transform's rotate is a number of degrees, not " .. type(parts.rotate))
+		end
+		made.rotate = parts.rotate
+	end
+	if parts.translate ~= nil then
+		made.tx, made.ty = pair("translate", parts.translate)
+	end
+	if parts.origin ~= nil then
+		made.ox, made.oy = pair("origin", parts.origin)
+	end
+	self.paint.transform = made
 	return self
 end
 
@@ -308,11 +489,23 @@ function pencere.canvas(paths)
 		if getmetatable(path) ~= Path then
 			refuse("path " .. index .. " of pencere.canvas is not a pencere.path")
 		end
+		local paint = path.paint
+		local stroke = paint.stroke
 		plain[index] = {
 			segments = path.segments,
-			fill = path.paint.fill,
-			stroke = path.paint.stroke,
-			crisp = path.paint.crisp,
+			fill = paint.fill,
+			stroke = stroke and {
+				width = stroke.width,
+				color = stroke.color,
+				dash = paint.dash,
+				dash_offset = paint.dash_offset,
+				cap = paint.cap,
+				join = paint.join,
+			},
+			crisp = paint.crisp,
+			blend = paint.blend,
+			shadow = paint.shadow,
+			transform = paint.transform,
 		}
 	end
 	local element = make("canvas")

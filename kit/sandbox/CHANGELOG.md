@@ -19,6 +19,12 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   to the page (`"ask"`) and not an error. A reply asks at most 64 things of its browsers, and a page
   that asks more fails saying so; `pencere.merge` keeps the browser asks of every reply it puts
   together, as it does an editor's. The interpreter component (`luau.wasm`) is rebuilt for it.
+- **A page can glow, paint with a gradient, blend, dash a line and move a path**: `path:shadow(dx,
+dy, blur, color)` (a glow with no offset), `pencere.linear` and `pencere.radial` for a path's
+  `fill` and `stroke`, `path:blend("add" | "screen" | "multiply")`, `path:dash(pattern, offset)`,
+  `path:cap(...)`, `path:join(...)` and `path:transform({ scale =, rotate =, translate =, origin = })`.
+  A page asks for them first (`pencere.Path.shadow ~= nil`). The interface between the interpreter
+  and the sandbox changed, so an interpreter built before this does not run (`make luau`).
 - **`draw_figure` draws the effects of a path**: a shadow (blurred as a box's is, a glow with no
   offset), linear and radial gradients (in a fill and in a line), a blend (`Add`, `Screen`,
   `Multiply`), a line's dashes, ends and turns, and a transform. `Blur` is the blur a
