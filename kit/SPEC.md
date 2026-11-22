@@ -503,7 +503,10 @@ it is closed, its history gone, when the page no longer has one. `options` are a
 
 - `profile` is a name (1 to 32 of `a` to `z`, `0` to `9` and `-`) under which what the browser's sites
   keep (cookies, storage) is kept, apart from every other name's, so that a view of a program is a
-  place the person signs in to and signs out of as of its own. It is read when the browser is made:
+  place the person signs in to and signs out of as of its own. Where it is kept is the host's, and the
+  page never reads it: on the computer that shows the page and, for a program that runs on a server,
+  at that server too unless the person has chosen to keep none there, so that every computer that
+  shows the program finds the same sessions (specification, Section 12). It is read when the browser is made:
   another `profile` under the same `id` closes the browser and makes another. None is a browser with
   a profile of its own that is gone when it is. A name that is not one is the page's mistake, where
   `pencere.browser` is called.

@@ -115,6 +115,10 @@ dy, blur, color)` (a glow with no offset), `pencere.linear` and `pencere.radial`
 
 ### Changed
 
+- **Where a browser's `profile` is kept** (`kit/SPEC.md`, specification Section 12): on the computer that
+  shows the page and, for a program that runs on a server, at that server too (unless the person has
+  chosen to keep none there), so that every computer that shows the program finds the same sessions. Nothing of it passes through the protocol and the
+  page never reads it; the `profile` option and the kit do not change.
 - Where the host says `cells`, a grid has no rule under its head and a palette none under its field and
   above its footer. A page that is not on cells is laid out as it was.
 - `pencere.layout.keymap` lists the keys of the host's keyboard: where ⌃ is the main modifier (`"windows"`,

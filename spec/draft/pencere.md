@@ -2358,16 +2358,32 @@ mark of a file that came from the internet. A host does not save what a page sen
 a browser that anything on the program's machine can make load a page would write the person's
 files.
 
-**What is kept.** What the sites of a browser keep (cookies, storage, the cache) is kept by the host
-on the person's machine under a key of three parts: the machine the program runs on, the name the
-program gave itself (Section 6.3), and the profile's name that the view gave. A browser with no
-profile keeps nothing: it is gone with the browser. What is kept under one key is not given to a
-browser of another, and is never given to the program. The boundary is the machine, no finer:
-the sessions of two servers, and of two programs, do not mix by mistake, and what the person's own
-browser keeps is not reachable; but a process on the machine the program runs on that the host lets
-drive its panes reaches the browsers of that machine's panes as it reaches their screens, and a
-program that says another program's name opens that program's profile. The session a person signs in
-to in a browser is open to that machine.
+**What is kept.** What the sites of a browser keep (cookies, storage, the cache) is kept under a
+key of three parts: the machine the program runs on, the name the program gave itself (Section 6.3),
+and the profile's name that the view gave. A browser with no profile keeps nothing: it is gone
+with the browser. What is kept under one key is not given to a browser of another, and is never
+given to the program: nothing of it passes through the protocol of this document.
+
+The **home** of a profile is the machine the program runs on, in a place of the host's own there
+and not of the program's. Each computer that shows the program keeps a working copy of the profile
+and brings its cookies and storage (not the cache, which stays where it is made) up to date with
+the home as the page is used, by a way of the host's own that does not go through the program, so
+that a person who shows the same program from two computers finds the same sessions in both.
+A host holds a page's first address back until what the home keeps is in the profile: a computer
+that has not shown the program before would otherwise show it signed out, and the page's own
+sign-out would reach the home. The wait is short and bounded; a home that does not answer in it
+is left to catch up while the browser works with the copy the computer has. A working copy that is empty deletes nothing at the home: what a computer lacks is not taken
+for what the person deleted, and the copy takes from the home and gives it nothing.
+
+The boundary is the machine, no finer: the sessions of two servers, and of two programs, do not
+mix by mistake, and what the person's own browser keeps is not reachable; but a process on the
+machine the program runs on that the host lets drive its panes reaches the browsers of that
+machine's panes as it reaches their screens, and a program that says another program's name opens
+that program's profile. The session a person signs in to in a browser is open to that machine, and
+where the machine is the home a copy of it lies there, in the account the host connected as: a
+process of that account can read the files. A host lets the person choose, for each machine, to keep
+no profiles there; the profiles of that machine then stay on the computer they were made on, and a
+copy that was at the home is removed.
 
 **The cage.** The engine runs a page in a sandbox of its own (a process with no more of the
 system than the engine's own sandbox leaves it), apart from the host and from the engine's other
