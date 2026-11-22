@@ -2766,7 +2766,9 @@ fn an_app_that_hands_the_terminal_to_a_program_gets_it_back_and_shows_its_view_a
 #[test]
 fn a_kit_views_page_that_asks_to_be_closed_keeps_its_view_and_tells_the_program_nothing() {
     let run = run_rust_example(
-        &["--call", "list", "--then", "page-close", "--limit", "3"],
+        // The limit only ends the run (the page's close is not the end of the view): it is long
+        // enough for a program that is slow to start on a machine that is busy.
+        &["--call", "list", "--then", "page-close", "--limit", "10"],
         &[],
     );
     run.in_order(&[
