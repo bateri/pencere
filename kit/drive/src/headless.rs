@@ -923,7 +923,7 @@ impl<P: Peer> Headless<P> {
             return Err(Error::NoTime(seconds));
         }
         let end = self.now() + seconds;
-        while let Some(next) = self.next_frame(true).filter(|next| *next < end) {
+        while let Some(next) = self.next_frame(true, true).filter(|next| *next < end) {
             self.clock.set(next);
             self.frame();
             self.settle()?;
@@ -934,16 +934,17 @@ impl<P: Peer> Headless<P> {
     }
 
     /// Moves the clock on until the page asks for nothing more — no wake, no time to be drawn at,
-    /// nothing moving — drawing every frame on the way as [`Headless::advance`] does (a caret's
-    /// blink and the scroll bars going are the host's, and do not keep it). How many frames that
-    /// took.
+    /// nothing moving that comes to an end — drawing every frame on the way as [`Headless::advance`]
+    /// does (a caret's blink and the scroll bars going are the host's, and do not keep it; nor does
+    /// what moves for as long as it is on the page, a spin: it is drawn on the way of what ends, and
+    /// is not waited for). How many frames that took.
     ///
     /// # Errors
     ///
     /// The page never stopped asking ([`Error::Restless`]), or as [`Headless::settle`].
     pub fn idle(&mut self) -> Result<usize, Error> {
         let mut frames = 0;
-        while let Some(next) = self.next_frame(false) {
+        while let Some(next) = self.next_frame(false, false) {
             frames += 1;
             if frames > IDLE_FRAMES {
                 return Err(Error::Restless { frames });
@@ -964,7 +965,7 @@ impl<P: Peer> Headless<P> {
     ///
     /// As [`Headless::settle`].
     pub fn step(&mut self) -> Result<bool, Error> {
-        let Some(next) = self.next_frame(false) else {
+        let Some(next) = self.next_frame(false, true) else {
             return Ok(false);
         };
         self.clock.set(next);
@@ -1064,15 +1065,21 @@ impl<P: Peer> Headless<P> {
     }
 
     /// When the next frame is wanted, a frame after this one at the soonest: what the page asked
-    /// for, what moves, and where `host` the host's own (the caret's blink, the bars).
-    fn next_frame(&self, host: bool) -> Option<f64> {
+    /// for, what moves (`forever`: and what moves for as long as it is on the page, a spin), and
+    /// where `host` the host's own (the caret's blink, the bars).
+    fn next_frame(&self, host: bool, forever: bool) -> Option<f64> {
         let after = self.now() + FRAME;
         let asked = if host {
             self.page.wake_at()
         } else {
             self.page.asks_at()
         };
-        let next = if self.page.animating() {
+        let moves = if forever {
+            self.page.animating()
+        } else {
+            self.page.animating_to_rest()
+        };
+        let next = if moves {
             Some(asked.map_or(after, |asked| asked.min(after)))
         } else {
             asked

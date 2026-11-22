@@ -10,7 +10,8 @@ use pencere_editor::UNDO_PAUSE;
 use pencere_sandbox::Fault;
 use pencere_view::edit::EditCommand;
 use pencere_view::{
-    Button, Carry, Cursor, Event, Id, Input, Key, MenuEntry, Mods, Paint, Point, Reply, Size, div,
+    Button, Carry, Cursor, Event, Id, Input, Key, MenuEntry, Mods, Paint, Point, Rect, Reply, Size,
+    div,
 };
 use serde_json::json;
 
@@ -1724,6 +1725,119 @@ return {
     Ok(())
 }
 
+/// What never stops (a spin) does not keep `idle` from returning, and its frames are drawn on the way
+/// of what does: the page is waited for until the change that ends has ended.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn idle_waits_for_a_change_that_ends_and_not_for_a_spin_that_never_does() -> Result<(), Error> {
+    let script = r#"
+local on = false
+return {
+    render = function()
+        return pencere.div():size_full()
+            :child(
+                pencere.canvas({ pencere.path():move_to(10, 0):line_to(10, 5):stroke(1, "accent") })
+                    :size(20, 20):motion({ spin = 1 }))
+            :child(pencere.div():id("chip"):size(100, 40):bg(on and "accent" or "dim")
+                :motion({ seconds = 0.5, color = true }))
+    end,
+    handle = function(event)
+        if event.type == "key" then on = not on end
+        return true
+    end,
+}
+"#;
+    let top = |page: &Headless| {
+        page.list().items.iter().find_map(|item| match item {
+            Paint::Figure(figure) => match figure.paths[0].segments[0] {
+                pencere_view::Segment::Move(at) => Some(figure.paths[0].transform.apply(at)),
+                _ => None,
+            },
+            _ => None,
+        })
+    };
+    let mut page = Headless::script(script).open()?;
+    assert_eq!(page.idle()?, 0, "a spin alone is nothing to wait for");
+    let start = top(&page).expect("a figure");
+    page.press("a")?;
+    let begun = page.now();
+    let frames = page.idle()?;
+    assert!(
+        (25..=40).contains(&frames),
+        "{frames} frames for half a second"
+    );
+    assert!(
+        page.now() - begun >= 0.5,
+        "it waited until the change ended"
+    );
+    let turned = top(&page).expect("a figure");
+    assert!(
+        (turned.x - start.x).abs() > 0.5 || (turned.y - start.y).abs() > 0.5,
+        "the spin was drawn on the way: {start:?} {turned:?}"
+    );
+    assert_eq!(page.idle()?, 0, "and it is done");
+    Ok(())
+}
+
+/// A loop goes by the host's clock and is no change to wait for; a spring that bounces is, and it
+/// has come to rest, at the width the page said, by the time `idle` returns.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_loop_goes_by_the_clock_and_idle_waits_for_a_spring_that_bounces_and_not_for_it()
+-> Result<(), Error> {
+    let script = r#"
+local wide = false
+return {
+    render = function()
+        return pencere.div():size_full():row():items_start()
+            :child(pencere.div():id("dot"):size(10, 10):bg("accent")
+                :motion({ loop = { seconds = 1, dx = 40, ease = "linear", opacity = 0.5 } }))
+            :child(pencere.div():id("bar"):h(10):w(wide and 200 or 100):bg("dim"):no_shrink()
+                :motion({ seconds = 0.4, ease = "spring", bounce = 0.5, size = true }))
+    end,
+    handle = function(event)
+        if event.type == "key" then wide = not wide end
+        return true
+    end,
+}
+"#;
+    let quads = |page: &Headless| -> Vec<Rect> {
+        page.list()
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Paint::Quad(quad) if quad.fill.is_some() => Some(quad.rect),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut page = Headless::script(script).open()?;
+    assert_eq!(page.idle()?, 0, "a loop alone is nothing to wait for");
+    let start = quads(&page);
+    page.advance(0.25)?;
+    let half = quads(&page);
+    assert!(
+        (half[0].x - start[0].x - 20.0).abs() < 1.5,
+        "a loop of a second, there and back, is half way at a quarter of it: {start:?} {half:?}"
+    );
+    assert_eq!(half[1].w, 100.0, "and the bar has not moved");
+    page.press("a")?;
+    // A loop asks for every frame: a second of them is more than the spring needs.
+    let mut widest = 0.0_f32;
+    for _ in 0..60 {
+        assert!(page.step()?);
+        widest = widest.max(quads(&page)[1].w);
+    }
+    assert!(
+        widest > 200.0,
+        "the spring went past where it was going: {widest}"
+    );
+    let rest = quads(&page);
+    assert_eq!(rest[1].w, 200.0, "and it came to rest at the width said");
+    assert_eq!(page.idle()?, 0);
+    Ok(())
+}
+
 // --- Files beside the bundle (specification §8.8 to §8.10) ------------------------------------
 
 /// A picture two pixels wide, for the pages that draw files beside their bundle.
@@ -1989,5 +2103,121 @@ fn what_is_in_view_is_sharp_at_every_zoom_and_a_page_scrolled_to_is_sharp_at_onc
             .any(|words| words.contains("64 MiB"));
         assert!(!budget, "{:?}", page.diagnostics());
     }
+    Ok(())
+}
+
+/// A field that grows a line as it is typed in goes to its new height over its time: each line
+/// that is added is sent the box on to where it is going, the words inside it are where they will
+/// be, and the keyboard is still the field's.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_text_field_that_grows_as_it_is_typed_in_goes_to_its_height_and_keeps_the_keyboard()
+-> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+local lines = 1
+return {
+    render = function()
+        local field = pencere.div():id("q"):text_field("q"):col():w(200)
+            :motion({ seconds = 0.3, auto_size = true })
+        for line = 1, lines do
+            field:child(pencere.text("line " .. line):id("line" .. line):h(20):no_shrink())
+        end
+        return pencere.div():size_full():col():child(field):child(pencere.div():id("below"):h(10))
+    end,
+    handle = function(event)
+        if event.type == "text" then
+            lines = math.floor(#event.text / 3) + 1
+            return true
+        end
+    end,
+}
+"#,
+    )
+    .size(300.0, 300.0)
+    .open()?;
+    let at = |page: &Headless<Calls>, name: &str| page.bounds(name).expect(name);
+    assert_eq!(at(&page, "q").h, 20.0);
+    page.click("q")?;
+    page.type_text("abcdef")?;
+    // Three lines are asked for at once; the box is on its way to them, and it is under the
+    // keyboard still.
+    assert_eq!(page.focus(), Focus::Field(Id::named("q")));
+    let first = at(&page, "q").h;
+    assert_eq!(first, 20.0, "it starts where it was");
+    page.advance(0.1)?;
+    let on_the_way = at(&page, "q").h;
+    assert!(on_the_way > 20.0 && on_the_way < 60.0, "{on_the_way}");
+    assert_eq!(at(&page, "line3").h, 20.0, "a line is where it will be");
+    assert!((at(&page, "below").y - on_the_way).abs() <= 1.0);
+    // Another line in flight is sent on from where it is.
+    page.type_text("ghi")?;
+    page.advance(0.05)?;
+    let sent = at(&page, "q").h;
+    assert!(
+        sent >= on_the_way && sent <= 80.0,
+        "{on_the_way} then {sent}"
+    );
+    page.idle()?;
+    assert_eq!(at(&page, "q").h, 80.0);
+    assert_eq!(at(&page, "below").y, 80.0);
+    assert_eq!(page.focus(), Focus::Field(Id::named("q")));
+    assert_eq!(page.field("q"), Some("abcdefghi"));
+    Ok(())
+}
+
+/// An editor in a box that opens is laid out for the size the box goes to: it is where it will be
+/// from the first frame, the box shows what fits, and the editor is the editor's after it, as it
+/// would have been had the box not moved.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn an_editor_in_a_box_that_opens_is_where_it_will_be_and_takes_the_keyboard_all_the_same()
+-> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+local open = false
+return {
+    render = function()
+        local panel = pencere.div():id("panel"):col():motion({ seconds = 0.4, auto_size = true })
+        if open then
+            panel:child(pencere.editor("e", {}):id("e"):h(100):w(200))
+        end
+        return pencere.div():size_full():col()
+            :child(pencere.div():id("go"):press("go"):size(60, 24):child(pencere.text("Go")))
+            :child(panel)
+            :child(pencere.div():id("foot"):h(20))
+    end,
+    handle = function(event)
+        if event.type == "release" then
+            open = not open
+            return true
+        end
+    end,
+}
+"#,
+    )
+    .size(300.0, 300.0)
+    .open()?;
+    let at = |page: &Headless<Calls>, name: &str| page.bounds(name);
+    assert_eq!(at(&page, "panel").map(|r| r.h), Some(0.0));
+    page.click("go")?;
+    page.advance(0.1)?;
+    let on_the_way = at(&page, "panel").expect("panel").h;
+    assert!(on_the_way > 0.0 && on_the_way < 100.0, "{on_the_way}");
+    let editor = at(&page, "e").expect("an editor");
+    assert_eq!(
+        (editor.y, editor.h),
+        (24.0, 100.0),
+        "it is where it will be"
+    );
+    assert!((at(&page, "foot").expect("foot").y - (24.0 + on_the_way)).abs() <= 1.0);
+    // The keyboard is the editor's in the middle of the move, and what is typed is in it.
+    page.focus_editor("e")?;
+    page.type_text("hi")?;
+    assert_eq!(page.editor_text("e").as_deref(), Some("hi"));
+    page.idle()?;
+    assert_eq!(at(&page, "panel").map(|r| r.h), Some(100.0));
+    assert_eq!(at(&page, "e"), Some(editor));
+    assert_eq!(page.editor_text("e").as_deref(), Some("hi"));
     Ok(())
 }

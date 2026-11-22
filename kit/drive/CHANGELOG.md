@@ -128,6 +128,8 @@ index)` (and `Page::command_on`, `Page::reveal`, the host/test `page:command_on`
 
 ### Changed
 
+- **Fewer layouts while something moves.** A hover that changes a colour or an opacity, and a spin, are drawn from the layout the page already has.
+- **`Headless::idle` returns on a page that spins or loops.** Before, such a page made it fail as `Restless`.
 - A press over a field that something is drawn over (a popover, a card) reaches what covers it, as in
   a host, which does not show such a field; it went to the field.
 - A page the module makes again that is the page it was is not laid out again, and what an editor

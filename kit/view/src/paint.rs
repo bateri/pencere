@@ -288,23 +288,29 @@ impl Laid {
                         // A canvas that spins is turned here, about its middle in its own points:
                         // the one rasteriser draws it, and a host draws nothing new for it.
                         let scale = self.scale.max(f32::MIN_POSITIVE);
-                        let middle =
-                            Point::new(node.rect.w / scale / 2.0, node.rect.h / scale / 2.0);
+                        // A canvas drawn larger or smaller has its room grown or shrunk about its
+                        // middle, and so is not cut at the box it has.
+                        let rect = grown(node.rect, node.scaled);
+                        let middle = Point::new(rect.w / scale / 2.0, rect.h / scale / 2.0);
                         list.items.push(Paint::Figure(Figure {
-                            rect: node.rect,
+                            rect,
                             scale: self.scale,
                             paths: paths
                                 .iter()
                                 .map(|path| {
                                     let path = path.faded(opacity);
-                                    if node.turn == 0.0 {
-                                        path
+                                    if node.scaled == 1.0 {
+                                        if node.turn == 0.0 {
+                                            path
+                                        } else {
+                                            path.turned(node.turn, middle)
+                                        }
                                     } else {
-                                        path.turned(node.turn, middle)
+                                        path.posed(node.turn, node.scaled, middle)
                                     }
                                 })
                                 .collect(),
-                            clip: node.clip.intersect(node.rect),
+                            clip: node.clip.intersect(rect),
                         }));
                     }
                 }
@@ -402,6 +408,20 @@ fn paint_rich(list: &mut DrawList, node: &Node, rich: &Rich, grounds: &[Color]) 
     }
 }
 
+/// `rect` drawn `scale` times as large about its middle.
+fn grown(rect: Rect, scale: f32) -> Rect {
+    if scale == 1.0 {
+        return rect;
+    }
+    let (w, h) = (rect.w * scale, rect.h * scale);
+    Rect::new(
+        rect.x + (rect.w - w) / 2.0,
+        rect.y + (rect.h - h) / 2.0,
+        w,
+        h,
+    )
+}
+
 /// Whether any of `picture` is inside its clip: the square it sweeps about its middle where it is
 /// turned (a spinner's), its rectangle where not.
 fn seen(picture: &Picture) -> bool {
@@ -478,6 +498,9 @@ fn place_image(node: &Node, image: &Placed) -> Option<Picture> {
             )
         }
     };
+    // A picture drawn larger or smaller has its rect grown or shrunk about its middle: it is not cut
+    // at the box it has, only by what holds that.
+    let rect = grown(rect, node.scaled);
     let most = rect.w.min(rect.h) / 2.0;
     let shown = shown_of(rect, crop, node.clip, node.turn);
     Some(Picture {
@@ -488,7 +511,9 @@ fn place_image(node: &Node, image: &Placed) -> Option<Picture> {
         shown,
         tint: image.tint,
         opacity: node.opacity,
-        radii: node.radii.map(|radius| radius.clamp(0.0, most)),
+        radii: node
+            .radii
+            .map(|radius| (radius * node.scaled).clamp(0.0, most)),
         clip: node.clip,
         turn: node.turn,
     })

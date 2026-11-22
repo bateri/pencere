@@ -9,8 +9,20 @@ Slider "name column width" [value 100 pt]
 ColumnHeader "qty"
 Slider "qty column width" [value 70 pt]
 Row "1 1 name 1 7"
+Text "1"
+Cell "1"
+Cell "name 1"
+Cell "7"
 Row "2 2 name 2 14" [selected]
+Text "2"
+Cell "2"
+Cell "name 2"
+Cell "14"
 Row "3 3 name 3 21"
+Text "3"
+Cell "3"
+Cell "name 3"
+Cell "21"
 == agent
 focus: page
 items:
@@ -24,5 +36,17 @@ b3aywj      columnheader "name" [column 2, sorted ascending]
 eh2fsg      columnheader "qty" [column 3]
 qksav0        slider "qty column width" [value "70 pt"]
 pa4p5n    row "1 1 name 1 7" [row 1]
+            text "1"
+            cell "1" [column 1]
+            cell "name 1" [column 2]
+            cell "7" [column 3]
 mva8xy    row "2 2 name 2 14" [selected, row 2]
+            text "2"
+            cell "2" [column 1]
+            cell "name 2" [column 2]
+            cell "14" [column 3]
 10drg4    row "3 3 name 3 21" [row 3]
+            text "3"
+            cell "3" [column 1]
+            cell "name 3" [column 2]
+            cell "21" [column 3]

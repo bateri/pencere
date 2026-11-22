@@ -30,7 +30,7 @@ use crate::{
 
 /// The text a page is written in until a box says otherwise: the terminal's face at 12.5
 /// points, regular, in the foreground, at the start of its box.
-const DEFAULT_TEXT: TextStyle = TextStyle {
+pub(crate) const DEFAULT_TEXT: TextStyle = TextStyle {
     family: Some(Family::Terminal),
     size: Some(12.5),
     weight: Some(400),
@@ -141,6 +141,12 @@ pub(crate) struct Node {
     /// How far its picture or its canvas is turned, degrees clockwise about its middle: where it
     /// spins ([`crate::Motion::spin`]).
     pub turn: f32,
+    /// How many times as large its picture or its canvas is drawn, about its middle: where it is
+    /// scaled ([`crate::Style::scale`], [`crate::Motion::cycle`]).
+    pub scaled: f32,
+    /// How far a loop ([`crate::Motion::cycle`]) has moved it from where the page put it, pixels:
+    /// what is read of the page is read where the page put it.
+    pub cycled: (f32, f32),
     /// The room inside the box around what is in it, pixels: left, above, right, below.
     pub pad: [f32; 4],
     /// It is put where the page says (laid over the rest, or an overlay), not where the box it is
@@ -215,6 +221,9 @@ struct Pending {
     hidden: bool,
     /// Its own opacity, `0.0..=1.0`.
     opacity: f32,
+    /// How far its picture or canvas is turned and how large it is drawn, as the page says.
+    turn: f32,
+    scaled: f32,
     content: Content,
     fill: Option<Color>,
     gradient: Option<Gradient>,
@@ -486,7 +495,9 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             zoomed: entry.zoomed,
             overlay: entry.overlay,
             clips: entry.overflow != Overflow::Visible,
-            turn: 0.0,
+            turn: entry.turn,
+            scaled: entry.scaled,
+            cycled: (0.0, 0.0),
             pad: [
                 laid.padding.left,
                 laid.padding.top,
@@ -870,6 +881,8 @@ fn empty(page: Rect) -> Node {
         overlay: false,
         clips: false,
         turn: 0.0,
+        cycled: (0.0, 0.0),
+        scaled: 1.0,
         pad: [0.0; 4],
         placed: false,
     }
@@ -953,6 +966,15 @@ fn build(
             .opacity
             .filter(|opacity| opacity.is_finite())
             .map_or(1.0, |opacity| opacity.clamp(0.0, 1.0)),
+        turn: if style.turn.is_finite() {
+            style.turn
+        } else {
+            0.0
+        },
+        scaled: style
+            .scale
+            .filter(|scale| scale.is_finite())
+            .map_or(1.0, |scale| scale.max(0.0)),
         content: Content::None,
         fill: style.fill,
         gradient: style.gradient,
@@ -1708,6 +1730,23 @@ impl Laid {
             .map(|command| command.id)
     }
 
+    /// The page with what a loop moved ([`crate::Motion::cycle`]) put back where the page had it,
+    /// or `None` where no loop moved anything: what the host is told of the page (for a screen
+    /// reader, its fields) does not go back and forth with a bobbing arrow.
+    #[must_use]
+    pub fn without_loops(&self) -> Option<Self> {
+        if self.nodes.iter().all(|node| node.cycled == (0.0, 0.0)) {
+            return None;
+        }
+        let mut laid = self.clone();
+        for node in &mut laid.nodes {
+            let (dx, dy) = node.cycled;
+            node.rect = node.rect.translate(-dx, -dy);
+            node.cycled = (0.0, 0.0);
+        }
+        Some(laid)
+    }
+
     /// How large the content of the scrolling box named `id` is, how large the box is, and how far
     /// it is scrolled.
     pub fn scroll_extent(&self, id: Id) -> Option<Extent> {
@@ -2416,7 +2455,9 @@ impl Laid {
     /// answers the pointer or says it is one a person works on: a button, a link, a checkbox, a
     /// switch, a radio, a tab, a menu item, a slider; a label alone is not one, and neither is what
     /// only shows, a heading, a picture, a progress), and which of the elements hold at least one
-    /// inside, a control or a link, that is read.
+    /// inside, a control or a link, that is read. A cell of a table is read apart as a control is:
+    /// its row holds it, so that a screen reader goes from cell to cell, and the row is a group of
+    /// its cells whether or not a control is in them.
     fn controls(&self, shown: &impl Fn(&Node) -> bool) -> (Vec<bool>, Vec<bool>) {
         // What answers the pointer is a control whatever it says it is (a heading that is pressed).
         let controls: Vec<bool> = self
@@ -2425,7 +2466,9 @@ impl Laid {
             .map(|node| {
                 shown(node)
                     && Self::role_of(node) != Some(AccessibleRole::None)
-                    && (node.meta.pressable || Self::role_of(node).is_some_and(works_on))
+                    && (node.meta.pressable
+                        || Self::role_of(node)
+                            .is_some_and(|role| works_on(role) || role == AccessibleRole::Cell))
             })
             .collect();
         let linked: Vec<bool> = self
@@ -2470,9 +2513,10 @@ impl Laid {
             let group = Self::drawn(node)
                 && node.meta.label.is_some()
                 && Self::role_of(node).is_some_and(holds_content);
-            if index > outer
-                && (on(controls, index) || node.meta.zone.is_some() || node.overlay || group)
-            {
+            // A cell is read apart and is in its row's name too: its words are what the row shows
+            // (what a control in it says is not, as it is not in the row's).
+            let control = on(controls, index) && Self::role_of(node) != Some(AccessibleRole::Cell);
+            if index > outer && (control || node.meta.zone.is_some() || node.overlay || group) {
                 apart = Some(index);
                 continue;
             }

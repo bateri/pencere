@@ -814,6 +814,47 @@ end)
 
 #[test]
 #[ignore = "heavy: opens pages, which compiles the interpreter"]
+fn a_page_that_spins_is_idle_when_what_ends_has_ended() {
+    let app = App::template("trackpad");
+    app.write(
+        "src/view/page.lua",
+        r#"local on = false
+return {
+	render = function()
+		return pencere.div():size_full()
+			:child(pencere.canvas({ pencere.path():move_to(10, 0):line_to(10, 5):stroke(1, "accent") })
+				:size(20, 20):motion({ spin = 1 }))
+			:child(pencere.div():id("chip"):size(100, 40):w(on and 160 or 100):motion({ seconds = 0.5, size = true }))
+	end,
+	handle = function(e)
+		if e.type == "key" then on = not on end
+		return true
+	end,
+}
+"#,
+    );
+    app.write(
+        "test/page_test.lua",
+        r#"local test = require("pencere.test")
+local expect = test.expect
+
+test("a spin does not keep the page from being idle, and a change that ends is waited for", function()
+	local page = test.open()
+	local chip = page:get_by_id("chip")
+	-- What never stops is not waited for.
+	page:idle()
+	page:press("a")
+	page:idle()
+	expect(chip:bounds().w):to_equal(160)
+end)
+"#,
+    );
+    let (code, text) = tap(&app, &[]);
+    assert_eq!(code, 0, "{text}");
+}
+
+#[test]
+#[ignore = "heavy: opens pages, which compiles the interpreter"]
 fn a_test_drags_an_element_that_carries_out_of_the_view_and_ends_the_systems_drag() {
     let app = App::template("trackpad");
     app.write(
@@ -1189,7 +1230,13 @@ end)
 #[ignore = "heavy: opens pages, which compiles the interpreter"]
 fn the_example_app_is_tested_with_its_own_program_a_stand_in_and_the_editor() {
     let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
-    for example in ["browser-lua", "containers-lua", "editor-lua", "files-lua"] {
+    for example in [
+        "browser-lua",
+        "containers-lua",
+        "editor-lua",
+        "files-lua",
+        "motion-lua",
+    ] {
         let output = Command::new(RUNNER)
             .args(["--reporter", "tap"])
             .current_dir(examples.join(example))

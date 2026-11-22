@@ -364,7 +364,8 @@ end)
   page when there is none; `:nth(i)`, `:first()`, `:last()` and `locator:get_by_…` narrow it.
 - **Doing**: `click`, `double_click`, `right_click`, `hover`, `drag_to`, `wheel`, `fill`, and `press("cmd+f")`,
   `type`, `paste`, `compose` for the keyboard; `advance`, `step`, `idle` for the clock, which
-  only the test moves (the page's; the program's is the machine's).
+  only the test moves (the page's; the program's is the machine's); `idle` goes on until nothing moves that
+  comes to an end, and does not wait for what spins.
 - **Looking**: `expect(page):to_say`, `to_have_called`, `to_have_subscribed`, `to_have_link`,
   `to_have_focus`; `expect(locator):to_exist`, `to_have_count`, `to_be_checked`, `to_have_value` …;
   `expect(value):to_equal` (with the difference), `to_contain`, `to_match`, `to_throw`. `.never` turns

@@ -98,9 +98,15 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
 - **`Picture::shown`**: what of the whole image is inside the picture's clip, as shares of it like
   `crop`. A host that rasterises a large SVG or page draws that part and not all of it
   (`pencere-sandbox`'s `Images::picture`).
+- **Springs that bounce, and more that can move.** `Motion::bounce` lets a spring swing past its target and settle, and a spring keeps its speed when its target changes on the way. A motion can now also follow corner radius, border, shadow, padding and text size.
+- **Turned, scaled and looping pictures.** `Element::turned` and `Element::scaled` turn and scale a picture or a canvas about its middle; `Motion::cycle` repeats a move for as long as the element is on the page, such as a pulse or a spinner.
+- **Boxes that open to their content.** `Motion::auto_size` moves a box to the size its content needs, for an answer that opens and closes.
 
 ### Changed
 
+- **A row holds its cells.** A `cell` in a `row` is read apart, in the row, as a control is, so that a screen
+  reader goes from cell to cell; its words stay in the row's name.
+- **Fewer layouts while something moves.** A move that only paints, such as a colour, an opacity or a spin, no longer lays the page out at every frame.
 - **A labelled `dialog`, `alertdialog`, `group`, `list`, `listbox`, `table`, `tree` or `tablist` is a group with no
   control in it too**: its name is the label and what is written in it is read under it (not what the label says
   already), as on the web; before, the words in it were dropped. The roles of an item (`row`, `cell`,

@@ -1116,6 +1116,19 @@ impl Page {
             || state.editing.glide.moving()
     }
 
+    /// Whether the page wants the next frame for something that comes to an end: as
+    /// [`Page::animating`], but not for what moves for as long as it is on the page (a spin), which
+    /// has no end to wait for. A host that waits for the page to rest ([`crate::Headless::idle`])
+    /// asks this.
+    pub fn animating_to_rest(&self) -> bool {
+        let state = &self.state;
+        state.animating
+            || state.motions.ends()
+            || state.scrolls.moving(state.clock.frame)
+            || state.editing.glide.moving()
+            || state.again
+    }
+
     /// Asks the page for itself again at the next frame, though nothing the drive knows of changed:
     /// what a host does when its view is shown anew, or a test that reads what the page shows of
     /// what changed in it with no reply that asked for a frame.
@@ -1839,11 +1852,13 @@ impl State {
         }
         let asks = std::mem::take(&mut self.asks);
         self.scrolls.ask(asks);
-        // Only the scrolling changed: the boxes move on the page as it was laid out.
-        let still = !self.fresh
+        // Only the scrolling changed: the boxes move on the page as it was laid out. Where what moves
+        // only paints (a colour, an opacity, a slide, a turn), the page is not laid out again either:
+        // it is drawn from the layout it has.
+        let steady = !self.fresh
             && self.laid_for == Some((size, scale, at.reduce_motion))
-            && !self.motions.moving()
             && !self.scrolls.scrolls.zooming();
+        let still = steady && !self.motions.moving();
         let cached = self.laid.clone().filter(|_| still);
         let root = self.root.clone();
         let starting = root.is_none();
@@ -1855,7 +1870,10 @@ impl State {
                     .place(&mut laid, at.now, at.reduce_motion);
                 laid
             }
-            _ => self.lay(root.clone(), viewport, scale, at, measure),
+            _ => match self.repaint(steady && !starting && !self.motions.lays(), at) {
+                Some(laid) => laid,
+                None => self.lay(root.clone(), viewport, scale, at, measure),
+            },
         };
         let mut caret = CaretPhase::Dark;
         let mut told = Told::default();
@@ -1934,7 +1952,9 @@ impl State {
                 self.event(event);
             }
         }
-        let mut outline = Outline::of(&laid, self.place);
+        // What is read of the page is read where the page put it, not where a loop has it for now.
+        let resting = laid.without_loops();
+        let mut outline = Outline::of(resting.as_ref().unwrap_or(&laid), self.place);
         outline.add_markers(self.editing.editors.labels(&laid), self.place);
         let changed = (outline != self.outline).then(|| outline.clone());
         self.outline = outline;
@@ -1951,6 +1971,19 @@ impl State {
             outline: changed,
             held,
         }
+    }
+
+    /// The page as it was laid out, drawn again at the frame `at` where what moves only paints
+    /// (`able`), and the boxes placed where the host has them scrolled.
+    fn repaint(&mut self, able: bool, at: FrameAt) -> Option<Laid> {
+        if !able {
+            return None;
+        }
+        let mut laid = self.motions.repaint(at.now, at.reduce_motion)?;
+        self.scrolls
+            .scrolls
+            .place(&mut laid, at.now, at.reduce_motion);
+        Some(laid)
     }
 
     /// `root` (the line that stands in for a page, where there is none yet) laid out where the host

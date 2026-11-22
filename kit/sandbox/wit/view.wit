@@ -374,6 +374,11 @@ interface types {
         /// draws is that much fainter (where the things inside overlap, they show through each
         /// other). A panel that fades in, a part that is not to be used now.
         opacity: f32,
+        /// For a picture or a canvas: how far it is turned, degrees clockwise about its middle.
+        turn: f32,
+        /// For a picture or a canvas: how many times as large it is drawn, about its middle; the
+        /// usual 1 where absent.
+        scale: option<f32>,
         text: text-style,
         /// A line that does not fit ends in "..." and gives its room away first.
         truncate: bool,
@@ -1106,17 +1111,37 @@ interface types {
         out,
         /// Slow at both ends (`cubic-bezier(0.4, 0, 0.2, 1)`).
         in-out,
-        /// As a spring that does not bounce: quick, and long in coming to rest.
+        /// A spring: quick, and long in coming to rest, and it keeps its speed where the page
+        /// changes what it goes to; with a `bounce` it swings past and back.
         spring,
     }
 
     /// Where an element comes in from or goes to, as a difference from where it is: this opacity
-    /// of its own, moved this far (points), over this time (seconds).
+    /// of its own, moved this far (points), turned this many degrees clockwise and this many times
+    /// as large (a picture or a canvas), over this time (seconds).
     record shift {
         opacity: f32,
         dx: f32,
         dy: f32,
         seconds: f32,
+        rotate: f32,
+        scale: f32,
+    }
+
+    /// What an element does over and over, for as long as it is on the page: it goes from where it
+    /// is to this shift and back (or one way, and again), a turn of it in `seconds`, by the
+    /// application's clock alone. Not under Reduce Motion. `ease` is `linear`, `out` or `in-out`
+    /// (the others are `in-out`), and a cycle that fades (an `opacity` under 1) takes at least half a
+    /// second for a turn.
+    record cycle {
+        seconds: f32,
+        ease: ease,
+        alternate: bool,
+        opacity: f32,
+        dx: f32,
+        dy: f32,
+        rotate: f32,
+        scale: f32,
     }
 
     /// How a change of an element moves instead of jumping, as a style sheet's `transition` and a
@@ -1128,6 +1153,8 @@ interface types {
         /// How long a change takes, seconds.
         seconds: f32,
         ease: ease,
+        /// For a spring: how much it bounces, `0.0..=0.9`.
+        bounce: f32,
         /// The colours of its fill, border, shadow and words follow a change.
         color: bool,
         /// Its opacity follows a change.
@@ -1136,6 +1163,23 @@ interface types {
         size: bool,
         /// Moved among the others, it slides from where it was to where it is.
         place: bool,
+        /// Its corners' radii follow a change.
+        rounded: bool,
+        /// The thickness of its border and its colour follow a change.
+        border: bool,
+        /// How far its shadow falls, how blurred it is and its colour follow a change.
+        shadow: bool,
+        /// Its padding follows a change.
+        padding: bool,
+        /// The size of its words, and of those inside it that have none of their own, follows a
+        /// change.
+        text-size: bool,
+        /// The width and the height it is laid out at follow a change, whatever the style gives
+        /// them: a box that opens to its content or closes. What is inside is laid out for the size
+        /// the box goes to, and the box shows what fits and cuts the rest while it is on its way.
+        auto-size: bool,
+        /// The turn and the scale of its picture or canvas follow a change.
+        transform: bool,
         /// How it comes in when it appears on a page that was there before it.
         enter: option<shift>,
         /// How it goes when it is no longer on the page: the application keeps drawing it as it
@@ -1144,6 +1188,8 @@ interface types {
         /// It turns round, clockwise, a turn in this many seconds (more than 0), as long as it is
         /// on the page: its picture or its canvas about its middle. Not under Reduce Motion.
         spin: option<f32>,
+        /// It goes to a shift and back, over and over, as long as it is on the page.
+        cycle: option<cycle>,
     }
 
     /// What the application says of an element while the pointer rests on it: the tooltip of a

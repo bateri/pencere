@@ -9,16 +9,25 @@ Slider "name column width" [value 100 pt]
 ColumnHeader "qty"
 Slider "qty column width" [value 70 pt]
 Row "Row 1"
+Cell ""
 Button "id 1"
+Cell ""
 Button "name 1"
+Cell ""
 Button "qty 1"
 Row "Row 2" [selected]
+Cell ""
 Button "id 2"
+Cell ""
 Button "name 2"
+Cell ""
 Button "qty 2"
 Row "Row 3"
+Cell ""
 Button "id 3"
+Cell ""
 Button "name 3"
+Cell ""
 Button "qty 3"
 == agent
 focus: page
@@ -33,14 +42,23 @@ b3aywj      columnheader "name" [column 2, sorted ascending]
 eh2fsg      columnheader "qty" [column 3]
 qksav0        slider "qty column width" [value "70 pt"]
 pa4p5n    row "Row 1" [row 1]
-966m9e      button "id 1"
-06s4e5      button "name 1"
-e49ay6      button "qty 1"
+            cell "" [column 1]
+966m9e        button "id 1"
+            cell "" [column 2]
+06s4e5        button "name 1"
+            cell "" [column 3]
+e49ay6        button "qty 1"
 mva8xy    row "Row 2" [selected, row 2]
-2p40en      button "id 2"
-k8xpkw      button "name 2"
-6hk00s      button "qty 2"
+            cell "" [column 1]
+2p40en        button "id 2"
+            cell "" [column 2]
+k8xpkw        button "name 2"
+            cell "" [column 3]
+6hk00s        button "qty 2"
 10drg4    row "Row 3" [row 3]
-qejmp3      button "id 3"
-j06dcs      button "name 3"
-nhnm9s      button "qty 3"
+            cell "" [column 1]
+qejmp3        button "id 3"
+            cell "" [column 2]
+j06dcs        button "name 3"
+            cell "" [column 3]
+nhnm9s        button "qty 3"

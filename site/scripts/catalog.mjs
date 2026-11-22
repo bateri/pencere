@@ -133,6 +133,9 @@ for (const component of components) {
 // --- The elements ---------------------------------------------------------------------------
 
 const elements = [];
+// The elements the host draws in a view of its own, which no picture of the drive shows: a browser is
+// the host's web view. Their page says what they are, with no picture.
+const DRAWN_BY_HOST = new Set(["browser"]);
 const table = spec.match(/\| Constructor[^\n]*\n\|[-| ]+\n((?:\|[^\n]*\n)+)/);
 if (!table) throw new Error("SPEC.md: the table of the elements is not where it was");
 for (const row of table[1].trim().split("\n")) {
@@ -143,7 +146,8 @@ for (const row of table[1].trim().split("\n")) {
   const name = made.match(/pencere\.(\w+)/)?.[1];
   if (!name) continue;
   const demo = picture(`elements/${name}`);
-  if (!demo) wrong.push(`${name}: no page under demos/elements/ pictures it`);
+  if (!demo && !DRAWN_BY_HOST.has(name))
+    wrong.push(`${name}: no page under demos/elements/ pictures it`);
   // Further pictures of the same element, as `elements/<name>-<what>.lua`, are shown after the first.
   const more = readdirSync(join(demos, "elements"))
     .filter((file) => file.startsWith(`${name}-`) && file.endsWith(".lua"))

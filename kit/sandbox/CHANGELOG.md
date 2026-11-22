@@ -140,9 +140,12 @@ dy, blur, color)` (a glow with no offset), `pencere.linear` and `pencere.radial`
   `picture` and the texture crop `crop_of`; `Images::bitmap` is still the whole image at a size.
   Before, a page that was larger than the pixels a view may hold, or two of them, was drawn smaller
   than shown or waited for room.
+- **More motion for pages.** `motion` takes `bounce`, `rounded`, `border`, `shadow`, `padding`, `text_size`, `loop` and `auto_size`, and `Element:transform({ rotate =, scale = })` turns and scales a picture or a canvas. Each one is listed in `pencere.has`.
 
 ### Changed
 
+- **A `grid`'s cells are read one by one.** Each cell of a row is a `cell` in its column, so that VoiceOver goes
+  from cell to cell and up and down a column; the row is still read whole by their words.
 - **Where a browser's `profile` is kept** (`kit/SPEC.md`, specification Section 12): on the computer that
   shows the page and, for a program that runs on a server, at that server too (unless the person has
   chosen to keep none there), so that every computer that shows the program finds the same sessions. Nothing of it passes through the protocol and the
@@ -179,6 +182,7 @@ kind = "command", id =, target =, key = }`, where `key` is the row's if the elem
   for room at once**, not after `ImageLimits::idle` (a page scrolled to had to wait for the page
   scrolled away from); and a drawing may take the room of the pixels of the same page that stand in
   for it, when there is no other. A PNG or a JPEG is held as before.
+- **An unknown motion field no longer stops a page.** The kit warns once and leaves it out, so a page written for a newer kit still runs.
 
 ### Fixed
 

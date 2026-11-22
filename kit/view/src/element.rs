@@ -1137,6 +1137,19 @@ impl Element {
         self.set(|s| s.opacity = Some(opacity))
     }
 
+    /// A picture or a canvas turned `degrees` clockwise about its middle: its box does not move.
+    #[must_use]
+    pub fn turned(self, degrees: f32) -> Self {
+        self.set(|s| s.turn = degrees)
+    }
+
+    /// A picture or a canvas drawn `scale` times as large, about its middle: its box does not
+    /// change.
+    #[must_use]
+    pub fn scaled(self, scale: f32) -> Self {
+        self.set(|s| s.scale = Some(scale))
+    }
+
     /// The largest value a sparkline's top stands for (the greatest value of the line, with
     /// a little head room, when not set).
     #[must_use]

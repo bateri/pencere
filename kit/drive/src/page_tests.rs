@@ -869,6 +869,129 @@ return {{
     assert_ne!(after, shown);
 }
 
+/// A page with a chip that a key changes: `chip` is what the script says of it (its look, which
+/// `on` changes) and `motion` how a change of it moves.
+fn chip_page(chip: &str, motion: &str) -> String {
+    format!(
+        r#"local on = false
+return {{
+    render = function()
+        return pencere.div():size_full():child(
+            pencere.div():id("chip"){chip}:motion({{ seconds = 0.5, {motion} }}))
+    end,
+    handle = function(event)
+        if event.type == "key" then on = not on end
+        return true
+    end,
+}}"#
+    )
+}
+
+/// The frames of a change over its time (a key changes the chip at 1.0, the frames follow every
+/// 0.05 s; with no `key`, the page just runs): their draw lists, and how many times the page was laid
+/// out for them. `forced`: it is laid out for every frame, as a page that moves was before.
+fn frames_of_a_change(script: &str, key: bool, forced: bool) -> (Vec<DrawList>, usize) {
+    let mut rig = script_rig(script);
+    rig.page.frame(frame_at(0.0));
+    rig.first();
+    rig.page.frame(frame_at(0.0));
+    if key {
+        rig.press_key('a');
+        rig.first();
+    }
+    let laid = rig.page.counts().1;
+    let lists = (0..15)
+        .map(|step| {
+            if forced {
+                rig.page.set_measure(Box::new(Even));
+            }
+            rig.page.frame(frame_at(1.0 + f64::from(step) * 0.05)).list
+        })
+        .collect();
+    (lists, rig.page.counts().1 - laid)
+}
+
+/// A change that only paints (a fill, a turn) is drawn at each frame of its time on the layout the
+/// page has, as it would be drawn on one made for the frame; one that takes room (a width in points,
+/// the colour of the words, which are laid out in it) lays the page out for every frame.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
+fn a_change_that_only_paints_lays_the_page_out_once_and_one_that_takes_room_at_every_frame() {
+    let paints = [
+        (
+            "fill",
+            chip_page(
+                r#":size(100, 40):bg(on and "accent" or "dim")"#,
+                "color = true",
+            ),
+            true,
+        ),
+        (
+            "opacity",
+            chip_page(
+                r#":size(100, 40):bg("accent"):opacity(on and 1 or 0.2)"#,
+                "opacity = true",
+            ),
+            true,
+        ),
+        (
+            "spin",
+            r#"return {
+    render = function()
+        return pencere.div():size_full():child(
+            pencere.canvas({ pencere.path():move_to(10, 0):line_to(10, 5):stroke(1, "accent") })
+                :size(20, 20):motion({ spin = 0.5 }))
+    end,
+}"#
+            .to_owned(),
+            false,
+        ),
+    ];
+    for (name, script, key) in paints {
+        let (lists, laid) = frames_of_a_change(&script, key, false);
+        let (forced, forced_laid) = frames_of_a_change(&script, key, true);
+        assert_eq!(
+            laid,
+            usize::from(key),
+            "{name}: laid out for the change, not for the frames"
+        );
+        assert_eq!(
+            forced_laid,
+            lists.len(),
+            "{name}: the frames laid out for each are the ones to compare"
+        );
+        assert_eq!(
+            lists, forced,
+            "{name}: what is drawn on the layout there is is what a layout would draw"
+        );
+        assert_ne!(lists[1], lists[7], "{name}: it moves");
+    }
+    let room = [
+        (
+            "width",
+            chip_page(r#":h(40):w(on and 160 or 100):bg("accent")"#, "size = true"),
+        ),
+        (
+            "words",
+            chip_page(
+                r#":size(100, 40):color(on and "accent" or "dim"):child(pencere.text("words"))"#,
+                "color = true",
+            ),
+        ),
+    ];
+    for (name, script) in room {
+        let (lists, laid) = frames_of_a_change(&script, true, false);
+        let (forced, _) = frames_of_a_change(&script, true, true);
+        // Every frame of its half second, and the one it ends on; then the layout it has is the page.
+        assert!(
+            (10..=12).contains(&laid),
+            "{name}: laid out for every frame: {laid}"
+        );
+        assert_eq!(lists, forced, "{name}");
+        assert_ne!(lists[1], lists[7], "{name}: it moves");
+    }
+}
+
 /// A letter typed into an editor is told the page as the change of its text and the move of its
 /// carets, and it is one page for both, not one for each: the page the module makes (and the host lays
 /// out and draws) is the one that shows what both said, the one a page made at once would be.

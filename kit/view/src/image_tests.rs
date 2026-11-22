@@ -479,3 +479,58 @@ fn the_page_of_an_image_is_asked_of_the_host_and_is_the_pictures() {
     assert_eq!(drawn.first().map(|p| p.page), Some(1));
     assert_eq!(div().page(3), div());
 }
+
+/// A picture drawn larger or smaller has its rect grown or shrunk about its middle and is not cut at
+/// the box it has; what holds it still cuts it.
+#[test]
+fn a_picture_that_is_drawn_larger_is_not_cut_at_its_own_box_and_what_holds_it_still_cuts_it() {
+    let mut host = Images::with("a.png", 20.0, 20.0);
+    let root = div().p(30.0).items_start().child(
+        div().size(100.0, 100.0).child(
+            div()
+                .size(20.0, 20.0)
+                .child(image("a.png", Fit::Contain).size(20.0, 20.0).scaled(2.0)),
+        ),
+    );
+    let page = laid(root, &mut host, 200.0, 200.0, 1.0);
+    let list = page.paint(&mut host);
+    let [picture] = pictures(&list)[..] else {
+        panic!("one picture");
+    };
+    assert_eq!(picture.rect, Rect::new(20.0, 20.0, 40.0, 40.0));
+    assert_eq!(picture.shown, Rect::new(0.0, 0.0, 1.0, 1.0), "all of it");
+
+    // Smaller, and with a box that cuts at its edge: what is drawn is all of it, inside the box.
+    let root = div().p(30.0).items_start().child(
+        div()
+            .size(20.0, 20.0)
+            .clip()
+            .child(image("a.png", Fit::Contain).size(20.0, 20.0).scaled(0.5)),
+    );
+    let page = laid(root, &mut host, 200.0, 200.0, 1.0);
+    let list = page.paint(&mut host);
+    let [picture] = pictures(&list)[..] else {
+        panic!("one picture");
+    };
+    assert_eq!(picture.rect, Rect::new(35.0, 35.0, 10.0, 10.0));
+    assert_eq!(picture.shown, Rect::new(0.0, 0.0, 1.0, 1.0));
+
+    // Larger in a box that cuts: only the part inside the box is shown.
+    let root = div().p(30.0).items_start().child(
+        div()
+            .size(20.0, 20.0)
+            .clip()
+            .child(image("a.png", Fit::Contain).size(20.0, 20.0).scaled(2.0)),
+    );
+    let page = laid(root, &mut host, 200.0, 200.0, 1.0);
+    let list = page.paint(&mut host);
+    let [picture] = pictures(&list)[..] else {
+        panic!("one picture");
+    };
+    assert_eq!(picture.rect, Rect::new(20.0, 20.0, 40.0, 40.0));
+    assert_eq!(
+        picture.shown,
+        Rect::new(0.25, 0.25, 0.5, 0.5),
+        "the middle of it"
+    );
+}
