@@ -9,8 +9,20 @@ Slider "name column width" [value 100 pt]
 ColumnHeader "qty"
 Slider "qty column width" [value 70 pt]
 Row "Row 1, loading"
+Text "1"
+Cell ""
+Cell ""
+Cell ""
 Row "Row 2, loading" [selected]
+Text "2"
+Cell ""
+Cell ""
+Cell ""
 Row "Row 3, loading"
+Text "3"
+Cell ""
+Cell ""
+Cell ""
 == agent
 focus: page
 items:
@@ -24,5 +36,17 @@ b3aywj      columnheader "name" [column 2, sorted ascending]
 eh2fsg      columnheader "qty" [column 3]
 qksav0        slider "qty column width" [value "70 pt"]
 pa4p5n    row "Row 1, loading" [row 1]
+            text "1"
+            cell "" [column 1]
+            cell "" [column 2]
+            cell "" [column 3]
 mva8xy    row "Row 2, loading" [selected, row 2]
+            text "2"
+            cell "" [column 1]
+            cell "" [column 2]
+            cell "" [column 3]
 10drg4    row "Row 3, loading" [row 3]
+            text "3"
+            cell "" [column 1]
+            cell "" [column 2]
+            cell "" [column 3]

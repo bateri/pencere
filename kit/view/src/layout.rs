@@ -2455,7 +2455,9 @@ impl Laid {
     /// answers the pointer or says it is one a person works on: a button, a link, a checkbox, a
     /// switch, a radio, a tab, a menu item, a slider; a label alone is not one, and neither is what
     /// only shows, a heading, a picture, a progress), and which of the elements hold at least one
-    /// inside, a control or a link, that is read.
+    /// inside, a control or a link, that is read. A cell of a table is read apart as a control is:
+    /// its row holds it, so that a screen reader goes from cell to cell, and the row is a group of
+    /// its cells whether or not a control is in them.
     fn controls(&self, shown: &impl Fn(&Node) -> bool) -> (Vec<bool>, Vec<bool>) {
         // What answers the pointer is a control whatever it says it is (a heading that is pressed).
         let controls: Vec<bool> = self
@@ -2464,7 +2466,9 @@ impl Laid {
             .map(|node| {
                 shown(node)
                     && Self::role_of(node) != Some(AccessibleRole::None)
-                    && (node.meta.pressable || Self::role_of(node).is_some_and(works_on))
+                    && (node.meta.pressable
+                        || Self::role_of(node)
+                            .is_some_and(|role| works_on(role) || role == AccessibleRole::Cell))
             })
             .collect();
         let linked: Vec<bool> = self
@@ -2509,9 +2513,10 @@ impl Laid {
             let group = Self::drawn(node)
                 && node.meta.label.is_some()
                 && Self::role_of(node).is_some_and(holds_content);
-            if index > outer
-                && (on(controls, index) || node.meta.zone.is_some() || node.overlay || group)
-            {
+            // A cell is read apart and is in its row's name too: its words are what the row shows
+            // (what a control in it says is not, as it is not in the row's).
+            let control = on(controls, index) && Self::role_of(node) != Some(AccessibleRole::Cell);
+            if index > outer && (control || node.meta.zone.is_some() || node.overlay || group) {
                 apart = Some(index);
                 continue;
             }

@@ -380,8 +380,22 @@ local Grid = core.component("grid", {
 				local column = props.columns[index]
 				local width = widths[index]
 				local value = values[index]
-				local cell = pencere.div():w(width):h_full():no_shrink():px(8):row():items_center():clip()
+				-- A cell of its own to a screen reader, in its column: it goes from cell to cell, and up
+				-- and down a column, as in a table of the platform's.
+				local cell = pencere.div()
+					:role("cell")
+					:cell_at(nil, index)
+					:w(width)
+					:h_full()
+					:no_shrink()
+					:px(8)
+					:row()
+					:items_center()
+					:clip()
 				if value == nil then
+					-- Nothing to say yet: the dot is drawn, the cell is read empty (its row says it is
+					-- loading).
+					cell:label("")
 					cell:child(pencere.text("·"):color(t.ink_quiet):grow(1):min_w(0):truncate())
 				elseif type(value) == "string" or type(value) == "number" then
 					-- The words fill the cell and are cut at its edge: no box between them and the cell.

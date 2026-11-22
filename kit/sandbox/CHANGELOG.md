@@ -144,6 +144,8 @@ dy, blur, color)` (a glow with no offset), `pencere.linear` and `pencere.radial`
 
 ### Changed
 
+- **A `grid`'s cells are read one by one.** Each cell of a row is a `cell` in its column, so that VoiceOver goes
+  from cell to cell and up and down a column; the row is still read whole by their words.
 - **Where a browser's `profile` is kept** (`kit/SPEC.md`, specification Section 12): on the computer that
   shows the page and, for a program that runs on a server, at that server too (unless the person has
   chosen to keep none there), so that every computer that shows the program finds the same sessions. Nothing of it passes through the protocol and the

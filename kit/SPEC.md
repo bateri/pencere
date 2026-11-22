@@ -347,7 +347,8 @@ of where an element stands: `mixed()` (a checkbox that is neither on nor off; `c
 `level(n)` (depth in a tree, from 1), `position(index, size)` (which of a set it is: a tab, an option, a
 row of a list that is built only where it shows), `table_size(rows, columns)` (of the whole table, which is
 more than the cells the page builds) with `cell_at(row, column)` on a row (a row, nil) and on a cell or a
-header, `sorted("ascending" | "descending")` on a header, and `role_description(words)`, what the page calls
+header (a row holds its cells: each is read apart, in its row, as a control is, and its words are in the
+row's name too), `sorted("ascending" | "descending")` on a header, and `role_description(words)`, what the page calls
 the kind of element it is ("process", "issue card"), which is read in place of the role's. What an element's
 tip says more than its name does is what it is for (its `description`), and the keys in the tip are the ones
 that do it. A command defined on an element with an id other than the page's outermost box is an **action**
@@ -1772,7 +1773,8 @@ name)`), and says `{ kind = "dismiss" }` at what `dismiss` lists: `"escape"`, `"
   `resize { size, final }` (`{ column, width, final }`): `final = false` while it is dragged, `true` when
   it is let go after it moved and at each step of the keys; a press that does not move it says nothing.
   A `grid`'s row is read by the words of its cells (its number first, no column's title; "Row N, loading"
-  where none is read yet) and the controls in its cells apart from it; `row_label(row)` gives the words to
+  where none is read yet), and each cell apart from it in its column (`cell`, with the controls in it
+  under it), so that a screen reader goes from cell to cell; `row_label(row)` gives the words to
   say it by where the page has better. A `grid`'s edge is a `slider` said "<title> column width", with its
   width in points, and a `tree`'s arrow a button said "Expand <name>" or "Collapse <name>".
 - An `icon` that a component or one of its items takes is an element the page made, a path of the

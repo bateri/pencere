@@ -98,6 +98,8 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
 
 ### Changed
 
+- **A row holds its cells.** A `cell` in a `row` is read apart, in the row, as a control is, so that a screen
+  reader goes from cell to cell; its words stay in the row's name.
 - **Fewer layouts while something moves.** A move that only paints, such as a colour, an opacity or a spin, no longer lays the page out at every frame.
 - **A labelled `dialog`, `alertdialog`, `group`, `list`, `listbox`, `table`, `tree` or `tablist` is a group with no
   control in it too**: its name is the label and what is written in it is read under it (not what the label says
