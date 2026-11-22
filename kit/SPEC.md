@@ -604,8 +604,8 @@ keeps them together, and the service workers and cache storage of the site it is
 again, so that what the person is signed in with and what a page saved stay; `{ command =
 "clear_site_data" }`, which deletes what the sites of the name the browser is at keep, at every port
 (cookies, local storage, databases, service workers), so that the person is signed out of it: a page
-that offers it asks the person first, and says whether it is for this computer alone or for every
-computer that shows the program, as the host tells it; and `{ command = "proceed" }`, which goes on
+that offers it asks the person first (the host does not say whether a profile is shared with other
+computers, so the page says no more than that the person is signed out of the site); and `{ command = "proceed" }`, which goes on
 to the page the browser did not load for its certificate (`error.certificate`): the host accepts that
 certificate for that site for as long as it runs, writes it nowhere and tells it to no other computer,
 and loads the page again; where the last load did not fail for a certificate nothing happens. An ask
