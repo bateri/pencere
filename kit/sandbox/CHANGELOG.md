@@ -8,6 +8,16 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **The library's components are read as what they are**: a modal, a dialog (`alertdialog` where an action is
+  `danger`) and a palette with a label are a `dialog` named by it, with what is in it under it; the scrim
+  that answers the pointer to give up is `none` (not read: a person gives up with escape; it was a
+  button "Close …"), and a dialog's title is its name and no heading inside it. A list is a `listbox` of
+  `option`s with their place (`1 of 200`), a tree a `tree` of `treeitem`s with their `level`, a grid a `table` (its label, "Table"
+  where it has none) with a header `row` of `columnheader`s (`column N`, `sorted ascending`) and `row`s
+  (`row N`), whose rows have "Row N" where their cells say nothing, tabs a `tablist` of `tab`s with their place,
+  segments their place, a toast a `status` (`alert` for the tones `warn` and `bad`) and the count of a find
+  bar a `status`. A list asked to show a row (`reveal`) scrolls to it, builds it and moves its cursor there
+  (`{ kind = "select", key =, how = "reveal" }`).
 - **The page API's new vocabulary, and a way to ask for it**: the roles `dialog` … `alert` (sixteen, by the
   web's names), `Element:mixed`, `level`, `position`, `table_size`, `cell_at`, `sorted` and
   `role_description`, `pencere.roles` and `pencere.has(name)` (`"role.<role>"`, `"element.<method>"`,

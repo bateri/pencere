@@ -1,15 +1,15 @@
 == screen reader
 Button "Say"
-Text "Saved a.lua"
+Status "Saved a.lua"
 Button "Dismiss"
-Text "Disk is full"
+Alert "Disk is full"
 Button "Dismiss"
 == agent
 focus: page
 rest: motion
 items:
 tyy8q3  button "Say"
-        text "Saved a.lua"
-ackz2n  button "Dismiss"
-        text "Disk is full"
-98vpy7  button "Dismiss"
+cjkx13  status "Saved a.lua"
+ackz2n    button "Dismiss"
+cncrkk  alert "Disk is full"
+98vpy7    button "Dismiss"

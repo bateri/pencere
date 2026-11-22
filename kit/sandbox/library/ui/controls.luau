@@ -125,7 +125,7 @@ controls.segments = core.component("segments", {
 		if chosen == nil and props.items[1] then
 			chosen = props.items[1].key
 		end
-		for _, item in props.items do
+		for place, item in props.items do
 			local part = u:part(id, "item", item.key)
 			local on = item.key == props.value
 			local over = u:hovered(part)
@@ -133,6 +133,7 @@ controls.segments = core.component("segments", {
 				:press(part)
 				:role("radio")
 				:checked(on)
+				:position(place, #props.items)
 				:label(item.title or tostring(item.key))
 				:row()
 				:items_center()
@@ -233,10 +234,10 @@ controls.tabs = core.component("tabs", {
 	end,
 	view = function(u, id, props, state)
 		local t = u.theme
-		local strip = pencere.div():id(u:part(id, "strip")):row():scroll():grow(1):min_w(0):h(t.size.bar)
+		local strip = pencere.div():id(u:part(id, "strip")):row():scroll():grow(1):min_w(0):h(t.size.bar):role("tablist"):fallback_name("Tabs")
 		local dragging = props.reorder and u.pointer:dragging() or nil
 		local active = props.active
-		for _, item in props.items do
+		for place, item in props.items do
 			local part = u:part(id, "tab", item.key)
 			local on = item.key == active
 			local over = u:within(part)
@@ -246,6 +247,7 @@ controls.tabs = core.component("tabs", {
 				:press(part)
 				:role("tab")
 				:selected(on)
+				:position(place, #props.items)
 				:label(item.title)
 				:row()
 				:items_center()

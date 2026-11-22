@@ -1,12 +1,14 @@
 == screen reader
-MenuItem "Alpha"
-MenuItem "Beta" [selected] [collapsed]
-MenuItem "Gamma" [checked]
+ListBox "List"
+ListOption "Alpha"
+ListOption "Beta" [selected] [collapsed]
+ListOption "Gamma" [checked]
 Button "Open"
 == agent
 focus: page
 items:
-bdpt3h  menuitem "Alpha"
-esb1hg  menuitem "Beta" [selected, collapsed]
-n33em3  menuitem "Gamma" [checked]
-sr7zbz    button "Open"
+zjr2pr  listbox "List"
+bdpt3h    option "Alpha" [1 of 3]
+esb1hg    option "Beta" [selected, collapsed, 2 of 3]
+n33em3    option "Gamma" [checked, 3 of 3]
+sr7zbz      button "Open"

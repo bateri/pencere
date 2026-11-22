@@ -810,6 +810,44 @@ fn a_dialog_is_answered_by_a_button_by_enter_and_by_giving_up() -> Result<(), Er
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_dialog_that_takes_letters_is_answered_by_the_first_letter_of_an_action_and_otherwise_not()
+-> Result<(), Error> {
+    // The same page, its dialog asking for letters; and one asking for none.
+    let lettered = DIALOG.replace(
+        "title = \"Save changes to a.lua?\",",
+        "letters = true, title = \"Save changes to a.lua?\",",
+    );
+    let mut page = open(&lettered)?;
+    page.click("open")?;
+    page.step()?;
+    page.press("d")?;
+    page.step()?;
+    assert_eq!(log(&page), ["open press", "unsaved answer key=drop"]);
+    page.click("open")?;
+    page.step()?;
+    page.press("x")?;
+    page.step()?;
+    assert!(
+        page.says("Save changes to a.lua?"),
+        "a letter no action starts with answers nothing"
+    );
+    page.press("s")?;
+    page.step()?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("unsaved answer key=save")
+    );
+    let mut page = open(DIALOG)?;
+    page.click("open")?;
+    page.step()?;
+    page.press("d")?;
+    page.step()?;
+    assert!(page.says("Save changes to a.lua?"), "no letters, no answer");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_dialog_with_an_input_answers_with_what_is_typed() -> Result<(), Error> {
     let mut page = open(&DIALOG.replace("S.asking = false", "S.asking = false\nS.named = true"))?;
     page.click("open")?;
@@ -1233,7 +1271,7 @@ fn a_list_builds_the_rows_in_view_and_is_chosen_and_opened_with_the_pointer() ->
     );
     assert_eq!(
         accessible(&page, "results/row/k1").role,
-        AccessibleRole::MenuItem
+        AccessibleRole::ListOption
     );
     page.click("results/row/k2")?;
     assert_eq!(log(&page), ["results select how=pointer key=k2"]);
@@ -1249,6 +1287,38 @@ fn a_list_builds_the_rows_in_view_and_is_chosen_and_opened_with_the_pointer() ->
         log(&page).last().map(String::as_str),
         Some("results context key=k4")
     );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_list_is_asked_to_show_a_row_that_is_not_built_and_builds_it_and_moves_its_cursor_there()
+-> Result<(), Error> {
+    let mut page = open(LIST)?;
+    assert!(page.bounds("results/row/k150").is_none());
+    // The row 150 of the 200: not built, and not where the pointer or the keys went.
+    page.reveal("results", Some(150))?;
+    assert!(
+        page.bounds("results/row/k150").is_some(),
+        "the row asked for is built and in view"
+    );
+    assert!(accessible(&page, "results/row/k150").state.selected);
+    assert_eq!(
+        accessible(&page, "results/row/k150").state.posinset,
+        Some(150)
+    );
+    assert_eq!(
+        accessible(&page, "results/row/k150").state.setsize,
+        Some(200)
+    );
+    assert!(
+        log(&page).contains(&"results select how=reveal key=k150".to_string()),
+        "{:?}",
+        log(&page)
+    );
+    // A row there is none of is not an error: nothing moves.
+    page.reveal("results", Some(500))?;
+    assert!(accessible(&page, "results/row/k150").state.selected);
     Ok(())
 }
 
@@ -1936,7 +2006,7 @@ fn a_tree_opens_and_closes_folders_with_the_pointer_and_the_arrow_keys() -> Resu
     assert!(page.says("src") && !page.says("a.lua"));
     assert_eq!(
         accessible(&page, "files/list/row/src").role,
-        AccessibleRole::Button
+        AccessibleRole::TreeItem
     );
     assert_eq!(
         accessible(&page, "files/list/row/src").state.expanded,
@@ -2420,7 +2490,8 @@ fn a_grid_row_is_read_by_the_words_of_its_cells_and_the_controls_in_it_apart() -
     // A row with words only is said by them (its number first), not by "Row 3".
     let mut page = open(GRID)?;
     let row = accessible(&page, "g/row/3");
-    assert_eq!(row.role, pencere_view::AccessibleRole::MenuItem);
+    assert_eq!(row.role, pencere_view::AccessibleRole::Row);
+    assert_eq!(row.state.rowindex, Some(3));
     assert_eq!(row.words, "3 3 name 3 21");
     assert!(!row.state.selected);
     page.click_in("g/row/3", 40.0, 5.0)?;
@@ -2489,11 +2560,10 @@ fn a_grid_sorts_by_a_press_on_a_head_and_sizes_a_column_by_its_edge() -> Result<
     let mut page = open(GRID)?;
     page.click("g/head/name")?;
     assert_eq!(log(&page), ["g sort column=name"]);
-    assert!(
-        accessible(&page, "g/head/name")
-            .words
-            .contains("sorted ascending")
-    );
+    let head = accessible(&page, "g/head/name");
+    assert_eq!(head.role, pencere_view::AccessibleRole::ColumnHeader);
+    assert_eq!(head.words, "name");
+    assert_eq!(head.state.sort, Some(pencere_view::Sort::Ascending));
     let before = page.bounds("g/head/qty").expect("head").x;
     let edge = page.bounds("g/edge/id").expect("an edge");
     page.drag_between(

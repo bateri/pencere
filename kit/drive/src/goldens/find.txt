@@ -5,7 +5,7 @@ Field(Line) "Find"
 Checkbox "Match case" [unchecked]
 Checkbox "Whole word" [unchecked]
 Checkbox "Regular expression" [unchecked]
-Text "No results"
+Status "No results"
 Button "Previous match"
 Button "Next match"
 Button "Close find"
@@ -19,7 +19,7 @@ k8q2wv  switch "Toggle replace" [unchecked]
 2h60xy  checkbox "Match case" [unchecked, keys "⌥⌘C"]
 zgnpgn  checkbox "Whole word" [unchecked, keys "⌥⌘W"]
 fs7m62  checkbox "Regular expression" [unchecked, keys "⌥⌘R"]
-        text "No results"
+        status "No results"
 p4cgvg  button "Previous match" [keys "⇧Enter"]
 2vpb9m  button "Next match" [keys "Enter"]
 6f7gm3  button "Close find" [keys "Esc"]

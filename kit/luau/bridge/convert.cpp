@@ -157,13 +157,14 @@ bool flag(lua_State* L, int t, const char* name) {
 // The word `name` holds, as its place in `words`; `fallback` when it holds nothing. -1 when it
 // is none of the words (the caller says which it was).
 // A field that is true, false or not said.
-// A count from 1 (a level, a position, a size, a row, a column): not said for anything else.
-view_option_u32_t optional_count(lua_State* L, int t, const char* name) {
+// A count from `least` (1 for a level, a position, a row, a column; 0 for the size of a table): not said
+// for anything else.
+view_option_u32_t optional_count(lua_State* L, int t, const char* name, double least = 1) {
     view_option_u32_t out = {};
     get(L, t, name);
     if (lua_type(L, -1) == LUA_TNUMBER) {
         double given = lua_tonumber(L, -1);
-        if (given >= 1 && given <= 4294967295.0) {
+        if (given >= least && given <= 4294967295.0) {
             out.is_some = true;
             out.val = (uint32_t)given;
         }
@@ -1781,8 +1782,8 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
         nodes.ptr[at].state.level = optional_count(L, meta, "state_level");
         nodes.ptr[at].state.setsize = optional_count(L, meta, "setsize");
         nodes.ptr[at].state.posinset = optional_count(L, meta, "posinset");
-        nodes.ptr[at].state.rowcount = optional_count(L, meta, "rowcount");
-        nodes.ptr[at].state.colcount = optional_count(L, meta, "colcount");
+        nodes.ptr[at].state.rowcount = optional_count(L, meta, "rowcount", 0);
+        nodes.ptr[at].state.colcount = optional_count(L, meta, "colcount", 0);
         nodes.ptr[at].state.rowindex = optional_count(L, meta, "rowindex");
         nodes.ptr[at].state.colindex = optional_count(L, meta, "colindex");
         {

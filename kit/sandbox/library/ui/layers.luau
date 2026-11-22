@@ -51,8 +51,16 @@ function layers.shell(u, id, options, body)
 		:shadow(t.elevation.dx, t.elevation.dy, t.elevation.blur, t.elevation.color)
 		:motion({ seconds = 0.14, enter = { opacity = 0, dy = -8, seconds = 0.14 } })
 		:child(body)
-	-- The card has no label: a screen reader would say it in place of what is inside. The scrim, which is
-	-- a button to it, says what it closes.
+	-- With a label the card is the dialog (`options.role`, "dialog" by default): a screen reader says its name and
+	-- what is in it under it, and the words in it that the name says are not said again. The scrim answers the
+	-- pointer to give up and is no control to a person who reads by ear (`none`): it is not read, and a person
+	-- gives up with escape.
+	if options.label ~= nil then
+		card:role(options.role or "dialog"):label(options.label)
+	end
+	if options.height ~= nil then
+		card:h(options.height)
+	end
 	return pencere.div()
 		:overlay()
 		:inset(0, 0, 0, 0)
@@ -65,7 +73,7 @@ function layers.shell(u, id, options, body)
 				:absolute()
 				:inset(0, 0, 0, 0)
 				:press(u:part(id, "scrim"))
-				:label("Close" .. (options.label and (" " .. options.label) or ""))
+				:role("none")
 				:bg(t.scrim)
 				:motion({ seconds = 0.14, enter = { opacity = 0, seconds = 0.14 } })
 		)
@@ -127,6 +135,8 @@ end
 -- last). Enter does the `primary` one (the first, where none is); escape and a click on the scrim give
 -- up. The answer is `{ kind = "answer", key = <the action's>, value = <the text> }`, with no `key` for
 -- giving up: the page that keeps what it asks of the person stops drawing the dialog on any answer.
+-- `letters = true` makes the first letter of an action's title answer with it (not where the dialog has an
+-- `input`); `width`, `height` and `top` (the card's, and how far down it stands) are as a modal's.
 local Dialog = core.component("dialog", {
 	state = function(props)
 		return { value = props.input and props.input.value or "" }
@@ -151,7 +161,7 @@ local Dialog = core.component("dialog", {
 		end
 		primary = primary or props.actions[1]
 		local body = pencere.div():p(20):gap(12)
-		body:child(pencere.text(props.title):text_size(14):weight(600):wrap():role("heading", 2))
+		body:child(pencere.text(props.title):text_size(14):weight(600):wrap())
 		if props.message ~= nil then
 			body:child(pencere.text(props.message):color(t.ink_dim):wrap())
 		end
@@ -175,7 +185,18 @@ local Dialog = core.component("dialog", {
 			}))
 		end
 		body:child(row)
-		return layers.shell(u, id, { width = props.width or 420, label = props.title, initial = initial }, body)
+		local danger = false
+		for _, act in props.actions do
+			danger = danger or act.danger == true
+		end
+		return layers.shell(u, id, {
+			width = props.width or 420,
+			height = props.height,
+			top = props.top,
+			label = props.title,
+			role = danger and "alertdialog" or "dialog",
+			initial = initial,
+		}, body)
 	end,
 	click = function(u, id, _, _, part, _, event)
 		return shell_click(u, id, part, {}, { kind = "answer" }, event)
@@ -184,10 +205,23 @@ local Dialog = core.component("dialog", {
 		return true, { kind = "answer" }
 	end,
 	key = function(u, id, props, state, event)
+		local mods = event.mods or {}
+		if props.letters == true and props.input == nil and type(event.key) == "string" and #event.key == 1 then
+			-- `letters`: the first letter of an action's title answers with it, as a person who knows the
+			-- dialog answers it (never where the dialog takes typing, an input).
+			if not (mods.command or mods.control or mods.alt) then
+				local typed = string.lower(event.key)
+				for _, act in props.actions do
+					if string.lower(string.sub(act.title, 1, 1)) == typed then
+						return true, { kind = "answer", key = act.key }
+					end
+				end
+			end
+			return nil
+		end
 		if event.key ~= "enter" then
 			return nil
 		end
-		local mods = event.mods or {}
 		if mods.command or mods.control or mods.alt or mods.shift then
 			return nil
 		end
@@ -302,6 +336,7 @@ local Toasts = core.component("toasts", {
 					:shadow(0, 6, 18, alpha("shadow", 0.35))
 					:motion({ seconds = 0.14, enter = { opacity = 0, dy = 8, seconds = 0.14 } })
 					:id(u:part(id, "toast", item.key))
+					:role((item.tone == "bad" or item.tone == "warn") and "alert" or "status")
 					:child(pencere.div():size(3, 14):no_shrink():rounded(2):bg(tone))
 					:child(pencere.div():grow(1):min_w(0):child(pencere.text(item.words):wrap()))
 					:child(close)

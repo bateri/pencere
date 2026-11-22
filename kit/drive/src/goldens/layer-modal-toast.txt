@@ -1,22 +1,20 @@
 == screen reader
-Button "Close Sheet"
-Text "Sheet"
+Dialog "Sheet"
 Button "Hint"
 Button "Menu"
 Button "Search"
 Button "Delete"
-Text "Saved"
+Status "Saved"
 Button "Dismiss"
 == agent
 focus: page
 rest: motion
 note: behind the modal in front, 2 items of the page, not read
 items:
-vmxnag  button "Close Sheet"
-        text "Sheet"
-m43dq7  button "Hint"
-f49gtz  button "Menu"
-vd6rxz  button "Search"
-hx5sx8  button "Delete"
-        text "Saved"
-ackz2n  button "Dismiss"
+y4nskw  dialog "Sheet"
+m43dq7    button "Hint"
+f49gtz    button "Menu"
+vd6rxz    button "Search"
+hx5sx8    button "Delete"
+cjkx13  status "Saved"
+ackz2n    button "Dismiss"

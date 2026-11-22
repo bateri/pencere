@@ -1,26 +1,28 @@
 == screen reader
-Text "#"
-Button "id"
+Table "Table"
+Row "#"
+ColumnHeader "id"
 Text "int"
 Slider "id column width" [value 60 pt]
-Button "name, sorted ascending"
+ColumnHeader "name"
 Slider "name column width" [value 100 pt]
-Button "qty"
+ColumnHeader "qty"
 Slider "qty column width" [value 70 pt]
-MenuItem "1 1 name 1 7"
-MenuItem "2 2 name 2 14" [selected]
-MenuItem "3 3 name 3 21"
+Row "1 1 name 1 7"
+Row "2 2 name 2 14" [selected]
+Row "3 3 name 3 21"
 == agent
 focus: page
 items:
-        text "#"
-pc0pnp  button "id"
-          text "int"
-yzcv03    slider "id column width" [value "60 pt"]
-b3aywj  button "name, sorted ascending"
-35tcvs    slider "name column width" [value "100 pt"]
-eh2fsg  button "qty"
-qksav0    slider "qty column width" [value "70 pt"]
-pa4p5n  menuitem "1 1 name 1 7"
-mva8xy  menuitem "2 2 name 2 14" [selected]
-10drg4  menuitem "3 3 name 3 21"
+qa4pqy  table "Table" [rows 3, columns 3]
+          row "#"
+pc0pnp      columnheader "id" [column 1]
+              text "int"
+yzcv03        slider "id column width" [value "60 pt"]
+b3aywj      columnheader "name" [column 2, sorted ascending]
+35tcvs        slider "name column width" [value "100 pt"]
+eh2fsg      columnheader "qty" [column 3]
+qksav0        slider "qty column width" [value "70 pt"]
+pa4p5n    row "1 1 name 1 7" [row 1]
+mva8xy    row "2 2 name 2 14" [selected, row 2]
+10drg4    row "3 3 name 3 21" [row 3]

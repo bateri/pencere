@@ -956,6 +956,19 @@ function Ctx:handle(event)
 			out.reply = merge(out.reply, true)
 			table.insert(out.actions, { from = "commands", kind = "command", id = event.id })
 		end
+	elseif kind == "reveal" then
+		-- Something is to be shown (a screen reader moved to a row that is not built, an agent asked to see
+		-- it): the component that is the target, or that the target is a part of, scrolls it into view and
+		-- moves its cursor there (`reveal`), and the page is told what came of it.
+		local mount, part, key = self:_owner(event.target)
+		if mount then
+			local reply, action = call(self, mount, "reveal", part, key, event)
+			if reply ~= nil then
+				out.taken = true
+				out.reply = merge(out.reply, reply)
+				self:_emit(out, mount, action)
+			end
+		end
 	elseif kind == "menu" then
 		-- The line picked is the one of the menu the person was shown, which the page may have asked for
 		-- others since: it says which menu it is of and what its pick is (`Ctx:menu`).

@@ -927,6 +927,9 @@ local HAS = {
 	["element.level"] = true, ["element.position"] = true, ["element.table_size"] = true,
 	["element.cell_at"] = true, ["element.sorted"] = true, ["element.role_description"] = true,
 	["event.reveal"] = true, ["event.command"] = true, ["command.target"] = true,
+	-- The options the library's components took after the first kit: `letters` of a dialog (the first
+	-- letter of an action answers with it), `height` and `top` of a modal's and a dialog's card.
+	["ui.dialog.accesskey"] = true, ["ui.modal.size"] = true,
 }
 local roles = {}
 for role in ROLES do
@@ -982,9 +985,10 @@ function Element:fallback_name(words)
 end
 
 -- A count from 1: a level, a place in a set, the size of a set, a row, a column.
-local function count(what, value)
-	if type(value) ~= "number" or value < 1 or value ~= math.floor(value) then
-		refuse(what .. " takes a whole number from 1, not " .. tostring(value))
+local function count(what, value, least)
+	least = least or 1
+	if type(value) ~= "number" or value < least or value ~= math.floor(value) then
+		refuse(what .. " takes a whole number from " .. least .. ", not " .. tostring(value))
 	end
 	return value
 end
@@ -1015,8 +1019,8 @@ end
 -- How many rows and columns the whole table has (more than the cells the page builds, where it builds
 -- only what is in view).
 function Element:table_size(rows, columns)
-	self.meta.rowcount = count("table_size's rows", rows)
-	self.meta.colcount = count("table_size's columns", columns)
+	self.meta.rowcount = count("table_size's rows", rows, 0)
+	self.meta.colcount = count("table_size's columns", columns, 0)
 	return self
 end
 
