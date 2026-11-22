@@ -93,6 +93,31 @@ pub struct State {
     pub disabled: bool,
     /// The value it shows, in words: a progress's `"40%"`, a slider's `"12 px"`.
     pub value: Option<String>,
+    /// A checkbox that is neither on nor off (some of what it stands for is chosen): `checked` is
+    /// `None` then.
+    pub mixed: bool,
+    /// How deep it is in a tree, from 1.
+    pub level: Option<u32>,
+    /// How many there are of the set it is one of (a list, the tabs, the options), and which it is,
+    /// from 1.
+    pub setsize: Option<u32>,
+    pub posinset: Option<u32>,
+    /// How many rows and columns the whole table has, which a page that builds only what is in view
+    /// has more of than it says items.
+    pub rowcount: Option<u32>,
+    pub colcount: Option<u32>,
+    /// Which row (on a row) and which column (on a cell or a header) it is, from 1.
+    pub rowindex: Option<u32>,
+    pub colindex: Option<u32>,
+    /// How the table is sorted by this column (on a header).
+    pub sort: Option<Sort>,
+}
+
+/// How a column sorts a table ([`State::sort`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sort {
+    Ascending,
+    Descending,
 }
 
 /// What an element is to the pointer, the keyboard and a screen reader, apart from how it looks.
@@ -131,6 +156,9 @@ pub struct Meta {
     /// What a screen reader says of the element where its own name comes to no words
     /// ([`Element::fallback_name`]).
     pub fallback: Option<String>,
+    /// What the page calls the kind of element this is, in its own words ("process", "issue card"),
+    /// where no role is it ([`Element::role_description`]).
+    pub role_description: Option<String>,
     /// What the page can be told to do while the keyboard is on it or inside it.
     pub commands: Vec<Command>,
     /// The keyboard is on it: its commands, and those of the boxes around it, can be done.
@@ -476,6 +504,64 @@ impl Element {
     #[must_use]
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.meta.state.disabled = disabled;
+        self
+    }
+
+    /// Neither on nor off: a checkbox that stands for some that are chosen and some that are not.
+    #[must_use]
+    pub fn mixed(mut self, mixed: bool) -> Self {
+        self.meta.state.mixed = mixed;
+        if mixed {
+            self.meta.state.checked = None;
+        }
+        self
+    }
+
+    /// How deep the element is in a tree, from 1.
+    #[must_use]
+    pub fn level(mut self, level: u32) -> Self {
+        self.meta.state.level = Some(level);
+        self
+    }
+
+    /// Which of `size` the element is, from 1: a tab, an option, an item of a list that is built
+    /// only where it shows.
+    #[must_use]
+    pub fn position(mut self, index: u32, size: u32) -> Self {
+        self.meta.state.posinset = Some(index);
+        self.meta.state.setsize = Some(size);
+        self
+    }
+
+    /// How many rows and columns the whole table has, said on its element.
+    #[must_use]
+    pub fn table_size(mut self, rows: u32, columns: u32) -> Self {
+        self.meta.state.rowcount = Some(rows);
+        self.meta.state.colcount = Some(columns);
+        self
+    }
+
+    /// Which row and which column of the table the element is, from 1 (a row has no column, a cell
+    /// both).
+    #[must_use]
+    pub fn cell_at(mut self, row: Option<u32>, column: Option<u32>) -> Self {
+        self.meta.state.rowindex = row;
+        self.meta.state.colindex = column;
+        self
+    }
+
+    /// How the table is sorted by the column this header is.
+    #[must_use]
+    pub fn sorted(mut self, order: Sort) -> Self {
+        self.meta.state.sort = Some(order);
+        self
+    }
+
+    /// What the page calls the kind of element this is, in its own words: a screen reader says it
+    /// in place of the role's.
+    #[must_use]
+    pub fn role_description(mut self, words: impl Into<String>) -> Self {
+        self.meta.role_description = Some(words.into());
         self
     }
 

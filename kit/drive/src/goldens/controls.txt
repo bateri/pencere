@@ -20,7 +20,7 @@ items:
 ke8c9s  radio "List" [checked]
 jj19z2  radio "Grid" [unchecked]
 nyrmw3  radio "Tree" [unchecked]
-9h5zzx  checkbox "Match case" [checked]
+9h5zzx  checkbox "Match case" [checked, keys "⌥⌘C"]
         text "a.lua changed on disk"
 aq5cew  button "Reload"
 wrnsqw  button "Keep mine"

@@ -8,6 +8,14 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Added
 
+- **The vocabulary of what a screen reader is told**: the roles `dialog`, `alertdialog`, `group`, `list`,
+  `listitem`, `listbox`, `option` (`ListOption`), `table`, `row`, `cell`, `columnheader`, `tree`, `treeitem`,
+  `tablist`, `status` and `alert` after the first thirteen; the states `State::mixed`, `level`, `setsize`,
+  `posinset`, `rowcount`, `colcount`, `rowindex`, `colindex` and `sort` (`Sort`); `Element::mixed`, `level`,
+  `position`, `table_size`, `cell_at`, `sorted` and `role_description`; and `Accessible::detail`
+  (`Detail`: what the tip says more than the name, its keys, the page's name for the kind, and the
+  `Action`s, the commands defined on an element but the outermost).
+- **`Event::CommandOn` and `Event::Reveal`**: a command done on an element, and something to be shown.
 - **A layer shuts the page behind it out of what is read** (`Element::layer`, `Laid::accessible_behind`):
   the root of a layer drawn over the page says whether it is modal; with a modal one in front, what is
   outside it (and outside a layer that is not modal and is drawn after it) is not in `Laid::accessible`,

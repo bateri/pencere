@@ -8,6 +8,13 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Added
 
+- **A reading says the whole vocabulary**: the new roles by their web names, and in the brackets of an item
+  `mixed`, `level N`, `N of M`, `rows R, columns C`, `row N`, `column N`, `sorted ascending`, `roledescription "…"`,
+  `description "…"` (what the tip says more than the name), `keys "…"` (the keys of the tip) and `action "…"` for each
+  command the page defined on the element; the JSON has the same under `state` and as `roledescription`,
+  `description`, `keys` and `actions`. `Headless::command_on(target, command)` and `Headless::reveal(target,
+index)` (and `Page::command_on`, `Page::reveal`, the host/test `page:command_on` and `page:reveal`) ask for
+  them. An item has `detail` (`pencere_view::Detail`).
 - **A reading is a tree, and says what a modal shuts out**: an item has its `parent` (a group, with the
   children under it, indented by two spaces in the text), the reading has `behind` (how many items of the
   page behind a modal layer are not read: a note line in the text) and its JSON has

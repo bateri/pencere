@@ -16,13 +16,13 @@ rest: motion
 items:
 md27z1  button "Find"
 k8q2wv  switch "Toggle replace" [unchecked]
-2h60xy  checkbox "Match case" [unchecked]
-zgnpgn  checkbox "Whole word" [unchecked]
-fs7m62  checkbox "Regular expression" [unchecked]
+2h60xy  checkbox "Match case" [unchecked, keys "⌥⌘C"]
+zgnpgn  checkbox "Whole word" [unchecked, keys "⌥⌘W"]
+fs7m62  checkbox "Regular expression" [unchecked, keys "⌥⌘R"]
         text "No results"
-p4cgvg  button "Previous match"
-2vpb9m  button "Next match"
-6f7gm3  button "Close find"
+p4cgvg  button "Previous match" [keys "⇧Enter"]
+2vpb9m  button "Next match" [keys "Enter"]
+6f7gm3  button "Close find" [keys "Esc"]
 fields:
 wmesmm  field "Find" = "foo"
 editors:

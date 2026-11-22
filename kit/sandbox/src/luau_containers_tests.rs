@@ -518,6 +518,8 @@ impl Pair {
             }
             Event::Focus(_)
             | Event::Command(_)
+            | Event::CommandOn { .. }
+            | Event::Reveal { .. }
             | Event::Files { .. }
             | Event::FilesOver { .. }
             | Event::FilesLeft

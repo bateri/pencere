@@ -20,7 +20,9 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use pencere_view::{AccessibleRole, FieldKind, Id, Key, Mods, Point, Rect, Shortcut, State};
+use pencere_view::{
+    AccessibleRole, Detail, FieldKind, Id, Key, Mods, Point, Rect, Shortcut, Sort, State,
+};
 use pencere_wire::messages::numbered;
 use serde_json::{Map, Value, json};
 
@@ -125,6 +127,8 @@ pub struct Item {
     /// It is in the page behind a modal layer that is in front, which a reader that cannot take it
     /// out of the reading says so (a web page's script); the model's own reading never has it.
     pub behind: bool,
+    /// What it is for, its keys, what the page calls its kind, what else can be done with it.
+    pub detail: Detail,
 }
 
 /// A text field the host puts over the page.
@@ -339,6 +343,22 @@ fn role_of(role: AccessibleRole) -> String {
         AccessibleRole::Slider => "slider".to_owned(),
         AccessibleRole::Browser => "browser".to_owned(),
         AccessibleRole::None => "none".to_owned(),
+        AccessibleRole::Dialog => "dialog".to_owned(),
+        AccessibleRole::AlertDialog => "alertdialog".to_owned(),
+        AccessibleRole::Group => "group".to_owned(),
+        AccessibleRole::List => "list".to_owned(),
+        AccessibleRole::ListItem => "listitem".to_owned(),
+        AccessibleRole::ListBox => "listbox".to_owned(),
+        AccessibleRole::ListOption => "option".to_owned(),
+        AccessibleRole::Table => "table".to_owned(),
+        AccessibleRole::Row => "row".to_owned(),
+        AccessibleRole::Cell => "cell".to_owned(),
+        AccessibleRole::ColumnHeader => "columnheader".to_owned(),
+        AccessibleRole::Tree => "tree".to_owned(),
+        AccessibleRole::TreeItem => "treeitem".to_owned(),
+        AccessibleRole::TabList => "tablist".to_owned(),
+        AccessibleRole::Status => "status".to_owned(),
+        AccessibleRole::Alert => "alert".to_owned(),
     }
 }
 
@@ -354,6 +374,7 @@ impl Item {
             pressable: item.pressable,
             parent: item.parent,
             behind: false,
+            detail: item.detail.clone(),
         }
     }
 }
@@ -535,7 +556,7 @@ impl Reading {
                 "  ".repeat(self.depth(item)),
                 clean(&item.role, WORDS_LIMIT),
                 quoted(&clean(&item.words, WORDS_LIMIT)),
-                state_words(&item.state)
+                state_words(&item.state, &item.detail)
             );
             at.items.push(row + 1);
             row += line.matches('\n').count();
@@ -708,6 +729,48 @@ impl Reading {
                 object.insert("role".into(), json!(clean(&item.role, WORDS_LIMIT)));
                 object.insert("text".into(), json!(clean(&item.words, WORDS_LIMIT)));
                 object.insert("state".into(), state_json(&item.state));
+                object.insert(
+                    "roledescription".into(),
+                    json!(
+                        item.detail
+                            .role_description
+                            .as_deref()
+                            .map(|words| clean(words, WORDS_LIMIT))
+                    ),
+                );
+                object.insert(
+                    "description".into(),
+                    json!(
+                        item.detail
+                            .description
+                            .as_deref()
+                            .map(|words| clean(words, WORDS_LIMIT))
+                    ),
+                );
+                object.insert(
+                    "keys".into(),
+                    json!(
+                        item.detail
+                            .keys
+                            .as_deref()
+                            .map(|words| clean(words, WORDS_LIMIT))
+                    ),
+                );
+                object.insert(
+                    "actions".into(),
+                    Value::Array(
+                        item.detail
+                            .actions
+                            .iter()
+                            .map(|action| {
+                                json!({
+                                    "title": clean(&action.title, WORDS_LIMIT),
+                                    "enabled": action.enabled,
+                                })
+                            })
+                            .collect(),
+                    ),
+                );
                 object.insert("box".into(), rounded(item.rect));
                 Value::Object(object)
             })
@@ -838,12 +901,15 @@ fn quoted(words: &str) -> String {
     format!("\"{}\"", words.replace('\n', "\n        "))
 }
 
-fn state_words(state: &State) -> String {
+fn state_words(state: &State, detail: &Detail) -> String {
     let mut parts: Vec<String> = Vec::new();
     match state.checked {
         Some(true) => parts.push("checked".to_owned()),
         Some(false) => parts.push("unchecked".to_owned()),
         None => {}
+    }
+    if state.mixed {
+        parts.push("mixed".to_owned());
     }
     if state.selected {
         parts.push("selected".to_owned());
@@ -859,6 +925,53 @@ fn state_words(state: &State) -> String {
     if let Some(value) = &state.value {
         parts.push(format!("value {}", quoted(&clean(value, WORDS_LIMIT))));
     }
+    if let Some(level) = state.level {
+        parts.push(format!("level {level}"));
+    }
+    match (state.posinset, state.setsize) {
+        (Some(at), Some(of)) => parts.push(format!("{at} of {of}")),
+        (None, Some(of)) => parts.push(format!("of {of}")),
+        _ => {}
+    }
+    match (state.rowcount, state.colcount) {
+        (Some(rows), Some(columns)) => parts.push(format!("rows {rows}, columns {columns}")),
+        (Some(rows), None) => parts.push(format!("rows {rows}")),
+        (None, Some(columns)) => parts.push(format!("columns {columns}")),
+        _ => {}
+    }
+    if let Some(row) = state.rowindex {
+        parts.push(format!("row {row}"));
+    }
+    if let Some(column) = state.colindex {
+        parts.push(format!("column {column}"));
+    }
+    match state.sort {
+        Some(Sort::Ascending) => parts.push("sorted ascending".to_owned()),
+        Some(Sort::Descending) => parts.push("sorted descending".to_owned()),
+        None => {}
+    }
+    if let Some(words) = &detail.role_description {
+        parts.push(format!(
+            "roledescription {}",
+            quoted(&clean(words, WORDS_LIMIT))
+        ));
+    }
+    if let Some(words) = &detail.description {
+        parts.push(format!(
+            "description {}",
+            quoted(&clean(words, WORDS_LIMIT))
+        ));
+    }
+    if let Some(keys) = &detail.keys {
+        parts.push(format!("keys {}", quoted(&clean(keys, WORDS_LIMIT))));
+    }
+    for action in &detail.actions {
+        parts.push(format!(
+            "action {}{}",
+            quoted(&clean(&action.title, WORDS_LIMIT)),
+            if action.enabled { "" } else { " (disabled)" }
+        ));
+    }
     if parts.is_empty() {
         String::new()
     } else {
@@ -871,6 +984,9 @@ fn state_json(state: &State) -> Value {
     if let Some(checked) = state.checked {
         object.insert("checked".into(), json!(checked));
     }
+    if state.mixed {
+        object.insert("mixed".into(), json!(true));
+    }
     if state.selected {
         object.insert("selected".into(), json!(true));
     }
@@ -882,6 +998,28 @@ fn state_json(state: &State) -> Value {
     }
     if let Some(value) = &state.value {
         object.insert("value".into(), json!(clean(value, WORDS_LIMIT)));
+    }
+    for (name, count) in [
+        ("level", state.level),
+        ("setsize", state.setsize),
+        ("posinset", state.posinset),
+        ("rowcount", state.rowcount),
+        ("colcount", state.colcount),
+        ("rowindex", state.rowindex),
+        ("colindex", state.colindex),
+    ] {
+        if let Some(count) = count {
+            object.insert(name.into(), json!(count));
+        }
+    }
+    if let Some(sort) = state.sort {
+        object.insert(
+            "sort".into(),
+            json!(match sort {
+                Sort::Ascending => "ascending",
+                Sort::Descending => "descending",
+            }),
+        );
     }
     Value::Object(object)
 }

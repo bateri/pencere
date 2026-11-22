@@ -16,6 +16,7 @@ fn item(role: AccessibleRole, name: Option<&str>, words: &str, pressable: bool) 
         state: State::default(),
         pressable,
         parent: None,
+        detail: Default::default(),
     })
 }
 

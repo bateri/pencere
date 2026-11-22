@@ -264,6 +264,22 @@ local ROLES = {
 	progressbar = "progress",
 	slider = "slider",
 	none = "none",
+	dialog = "dialog",
+	alertdialog = "alertdialog",
+	group = "group",
+	list = "list",
+	listitem = "listitem",
+	listbox = "listbox",
+	option = "option",
+	table = "table",
+	row = "row",
+	cell = "cell",
+	columnheader = "columnheader",
+	tree = "tree",
+	treeitem = "treeitem",
+	tablist = "tablist",
+	status = "status",
+	alert = "alert",
 }
 
 local function lower(text)
@@ -664,7 +680,7 @@ end
 function M.__role(page, role, options, scope)
 	local canonical = ROLES[role]
 	if not canonical then
-		fail("there is no role " .. tostring(role) .. " (the roles are button, field, editor, browser, text, link, checkbox, switch, radio, tab, menuitem, heading, image, progress, slider)")
+		fail("there is no role " .. tostring(role) .. " (the roles are button, field, editor, browser, text, link, checkbox, switch, radio, tab, menuitem, heading, image, progress, slider, none, dialog, alertdialog, group, list, listitem, listbox, option, table, row, cell, columnheader, tree, treeitem, tablist, status, alert)")
 	end
 	options = options or {}
 	return locator(page, "role", {
@@ -689,7 +705,7 @@ for _, name in ipairs({
 	"press", "insert", "paste", "compose", "unmark", "move_to", "leave", "drag_between", "wheel_at",
 	"trackpad_at", "magnify_at", "swipe",
 	"click_at", "double_click_at", "right_click_at", "focus_editor", "select", "caret_to", "edit",
-	"command", "pick", "resize", "zoom", "set_active", "set_terminal_look", "refresh", "advance", "step", "idle", "hide",
+	"command", "command_on", "reveal", "pick", "resize", "zoom", "set_active", "set_terminal_look", "refresh", "advance", "step", "idle", "hide",
 	"now", "asks_at", "settle", "tell", "words", "says", "words_in", "tree_words", "bounds", "spills",
 	"editor", "editor_text", "browsers", "browser_asks", "browser_keys", "browser_state", "browser_window", "browser_unused",
 	"has_browser", "focus", "field", "outline", "reading", "audit", "cursor", "pasteboard", "links", "text_size", "menu",

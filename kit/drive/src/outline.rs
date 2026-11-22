@@ -120,6 +120,7 @@ impl Outline {
                 state: State::default(),
                 pressable: false,
                 parent: None,
+                detail: Default::default(),
             });
             self.tips.push(Tip { rect, words });
         }

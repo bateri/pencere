@@ -597,6 +597,40 @@ interface types {
         /// It is no control to a person who reads by ear: not read, and what is inside it is (a
         /// scrim that closes a dialog, a card that takes the click).
         none,
+        /// A window over the page that asks or tells something before the page goes on.
+        dialog,
+        /// A dialog about something that needs an answer at once.
+        alert-dialog,
+        /// What belongs together, with a name: what is inside it is its children.
+        group,
+        /// Items one after the other, that are not picked from.
+        %list,
+        list-item,
+        /// A list that is picked from.
+        list-box,
+        /// An item of such a list (`state.selected`).
+        %option,
+        /// Rows and columns of cells (`state.rowcount`, `state.colcount`).
+        table,
+        row,
+        cell,
+        /// The head of a column (`state.sort`).
+        column-header,
+        /// A list of which some items open into more of them.
+        tree,
+        /// An item of a tree (`state.level`, `state.expanded`).
+        tree-item,
+        tab-list,
+        /// A part of the page that says how things stand, and changes.
+        status,
+        /// A message of the same kind that cannot wait.
+        alert,
+    }
+
+    /// How a column sorts a table.
+    enum sort-order {
+        ascending,
+        descending,
     }
 
     /// Where an element stands, to a screen reader.
@@ -611,6 +645,22 @@ interface types {
         disabled: bool,
         /// The value it shows, in words: a part of the frame's `text`.
         value: option<slice>,
+        /// Neither on nor off (`checked` is none then).
+        mixed: bool,
+        /// How deep it is in a tree, from 1.
+        level: option<u32>,
+        /// How many there are of the set it is one of, and which it is, from 1.
+        setsize: option<u32>,
+        posinset: option<u32>,
+        /// How many rows and columns the whole table has, which is more than the cells the page
+        /// builds where it builds only what is in view.
+        rowcount: option<u32>,
+        colcount: option<u32>,
+        /// Which row, and which column, it is, from 1.
+        rowindex: option<u32>,
+        colindex: option<u32>,
+        /// How the table is sorted by this column.
+        sort: option<sort-order>,
     }
 
     /// Keys that do a command: one key, with the modifiers held down with it.
@@ -1156,6 +1206,9 @@ interface types {
         /// What a screen reader says of the element where its own name comes to no words (no label,
         /// no words inside it, no tip): a part of the frame's `text`.
         fallback-name: option<slice>,
+        /// What the page calls the kind of element this is, in its own words: a part of the
+        /// frame's `text`.
+        role-description: option<slice>,
         /// The box is the room of an editor of text the application puts there, named by the
         /// element's `id` (one with no id is none), set up as the options at this place of the
         /// frame's `editors` say. The application keeps its document, lays out and draws its
@@ -1598,6 +1651,18 @@ interface types {
         more: bool,
     }
 
+    /// A command asked for on an element.
+    record command-on {
+        id: id,
+        target: id,
+    }
+
+    /// Something to be shown.
+    record reveal-request {
+        target: id,
+        index: option<u32>,
+    }
+
     /// One thing the person did, in the page's points (its top-left corner is the origin).
     variant event {
         pointer-move(pointer-move),
@@ -1639,6 +1704,13 @@ interface types {
         /// The person asked for the command of this name, from the application's list of them or
         /// by its keys (the key is not told as well).
         command(id),
+        /// The command `id` of the element `target` was asked for (one of the actions the element
+        /// lists: a command the page defined on it): by the person, a screen reader or an agent.
+        command-on(command-on),
+        /// `target` is to be shown: the element of that id, or, with `index` (from 1), that row of
+        /// the list, table or tree of that id. A page scrolls it into view, loads it where it builds
+        /// only what is in view, and moves its cursor to it.
+        reveal(reveal-request),
         /// The person gave the page files: dropped them, pasted them, or chose them in the Open panel.
         files(dropped-files),
         /// Files dragged from outside the page are over it.

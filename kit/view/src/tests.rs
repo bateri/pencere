@@ -1665,3 +1665,110 @@ fn a_row_with_no_name_of_its_own_is_read_by_the_name_the_page_falls_back_on_and_
     let (told, _) = told_of(named);
     assert_eq!(told[0], format!("{MenuItem:?} alpha"));
 }
+
+// --- The vocabulary: what a tip says more than a name, actions, what the page calls a kind --------------
+
+fn items_of(root: crate::Element) -> Vec<crate::Accessible> {
+    layout(root, Size::new(400.0, 400.0), 1.0, &mut Fixed).accessible()
+}
+
+#[test]
+fn what_a_tip_says_more_than_the_name_the_keys_the_actions_and_the_page_s_name_of_a_kind_are_told_with_the_element()
+ {
+    use crate::{AccessibleRole::Button, Command};
+    let root = div()
+        // The page's own command, on its outermost box: it is no action of an element.
+        .command(Command::new(Id::named("page"), "Page"))
+        .child(
+            div()
+                .press(Id::named("stop"))
+                .h(20.0)
+                .role_description("process")
+                .tip("Ends the process", Some("ctrl+k".to_owned()))
+                .command(Command::new(Id::named("kill"), "Kill"))
+                .command(Command::new(Id::named("stop-it"), "Stop it").enabled(false))
+                .child(text("Stop")),
+        )
+        // What the tip says is the name: nothing is said twice.
+        .child(
+            div()
+                .press(Id::named("close"))
+                .h(20.0)
+                .tip("Close", None)
+                .child(text("Close")),
+        );
+    let items = items_of(root);
+    let stop = &items[0];
+    assert_eq!(stop.role, Button);
+    assert_eq!(stop.words, "Stop");
+    assert_eq!(stop.detail.description.as_deref(), Some("Ends the process"));
+    assert_eq!(stop.detail.keys.as_deref(), Some("ctrl+k"));
+    assert_eq!(stop.detail.role_description.as_deref(), Some("process"));
+    let actions: Vec<(&str, bool)> = stop
+        .detail
+        .actions
+        .iter()
+        .map(|action| (action.title.as_str(), action.enabled))
+        .collect();
+    assert_eq!(actions, [("Kill", true), ("Stop it", false)]);
+    let close = &items[1];
+    assert_eq!(close.detail, crate::Detail::default());
+}
+
+#[test]
+fn the_states_a_page_gives_an_element_are_told_as_it_gave_them() {
+    use crate::{AccessibleRole::TreeItem, Sort};
+    let item = div()
+        .press(Id::named("src"))
+        .h(20.0)
+        .role(TreeItem)
+        .label("src")
+        .level(2)
+        .position(3, 12)
+        .expanded(true)
+        .mixed(true)
+        .checked(true)
+        .table_size(200, 4)
+        .cell_at(Some(5), Some(2))
+        .sorted(Sort::Descending);
+    let items = items_of(div().child(item));
+    let state = &items[0].state;
+    assert_eq!(items[0].role, TreeItem);
+    assert_eq!(state.level, Some(2));
+    assert_eq!((state.posinset, state.setsize), (Some(3), Some(12)));
+    assert_eq!((state.rowcount, state.colcount), (Some(200), Some(4)));
+    assert_eq!((state.rowindex, state.colindex), (Some(5), Some(2)));
+    assert_eq!(state.sort, Some(Sort::Descending));
+    assert_eq!(state.expanded, Some(true));
+    // Mixed is neither on nor off: it took the other away; a later `checked` gives it back.
+    assert!(state.mixed);
+    assert_eq!(state.checked, Some(true));
+    let mixed = div()
+        .press(Id::named("all"))
+        .h(20.0)
+        .checked(true)
+        .mixed(true);
+    assert_eq!(items_of(div().child(mixed))[0].state.checked, None);
+}
+
+#[test]
+fn a_dialog_that_holds_buttons_is_a_group_with_the_buttons_as_its_children() {
+    use crate::AccessibleRole::{Button, Dialog};
+    let dialog = div()
+        .col()
+        .role(Dialog)
+        .label("Delete it?")
+        .child(text("This cannot be undone."))
+        .child(div().press(Id::named("yes")).h(20.0).child(text("Delete")))
+        .child(div().press(Id::named("no")).h(20.0).child(text("Keep")));
+    let (told, _) = told_of(div().child(dialog));
+    assert_eq!(
+        told,
+        [
+            format!("{Dialog:?} Delete it?"),
+            format!("  {:?} This cannot be undone.", crate::AccessibleRole::Text),
+            format!("  {Button:?} Delete"),
+            format!("  {Button:?} Keep"),
+        ]
+    );
+}

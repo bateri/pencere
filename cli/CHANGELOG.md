@@ -8,6 +8,9 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
+- **`page:command_on(target, command)` and `page:reveal(target, index)`** in `pencere test`: a command done on an
+  element that lists it as an action, and something to be shown; `"mixed"` is in a locator's `state`; the new roles
+  are found by `get_by_role`.
 - **`pencere test` reads the page as an agent does**: `page:reading()` is the reading's text, to set
   against a golden file, and `page:audit()` the flaws of it (a control with no name, the same words twice, a
   control with no id, one that answers the pointer and says it only shows), empty where the page is

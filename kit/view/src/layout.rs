@@ -2086,6 +2086,39 @@ impl Laid {
                 {
                     continue;
                 }
+                // What the tip says more than the name does is what the element is for; its keys are
+                // the ones that do what it does; what else the page can do on it is the commands it
+                // defined here (the outermost box's are the page's).
+                let said = words.trim();
+                let detail = Detail {
+                    description: node
+                        .meta
+                        .tip
+                        .as_ref()
+                        .map(|tip| tip.words.trim())
+                        .filter(|tip| !tip.is_empty() && !said.is_empty() && *tip != said)
+                        .map(str::to_owned),
+                    keys: node
+                        .meta
+                        .tip
+                        .as_ref()
+                        .and_then(|tip| tip.keys.clone())
+                        .filter(|keys| !keys.is_empty()),
+                    role_description: node.meta.role_description.clone(),
+                    actions: match node.meta.id {
+                        Some(_) if index > 0 => node
+                            .meta
+                            .commands
+                            .iter()
+                            .map(|command| Action {
+                                id: command.id,
+                                title: command.title.clone(),
+                                enabled: command.enabled,
+                            })
+                            .collect(),
+                        _ => Vec::new(),
+                    },
+                };
                 items.push(Accessible {
                     role,
                     id: node.meta.id,
@@ -2094,6 +2127,7 @@ impl Laid {
                     state: node.meta.state.clone(),
                     pressable: node.meta.pressable,
                     parent: None,
+                    detail,
                 });
                 // A role and controls inside make a group of it: its children are its own.
                 owners.resize(items.len(), (index, carrier && node.meta.role.is_some()));
@@ -2111,6 +2145,7 @@ impl Laid {
                     state: node.meta.state.clone(),
                     pressable: false,
                     parent: None,
+                    detail: Detail::default(),
                 });
                 owners.resize(items.len(), (index, false));
             }
@@ -2125,6 +2160,7 @@ impl Laid {
                         state: node.meta.state.clone(),
                         pressable: false,
                         parent: None,
+                        detail: Detail::default(),
                     });
                 }
                 self.say_links(node, &mut items);
@@ -2335,6 +2371,7 @@ impl Laid {
                 state: State::default(),
                 pressable: false,
                 parent: None,
+                detail: Detail::default(),
             });
         }
     }
@@ -2696,6 +2733,63 @@ pub enum AccessibleRole {
     /// not read, and what is inside it is (a scrim that closes a dialog, a card that takes the
     /// click).
     None,
+    /// A window over the page that asks something of the person, or tells them something, before
+    /// the page goes on.
+    Dialog,
+    /// A dialog that tells of something that needs an answer at once.
+    AlertDialog,
+    /// What belongs together, with a name: what is inside it is its children.
+    Group,
+    /// Items one after the other (a list that is not picked from).
+    List,
+    /// An item of such a list.
+    ListItem,
+    /// A list that is picked from.
+    ListBox,
+    /// An item of a list that is picked from: the one chosen is [`crate::Element::selected`].
+    ListOption,
+    /// Rows and columns of cells, with the size of the whole ([`crate::Element::table_size`]).
+    Table,
+    /// A row of a table.
+    Row,
+    /// A cell of a row.
+    Cell,
+    /// The head of a column; how it sorts the table is [`crate::Element::sorted`].
+    ColumnHeader,
+    /// A list of which some items open into more of them.
+    Tree,
+    /// An item of a tree, of a level ([`crate::Element::level`]).
+    TreeItem,
+    /// The row of tabs of a set of them.
+    TabList,
+    /// A part of the page that says how things stand, and changes: a screen reader tells of the
+    /// change without moving the person.
+    Status,
+    /// A message of the same kind that cannot wait.
+    Alert,
+}
+
+/// What a screen reader says of an element besides its role, name and state: what it does, the
+/// keys that do it, what the page calls it, and what else can be done with it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Detail {
+    /// What the element is for, where its tip says more than its name does.
+    pub description: Option<String>,
+    /// The keys that do what it does, as its tip writes them.
+    pub keys: Option<String>,
+    /// What the page calls the kind of element it is ([`crate::Element::role_description`]).
+    pub role_description: Option<String>,
+    /// What else can be done with it: the commands the page defined on this element
+    /// ([`crate::Element::command`]), and not on the page's outermost box.
+    pub actions: Vec<Action>,
+}
+
+/// A command of an element, to be done on it ([`Detail::actions`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Action {
+    pub id: Id,
+    pub title: String,
+    pub enabled: bool,
 }
 
 /// One thing a screen reader says of the page ([`Laid::accessible`]).
@@ -2715,6 +2809,8 @@ pub struct Accessible {
     /// The item that holds this one, as an index of the list it is in: a dialog, a row, a tab that
     /// has a role and carries controls reads as a group, and what is inside it is its children.
     pub parent: Option<usize>,
+    /// What it is for, the keys, the page's name for its kind and its actions.
+    pub detail: Detail,
 }
 
 /// A text field the host puts over the page ([`Laid::fields`]).

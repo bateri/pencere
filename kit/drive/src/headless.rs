@@ -1983,6 +1983,45 @@ impl<P: Peer> Headless<P> {
         self.settle()
     }
 
+    /// The person (a screen reader, an agent) asks for the command `command` on the element named
+    /// `target`: one of the actions the element lists.
+    ///
+    /// # Errors
+    ///
+    /// The page has no such element in what is read ([`Error::NoSuch`]), or it lists no such action,
+    /// or one that is of no use now ([`Error::NoCommand`]), or as [`Headless::settle`].
+    pub fn command_on(&mut self, target: &str, command: &str) -> Result<(), Error> {
+        let (target_id, id) = (Id::named(target), Id::named(command));
+        let item = self
+            .page
+            .outline()
+            .accessible
+            .iter()
+            .find(|item| item.id == Some(target_id))
+            .ok_or_else(|| Error::NoSuch(target.to_owned()))?;
+        if !item
+            .detail
+            .actions
+            .iter()
+            .any(|action| action.id == id && action.enabled)
+        {
+            return Err(Error::NoCommand(command.to_owned()));
+        }
+        self.page.command_on(id, target_id);
+        self.settle()
+    }
+
+    /// `target` is to be shown, as a screen reader's move to it or an agent's request says: the
+    /// element named so, or, with `index` (from 1), that row of the list, table or tree of that name.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::settle`].
+    pub fn reveal(&mut self, target: &str, index: Option<u32>) -> Result<(), Error> {
+        self.page.reveal(Id::named(target), index);
+        self.settle()
+    }
+
     /// The person picks the `index`th entry (from 0, separators counted) of the menu the page asked
     /// for.
     ///

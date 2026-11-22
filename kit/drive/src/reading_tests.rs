@@ -35,6 +35,7 @@ fn item(role: AccessibleRole, id: Option<Id>, words: &str) -> Item {
         state: State::default(),
         pressable: false,
         parent: None,
+        detail: Default::default(),
     })
 }
 
@@ -351,6 +352,7 @@ fn a_reading_is_written_for_a_person_and_for_a_program_from_the_same_parts() {
             },
             pressable: false,
             parent: None,
+            detail: Default::default(),
         })],
         fields: vec![FieldReading {
             id: Id::named("q"),
@@ -747,18 +749,24 @@ return {
     let text = page.reading().text();
     let named = |name: &str| reference(Id::named(name));
     assert!(
-        text.contains(&format!("{}  tab \"containers\"", named("sec:containers"))),
+        text.contains(&format!(
+            "{}  tab \"containers\" [keys \"1\"]",
+            named("sec:containers")
+        )),
         "{text}"
     );
     assert!(
         text.contains(&format!(
-            "{}  tab \"images\" [selected]",
+            "{}  tab \"images\" [selected, keys \"1\"]",
             named("sec:images")
         )),
         "{text}"
     );
     assert!(
-        text.contains(&format!("{}  button \"Run it\"", named("plain"))),
+        text.contains(&format!(
+            "{}  button \"Run it\" [keys \"r\"]",
+            named("plain")
+        )),
         "{text}"
     );
     Ok(())
@@ -1190,6 +1198,179 @@ return {
         reading.items.iter().any(|item| item.words == "Later"),
         "{}",
         reading.text()
+    );
+    Ok(())
+}
+
+#[test]
+fn the_states_and_the_details_of_an_item_are_written_in_both_writers() {
+    use pencere_view::{Action, Detail, Sort};
+    let mut header = item(AccessibleRole::ColumnHeader, Some(Id::named("cpu")), "CPU");
+    header.state = State {
+        mixed: true,
+        level: Some(2),
+        posinset: Some(3),
+        setsize: Some(12),
+        rowcount: Some(200),
+        colcount: Some(4),
+        rowindex: Some(5),
+        colindex: Some(2),
+        sort: Some(Sort::Descending),
+        ..State::default()
+    };
+    header.detail = Detail {
+        description: Some("Sorts by processor use".to_owned()),
+        keys: Some("ctrl+k".to_owned()),
+        role_description: Some("process".to_owned()),
+        actions: vec![
+            Action {
+                id: Id::named("kill"),
+                title: "Kill".to_owned(),
+                enabled: true,
+            },
+            Action {
+                id: Id::named("renice"),
+                title: "Renice".to_owned(),
+                enabled: false,
+            },
+        ],
+    };
+    let reading = Reading {
+        items: vec![header],
+        ..Reading::default()
+    };
+    let text = reading.text();
+    for wanted in [
+        "columnheader \"CPU\" [mixed, level 2, 3 of 12, rows 200, columns 4, row 5, column 2, sorted descending, ",
+        "roledescription \"process\"",
+        "description \"Sorts by processor use\"",
+        "keys \"ctrl+k\"",
+        "action \"Kill\"",
+        "action \"Renice\" (disabled)",
+    ] {
+        assert!(text.contains(wanted), "{wanted}: {text}");
+    }
+    let json: Value = serde_json::from_str(&reading.json()).expect("json");
+    let item = &json["items"][0];
+    assert_eq!(item["role"], "columnheader");
+    assert_eq!(item["state"]["mixed"], true);
+    assert_eq!(item["state"]["posinset"], 3);
+    assert_eq!(item["state"]["rowcount"], 200);
+    assert_eq!(item["state"]["sort"], "descending");
+    assert_eq!(item["roledescription"], "process");
+    assert_eq!(item["description"], "Sorts by processor use");
+    assert_eq!(item["keys"], "ctrl+k");
+    assert_eq!(
+        item["actions"][0],
+        json!({ "title": "Kill", "enabled": true })
+    );
+    assert_eq!(item["actions"][1]["enabled"], false);
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_page_that_writes_the_vocabulary_is_read_with_it_and_is_told_the_command_on_an_element_and_the_reveal()
+-> Result<(), Error> {
+    let source = r#"
+local said = "nothing"
+return {
+    render = function()
+        local stop = pencere.div():id("stop"):press("stop"):role_description("process")
+            :tip("Ends the process", "ctrl+k"):command("kill", "Kill", {})
+            :command("renice", "Renice", {}, false):h(20):w(100):child(pencere.text("Stop"))
+        local table = pencere.div():id("grid"):role("table"):label("Processes"):table_size(200, 2)
+        local head = pencere.div():id("head"):role("row"):cell_at(1)
+            :child(pencere.div():id("cpu"):role("columnheader"):cell_at(nil, 2):sorted("ascending")
+                :press("cpu"):h(20):w(80):child(pencere.text("CPU")))
+        local row = pencere.div():id("row5"):role("row"):cell_at(5):position(5, 200):h(20):w(200)
+            :child(pencere.div():id("mark"):role("checkbox"):mixed():press("mark"):size(16, 16))
+        local item = pencere.div():id("src"):role("treeitem"):label("src"):level(2):expanded(false):press("src"):h(20):w(100)
+        return pencere.div():size_full():child(stop):child(table:child(head):child(row)):child(item)
+            :child(pencere.text(said))
+    end,
+    handle = function(event)
+        if event.type == "command" then
+            said = "command " .. tostring(event.id) .. " on " .. tostring(event.target)
+            return true
+        elseif event.type == "reveal" then
+            said = "reveal " .. tostring(event.target) .. " " .. tostring(event.index)
+            return true
+        end
+    end,
+}
+"#;
+    let mut page = Headless::script(source).size(400.0, 300.0).open()?;
+    page.settle()?;
+    let text = page.reading().text();
+    for wanted in [
+        "roledescription \"process\"",
+        "description \"Ends the process\"",
+        "keys \"ctrl+k\"",
+        "action \"Kill\"",
+        "action \"Renice\" (disabled)",
+        "table \"Processes\" [rows 200, columns 2]",
+        "columnheader \"CPU\" [column 2, sorted ascending]",
+        "checkbox \"\" [mixed]",
+        "treeitem \"src\" [collapsed, level 2]",
+        "row \"\" [5 of 200, row 5]",
+    ] {
+        assert!(text.contains(wanted), "{wanted}: {text}");
+    }
+    // The command done on an element reaches the page with the element it was done on, and one
+    // the element lists as of no use is refused.
+    page.command_on("stop", "kill")?;
+    assert!(page.reading().text().contains("command kill on stop"));
+    assert_eq!(
+        page.command_on("stop", "renice"),
+        Err(Error::NoCommand("renice".to_owned()))
+    );
+    assert_eq!(
+        page.command_on("nothing", "kill"),
+        Err(Error::NoSuch("nothing".to_owned()))
+    );
+    page.reveal("grid", Some(150))?;
+    assert!(page.reading().text().contains("reveal grid 150"));
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn what_a_page_may_ask_the_kit_for_is_named_and_every_method_after_the_first_kit_has_its_name()
+-> Result<(), Error> {
+    // The methods of an element the first kit had (the ones before 037). A method that is not in this list
+    // and has no `pencere.has("element.<method>")` of its own fails: a page cannot ask a kit for what the
+    // kit does not name, and a host too old for it would drop the page with a message nobody can act on.
+    const FIRST: &str = "absolute align anchor bg bg_gradient border browser carry checked child children clip col color command disabled draggable drop_target editor expanded family fit focusable focused gap gap_x gap_y grid grid_rows grow h h_full hidden id inset italic items_center items_end items_start items_stretch justify_between justify_center justify_end justify_start label list max_h max_w mb min_h min_w ml motion mr mt no_shrink opacity overlay p page pb peak pl pr press pt px py role rounded rounded_corners row scroll selected shadow size size_full span strike text_field text_size tint tip truncate underline value w w_full w_pct weight wrap zone zoom";
+    let source = format!(
+        r#"
+local first = {{}}
+for name in string.gmatch("{FIRST}", "%S+") do first[name] = true end
+local unnamed = {{}}
+for name, value in getmetatable(pencere.div()).__index do
+    if type(value) == "function" and not first[name] and not pencere.has("element." .. name) then
+        unnamed[#unnamed + 1] = name
+    end
+end
+table.sort(unnamed)
+local roles = 0
+for _ in pencere.roles do roles = roles + 1 end
+return {{
+    render = function()
+        return pencere.div():size_full():child(pencere.text(
+            "unnamed=" .. table.concat(unnamed, ",") .. " roles=" .. roles
+            .. " dialog=" .. tostring(pencere.has("role.dialog"))
+            .. " target=" .. tostring(pencere.has("command.target"))
+            .. " nope=" .. tostring(pencere.has("element.nope"))))
+    end,
+}}
+"#
+    );
+    let mut page = Headless::script(source).size(600.0, 100.0).open()?;
+    page.settle()?;
+    let text = page.reading().text();
+    assert!(
+        text.contains("unnamed= roles=29 dialog=true target=true nope=false"),
+        "{text}"
     );
     Ok(())
 }

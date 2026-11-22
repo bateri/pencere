@@ -8,6 +8,13 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **The page API's new vocabulary, and a way to ask for it**: the roles `dialog` … `alert` (sixteen, by the
+  web's names), `Element:mixed`, `level`, `position`, `table_size`, `cell_at`, `sorted` and
+  `role_description`, `pencere.roles` and `pencere.has(name)` (`"role.<role>"`, `"element.<method>"`,
+  `"event.reveal"`, `"command.target"`): a page asks before it uses what a kit has not always had; a test fails
+  for an element method that is new and has no name. The page is told `{ type = "command", id =, target = }` when a
+  command is done on an element and `{ type = "reveal", target =, index = }` when something is to be shown (WIT
+  `event.command-on` and `event.reveal`, and `node.role-description`, `state.mixed` … `state.sort`).
 - **`Element:layer(modal)` and `Element:fallback_name(words)`, and the role `"none"`** of the page's
   `Element:role`: a layer that shuts the page behind it out of what a screen reader and an agent read, the
   name an element falls back on, and an element that is not read. The library's modals, dialogs and

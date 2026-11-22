@@ -8,5 +8,5 @@ focus: page
 items:
 1hr0s6  button "main"
         text "Saved"
-4wqkfj  button "Ln 12, Col 4"
+4wqkfj  button "Ln 12, Col 4" [description "Go to line", keys "⌃G"]
         text "Lua"
