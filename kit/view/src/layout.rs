@@ -1454,17 +1454,30 @@ impl Laid {
     /// answers it, a link in a text) is painted over it, other than what is inside it or holds it. A box
     /// over it that does not answer the pointer (a shade, a badge) does not cover it, nor does one that
     /// is painted under it (a scrim, whose card is over it), nor one of a layer that is not modal (a
-    /// popover, a toast: the page it stands over is read and is meant to be covered there).
+    /// popover, a toast: the page it stands over is read and is meant to be covered there). A link in a
+    /// text of many looks is an element too: it is tried where it stands in its text.
     /// `Some(false)` where none of the five is reached; `None` where the element is not on the page, or
     /// none of it shows (what a box around it cuts off is not covered by anything).
     pub fn reached_where_shown(&self, id: Id) -> Option<bool> {
-        let index = self
-            .nodes
-            .iter()
-            .position(|node| node.meta.id == Some(id))?;
-        let node = self.nodes.get(index)?;
-        let seen = Self::shown(node);
-        if node.hidden || seen.w <= 0.0 || seen.h <= 0.0 {
+        let (index, seen) = match self.nodes.iter().position(|node| node.meta.id == Some(id)) {
+            Some(index) => {
+                let node = self.nodes.get(index)?;
+                if node.hidden {
+                    return None;
+                }
+                (index, Self::shown(node))
+            }
+            None => self.nodes.iter().enumerate().find_map(|(at, node)| {
+                if node.hidden {
+                    return None;
+                }
+                self.links_of(node)
+                    .into_iter()
+                    .find(|(_, link)| *link == id)
+                    .map(|(rect, _)| (at, rect.intersect(Self::shown(node))))
+            })?,
+        };
+        if seen.w <= 0.0 || seen.h <= 0.0 {
             return None;
         }
         let reached = |x: f32, y: f32| {

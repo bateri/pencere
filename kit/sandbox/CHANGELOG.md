@@ -12,7 +12,7 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   `danger`) and a palette with a label are a `dialog` named by it, with what is in it under it; the scrim
   that answers the pointer to give up is `none` (not read: a person gives up with escape; it was a
   button "Close …"), and a dialog's title is its name and no heading inside it; the card lists one action,
-  "Close" (`ui.dismiss`), that gives the layer up as escape does (`dismiss = false` lists none). A list is a `listbox` of
+  "Close" (`ui.dismiss`), that gives the layer up as escape does, done on the card or with no element named, as a terminal's list of commands does it (`dismiss = false` lists none). A list is a `listbox` of
   `option`s with their place (`1 of 200`), a tree a `tree` of `treeitem`s with their `level`, a grid a `table` (its label, "Table"
   where it has none) with a header `row` of `columnheader`s (`column N`, `sorted ascending`) and `row`s
   (`row N`), whose rows have "Row N" where their cells say nothing, tabs a `tablist` of `tab`s with their place,
