@@ -121,7 +121,6 @@ impl Motions {
                 continue;
             };
             if !motion.auto_size {
-                track.fit = None;
                 continue;
             }
             let size = (node.rect.w / scale, node.rect.h / scale);

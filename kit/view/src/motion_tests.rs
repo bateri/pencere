@@ -1752,3 +1752,217 @@ fn what_the_host_reads_of_a_page_is_where_the_page_put_a_box_and_not_where_a_loo
     assert_eq!(rest.bounds(BOX).unwrap().y, 0.0);
     assert!(rest.without_loops().is_none());
 }
+
+#[test]
+fn a_box_that_stops_following_its_laid_size_and_follows_it_again_goes_on_from_where_it_is() {
+    let mut motions = Motions::default();
+    lay_tall(&mut motions, accordion(true, body_motion(), false), 0.0);
+    // It stops following (the body is 80 points while it does, and nothing while it does not),
+    // and is not on the way anywhere.
+    let apart = lay_tall(&mut motions, accordion(false, Motion::new(0.2), false), 1.0);
+    assert_eq!(at(&apart, BODY).h, 0.0);
+    assert!(!motions.moving());
+    // Following again, it is at the size it is at: what it followed before is not a size it
+    // walks from.
+    let again = lay_tall(&mut motions, accordion(false, body_motion(), false), 2.0);
+    assert_eq!(
+        at(&again, BODY).h,
+        0.0,
+        "it does not go back to what it was"
+    );
+    assert!(!motions.moving());
+    let later = lay_tall(&mut motions, accordion(false, body_motion(), false), 2.05);
+    assert_eq!(at(&later, BODY).h, 0.0);
+    assert_eq!(at(&later, FOOT).y, 20.0);
+}
+
+#[test]
+fn what_goes_out_while_it_spins_and_loops_fades_as_turned_and_as_moved_as_it_left() {
+    let motion = Motion::new(0.2)
+        .spin(2.0)
+        .cycle(Cycle::new(2.0).ease(Ease::Linear).by(20.0, 0.0))
+        .exit(Shift::fade(0.5));
+    let page = |here: bool| {
+        let holder = div().id(LIST);
+        if here {
+            holder.child(
+                image("a.png", Fit::Contain)
+                    .id(BOX)
+                    .size(16.0, 16.0)
+                    .motion(motion),
+            )
+        } else {
+            holder
+        }
+    };
+    let mut motions = Motions::default();
+    lay(&mut motions, page(true), 0.0);
+    // A quarter of the spin, and half of the way of the loop (it goes there and back).
+    let there = lay(&mut motions, page(true), 0.5);
+    assert_eq!(there.nodes[1].turn, 90.0);
+    assert_eq!(there.nodes[1].rect.x, 10.0);
+    for now in [0.5, 0.55, 0.6, 0.7] {
+        let laid = lay(&mut motions, page(false), now);
+        let ghost = laid.nodes.last().expect("it is going");
+        assert_eq!(laid.nodes.len(), 2, "at {now}");
+        assert_eq!(ghost.turn, 90.0, "at {now}: it goes as turned as it left");
+        assert_eq!(ghost.rect.x, 10.0, "at {now}: and where it was");
+        assert!(
+            laid.without_loops().is_none(),
+            "at {now}: what has gone does not loop on"
+        );
+    }
+}
+
+#[test]
+fn what_goes_out_of_what_goes_out_leaves_the_ones_that_went_before_it_where_they_were() {
+    let fade = Motion::new(0.2).exit(Shift::fade(0.5));
+    let page = |outer: bool, inner: bool| {
+        let holder = div().id(LIST);
+        if !outer {
+            return holder;
+        }
+        let first = div().id(BODY).motion(fade);
+        holder.child(if inner {
+            first.child(div().id(HEAD).h(10.0).motion(fade))
+        } else {
+            first
+        })
+    };
+    let mut motions = Motions::default();
+    lay(&mut motions, page(true, true), 0.0);
+    // The inner one goes: its going is a part of the page for now.
+    let inner = lay(&mut motions, page(true, false), 1.0);
+    assert_eq!(inner.nodes.len(), 3);
+    // The outer one goes after it: it is what it was when it left, and not with what went before.
+    let outer = lay(&mut motions, page(false, false), 1.05);
+    assert_eq!(outer.nodes.len(), 2);
+}
+
+/// A box of 40 by 20 points, its fill as `on` says (solid or none at all) and a spring to follow.
+fn tint(on: bool) -> Element {
+    div().row().child(
+        div()
+            .id(BOX)
+            .w(40.0)
+            .h(20.0)
+            .no_shrink()
+            .bg(if on {
+                Role::Accent.solid()
+            } else {
+                Role::Accent.alpha(0.0)
+            })
+            .motion(Motion::new(0.5).color().ease(Ease::Spring).bounce(0.6)),
+    )
+}
+
+/// `tint` as faint as `level` says.
+fn tint_to(level: f32) -> Element {
+    div().row().child(
+        div()
+            .id(BOX)
+            .w(40.0)
+            .h(20.0)
+            .no_shrink()
+            .bg(Role::Accent.alpha(level))
+            .motion(Motion::new(0.5).color().ease(Ease::Spring).bounce(0.6)),
+    )
+}
+
+fn alpha_of(laid: &Laid) -> f32 {
+    node_of(laid, BOX).fill.expect("a fill").alpha
+}
+
+#[test]
+fn a_spring_colour_sent_back_in_flight_goes_on_at_its_speed_and_does_not_leave_what_it_was_between()
+{
+    let mut motions = Motions::default();
+    lay(&mut motions, tint(false), 0.0);
+    lay(&mut motions, tint(true), 1.0);
+    let on_the_way = alpha_of(&lay(&mut motions, tint(true), 1.06));
+    assert!(on_the_way > 0.2 && on_the_way < 0.8, "{on_the_way}");
+    // Sent back where it came from, at this very time: it was going to solid, and it does not
+    // turn at once: it stays where it is, as a colour cannot be past it, till the spring has
+    // turned, and it is not more of the colour than it was.
+    let mut sent = motions.clone();
+    let at = alpha_of(&lay(&mut sent, tint(false), 1.06));
+    assert!((at - on_the_way).abs() < 0.01, "{on_the_way} then {at}");
+    let mut now = 1.06;
+    while sent.moving() {
+        now += FRAME;
+        assert!(now < 5.0, "it never comes to rest");
+        let alpha = alpha_of(&lay(&mut sent, tint(false), now));
+        assert!((0.0..=at + 0.005).contains(&alpha), "{alpha} at {now}");
+        // The first frames after it was sent: it has not dropped to where it goes.
+        if now < 1.06 + 4.0 * FRAME {
+            assert!(
+                alpha > at - 0.15,
+                "its speed is kept: {at} then {alpha} at {now}"
+            );
+        }
+    }
+    assert_eq!(alpha_of(&lay(&mut sent, tint(false), 9.0)), 0.0);
+}
+
+#[test]
+fn a_spring_colour_sent_on_in_flight_goes_at_the_speed_it_had_whatever_the_way_it_has_now() {
+    // Going to 0.2 of the colour, and sent on to 1.0 of it (a longer way) or to 0.7 (a shorter
+    // one) at the same time: the colour changes at the pace it did, and not as many of the way.
+    for (first, then) in [(0.2_f32, 1.0_f32), (1.0, 0.7)] {
+        let mut motions = Motions::default();
+        lay(&mut motions, tint_to(0.0), 0.0);
+        lay(&mut motions, tint_to(first), 1.0);
+        let by = |motions: &mut Motions, level: f32, now: f64| {
+            alpha_of(&lay(motions, tint_to(level), now))
+        };
+        let (mut goes_on, mut sent) = (motions.clone(), motions);
+        let at = by(&mut goes_on, first, 1.06);
+        let step = by(&mut goes_on, first, 1.062) - at;
+        assert!(step > 0.0005, "it is on the way: {step}");
+        assert!((by(&mut sent, then, 1.06) - at).abs() < 0.001);
+        let after = by(&mut sent, then, 1.062) - at;
+        assert!(
+            (after / step - 1.0).abs() < 0.25,
+            "{first} then {then}: it goes by {after} where it went by {step}"
+        );
+    }
+}
+
+#[test]
+fn a_turn_and_a_scale_that_are_not_what_they_can_be_are_held_as_the_layout_holds_them() {
+    let page = |turn: f32, scale: f32| {
+        div().child(
+            image("a.png", Fit::Contain)
+                .id(BOX)
+                .size(16.0, 16.0)
+                .turned(turn)
+                .scaled(scale)
+                .motion(Motion::new(0.2).transform()),
+        )
+    };
+    let sees = |turn: f32, scale: f32| {
+        let laid = Motions::default().layout(page(turn, scale), PAGE, 1.0, &mut Fixed, 0.0, false);
+        (laid.nodes[1].turn, laid.nodes[1].scaled)
+    };
+    assert_eq!(sees(30.0, -1.0), (30.0, 0.0), "no less than nothing");
+    assert_eq!(sees(f32::NAN, f32::NAN), (0.0, 1.0));
+    assert_eq!(sees(f32::INFINITY, f32::NEG_INFINITY), (0.0, 1.0));
+    // On its way to one it cannot be, it is not on the way to it for ever, and is not drawn
+    // as less than nothing.
+    let mut motions = Motions::default();
+    lay(&mut motions, page(0.0, 1.0), 0.0);
+    lay(&mut motions, page(0.0, -3.0), 1.0);
+    let mut now = 1.0;
+    while motions.moving() {
+        now += FRAME;
+        let laid = lay(&mut motions, page(0.0, -3.0), now);
+        let scaled = laid.nodes[1].scaled;
+        assert!((0.0..=1.0).contains(&scaled), "{scaled} at {now}");
+        assert!(now < 3.0, "it never comes to rest");
+    }
+    assert_eq!(lay(&mut motions, page(0.0, -3.0), 9.0).nodes[1].scaled, 0.0);
+    let mut motions = Motions::default();
+    lay(&mut motions, page(f32::NAN, f32::NAN), 0.0);
+    lay(&mut motions, page(f32::NAN, f32::NAN), 0.1);
+    assert!(!motions.moving(), "a number that is none is not a change");
+}

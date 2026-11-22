@@ -877,6 +877,16 @@ local function number_of(what, value)
 	return value
 end
 
+-- How many times as large (not less than nothing), or nil for what is no number of times (NaN or
+-- infinite): that is left out and said once, and it is as if no scale was said.
+local function scale_of(what, value)
+	if type(value) == "number" and (value ~= value or value == math.huge or value == -math.huge) then
+		leave_out(what, what .. " is not a number of times (it is NaN or infinite), and it is left out")
+		return nil
+	end
+	return math.max(0, number_of(what, value))
+end
+
 -- A picture and a canvas are turned and made larger; no other element is.
 local function turns(element)
 	return element.kind == "image" or element.kind == "canvas"
@@ -998,9 +1008,9 @@ function Element:motion(motion)
 		end
 		if given.rotate ~= nil or given.scale ~= nil then
 			local rotate = given.rotate ~= nil and number_of(name .. "'s rotate", given.rotate) or 0
-			local scale = given.scale ~= nil and number_of(name .. "'s scale", given.scale) or 1
+			local scale = given.scale ~= nil and scale_of(name .. "'s scale", given.scale) or 1
 			if rotates then
-				made.rotate, made.scale = rotate, math.max(0, scale)
+				made.rotate, made.scale = rotate, scale
 			else
 				leave_out(name .. ".turns", name .. "'s rotate and scale are for a picture and a canvas, and are left out of this element")
 			end
@@ -1061,9 +1071,9 @@ function Element:motion(motion)
 		end
 		if given.rotate ~= nil or given.scale ~= nil then
 			local rotate = given.rotate ~= nil and number_of("loop's rotate", given.rotate) or 0
-			local scale = given.scale ~= nil and number_of("loop's scale", given.scale) or 1
+			local scale = given.scale ~= nil and scale_of("loop's scale", given.scale) or 1
 			if rotates then
-				made.rotate, made.scale = rotate, math.max(0, scale)
+				made.rotate, made.scale = rotate, scale
 			else
 				leave_out("loop.turns", "loop's rotate and scale are for a picture and a canvas, and are left out of this element")
 			end
@@ -1107,7 +1117,7 @@ function Element:transform(parts)
 		end
 	end
 	local rotate = parts.rotate ~= nil and number_of("transform's rotate", parts.rotate) or 0
-	local scale = parts.scale ~= nil and math.max(0, number_of("transform's scale", parts.scale)) or nil
+	local scale = parts.scale ~= nil and scale_of("transform's scale", parts.scale) or nil
 	if not turns(self) then
 		leave_out("transform.element", "an element's transform is for a picture and a canvas, and it is left out of this element")
 		return self

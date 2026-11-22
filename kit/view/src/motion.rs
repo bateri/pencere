@@ -587,8 +587,20 @@ impl Values {
             numbers[TEXT] = Some(style.text.size.unwrap_or(outer));
         }
         if motion.transform {
-            numbers[ROTATE] = Some(style.turn);
-            numbers[SCALE] = Some(style.scale.unwrap_or(1.0));
+            // As the layout holds them (and a number that is none is not a change at each frame):
+            // a turn that is no number is none, a scale that is none is as it is, and none is less
+            // than nothing.
+            numbers[ROTATE] = Some(if style.turn.is_finite() {
+                style.turn
+            } else {
+                0.0
+            });
+            numbers[SCALE] = Some(
+                style
+                    .scale
+                    .filter(|scale| scale.is_finite())
+                    .map_or(1.0, |scale| scale.max(0.0)),
+            );
         }
         values
     }
@@ -746,6 +758,30 @@ fn held(number: usize, value: f32) -> f32 {
         OPACITY => value.clamp(0.0, 1.0),
         ROTATE | SHADOW_X | SHADOW_Y => value,
         _ => value.max(0.0),
+    }
+}
+
+/// How far a colour is from another, in what [`blend`] moves: its alpha and how much of one colour is
+/// taken toward another. It is not what the eye sees of it, only a way to say how many of one way
+/// make another.
+fn gap(from: Option<Color>, to: Option<Color>) -> f32 {
+    match (from, to) {
+        (None, None) => 0.0,
+        (Some(colour), None) | (None, Some(colour)) => colour.alpha,
+        (Some(from), Some(to)) => {
+            let taken = if from.source == to.source {
+                match (from.mix, to.mix) {
+                    (Some(a), Some(b)) if a.toward == b.toward => (a.amount - b.amount).abs(),
+                    (Some(a), None) => a.amount,
+                    (None, Some(b)) => b.amount,
+                    (None, None) => 0.0,
+                    _ => 1.0,
+                }
+            } else {
+                1.0
+            };
+            (from.alpha - to.alpha).abs() + taken
+        }
     }
 }
 
@@ -936,8 +972,23 @@ impl Track {
         let Some(leg) = self.change else {
             return rates;
         };
-        for (channel, rate) in rates.iter_mut().enumerate().take(COLORS) {
-            *rate = leg.speed(now, channel);
+        let colours = (self.from.colors.into_iter())
+            .zip(self.target.colors)
+            .zip(here.colors)
+            .zip(to.colors);
+        for (channel, (((then, was), now_at), next)) in colours.enumerate() {
+            // The speed is a share of the way the colour was going (`then` to `was`): on the way
+            // it goes now (`now_at` to `next`) the same pace is as many of that way as it is long.
+            let (old_way, new_way) = (gap(then, was), gap(now_at, next));
+            let speed = leg.speed(now, channel);
+            if new_way > 0.01
+                && speed.is_finite()
+                && let Some(rate) = rates.get_mut(channel)
+            {
+                // Toward `next` where that is further from where the colour came from than it is.
+                let forward = gap(then, next) >= gap(then, now_at);
+                *rate = speed * old_way / new_way * if forward { 1.0 } else { -1.0 };
+            }
         }
         let numbers = (self.from.numbers.into_iter())
             .zip(self.target.numbers)
@@ -1081,8 +1132,10 @@ impl Motions {
                 })
             })
             .then(|| laid.clone());
+        let tree = laid.nodes.len();
         self.after(&mut laid, now, still, first, &seen, &fresh, &mut pace);
         cycles(&mut laid, now, reduce_motion, &mut pace);
+        self.remember(&laid, tree);
         self.pace = pace;
         laid
     }
@@ -1105,6 +1158,7 @@ impl Motions {
             pace.finite |= track.change.is_some();
         }
         let seen = self.tracks.keys().copied().collect();
+        let tree = laid.nodes.len();
         self.after(
             &mut laid,
             now,
@@ -1115,6 +1169,7 @@ impl Motions {
             &mut pace,
         );
         cycles(&mut laid, now, reduce_motion, &mut pace);
+        self.remember(&laid, tree);
         self.pace = pace;
         Some(laid)
     }
@@ -1174,6 +1229,11 @@ impl Motions {
                     look: None,
                 }
             });
+            if !motion.auto_size {
+                // What it followed when it did is not where it is: if it follows again, it goes
+                // on from the size it is laid out at then.
+                track.fit = None;
+            }
             if track.target != target {
                 let here = track.values(now);
                 let mut leg = Leg::new(now, motion.seconds, motion.ease, motion.bounce);
@@ -1307,26 +1367,6 @@ impl Motions {
                 node.scaled *= size;
             }
             shift(boxes, dx, dy, opacity * values.shows(&motion));
-            track.look = match (motion.exit, holder) {
-                (Some(exit), Some((_, holder))) => Some(Look {
-                    nodes: boxes
-                        .iter()
-                        .map(|node| {
-                            let mut node = node.clone();
-                            // The parents inside it, as places in it; its own is the holder's.
-                            node.parent = node.parent.and_then(|parent| parent.checked_sub(index));
-                            node.rect.x -= origin.0;
-                            node.rect.y -= origin.1;
-                            node.clip.x -= origin.0;
-                            node.clip.y -= origin.1;
-                            node
-                        })
-                        .collect(),
-                    holder,
-                    exit,
-                }),
-                _ => None,
-            };
             // What is inside it moves with it; an element inside it that moves of its own is
             // still followed.
             index += 1;
@@ -1411,6 +1451,54 @@ impl Motions {
             pace.finite = true;
         }
         self.scrolls = scrolls;
+    }
+
+    /// What each element that goes out looks like, as it is drawn: its boxes and those inside it
+    /// against the content of the box that holds it, for it to go from. Taken when everything has
+    /// been put on the page (the spin and the loops too), so that it goes from the turn and the
+    /// place it had when it left. `tree` is how many of the boxes are the page's: those after it
+    /// are what is going, and no part of what looks like.
+    fn remember(&mut self, laid: &Laid, tree: usize) {
+        for (index, node) in laid.nodes.iter().enumerate().take(tree) {
+            let (Some(id), Some(motion)) = (node.meta.id, node.meta.motion) else {
+                continue;
+            };
+            let Some(track) = self.tracks.get_mut(&id) else {
+                continue;
+            };
+            let holder = ancestors(&laid.nodes, index)
+                .find_map(|parent| Some((parent, laid.nodes.get(parent)?.meta.id?)));
+            track.look = match (motion.exit, holder) {
+                (Some(exit), Some((parent, holder))) => {
+                    let origin = laid.nodes.get(parent).map_or((0.0, 0.0), content_origin);
+                    let end = subtree_end(&laid.nodes, index).min(tree);
+                    Some(Look {
+                        nodes: laid
+                            .nodes
+                            .get(index..end)
+                            .unwrap_or_default()
+                            .iter()
+                            .map(|node| {
+                                let mut node = node.clone();
+                                // The parents inside it, as places in it; its own is the holder's.
+                                node.parent =
+                                    node.parent.and_then(|parent| parent.checked_sub(index));
+                                node.rect.x -= origin.0;
+                                node.rect.y -= origin.1;
+                                node.clip.x -= origin.0;
+                                node.clip.y -= origin.1;
+                                // What goes does not loop on: it is where the loops had it.
+                                node.cycled = (0.0, 0.0);
+                                node
+                            })
+                            .collect(),
+                        holder,
+                        exit,
+                    })
+                }
+                _ => None,
+            };
+        }
     }
 }
 

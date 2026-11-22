@@ -127,6 +127,53 @@ fn print_says_its_arguments_as_text_joined_with_tabs_and_warn_says_it_as_a_warni
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_scale_that_is_no_number_is_left_out_with_a_warning_as_it_is_on_the_wire() {
+    let mut page = open(
+        r##"
+        local nan, inf = 0 / 0, math.huge
+        return { render = function()
+            return pencere.div()
+                :child(pencere.image("a.svg"):size(8, 8)
+                    :transform({ rotate = 30, scale = nan })
+                    :motion({
+                        enter = { scale = inf, dx = 4 },
+                        exit = { scale = -inf, dx = 4 },
+                        loop = { seconds = 1, scale = nan },
+                    }))
+                :child(pencere.image("b.svg"):size(8, 8):transform({ scale = -inf }))
+                :child(pencere.image("c.svg"):size(8, 8):transform({ scale = -2 }))
+        end }
+        "##,
+    );
+    drain(&mut page);
+    assert_eq!(page.seen.closed, None);
+    let nodes = page.seen.frame.clone().expect("a page").root.fold();
+    // It is not a scale: as on the wire, it is not said (the picture is as large as it is), where
+    // a scale that is a number is not less than nothing.
+    assert_eq!((nodes[1].style.turn, nodes[1].style.scale), (30.0, None));
+    let motion = nodes[1].meta.motion.expect("it moves");
+    assert_eq!(motion.enter.map(|shift| shift.scale), Some(1.0));
+    assert_eq!(motion.exit.map(|shift| shift.scale), Some(1.0));
+    assert_eq!(motion.cycle.map(|cycle| cycle.scale), Some(1.0));
+    assert_eq!(nodes[2].style.scale, None);
+    assert_eq!(nodes[3].style.scale, Some(0.0));
+    // Said once for each place it was given, and not for a scale that is a number.
+    let said: Vec<String> = lines(&page)
+        .into_iter()
+        .filter(|(level, text)| level == "warn" && text.contains("not a number of times"))
+        .map(|(_, text)| text)
+        .collect();
+    assert_eq!(said.len(), 4, "{said:?}");
+    for place in ["enter's", "exit's", "loop's", "transform's"] {
+        assert!(
+            said.iter().any(|text| text.starts_with(place)),
+            "{place}: {said:?}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_line_of_more_than_8192_bytes_is_cut_before_the_character_it_would_end_in_and_says_how_much() {
     let mut page = open(
         r#"
