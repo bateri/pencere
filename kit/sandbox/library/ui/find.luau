@@ -4,7 +4,7 @@
 --       -- close, found { count, current }
 --
 -- The bar drives the editor with the editor's own asks (`find`, `find_next`, `find_previous`,
--- `replace`, `replace_all`, `stop_finding`: Section 2.3) and hears what it found (`found`,
+-- `replace`, `replace_all`, `stop_finding`: `kit/spec/editor-marks.md`) and hears what it found (`found`,
 -- `editor_refused`): it keeps no search of its own.
 
 local core = require("./core")

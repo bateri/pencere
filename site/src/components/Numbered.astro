@@ -23,8 +23,10 @@ interface Props {
   keep?: string[];
   /** With `keep`: whether what the document says before its first section is shown too. */
   opening?: boolean;
+  /** Leave out the document's own title (a page that has its own). */
+  untitled?: boolean;
 }
-const { source, path, keep, opening = true } = Astro.props;
+const { source, path, keep, opening = true, untitled = false } = Astro.props;
 const at = posix.dirname(source) === "." ? "" : posix.dirname(source);
 const BLOB = `${REPO}/blob/main/`;
 // A link to a file of the repository goes to the page that shows it, and a link to a heading to
@@ -62,7 +64,7 @@ const part = () => {
   if (missing.length) throw new Error(`${source} has no section ${missing.join(", ")}.`);
   return (opening ? before : "") + kept.join("");
 };
-const html = keep ? part() : whole;
+const html = (keep ? part() : whole).replace(untitled ? /<h1[ >][\s\S]*?<\/h1>\s*/ : /(?!)/, "");
 const picture = (d: string, name: string) =>
   `<svg class="anchor__${name}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
 const CHAIN = "M6.9 9.1a2.9 2.9 0 0 0 4.1 0l2.2-2.2a2.9 2.9 0 0 0-4.1-4.1l-.9.9M9.1 6.9a2.9 2.9 0 0 0-4.1 0L2.8 9.1a2.9 2.9 0 0 0 4.1 4.1l.9-.9";

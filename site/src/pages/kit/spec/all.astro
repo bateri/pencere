@@ -1,0 +1,26 @@
+---
+// The topics of the kit's page API one after the other, in the order of their index: the same
+// text, for a browser's find and for printing. It is no page of the map (src/docs.js), so it is in no
+// menu and no list of pages; the text is on the topics' own pages.
+import Doc from "../../../layouts/Doc.astro";
+import Demoted from "../../../components/Demoted.astro";
+import { document, topics } from "../../../lib/documents.js";
+
+const found = await Promise.all(topics().map((source) => document(source)));
+// The list beside the page: each topic with its sections inside it.
+const headings = found.flatMap((entry) => entry.headings.map((heading) => ({ ...heading, depth: heading.depth + 1 })));
+const page = {
+  path: "kit/spec/all",
+  words: "The page API on one page",
+  area: "apps",
+  source: "kit/spec/page.md",
+  shows: "kit/spec",
+  heading: "The page API on one page",
+  crumbs: [["The page API, by topic", "/kit/spec"]] as [string, string][],
+  title: "The page API on one page: the pencere kit",
+  description: "Every topic of the pencere kit's page API one after the other, to search in the browser or to print.",
+};
+---
+<Doc page={page} headings={headings}>
+  {found.map(({ Content }) => <Demoted><Content /></Demoted>)}
+</Doc>

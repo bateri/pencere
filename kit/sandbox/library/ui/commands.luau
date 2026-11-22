@@ -9,7 +9,7 @@
 --   -- in handle:                            act.from == "commands" and act.kind == "command" → act.id
 --   u:palette("palette", { items = cmds:items(), ... })
 --
--- A command is a thing the page can be told to do (`command(id, title, keys, enabled)`, Section 2.1):
+-- A command is a thing the page can be told to do (`command(id, title, keys, enabled)`, `kit/spec/commands.md`):
 -- the host does it by its keys wherever the keyboard is, and says `{ kind = "command", id }` to the
 -- page. While a modal (a dialog, a palette) is in front, a command that is not `global` is written
 -- not `enabled`, so that its keys are keys of the page and no other: the person typing in a dialog

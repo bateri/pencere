@@ -57,7 +57,7 @@ All notable changes to the `pencere` command are recorded here. The format follo
   held with `page:hold("cmd")` is what a gesture carries. A page is told the fingers of a trackpad
   and the buttons of a mouse beyond the third with their own events (`magnify`, `smart_magnify`,
   `rotate`, `swipe`, `pressure`, `extra_press`, `extra_release`), and `move`, `release` and `wheel`
-  carry the modifiers (the kit's specification, Section 2.3).
+  carry the modifiers (`kit/spec/events.md`).
 - **A built app opens in a terminal that speaks Kitty graphics.** The command links `pencere-tui` (the new
   feature `terminal`, on by default): an app started in a terminal that hosts no views but speaks that
   protocol draws its `lua` page there as pictures, with the app's own handlers in the same process, and

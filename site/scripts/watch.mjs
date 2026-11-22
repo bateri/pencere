@@ -27,7 +27,7 @@ const read = [
 
 // What the catalogue is made from (scripts/catalog.mjs): it is made again when one of them changes.
 const catalogued = [
-  join(repo, "kit/SPEC.md"),
+  join(repo, "kit/spec"),
   join(repo, "kit/sandbox/library/ui"),
   join(site, "demos"),
   join(site, "public/shots/shots.json"),

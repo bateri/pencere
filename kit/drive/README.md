@@ -3,7 +3,7 @@
 The drive of a page of [pencere](https://github.com/bateri/pencere)'s native views. A page of the kit
 is a Lua script in a sandbox (`pencere-sandbox`) that hands out a tree of
 boxes and lines of text (`pencere-view`) and answers what the person does. Between the two stands
-what the kit's specification (`kit/SPEC.md`, Section 4) asks of every host: the page laid out with
+what the kit's specification (`kit/spec/host.md`) asks of every host: the page laid out with
 its editors (`pencere-editor`) in their rooms, its boxes scrolled, a key sent to the page's command
 for it, to an editor or to the page, its replies done, its wakes given, what it says to its program
 carried. This crate is that, written once, so that every terminal does it the same way.

@@ -1,5 +1,5 @@
 //! `print` and `warn` in a page: each line is a call of the reserved method `pencere.log` that the
-//! program writes to its log (kit specification, Section 2.4). The tests run the interpreter, so
+//! program writes to its log (`kit/spec/program.md`). The tests run the interpreter, so
 //! they are `make check-heavy`'s.
 
 use std::time::Duration;

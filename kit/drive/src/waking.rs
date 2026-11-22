@@ -1,4 +1,4 @@
-//! The wakes a page asks for, the host's half of them (the kit's specification, §4).
+//! The wakes a page asks for, the host's half of them (`kit/spec/host.md`).
 //!
 //! The sandbox keeps the earliest time a page asked to be woken at, in its replies and its frames
 //! (`pencere_sandbox::Update::wake`, on the clock its frames are given), and tells it at every

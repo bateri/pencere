@@ -729,7 +729,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
     // ---- the panels (§8.9, §8.10) -----------------------------------------
 
     /// A view the terminal draws itself asks for the Open panel, in what it answered something the
-    /// person did (the kit holds the panels to that, `kit/SPEC.md`). One panel is open at a time:
+    /// person did (the kit holds the panels to that, `kit/spec/replies.md`). One panel is open at a time:
     /// asked for while one is, while no view that has files runs, it is dropped and counted as
     /// ignored. The terminal shows it ([`Action::Pick`]) and calls
     /// [`panel_closed`](Self::panel_closed) when the person has answered.

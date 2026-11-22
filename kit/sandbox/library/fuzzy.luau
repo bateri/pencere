@@ -23,8 +23,7 @@
 --   search = fuzzy.search(pattern, files, { path = true, limit = 50 })
 --   return search:run(function(search) shown = search:results(); return true end)
 --
--- A place is a byte of the text, counted from 1 as `string.find` counts (Section 2.7 of the kit's
--- specification): the byte a matched character starts at, so that `string.find(text, character,
+-- A place is a byte of the text, counted from 1 as `string.find` counts (`kit/spec/counting.md`): the byte a matched character starts at, so that `string.find(text, character,
 -- place, true) == place` and, for a letter of one byte, `string.sub(text, place, place)` is the
 -- letter. A text that is not UTF-8 is read a byte a character, and a text is matched in its first
 -- 64 KiB. Case: "smart" (the default) tells a
@@ -1151,7 +1150,7 @@ local LOOKS = {
 	bg = true,
 	link = true,
 }
--- The most parts a text of many looks may have (the kit's SPEC, Section 4).
+-- The most parts a text of many looks may have (`kit/spec/host.md`).
 local MOST_PARTS = 1024
 
 local function part(words, look)
@@ -1177,7 +1176,7 @@ end
 -- `from` and `to` (bytes, a range `[from, to)`, the whole text by default: 1 and `#text + 1`) take
 -- a part of the text, the positions still counted in the whole: a path's name and its directories
 -- drawn apart. Places outside it are passed over. A place, or an end of the part, that is inside
--- a character of a text in UTF-8 is an error (Section 2.7 of the kit's specification).
+-- a character of a text in UTF-8 is an error (`kit/spec/counting.md`).
 --
 --   pencere.rich(fuzzy.spans(row.item, row.positions, { color = "accent" })):truncate()
 function fuzzy.spans(text, positions, look, from, to)

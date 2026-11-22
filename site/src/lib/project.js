@@ -89,10 +89,10 @@ export function layers() {
   };
 }
 
-/** The kit's library: what it is, and each module's name and the sentence its section opens with (kit/SPEC.md, 2.6). */
+/** The kit's library: what it is, and each module's name and the sentence its section opens with (kit/spec/library.md). */
 export function library() {
-  const said = section("kit/SPEC.md", "2.6 The kit's library");
-  const [head, ...parts] = said.split(/\n#### /);
+  const said = section("kit/spec/library.md", "The kit's library");
+  const [head, ...parts] = said.split(/\n## /);
   const modules = parts.map((part) => {
     const [title, ...rest] = part.split("\n");
     return {
@@ -100,13 +100,14 @@ export function library() {
       says: inline(sentence(paragraphs(rest.join("\n"))[0])),
     };
   });
-  if (modules.length === 0) throw new Error("kit/SPEC.md names no module of the kit's library.");
+  if (modules.length === 0)
+    throw new Error("kit/spec/library.md names no module of the kit's library.");
   return { says: inline(sentence(paragraphs(head)[0])), modules };
 }
 
-/** What the page API says an element is (kit/SPEC.md, 2.1). */
+/** What the page API says an element is (kit/spec/elements.md). */
 export const elements = () => ({
-  says: inline(paragraphs(section("kit/SPEC.md", "2.1 Elements"))[0]),
+  says: inline(paragraphs(section("kit/spec/elements.md", "Elements"))[0]),
 });
 
 /** The command's own lines of use, each with what its README says of it after `#` (cli/README.md, Use). */

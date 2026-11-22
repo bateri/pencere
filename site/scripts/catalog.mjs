@@ -15,7 +15,9 @@ const kit = join(repo, "kit");
 const library = join(kit, "sandbox/library/ui");
 const demos = join(site, "demos");
 const shots = JSON.parse(readFileSync(join(site, "public/shots/shots.json"), "utf8"));
-const spec = readFileSync(join(kit, "SPEC.md"), "utf8");
+// The topics of the page API that say what the catalogue shows: the library's and the elements'.
+const spec = readFileSync(join(kit, "spec/library.md"), "utf8");
+const elements_spec = readFileSync(join(kit, "spec/elements.md"), "utf8");
 
 const wrong = [];
 
@@ -27,7 +29,7 @@ const GROUPS = ["Controls", "Fields and choices", "Layers", "Lists and data", "L
 const HOST = new Set(["menu", "editor_menu"]);
 
 const listed = spec.match(/^- `button`, `icon_button`[^]*?(?=`ui\.commands)/m);
-if (!listed) throw new Error("SPEC.md: the list of the components is not where it was");
+if (!listed) throw new Error("kit/spec/library.md: the list of the components is not where it was");
 const groups = listed[0]
   .replace(/\(the host's\)/g, "")
   .split(";")
@@ -114,7 +116,8 @@ const look = readFileSync(join(library, "look.luau"), "utf8").match(
 if (!look) throw new Error("look.luau: the table of the glyphs is not where it was");
 const glyphs = [...look[1].matchAll(/^\t(\w+) = function/gm)].map((match) => match[1]).sort();
 const named = spec.match(/the name of one of the library's glyphs:([^.]*)\./);
-if (!named) throw new Error("SPEC.md: the sentence that names the glyphs is not where it was");
+if (!named)
+  throw new Error("kit/spec/library.md: the sentence that names the glyphs is not where it was");
 const said_glyphs = [...named[1].matchAll(/`(\w+)`/g)].map((match) => match[1]).sort();
 for (const name of glyphs)
   if (!said_glyphs.includes(name))
@@ -124,7 +127,7 @@ for (const name of said_glyphs)
     wrong.push(`${name}: the specification names it as a glyph, and the library has none`);
 // What the specification says an icon is, for the pages of the components that take one.
 const icon_said = spec.match(/^- (An `icon` that a component[^]*?)\n(?=- )/m);
-if (!icon_said) throw new Error("SPEC.md: what an icon is, is not where it was");
+if (!icon_said) throw new Error("kit/spec/library.md: what an icon is, is not where it was");
 const icon = html(icon_said[1].replace(/\s*\n\s*/g, " "));
 for (const component of components) {
   component.icon = takes_icon.has(component.name);
@@ -136,8 +139,8 @@ const elements = [];
 // The elements the host draws in a view of its own, which no picture of the drive shows: a browser is
 // the host's web view. Their page says what they are, with no picture.
 const DRAWN_BY_HOST = new Set(["browser"]);
-const table = spec.match(/\| Constructor[^\n]*\n\|[-| ]+\n((?:\|[^\n]*\n)+)/);
-if (!table) throw new Error("SPEC.md: the table of the elements is not where it was");
+const table = elements_spec.match(/\| Constructor[^\n]*\n\|[-| ]+\n((?:\|[^\n]*\n)+)/);
+if (!table) throw new Error("kit/spec/elements.md: the table of the elements is not where it was");
 for (const row of table[1].trim().split("\n")) {
   const [, made, words] = row
     .replace(/\\\|/g, "\u0000")

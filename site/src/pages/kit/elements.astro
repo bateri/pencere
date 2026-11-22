@@ -2,6 +2,7 @@
 import Kit from "../../layouts/Kit.astro";
 import CodeBlock from "../../components/CodeBlock.astro";
 import Shot from "../../components/Shot.astro";
+import SpecDoc from "../../components/SpecDoc.astro";
 import catalog from "../../data/catalog.json";
 import { elements } from "../../lib/project.js";
 
@@ -41,8 +42,5 @@ const { says } = elements();
     }
   </div>
 
-  <h2>The builders</h2>
-  <div class="prose">
-    <p>What every element takes is in one table of <a href="/kit/spec#21-elements">the page API</a>, by what it is for.</p>
-  </div>
+  <SpecDoc source="kit/spec/elements.md" path="kit/elements" keep={["the-builders"]} opening={false} />
 </Kit>

@@ -2,7 +2,7 @@
 //!
 //! A page of the kit is a module or a script in a sandbox ([`pencere_sandbox`]) that hands out a
 //! tree of boxes and lines of text ([`pencere_view`]) and answers what the person does. Between the
-//! two stands what the kit's specification (Section 4) asks of every host: the page laid out, its
+//! two stands what the kit's specification (`kit/spec/host.md`) asks of every host: the page laid out, its
 //! boxes scrolled, its editors (`pencere-editor`) put in their rooms, a key sent to the page's
 //! command for it, an editor's or the page, its replies done, its wakes given, what it says to its
 //! program carried. That is this crate, written once, so that every host does it the same way:

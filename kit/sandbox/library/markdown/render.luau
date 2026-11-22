@@ -47,7 +47,7 @@ local COLOURED = 20000
 -- The most bytes a part of a text holds (a part may hold 64 KiB), and the most parts a text holds.
 local PART_BYTES = 32768
 local PARTS = 1000
--- The parts a text may hold at all (the kit's SPEC, Section 4): the words past `PARTS` go in parts
+-- The parts a text may hold at all (`kit/spec/host.md`): the words past `PARTS` go in parts
 -- of PART_BYTES up to it.
 local MOST_PARTS = 1024
 -- How many lines of code one text of many looks holds.

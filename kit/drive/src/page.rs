@@ -495,7 +495,7 @@ impl Page {
     /// The person did something with the pointer or a key, in the host's points. A pointer input
     /// over a box's scroll bar is the bar's, not the page's. A key that does one of the commands the
     /// page can be told to do now is that command, and the page is told the command and not the key
-    /// (the kit's specification, §4). Over an editor, the pointer is the editor's as well (a left
+    /// (`kit/spec/host.md`). Over an editor, the pointer is the editor's as well (a left
     /// press puts its caret and gives it the keyboard; a left press outside every editor's room takes
     /// the keyboard back to the page), and the page is told the place under it. A press ends what an
     /// input method composes in an editor, which stays as typed: the host lets its own system forget
@@ -1824,8 +1824,7 @@ impl State {
         self.clock.frame(at.now);
         self.sync(true, images);
         // The time the page asked to be woken at has come: it is woken at this frame's time, before
-        // its page is asked for, and once a frame however often it asks (the kit's specification,
-        // §4). Its answer comes as any reply does, and a frame with it where it changed the page:
+        // its page is asked for, and once a frame however often it asks (`kit/spec/host.md`). Its answer comes as any reply does, and a frame with it where it changed the page:
         // none is asked for the wake itself.
         if self.wakes.frame(at.now) {
             self.module.wake(at.now);

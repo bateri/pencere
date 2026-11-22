@@ -1,0 +1,7 @@
+---
+// A topic of the kit's page API inside the page that has them all: each heading one level lower, so
+// that the topic's title is a section of the page and its own sections are inside it.
+const html = await Astro.slots.render("default");
+const lower = html.replace(/<(\/?)h([1-5])(?=[ >])/g, (_, close, level) => `<${close}h${Number(level) + 1}`);
+---
+<Fragment set:html={lower} />

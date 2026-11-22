@@ -84,7 +84,7 @@ dy, blur, color)` (a glow with no offset), `pencere.linear` and `pencere.radial`
   prelude, a malformed frame (`pencere_wire::carry` holds the rule). `pencere.DRAG_START` is the
   number the host starts a drag at. The WIT interface has `text-size` in a reply, `carry` on a node
   and `carried` among the events: a `luau.wasm` of an earlier build does not run (`make luau`).
-- **A page says a box that zooms and asks for its scale** (the kit's specification, Section 2.2):
+- **A page says a box that zooms and asks for its scale** (`kit/spec/layout.md`):
   `element:zoom({ min =, max =, smart =, wheel = })`,
   `pencere.layout.zoom_to(id, scale, { at =, animate = })`, `pencere.layout.zoom_of(id)`,
   `scroll_extent(id).zoom`, and `zoom` on each box of a `scrolled` event. A zoom on a box that does not scroll, a range that is none (a size at 0 or less,
@@ -146,7 +146,7 @@ dy, blur, color)` (a glow with no offset), `pencere.linear` and `pencere.radial`
 
 - **A `grid`'s cells are read one by one.** Each cell of a row is a `cell` in its column, so that VoiceOver goes
   from cell to cell and up and down a column; the row is still read whole by their words.
-- **Where a browser's `profile` is kept** (`kit/SPEC.md`, specification Section 12): on the computer that
+- **Where a browser's `profile` is kept** (`kit/spec/browser.md`, specification Section 12): on the computer that
   shows the page and, for a program that runs on a server, at that server too (unless the person has
   chosen to keep none there), so that every computer that shows the program finds the same sessions. Nothing of it passes through the protocol and the
   page never reads it; the `profile` option and the kit do not change.
@@ -280,7 +280,7 @@ kind = "command", id =, target =, key = }`, where `key` is the row's if the elem
   is printed past that is dropped, with one `warn` line that says how many before the next one; a
   program that answers `not-found` is sent no more. The answers are the prelude's and never reach the
   page's `message`. The base library's `print` is no longer taken away (the prelude's takes the name),
-  and the interpreter is rebuilt (`make luau`). See `kit/SPEC.md`, Section 2.4.
+  and the interpreter is rebuilt (`make luau`). See `kit/spec/program.md`.
 - **What a page printed in a call that failed is said before the page is closed.** The last 16 of the
   lines that were waiting for the end of the call are said to the program (the line printed just
   before an error is the one a person looks for), and nothing else the call would have asked: a call

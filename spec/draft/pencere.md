@@ -43,7 +43,7 @@ Non-goals: letting a program choose where its view appears (a view always takes 
 program that asked; a person who wants it elsewhere splits the pane first and starts the program
 there); reaching a host through a terminal multiplexer that does not forward the stream untouched
 (such a program sees no host and falls back, Section 5.3); the interface of the kit that a `lua`
-view is written against, which has a document of its own (`kit/SPEC.md`); the internals of
+view is written against, which has a document of its own ([`kit/SPEC.md`](../../kit/SPEC.md)); the internals of
 any platform's web view.
 
 ## 2. Conventions and terms
@@ -85,7 +85,7 @@ A **kit view** — kind `lua` — is drawn by the terminal itself. Its program h
 script; the terminal runs it in a sandbox that gives it nothing it was not handed, and draws what
 it asks to draw in the terminal's font and theme. What the script may ask of the terminal is the
 interface of the pencere kit: the page API of the global `pencere`. The kit has a
-document of its own, `kit/SPEC.md` in this repository, and sources that are normative with it
+document of its own, [`kit/SPEC.md`](../../kit/SPEC.md) in this repository, and sources that are normative with it
 (Section 9.8); this one names them and the version of the kit that a kind carries (Section 5.5).
 
 A **web view** — kind `web` — is a web page that the terminal shows in a web view of its own, in a
@@ -633,7 +633,7 @@ versions of the interface a view of that kind is written against.
 
 The versions of the kinds `lua` and `web` (Section 5.5) follow one rule while this document is a
 draft and another from its first general release on. The number of `lua` is that of the page API
-of the global `pencere`, and the libraries the host brings with it (`@pencere/*`, `kit/SPEC.md`) are a
+of the global `pencere`, and the libraries the host brings with it (`@pencere/*`, [`kit/spec/library.md`](../../kit/spec/library.md)) are a
 part of that API and follow the same rule.
 
 **While this document is a draft,** the versions of `lua` and `web` are `0.x`.
@@ -1418,7 +1418,7 @@ are an object with a `text`, a string, and a `level`, OPTIONAL, which is `"info"
 program reads any other `level` as `"info"`. A program that serves it writes the line and answers
 `{}`, and one that does not answers `not-found`, as it does for any name it has none of; a view that
 is told `not-found` SHOULD send no more of them. A program that shows a view of the kind `lua` SHOULD
-serve it, since the `print` of a page (`kit/SPEC.md`, Section 2.4) is this call: a page has no
+serve it, since the `print` of a page ([`kit/spec/program.md`](../../kit/spec/program.md#print-and-warn)) is this call: a page has no
 terminal of its own, and the one under it is the program's. The `text` is what the view says, and is
 read as untrusted like everything it says: a program that writes it where a terminal may read it
 writes each control character in it, but a tab and a line break, as a visible escape (`\x1b` for
@@ -1678,7 +1678,7 @@ a script in the Lua language (Luau). The host runs it in a sandbox of its own, w
 interpreter that is itself a WebAssembly component of the kit (the program never hands the host
 anything but the script); what the script is given and may ask of the host is
 the page API of the global `pencere`, and it is not part of this document:
-`kit/SPEC.md` in this repository describes the page API (the
+[`kit/SPEC.md`](../../kit/SPEC.md) in this repository describes the page API (the
 elements, the colour strings, the functions), and the prelude it is written in (`kit/luau/prelude`)
 is normative with it. The language is **Luau at the release the kit pins**
 (`0.740` for `lua` `0.1`, `kit/luau/pins`) with the library the interpreter exposes: a script
@@ -1688,13 +1688,13 @@ component (`kit/sandbox/luau/luau.wasm`) rather than another Luau, so that a scr
 on every host. The script is source text: a host does not load compiled code from a program.
 The entry is the script, and it MAY `require` the other files of its bundle whose media type is
 `text/x-lua`, by the rules of Luau for requiring by string, relative to the entry's path in the
-bundle (`kit/SPEC.md`, Section 2.5): `require` reaches nothing outside the bundle, so a path that
+bundle ([`kit/spec/program.md`](../../kit/spec/program.md#the-other-scripts-of-the-bundle)): `require` reaches nothing outside the bundle, so a path that
 leaves its root, an absolute path, an alias, a file of another media type and a file the bundle does
 not have are errors of the script, and no file of the host is read. The text of the scripts a view
 loads, the entry's included, is held to the same limit as the entry alone (the table below).
 
 What this view may ask of the host, and what the host does with it, is the rule of the kit: the
-page API of `kit/SPEC.md` and the sandbox floors below. The
+page API of [`kit/SPEC.md`](../../kit/SPEC.md) and the sandbox floors below. The
 versions of the kit are those of Section 5.4. (This repository also carries an implementation of the
 kit that a terminal may use under the same licence: a page engine that lays out the elements and
 makes the draw list, a sandbox that runs the interpreter and hands out pages, and the
@@ -1757,9 +1757,9 @@ A view that goes over a limit it is held to is closed as one that fails (below).
 editor are of two sorts: a reply that hands the editors more text or decorations than it may is not a
 reply, and the view fails; a change, a load or decorations that would take a document or an editor
 past what it may hold, or that are made against a version older than the last 1 024, are refused by
-the editor, which tells the view why and does none of it (`kit/SPEC.md`, Section 2.3).
+the editor, which tells the view why and does none of it ([`kit/spec/editor-marks.md`](../../kit/spec/editor-marks.md#marks-zones-and-widgets)).
 
-**Editors.** A kit view may hold editors of text (`kit/SPEC.md`, Section 2.1): rooms
+**Editors.** A kit view may hold editors of text ([`kit/spec/editor.md`](../../kit/spec/editor.md)): rooms
 in which the host puts an editor of its own, which keeps the document, its carets and selections,
 undoing and what the system's input method composes, lays out and draws the lines, and scrolls them
 as it scrolls a box. The view is told what changed, by version, where the carets are and the lines in
@@ -1767,10 +1767,9 @@ view, and reads the text from a copy the host posts it before it tells it of the
 changes against the version it saw (the host's editor carries them over what the person typed since),
 for selections, and for the colours, marks and folds of its language, by layers. The language is the
 view's or its program's: the host's editor knows none, and does only what the view's options say of
-how it is written (how it comments, the rules of its indent, folding by the indent: `kit/SPEC.md`,
-Section 2.1). Places in a document are bytes of its UTF-8 text, counted from 1 (`kit/SPEC.md`, Section 2.7).
+how it is written (how it comments, the rules of its indent, folding by the indent: [`kit/spec/editor.md`](../../kit/spec/editor.md#an-editor-and-its-language)). Places in a document are bytes of its UTF-8 text, counted from 1 ([`kit/spec/counting.md`](../../kit/spec/counting.md)).
 
-**Browsers.** A kit view may hold browsers (`kit/SPEC.md`, Section 2.1): rooms in which the host puts
+**Browsers.** A kit view may hold browsers ([`kit/spec/browser.md`](../../kit/spec/browser.md)): rooms in which the host puts
 a web browser of its own, which loads the pages and draws them, keeps their history, and takes the
 person's pointer and keys as a browser does, and gives the view the keys that the browser and the page
 in it have no use for. The browser and the pages in it are the host's: the view is told where the
@@ -1893,7 +1892,7 @@ host asks for it, like the rest:
 ```
 
 **Links.** A kit view asks the host to open a link in the person's browser in what it answers the
-host (the `link` of a reply: `kit/SPEC.md`, Section 2.3), not in a message, and the host does with it
+host (the `link` of a reply: [`kit/spec/replies.md`](../../kit/spec/replies.md)), not in a message, and the host does with it
 what Section 9.7 says of a page's `link`. It MUST accept only a URL that begins with `http://` or
 `https://` (the scheme in either letter case), whose every byte is printable ASCII without the space
 (0x21 to 0x7E) and that is at most 8192 bytes long, drops any other, SHOULD ask the person, and opens
@@ -2203,7 +2202,7 @@ terminal theme has one mode.
 These are the roles of both families, under the same names: a kit view says `border`, `cursor`,
 `selection` and the sixteen colours of `ansi` (by xterm's names) as a page reads them in its
 `context`. The kit has three more, which are derived from the others and which a page makes for itself
-(`raised`, `quiet`, `shadow`): `kit/SPEC.md` says how they are derived.
+(`raised`, `quiet`, `shadow`): [`kit/spec/colours.md`](../../kit/spec/colours.md#the-derived-tones-recommended) says how they are derived.
 
 ### 11.3 Keyboard
 
@@ -2339,7 +2338,7 @@ name ahead of one) and so is every request of the engine's own that no page made
 components): none of it leaves by any route.
 
 **Addresses.** A browser goes only to `http`, `https`, `about:blank` and `data:` addresses. The view's
-ask to go to another is not given to it (`kit/SPEC.md`, Section 2.1), and the host does not leave the
+ask to go to another is not given to it ([`kit/spec/browser.md`](../../kit/spec/browser.md)), and the host does not leave the
 set where the page goes elsewhere of itself: a redirect, a link, a script that sets `location` or
 opens a window. A `file:` address is the person's files, and the machine the program runs on may not
 be the person's.
@@ -2353,7 +2352,7 @@ looking into the page open, in a window of the host's, only when the view asks o
 view is given nothing of what they show.
 
 **A certificate the browser does not trust** fails the load, and the view is told so with the reason
-(`kit/SPEC.md`, Section 2.1). Only the view can ask to go on, and the host does it: the certificate is
+([`kit/spec/browser.md`](../../kit/spec/browser.md)). Only the view can ask to go on, and the host does it: the certificate is
 accepted for that site for as long as the host runs, written nowhere and told to no other computer.
 The host cannot tell whether the person pressed anything, so a view asks only on the person's action
 (a button they press), never of itself, and a page that offers it names the site and the reason; the

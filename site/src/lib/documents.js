@@ -1,12 +1,15 @@
 // The documents of the repository that are pages (src/docs.js), as the site's builder reads them:
 // each one's content and headings, and where a link to a file of the repository goes on the site.
 import { PAGES, LEFT } from "../docs.js";
+import { read as readFile } from "./repo.js";
+import { slug } from "../../scripts/links.mjs";
 
 // The files themselves. The builder has to be told them here, as written paths: a page of the map
 // whose file is not among them stops the build and says so.
 const FILES = import.meta.glob([
   "../../../spec/draft/{pencere,apps}.md",
   "../../../kit/{SPEC,README}.md",
+  "../../../kit/spec/*.md",
   "../../../{cli,program,sdk/typescript,host/rust}/README.md",
 ]);
 const file = (source) => {
@@ -24,6 +27,12 @@ export async function document(source) {
   return { Content: module.Content, headings: module.getHeadings() };
 }
 
+// The topics of the kit's page API, in the order its index lists them: the files `kit/SPEC.md` links.
+export const topics = () =>
+  [...readFile("kit/SPEC.md").matchAll(/\]\(spec\/([a-z-]+)\.md\)/g)].map(
+    (match) => `kit/spec/${match[1]}.md`,
+  );
+
 // For each document, the section (a heading of depth 2) every heading of it is in.
 let sections;
 async function read() {
@@ -33,6 +42,11 @@ async function read() {
     const inside = new Map();
     let section = "";
     for (const heading of (await document(source)).headings) {
+      // The checks of the site name a heading by the id scripts/links.mjs gives it: it is the builder's.
+      if (slug(heading.text) !== heading.slug && !heading.slug.startsWith(`${slug(heading.text)}-`))
+        throw new Error(
+          `${source}: the heading "${heading.text}" has the id ${heading.slug}, and scripts/links.mjs says ${slug(heading.text)}.`,
+        );
       if (heading.depth === 2) section = heading.slug;
       if (heading.depth >= 2) inside.set(heading.slug, section);
     }

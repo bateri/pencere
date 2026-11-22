@@ -2,7 +2,7 @@
 // the menus. It is the one thing the site keeps about the documentation, and the rule it is kept by:
 //
 //   What changes when the code changes is said in the repository, beside the code: the
-//   specifications (spec/draft, kit/SPEC.md), each package's README, the command's templates, the
+//   specifications (spec/draft, kit/spec), each package's README, the command's templates, the
 //   comments of the kit's library, the examples, and the README at the top for what the whole is.
 //   The site reads the files when it is built and shows them: a document whole or by its sections
 //   (a page with a `source`, below), or values taken from one: a command, a block of code, a
@@ -29,6 +29,8 @@
 //   heading   a title in place of the document's own
 //   alone     the page stands outside the menus, with the list of its own sections beside it
 //   note      what else is said of the file at the page's end
+//   own       a file of src/pages makes the page: it shows the document with what else the page has
+//   also      the other menus the page is in, each `{ area, group }`
 export const PAGES = [
   // --- For those who write apps ---------------------------------------------------------------
   {
@@ -53,51 +55,221 @@ export const PAGES = [
     reads: ["examples/*/README.md"],
   },
 
+  // The page API, a file for each topic (kit/spec). A topic longer than a page is shown as two: each
+  // page is some of the file's sections. `own`: the page is made by a file of src/pages that shows
+  // the document with what else it has to show.
+  {
+    path: "kit/spec/page",
+    words: "A page",
+    area: "apps",
+    group: "The page",
+    source: "kit/spec/page.md",
+    title: "A page: the pencere kit",
+    description:
+      "The Lua page API: what a script returns, what it can use, and the functions the host calls.",
+  },
   {
     path: "kit/elements",
     words: "Elements",
     area: "apps",
     group: "The page",
-    reads: ["kit/SPEC.md"],
+    source: "kit/spec/elements.md",
+    own: true,
+    sections: ["the-builders"],
+    opening: false,
+    title: "Elements: the pencere kit",
+    description:
+      "The elements a page of the pencere kit is made of: boxes, text, pictures, paths, sparklines and the editor of text.",
+  },
+  {
+    path: "kit/spec/canvas",
+    words: "Canvas",
+    area: "apps",
+    group: "The page",
+    source: "kit/spec/canvas.md",
+    title: "Canvas: the pencere kit",
+    description: "Paths drawn in a box of a page: strokes, fills, gradients, shadows and dashes.",
+  },
+  {
+    path: "kit/spec/accessibility",
+    words: "Accessibility",
+    area: "apps",
+    group: "The page",
+    source: "kit/spec/accessibility.md",
+    title: "Accessibility: the pencere kit",
+    description:
+      "How a page says what its elements are to a screen reader, and how it asks whether the kit has a thing.",
+  },
+  {
+    path: "kit/spec/colours",
+    words: "Colours",
+    area: "apps",
+    group: "The page",
+    source: "kit/spec/colours.md",
+    title: "Colours: the pencere kit",
+    description: "How a page says a colour: values, the theme's roles and the derived tones.",
+  },
+  {
+    path: "kit/spec/counting",
+    words: "Counting",
+    area: "apps",
+    group: "The page",
+    source: "kit/spec/counting.md",
+    title: "Counting: the pencere kit",
+    description: "How a page counts places in a text: bytes of its UTF-8 and lines from 1.",
+  },
+
+  {
+    path: "kit/spec/events",
+    words: "Events",
+    area: "apps",
+    group: "Behaviour",
+    source: "kit/spec/events.md",
+    sections: ["what-a-page-is-told"],
+    title: "Events: the pencere kit",
+    description:
+      "What the host tells a page: the pointer, the keys, the wheel, fields, files and the time.",
+  },
+  {
+    path: "kit/spec/events-replies",
+    words: "Answering events",
+    area: "apps",
+    group: "Behaviour",
+    source: "kit/spec/events.md",
+    sections: ["what-a-reply-may-ask"],
+    opening: false,
+    heading: "Answering events",
+    title: "Answering events: the pencere kit",
+    description: "How a page answers an event: what a reply is, and what it may ask of an editor.",
+  },
+  {
+    path: "kit/spec/replies",
+    words: "Replies",
+    area: "apps",
+    group: "Behaviour",
+    source: "kit/spec/replies.md",
+    title: "Replies: the pencere kit",
+    description:
+      "What a reply asks of the host: filling a field, opening a link, taking files, picking a file, waking the page and drawing larger.",
+  },
+  {
+    path: "kit/spec/commands",
+    words: "Commands and dragging",
+    area: "apps",
+    group: "Behaviour",
+    source: "kit/spec/commands.md",
+    title: "Commands and dragging: the pencere kit",
+    description:
+      "Commands a person can run, what can be dragged, and what can be carried out of the view.",
+  },
+  {
+    path: "kit/spec/motion",
+    words: "Motion",
+    area: "apps",
+    group: "Behaviour",
+    source: "kit/spec/motion.md",
+    title: "Motion: the pencere kit",
+    description: "How a change of an element moves instead of jumping.",
+  },
+  {
+    path: "kit/spec/layout",
+    words: "Layout and scrolling",
+    area: "apps",
+    group: "Behaviour",
+    source: "kit/spec/layout.md",
+    title: "Layout and scrolling: the pencere kit",
+    description:
+      "What a page remembers between frames, what it asks of the layout, timers, scrolling and zooming.",
+  },
+
+  {
+    path: "kit/spec/editor",
+    words: "Editor",
+    area: "apps",
+    group: "Editor and browser",
+    source: "kit/spec/editor.md",
+    sections: ["an-editor-and-its-language", "what-is-not-seen-the-document-and-its-places"],
+    title: "The editor: the pencere kit",
+    description:
+      "The editor of text a page puts in a room: its document, its language and what is not seen.",
+  },
+  {
+    path: "kit/spec/editor-options",
+    words: "Editor options",
+    area: "apps",
+    group: "Editor and browser",
+    source: "kit/spec/editor.md",
+    sections: ["how-an-editor-looks"],
+    opening: false,
+    heading: "The editor's options",
+    title: "The editor's options: the pencere kit",
+    description: "How an editor looks and behaves: the options a page gives it.",
+  },
+  {
+    path: "kit/spec/editor-marks",
+    words: "Editor marks",
+    area: "apps",
+    group: "Editor and browser",
+    source: "kit/spec/editor-marks.md",
+    sections: ["marks-zones-and-widgets"],
+    opening: false,
+    heading: "Marks, zones and widgets",
+    title: "Marks, zones and widgets of the editor: the pencere kit",
+    description:
+      "What a page puts on an editor: decorations, markers, the gutter, zones, links and widgets.",
+  },
+  {
+    path: "kit/spec/editor-keys",
+    words: "Editor keys and searches",
+    area: "apps",
+    group: "Editor and browser",
+    source: "kit/spec/editor-marks.md",
+    sections: ["keys-commands-and-searches"],
+    opening: false,
+    heading: "Keys, commands and searches",
+    title: "Keys, commands and searches of the editor: the pencere kit",
+    description: "The editor's own keys, its commands and its searches.",
+  },
+  {
+    path: "kit/spec/browser",
+    words: "Browser",
+    area: "apps",
+    group: "Editor and browser",
+    source: "kit/spec/browser.md",
+    title: "Browser: the pencere kit",
+    description:
+      "The browser a page puts in a room of its own: its options, what a page asks of it and what it tells.",
+  },
+
+  {
+    path: "kit/library",
+    words: "Library",
+    area: "apps",
+    group: "Library",
+    source: "kit/spec/library.md",
+    own: true,
+    title: "The library: the pencere kit",
+    description:
+      "The modules of the pencere kit's library: components, syntax colouring, languages, fuzzy finding, keys, Markdown and the terminal's own look.",
   },
   {
     path: "kit/components",
     words: "Components",
     area: "apps",
-    group: "The page",
-    reads: ["kit/SPEC.md", "kit/sandbox/library/ui"],
-  },
-  {
-    path: "kit/library",
-    words: "Library",
-    area: "apps",
-    group: "The page",
-    reads: ["kit/SPEC.md"],
-  },
-  {
-    path: "kit/spec",
-    words: "The page API",
-    area: "apps",
-    group: "The page",
-    source: "kit/SPEC.md",
-    title: "The page API: the pencere kit",
-    description:
-      "The pencere kit in full: the elements and builders of a page, its events and replies, how it talks to its program, the library, the colours and the sandbox's floors.",
-  },
-  {
-    path: "sdk/page",
-    words: "A web page",
-    area: "apps",
-    group: "The page",
-    source: "sdk/typescript/README.md",
-    sections: ["the-pages-side"],
-    opening: false,
-    heading: "A web page",
-    title: "A web page as a view: pencere",
-    description:
-      "The page's side of a web view: the bridge between a page and its program, the terminal's theme and font, and links.",
+    group: "Library",
+    reads: ["kit/spec/library.md", "kit/sandbox/library/ui"],
   },
 
+  {
+    path: "kit/spec/program",
+    words: "The page and its program",
+    area: "apps",
+    group: "The program",
+    source: "kit/spec/program.md",
+    title: "The page and its program: the pencere kit",
+    description:
+      "How a page talks to its program, what print and warn do, and the other scripts of a bundle.",
+  },
   {
     path: "sdk/lua",
     words: "In Lua",
@@ -162,6 +334,39 @@ export const PAGES = [
     description:
       "The pencere command: installing it, making, running, testing, building and releasing an app.",
   },
+  {
+    path: "sdk/page",
+    words: "A web page",
+    area: "apps",
+    group: "The program",
+    source: "sdk/typescript/README.md",
+    sections: ["the-pages-side"],
+    opening: false,
+    heading: "A web page",
+    title: "A web page as a view: pencere",
+    description:
+      "The page's side of a web view: the bridge between a page and its program, the terminal's theme and font, and links.",
+  },
+
+  // The index of the topics, and the topics on one page (src/pages/kit/spec/all.astro, in no menu).
+  {
+    path: "kit/spec",
+    words: "The page API",
+    source: "kit/SPEC.md",
+    title: "The page API: the pencere kit",
+    description:
+      "The topics of the pencere kit's page API: elements, events and replies, motion, the editor, the library, colours and what a host does.",
+  },
+  {
+    path: "kit/spec/versions",
+    words: "Versions",
+    area: "apps",
+    group: "Learn",
+    also: [{ area: "hosts", group: "For terminals" }],
+    source: "kit/spec/versions.md",
+    title: "Versions: the pencere kit",
+    description: "The version of the kind lua, what the kit pins, and when a version changes.",
+  },
 
   // --- For those who write a terminal ---------------------------------------------------------
   // They are few, and they come from the home page's part about terminals and from the footer:
@@ -176,6 +381,16 @@ export const PAGES = [
     title: "Add pencere to a terminal",
     description:
       "pencere-host, the Rust library for terminals that host views: what it holds of the protocol, and what the terminal supplies.",
+  },
+  {
+    path: "host/kit-view",
+    words: "What a host does for a view",
+    area: "hosts",
+    group: "For terminals",
+    source: "kit/spec/host.md",
+    title: "What a host does for a view of the kit: pencere",
+    description:
+      "What a terminal gives a view of the kit at least: the sandbox's floors, what it draws and does for a page, and the pictures.",
   },
   {
     path: "host/kit",
@@ -251,10 +466,12 @@ export const HOME = ["README.md"];
 export const menu = (area) => {
   const groups = [];
   for (const page of PAGES) {
-    if (page.area !== area) continue;
-    let group = groups.find((entry) => entry.name === page.group);
-    if (!group) groups.push((group = { name: page.group, pages: [] }));
-    group.pages.push(page);
+    for (const place of [page, ...(page.also ?? [])]) {
+      if (place.area !== area) continue;
+      let group = groups.find((entry) => entry.name === place.group);
+      if (!group) groups.push((group = { name: place.group, pages: [] }));
+      group.pages.push(page);
+    }
   }
   return groups;
 };

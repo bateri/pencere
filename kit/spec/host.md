@@ -1,0 +1,181 @@
+# What a host does for a kit view
+
+The sandbox floors are those of the protocol, Section 9.8 (memory 64 MiB, a call 250 ms, the start 2 s,
+20 000 elements to a frame, a tree 128 deep, a line of text 64 KiB, the scripts of a view 4 MiB together (the
+entry and the scripts it requires), 32 messages to the program to a call, a message
+1 MiB, 4096 values to a sparkline or steps to a path, 1024 parts to a text, paths to a canvas or
+commands to an element, 16 stops to a gradient and 16 lengths to a dash, and the limits on
+pictures). A view that stays within them
+opens on every host. The values of this repository's implementation are `ModuleLimits::floor()` in
+`kit/sandbox/src/sandbox.rs`: what an author's page is written and tested against (`pencere test`
+holds a page to them). A terminal gives more time: `ModuleLimits::default()` is the floors with a call
+5 s and the start 10 s. Time is the wall clock's and the wall clock of a busy machine is no measure of a
+page, which runs on a thread of its own that the drawing never waits for; the limit is there to stop a
+page that does not come back, not one that is slow.
+
+Besides drawing what the engine lays out, a host does what follows. This repository's drive
+(`pencere-drive`, `kit/drive`) does it for a host, all but what only the host can do: measure and
+draw text in its fonts, draw in its renderer and theme, turn its keys into the kit's, and be its
+system's input method, pasteboard, pointer, fields, menus, browser, screen reader, clock and program.
+A host:
+
+- puts one field of its own over each text field of the page (`Laid::fields`), of its kind, saying
+  its hint while it is empty, and tells the page what the person types into it, where the person
+  clicks into one, and takes the texts a reply fills them with and what it selects in them; and,
+  while one has the keyboard, gives the page the keys it has no use for there, as the kit's rule
+  says with the field's text and selection (`FieldState::takes`, [Elements](elements.md#the-builders)); it takes what a
+  reply asks of a field (its text, its selection, the keyboard) only of a field it has put over the
+  page, and holds what a reply asks of one it has not until the next frame that lays the page out
+  has been laid and its fields put over the page, then takes it in the order it was asked
+  ([Replies](replies.md): a reply that opens a field and fills it and sends the keyboard to it in one is
+  done as it says); a name that frame does not have either it passes over;
+- draws a run's `underline` and `strike` where its font puts those lines, in the run's colour, and
+  sets an `italic` run in its face's italic;
+- takes the pointer's shape a reply asks for, and tells a press's `count` and a scroll across;
+- opens the link a reply asks to open as it opens a web page's `link` (protocol, Sections 9.7 and
+  9.8): only an `http` or `https` address of printable ASCII without the space, at most 8192 bytes, in
+  the person's browser on the person's machine, the person asked first where it asks for a page's,
+  with as many questions open at once as for a page's; it drops any other and tells the page nothing
+  either way (`pencere_host::session::Session::module_link`, which raises `Action::OpenLink` as a
+  page's `link` does);
+- wakes a page at the time it asked to be woken at: the earliest of what its replies and frames
+  asked, which the sandbox keeps (`pencere_sandbox::Update::wake`, on render's clock). It arms one
+  wakeup for that time and, at the first frame at or after it, wakes the page with the frame's time
+  (`Module::wake`) before it asks for the frame's page. It wakes from the frame, never more than once
+  a frame however often a page asks (a page that asks again at once costs a frame's work, as an
+  `animating` one does), and never before the time or for nothing (the sandbox passes over such a
+  wake). While the view is not seen (its pane hidden, its window minimized or on another space), a
+  host MAY hold a page's wakes to one a second; it does not drop them: a wake held is given at the
+  next one it gives, or when the view is seen again;
+- tells the page every movement the system gives it, and not only the ones a page of the kit asks
+  for: the pointer with the modifiers held, the buttons of a mouse beyond the third (`extra_press`
+  and `extra_release`, never as a `press`), the wheel with its phase and whether the device is a
+  trackpad, and what a trackpad's fingers do: a pinch (`magnify`), a double tap (`smart_magnify`), a
+  rotation (`rotate`), a swipe of three fingers (`swipe`) and the force of a press (`pressure`). A host
+  that has no device for one never tells it. What the system makes of a gesture of its own (a swipe
+  that goes back in a browser) is the host's to decide before it tells it. A run of pinches or of
+  rotations one gesture makes that the page is too slow to hear one by one is told as one (a factor of
+  them all, a turn by all of them), its beginning and its end as they were (`Module`);
+- scrolls the boxes that scroll (`Scrolls`): the wheel and the trackpad move the box under the
+  pointer, as its system does (a gesture stays with the box it started on, and where the system does
+  so a box pulled past its end springs back), its scroll bars are drawn as the system's are and can
+  be dragged, the page's `scroll_to` is done before the page is next laid out, and the page is told
+  where its boxes went; a wheel no box took is the page's (`wheel`);
+- zooms the boxes that say a `zoom` (`Scrolls`): a pinch, the wheel with the command key held and a
+  double tap with two fingers are the box's, about the point under the fingers, within the range the
+  page gave, with the page's constants for its range, its double tap and its wheel; what the box holds is laid out again at the scale and
+  not stretched; the page is told the scale (`scrolled`) and asks for one (`zoom_to`); a gesture no
+  such box took is the page's (`magnify`, `smart_magnify`);
+- draws the page's words as many points larger than its own text as a reply says (`text_size`,
+  [Replies](replies.md); `Host::text_size`): a whole number, below 0 for smaller, held within what the host can
+  draw, its own text as it was, and it tells the page nothing of what came of it;
+- carries out of the view what a page's element says it carries (`carry`, [Commands and dragging](commands.md)) as its
+  system's drag, from the press and the move past `DRAG_START` page points (for an element that is
+  also `draggable`, from the pointer's leaving the view), in the same `input` that moved the pointer
+  (`Host::carry`: the words or the path, the url, where the pointer is and the element's room), and
+  holds the page's pointer events back until it is over, when it tells the page `carried`
+  (`Page::carried`); a host that does not carry says nothing (`Page::set_carry`) and the page hears
+  every move and the release of an element that carries as of any other. It re-checks what it carries as the sandbox did (`pencere_wire::carry`), shows
+  the person the words it will insert and not a label the page chose, never reads a `path` (to the
+  host it is words, and a terminal quotes it for its shell as it does a dropped file's), and puts a
+  carry into a pane that accepts only its own (a pasteboard type of the host's, never text from
+  another application);
+- may draw a point of the page larger than a point of its screen, the page given fewer points for
+  the same room: a terminal draws a page as large as its own text is to the kit's (12.5 points), so a
+  page's words are the size of the terminal's and grow and shrink with them (`Laid::accessible` and the
+  fields are in the page's points; the host places them);
+- moves the elements that say a `motion` between the frames of the page, lays the page out again
+  at each frame while one moves that takes room (a width or a height in points, the thickness of a
+  border, the padding, the size or the colour of words) and draws the layout it has where what moves
+  only paints (a fill, a border or a shadow colour, an opacity, the corners, the shadow, a slide, a
+  coming in or going out, a turn or a size of a picture or a canvas, a loop, a spin; `Motions`), draws
+  a frame for each step of what loops or spins for as long as it is on the page, and says an element's
+  `tip` while the pointer rests on it (`Laid::tips`);
+- tells its system's screen reader what the page is: each element as what it says it is (its `role`),
+  the other pressable elements as buttons, the fields as fields, the links of a text as links, and the
+  words of the rest, each by its `label` where it has one, with its state (checked, selected,
+  expanded, of no use, its value), the controls inside an element that answers the pointer apart from
+  it (`Laid::accessible`);
+- draws a box's fill from one colour to another as a style sheet's `linear-gradient` of that angle
+  draws it, over its plain fill and under its border, and a canvas's paths as `pencere_sandbox`'s
+  `draw_figure` draws them (the one rasteriser, so that a figure is the same on every host: their
+  shadows, gradients, blends, dashes and transforms as well), in the colours of its theme, drawing
+  again only what `figure_key` says it does not hold;
+- lists the commands that can be done now (`Laid::commands`: those of the element the page says has
+  the keyboard and of the boxes around it) where a person looks for what can be done, and tells the
+  page the one asked for there; and, before it tells the page a key, looks for the command those keys
+  do (`Laid::command_for`) and tells the page that command in place of the key;
+- keeps telling the page where the pointer is, and the release, wherever the pointer goes while a
+  button pressed on the page is held (it does not tell a `leave` then), so that a drag that leaves the
+  page and comes back, or ends outside it, is followed to its end;
+- tells the page the middle button, the keys that go up after it was told they went down, the
+  modifiers when they alone change, and the files dropped on the page from outside it;
+- says the time of day as its system does, with the person's offset from UTC (the interface's
+  `system.wall-clock`, `Program::wall_clock`: the sandbox's own default reads the system's clock and
+  knows no time zone, so a host that knows the person's says it), and how its system makes and
+  writes shortcuts (`system.keyboard`, `Program::keyboard`: `mac`, `windows` or `linux`);
+- draws a picture turned where its draw list says (`Picture::turn`, degrees clockwise about the
+  middle of its rectangle, cut at its rectangle turned with it): what spins (a canvas that spins is
+  turned before it reaches the host, and draws as any other);
+- puts an editor of its own (`pencere-editor`, the same in every host) in each editor's room
+  (`Laid::editors`), tells the page each one it makes (`editor_ready`, its text posted first), keeps
+  its document as long as an editor of that name is on the page, hidden or
+  not, and draws it in its place of the draw list (`Paint::Editor`), over the room's fill and under
+  what covers it; draws its carets (their corners, light and outline as the options say, `caret.*`) blinks and moves them (`caret.motion`) on
+  its own clock, as the options of the editor that has the keyboard say (the page is asked for no frames
+  for it, whether the caret blinks or glides; a host that has a cursor of its own, as a terminal does, MAY draw
+  and blink that at the main caret instead, and then draws none of the page's: `Page::set_host_caret`, and the box
+  of the caret from `PageEditors::caret` and `PageEditors::rect`); gives it its system's input method (what is composed, and the questions of where the
+  caret is and what is around it, answered at once, in the units its system counts in) and its
+  pasteboard (text reaches an editor from it only on the person's key or the person's pick of a menu entry
+  the host performs itself, `Host::paste`: a page cannot ask for it; what the page has an editor copy or
+  cut is handed over to put on it, `Drained::copied`); sends a key to the page's command for it first, the editor's own next, the text last
+  (none of the page's while an input method composes, and every key to the page where the editor
+  gives it its keys), and tells its screen reader the editor as one;
+- scrolls an editor's room as it scrolls a box, over the content the editor laid out, keeps the
+  caret in view where the editor asks, and tells the page the lines in view; where a caret an
+  overlay is anchored to moves (or to a range of its text the page named, which also moves with the
+  text), or an editor with one scrolls, it lays the page's last tree out again without asking the page,
+  and does not show an overlay whose range is out of the room;
+- says how its terminal draws its cursor and its selection (`system.terminal-look`,
+  `Program::terminal_look`, `pencere.terminal_look()`), as the person set them, in the words and units
+  of an editor's options: a field only where it has such a setting, none where it has none (the default,
+  which is a host with no settings of the kind). It MUST tell the page `terminal-look` when what it
+  says changes, and only then, and MUST NOT apply it to a page's editors itself: the page decides. The
+  page is told from the thread of the pane (the host's settings are reloaded on another, which
+  wakes the pane's as it does for anything else; `Page::terminal_look_changed` is called there);
+- says what it draws that not every host does (`system.draws`, `Program::draws`, `pencere.draws()`):
+  `shadow` where it draws a box's soft shadow (`Quad::shadow`); `cells` where the page is drawn in the
+  character cells of a terminal; `coarse_images` where a picture is drawn in too few pixels to read a
+  small one by; only what it draws. A host MAY leave the soft shadow out; a caret's `glow` is then not
+  seen, and the page can tell (`pencere.draws()`). The engine lays a page out in pixels whatever a host
+  says;
+- tells the drive the pointer's shape when only the modifiers changed what is under it (a link
+  that ⌘ made: `Drained::cursor`, the shape the host takes where the pointer is over the page);
+- times the pointer's rest over a word of an editor that hears of it on its own clock, as it does the
+  caret's blink (`Page::wake_at` has the time), and tells the page `hover` once, and its leaving;
+- puts a browser in each browser's room (`Laid::browsers`) where it shows browsers, and says so
+  (`Page::set_browsers`): it tells the page what each is and does (`Page::browser`; a host does not
+  leave the set of addresses of [Browser](browser.md), whoever asks), keeps its history as long as a browser of
+  that name is on the page, hidden or not, draws it where its draw list says (`Paint::Browser`, over
+  the room's fill and under what is inside it), draws none while it is hidden, gives it the keyboard
+  on a press in its room, keeps the keys of `keys` for the page and gives the page the other keys the
+  browser had no use for (`Page::input`), finds what the page asks it to find and marks it (the bar is
+  the page's), opens its tools for the page's `devtools`, empties its cache for `clear_cache` and a site's data for `clear_site_data`, goes on past a certificate for `proceed` (what the person asked the page to ask), tells the page the person's wish to open
+  a link behind (`Page::browser_window`), and tells its screen reader the room as a browser. A host that shows none draws the placeholder of `kit/drive` there and does
+  nothing of what the page asks of it;
+- posts the page the text of each editor before it tells the page of the version it is (the copy
+  costs nothing that grows with the document), and holds a reply to what one may hand the editors
+  (1 MiB of text, 20 000 decorations) and the editors to the floors of the protocol (Section 9.8).
+
+## Pictures
+
+[`README.md`](../README.md) describes how a page names a picture and how the host draws it; the limits
+and the formats are those of the protocol, Section 9.8.
+
+Besides a file of the bundle, a page of `lua` names a file beside it: `sha256:`
+and the digest of a file its program attached (protocol, Section 8.8) and `file:` and the handle of
+one the person gave it (Section 8.9). A manifest path has no `:`, so the names never meet; the host
+answers them from its own tables (the program's attached files, its handles), and a name that is in
+neither is a picture that is not there. A file the program lets go of (`detach`) is forgotten, and
+not drawn any more.

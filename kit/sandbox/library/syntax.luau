@@ -34,7 +34,7 @@
 --   handle = function(event) syntax:handle(event); return syntax:reply(respond(event)) end
 --
 -- A place the stream says (`pos`, `start`) is a byte of the line's text from 1, as `string.find`
--- counts, and so is a place of the editor's text (Section 2.7 of the kit's specification): the
+-- counts, and so is a place of the editor's text (`kit/spec/counting.md`): the
 -- module gives the editor the stream's places as they are, the line's own added. (Its lines it
 -- counts from 0 itself; the editor's are from 1: `start_of` and `line_at` are where they meet.)
 --

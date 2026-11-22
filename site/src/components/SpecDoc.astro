@@ -1,0 +1,19 @@
+---
+// A document of the repository inside a page of the site's own, in the document's type: what the
+// document says (the whole, or some of its sections), under the page's other things.
+import Numbered from "./Numbered.astro";
+import { document } from "../lib/documents.js";
+
+interface Props {
+  source: string;
+  path: string;
+  keep?: string[];
+  opening?: boolean;
+  untitled?: boolean;
+}
+const { source, path, keep, opening = true, untitled = false } = Astro.props;
+const { Content } = await document(source);
+---
+<div class="spec">
+  <Numbered source={source} path={path} keep={keep} opening={opening} untitled={untitled}><Content /></Numbered>
+</div>

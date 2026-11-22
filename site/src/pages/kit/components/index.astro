@@ -6,7 +6,7 @@ import { library } from "../../../lib/project.js";
 
 // What a component is, as the page API says it of the module they are in (src/lib/project.js).
 const { says } = library().modules.find((module) => module.name === "@pencere/ui") ?? { says: "" };
-if (!says) throw new Error("kit/SPEC.md has no section for @pencere/ui.");
+if (!says) throw new Error("kit/spec/library.md has no section for @pencere/ui.");
 
 const groups = catalog.groups.map((group) => ({
   group,

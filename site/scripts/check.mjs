@@ -7,12 +7,15 @@
 //    names it as kept apart, with the reason. A new README cannot be left out by forgetting it.
 // 2. A name the site's own words set as code is a name the repository has: the pages lead a reader
 //    with words of their own, and those words name nothing the repository does not.
+// 3. The kit's page API, a file for each topic: every link into one goes to a file and a heading
+//    that are there, and the index of them holds no rule (scripts/links.mjs).
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PAGES, APART, HOME } from "../src/docs.js";
+import { indexProblems, linkProblems } from "./links.mjs";
 
 const site = join(dirname(fileURLToPath(import.meta.url)), "..");
 const repo = join(site, "..");
@@ -101,6 +104,29 @@ if (tracked) {
         );
     }
   }
+}
+
+// --- 3. The topics of the kit's page API -----------------------------------------------------
+
+if (tracked) {
+  const text = new Map(
+    tracked
+      .filter(
+        (file) =>
+          /\.(md|rs|lua|luau|ts|js|mjs|astro|toml|wit)$/.test(file) &&
+          !/(^|\/)(node_modules|target|dist)\//.test(file) &&
+          !file.includes(".test.") &&
+          existsSync(join(repo, file)),
+      )
+      .map((file) => [file, readFileSync(join(repo, file), "utf8")]),
+  );
+  wrong.push(...linkProblems(text));
+  wrong.push(
+    ...indexProblems(
+      text.get("kit/SPEC.md") ?? "",
+      tracked.filter((file) => /^kit\/spec\/[a-z0-9-]+\.md$/.test(file)),
+    ),
+  );
 }
 
 if (wrong.length > 0) {

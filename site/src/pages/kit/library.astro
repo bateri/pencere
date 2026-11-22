@@ -1,19 +1,20 @@
 ---
 // The kit's library: its modules, each with the sentence the kit's own document opens its section
-// with, and a link to that section. The names and the sentences are read from kit/SPEC.md when the
-// site is built (src/lib/project.js); what a module has is said once, in the page API.
+// with, and a link to that section, between what the document says of the library and of each
+// module. The names and the sentences are read from kit/spec/library.md when the site is built
+// (src/lib/project.js); what a module has is said once, in the page API.
 import Kit from "../../layouts/Kit.astro";
-import { getHeadings } from "../../../../kit/SPEC.md";
+import SpecDoc from "../../components/SpecDoc.astro";
+import { getHeadings } from "../../../../kit/spec/library.md";
 import { library } from "../../lib/project.js";
 import { REPO } from "../../lib/code.js";
 
-const { says, modules } = library();
+const { modules } = library();
 const headings = getHeadings();
-const section = headings.find((heading) => heading.depth === 3 && /^2\.6\b/.test(heading.text));
 const list = modules.map((module) => {
-  const heading = headings.find((entry) => entry.depth === 4 && entry.text.replace(/`/g, "").trim() === module.name);
+  const heading = headings.find((entry) => entry.depth === 2 && entry.text.replace(/`/g, "").trim() === module.name);
   if (!heading) throw new Error(`The page API has no section for ${module.name}.`);
-  return { ...module, href: `/kit/spec#${heading.slug}` };
+  return { ...module, id: heading.slug, href: `#${heading.slug}` };
 });
 ---
 <Kit
@@ -23,8 +24,9 @@ const list = modules.map((module) => {
 >
   <header>
     <h1>The library</h1>
-    <p class="lead" set:html={says} />
   </header>
+
+  <SpecDoc source="kit/spec/library.md" path="kit/library" keep={[]} untitled />
 
   <ul class="modules">
     {
@@ -41,10 +43,11 @@ const list = modules.map((module) => {
 
   <div class="prose" style="margin-top:32px">
     <p>
-      Each line leads to the module's section of <a href={`/kit/spec#${section?.slug ?? ""}`}>the page API</a>, where
-      everything it has is said. What <code>@pencere/ui</code> draws is shown, one by one, in
-      <a href="/kit/components">the components</a>. An app that uses the others is
+      Each line leads to the module's section below, where everything it has is said. What <code>@pencere/ui</code> draws
+      is shown, one by one, in <a href="/kit/components">the components</a>. An app that uses the others is
       <a href={`${REPO}/tree/main/examples/editor-lua`}>the editor among the examples</a>.
     </p>
   </div>
+
+  <SpecDoc source="kit/spec/library.md" path="kit/library" keep={list.map((module) => module.id)} opening={false} />
 </Kit>

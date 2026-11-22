@@ -6,7 +6,7 @@ import { PAGES } from "../docs.js";
 import { document } from "../lib/documents.js";
 
 export function getStaticPaths() {
-  return PAGES.filter((page) => page.source).map((page) => ({ params: { path: page.path }, props: { page } }));
+  return PAGES.filter((page) => page.source && !page.own).map((page) => ({ params: { path: page.path }, props: { page } }));
 }
 const { page } = Astro.props;
 const { Content, headings } = await document(page.source);

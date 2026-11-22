@@ -19,7 +19,7 @@ terminal lays out what it hands out and draws it. The one contract outside the k
 | [`guest`](guest)                     |                   | Another workspace: the tools that make the interpreter's component (`cbindgen`, `componentize`)                  |
 
 The page language, the sandbox and the drive know nothing of a window, a font or a renderer. The
-drive does what the specification (Section 4) asks of every host but what only a host can do; a
+drive does what the specification ([`spec/host.md`](spec/host.md)) asks of every host but what only a host can do; a
 terminal measures text for the engine (`pencere_view::Measure`), resolves the colours of a page in its own
 theme (a role in the theme, a value in the form that goes with its brightness), keeps text readable
 against the grounds the draw list names under it, and turns the draw list into what it draws.
@@ -73,7 +73,7 @@ the directory [`sandbox/library`](sandbox/library).
 | `@pencere/charts`    | Area charts on a canvas: what a chart is (its model, in the points of its box) painted by the kit's smooth painter or a page's own, its drawing kept while only the pointer moves                                                                        |
 | `@pencere/markdown`  | Markdown (CommonMark and GitHub's extensions) read into a tree and drawn as elements: a document kept for a text that changes is read again only where it changed, and a long one is drawn a view at a time                                              |
 
-[`SPEC.md`](SPEC.md), Section 2.6, says what each module does.
+[`spec/library.md`](spec/library.md) says what each module does.
 
 ## Images
 
@@ -129,7 +129,7 @@ The kit's version is the one a view names in its `open` (specification Sections 
 draft the versions of `lua` are `0.x`: a change an existing view can notice moves the minor number
 (`0.2` after `0.1`), and an addition does not. A terminal opens one version, and a program written
 for another is not opened and says so in a sentence. (The rules the versions follow from the first
-general release on are in [`SPEC.md`](SPEC.md), Section 1.) The interface `pencere:view` has no
+general release on are in [`spec/versions.md`](spec/versions.md).) The interface `pencere:view` has no
 version of the kit's: it is the link between the interpreter and the sandbox, and a change of it is
 a new build of the interpreter (`make luau`).
 
