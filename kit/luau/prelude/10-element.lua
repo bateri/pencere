@@ -845,7 +845,7 @@ local EASES = { linear = true, out = true, ["in-out"] = true, spring = true }
 local CYCLE_EASES = { linear = true, out = true, ["in-out"] = true }
 local MOTION_FIELDS = {
 	seconds = true, ease = true, bounce = true, color = true, opacity = true, size = true,
-	place = true, rounded = true, border = true, shadow = true, padding = true, text_size = true,
+	auto_size = true, place = true, rounded = true, border = true, shadow = true, padding = true, text_size = true,
 	transform = true, enter = true, exit = true, spin = true, loop = true,
 }
 local SHIFT_FIELDS = { opacity = true, dx = true, dy = true, seconds = true, rotate = true, scale = true }
@@ -891,6 +891,11 @@ end
 --   color     the colours of its fill, border, shadow and words follow a change
 --   opacity   its opacity follows a change
 --   size      a width or height given in points follows a change
+--   auto_size the width and the height it is laid out at follow a change, whatever the style
+--             gives them (the content's, a share of the parent's, points): a box that opens to
+--             its content or closes. What is inside is laid out for the size the box goes to and
+--             the box shows what fits and cuts the rest while it is on its way. Said with `size`,
+--             this moves the box
 --   place     moved among the others, it slides from where it was to where it is
 --   rounded   its corners' radii, `rounded_corners` too, follow a change
 --   border    the thickness and the colour of its border follow a change
@@ -1072,6 +1077,7 @@ function Element:motion(motion)
 		color = motion.color == true,
 		opacity = motion.opacity == true,
 		size = motion.size == true,
+		auto_size = motion.auto_size == true,
 		place = motion.place == true,
 		rounded = motion.rounded == true,
 		border = motion.border == true,
@@ -1155,6 +1161,7 @@ local HAS = {
 	["element.transform"] = true, ["motion.bounce"] = true, ["motion.rounded"] = true,
 	["motion.border"] = true, ["motion.shadow"] = true, ["motion.padding"] = true,
 	["motion.text_size"] = true, ["motion.transform"] = true, ["motion.loop"] = true,
+	["motion.auto_size"] = true,
 	["motion.shift.rotate"] = true, ["motion.shift.scale"] = true,
 }
 local roles = {}

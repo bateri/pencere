@@ -1224,6 +1224,7 @@ fn a_script_says_the_spring_the_looks_the_turn_and_the_loop_of_an_element() {
                     :transform({ rotate = 45, scale = 2 })
                     :motion({ loop = { seconds = 2, rotate = 90 }, enter = { scale = 0 } }))
                 :child(pencere.div():id("plain"):transform({ rotate = 45 }))
+                :child(pencere.div():id("opens"):motion({ seconds = 0.3, auto_size = true, size = true }))
         end }"##,
         ModuleLimits::default(),
     );
@@ -1303,6 +1304,11 @@ fn a_script_says_the_spring_the_looks_the_turn_and_the_loop_of_an_element() {
         ))
     );
     assert_eq!((nodes[7].style.turn, nodes[7].style.scale), (0.0, None));
+    // A box that follows its laid size, and says a size in points too, is told as it said.
+    assert_eq!(
+        nodes[8].meta.motion,
+        Some(Motion::new(0.3).auto_size().size())
+    );
 }
 
 #[test]

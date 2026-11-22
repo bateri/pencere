@@ -2105,3 +2105,119 @@ fn what_is_in_view_is_sharp_at_every_zoom_and_a_page_scrolled_to_is_sharp_at_onc
     }
     Ok(())
 }
+
+/// A field that grows a line as it is typed in goes to its new height over its time: each line
+/// that is added is sent the box on to where it is going, the words inside it are where they will
+/// be, and the keyboard is still the field's.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_text_field_that_grows_as_it_is_typed_in_goes_to_its_height_and_keeps_the_keyboard()
+-> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+local lines = 1
+return {
+    render = function()
+        local field = pencere.div():id("q"):text_field("q"):col():w(200)
+            :motion({ seconds = 0.3, auto_size = true })
+        for line = 1, lines do
+            field:child(pencere.text("line " .. line):id("line" .. line):h(20):no_shrink())
+        end
+        return pencere.div():size_full():col():child(field):child(pencere.div():id("below"):h(10))
+    end,
+    handle = function(event)
+        if event.type == "text" then
+            lines = math.floor(#event.text / 3) + 1
+            return true
+        end
+    end,
+}
+"#,
+    )
+    .size(300.0, 300.0)
+    .open()?;
+    let at = |page: &Headless<Calls>, name: &str| page.bounds(name).expect(name);
+    assert_eq!(at(&page, "q").h, 20.0);
+    page.click("q")?;
+    page.type_text("abcdef")?;
+    // Three lines are asked for at once; the box is on its way to them, and it is under the
+    // keyboard still.
+    assert_eq!(page.focus(), Focus::Field(Id::named("q")));
+    let first = at(&page, "q").h;
+    assert_eq!(first, 20.0, "it starts where it was");
+    page.advance(0.1)?;
+    let on_the_way = at(&page, "q").h;
+    assert!(on_the_way > 20.0 && on_the_way < 60.0, "{on_the_way}");
+    assert_eq!(at(&page, "line3").h, 20.0, "a line is where it will be");
+    assert!((at(&page, "below").y - on_the_way).abs() <= 1.0);
+    // Another line in flight is sent on from where it is.
+    page.type_text("ghi")?;
+    page.advance(0.05)?;
+    let sent = at(&page, "q").h;
+    assert!(
+        sent >= on_the_way && sent <= 80.0,
+        "{on_the_way} then {sent}"
+    );
+    page.idle()?;
+    assert_eq!(at(&page, "q").h, 80.0);
+    assert_eq!(at(&page, "below").y, 80.0);
+    assert_eq!(page.focus(), Focus::Field(Id::named("q")));
+    assert_eq!(page.field("q"), Some("abcdefghi"));
+    Ok(())
+}
+
+/// An editor in a box that opens is laid out for the size the box goes to: it is where it will be
+/// from the first frame, the box shows what fits, and the editor is the editor's after it, as it
+/// would have been had the box not moved.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn an_editor_in_a_box_that_opens_is_where_it_will_be_and_takes_the_keyboard_all_the_same()
+-> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+local open = false
+return {
+    render = function()
+        local panel = pencere.div():id("panel"):col():motion({ seconds = 0.4, auto_size = true })
+        if open then
+            panel:child(pencere.editor("e", {}):id("e"):h(100):w(200))
+        end
+        return pencere.div():size_full():col()
+            :child(pencere.div():id("go"):press("go"):size(60, 24):child(pencere.text("Go")))
+            :child(panel)
+            :child(pencere.div():id("foot"):h(20))
+    end,
+    handle = function(event)
+        if event.type == "release" then
+            open = not open
+            return true
+        end
+    end,
+}
+"#,
+    )
+    .size(300.0, 300.0)
+    .open()?;
+    let at = |page: &Headless<Calls>, name: &str| page.bounds(name);
+    assert_eq!(at(&page, "panel").map(|r| r.h), Some(0.0));
+    page.click("go")?;
+    page.advance(0.1)?;
+    let on_the_way = at(&page, "panel").expect("panel").h;
+    assert!(on_the_way > 0.0 && on_the_way < 100.0, "{on_the_way}");
+    let editor = at(&page, "e").expect("an editor");
+    assert_eq!(
+        (editor.y, editor.h),
+        (24.0, 100.0),
+        "it is where it will be"
+    );
+    assert!((at(&page, "foot").expect("foot").y - (24.0 + on_the_way)).abs() <= 1.0);
+    // The keyboard is the editor's in the middle of the move, and what is typed is in it.
+    page.focus_editor("e")?;
+    page.type_text("hi")?;
+    assert_eq!(page.editor_text("e").as_deref(), Some("hi"));
+    page.idle()?;
+    assert_eq!(at(&page, "panel").map(|r| r.h), Some(100.0));
+    assert_eq!(at(&page, "e"), Some(editor));
+    assert_eq!(page.editor_text("e").as_deref(), Some("hi"));
+    Ok(())
+}

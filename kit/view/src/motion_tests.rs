@@ -1,9 +1,10 @@
 //! The guards of motion: a change moves over its time and stops, a row slides to its new place,
 //! comes in and goes out; nothing moves under Reduce Motion, on a resize or for scrolling.
 
+use crate::layout::Node;
 use crate::{
-    Cycle, Ease, Element, Fit, Font, Id, Laid, Measure, Metrics, Motion, Motions, Paint, Role,
-    Shift, Size, div, image, text,
+    Cycle, Ease, Element, Fit, Font, Id, Laid, Measure, Metrics, Motion, Motions, Paint, Rect,
+    Role, Shift, Size, div, image, text,
 };
 
 struct Fixed;
@@ -20,6 +21,7 @@ impl Measure for Fixed {
 const LIST: Id = Id::new(1);
 const BOX: Id = Id::new(2);
 const PAGE: Size = Size::new(200.0, 100.0);
+const PAGE_TALL: Size = Size::new(200.0, 400.0);
 const FRAME: f64 = 1.0 / 60.0;
 
 fn row_id(n: u64) -> Id {
@@ -1015,4 +1017,738 @@ fn a_box_that_comes_in_as_a_spring_while_the_ones_before_it_go_is_where_it_was_a
         (later - after) < came + 1.0 && (later - after) > came - 12.0,
         "{before} {steady}; {after} {later}"
     );
+}
+
+const HEAD: Id = Id::new(40);
+const BODY: Id = Id::new(41);
+const FOOT: Id = Id::new(42);
+const LINES: u64 = 43;
+
+fn line(n: u64) -> Id {
+    Id::new(LINES + n)
+}
+
+/// A head of 20 points, a body of two lines of 40 (when it is open) that follows the size it is
+/// laid out at, and a foot of 20. With `parts`, the lines go out as they went.
+fn accordion(open: bool, body: Motion, parts: bool) -> Element {
+    let lines: Vec<Element> = if open {
+        (0..2)
+            .map(|n| {
+                let line = div().id(line(n)).h(40.0).no_shrink();
+                if parts {
+                    line.motion(Motion::new(0.2).exit(Shift {
+                        opacity: 1.0,
+                        ..Shift::fade(0.2)
+                    }))
+                } else {
+                    line
+                }
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    div().col().children(vec![
+        div().id(HEAD).h(20.0).no_shrink(),
+        div().id(BODY).col().motion(body).children(lines),
+        div().id(FOOT).h(20.0).no_shrink(),
+    ])
+}
+
+fn body_motion() -> Motion {
+    Motion::new(0.2).auto_size()
+}
+
+fn at(laid: &Laid, id: Id) -> Rect {
+    laid.bounds(id)
+        .unwrap_or_else(|| panic!("{id:?} is on the page"))
+}
+
+fn node_of(laid: &Laid, id: Id) -> &Node {
+    laid.nodes
+        .iter()
+        .find(|node| node.meta.id == Some(id))
+        .unwrap_or_else(|| panic!("{id:?} is on the page"))
+}
+
+#[test]
+fn a_box_that_opens_to_its_content_shows_what_fits_and_nothing_inside_it_moves() {
+    let mut motions = Motions::default();
+    lay_tall(&mut motions, accordion(false, body_motion(), false), 0.0);
+    let first = lay_tall(&mut motions, accordion(true, body_motion(), false), 1.0);
+    assert_eq!(at(&first, BODY).h, 0.0, "it starts where it was");
+    let lines = [at(&first, line(0)), at(&first, line(1))];
+    assert_eq!(
+        (lines[0].y, lines[0].h, lines[1].y, lines[1].h),
+        (20.0, 40.0, 60.0, 40.0)
+    );
+    let mut was = 0.0;
+    let mut now = 1.0;
+    let mut mid = false;
+    while motions.moving() {
+        now += FRAME;
+        let laid = lay_tall(&mut motions, accordion(true, body_motion(), false), now);
+        let body = at(&laid, BODY);
+        assert!(
+            body.h >= was && body.h <= 80.0,
+            "it grows to its size: {was} then {}",
+            body.h
+        );
+        was = body.h;
+        mid |= body.h > 5.0 && body.h < 75.0;
+        // Each line is where the first layout had it, whatever the box shows of it.
+        assert_eq!([at(&laid, line(0)), at(&laid, line(1))], lines, "at {now}");
+        // What is under the box follows its edge; what is in it is cut where it ends.
+        assert!((at(&laid, FOOT).y - (20.0 + body.h)).abs() <= 1.0);
+        let cut = node_of(&laid, line(1)).clip;
+        assert!(
+            body.h >= 80.0 || cut.y + cut.h <= body.y + body.h + 0.5,
+            "cut at {} of {}",
+            cut.y + cut.h,
+            body.h
+        );
+        assert!(node_of(&laid, BODY).clips || body.h >= 80.0);
+    }
+    assert!(mid, "it was seen on its way");
+    let rest = lay_tall(
+        &mut motions,
+        accordion(true, body_motion(), false),
+        now + 1.0,
+    );
+    assert_eq!(at(&rest, BODY).h, 80.0);
+    assert_eq!(at(&rest, FOOT).y, 100.0);
+    assert!(
+        !node_of(&rest, BODY).clips,
+        "at rest the page's own clip stands"
+    );
+    assert!(node_of(&rest, line(1)).clip.h > 300.0);
+}
+
+#[test]
+fn a_box_that_closes_cuts_the_lines_that_went_with_the_clip_it_has_now() {
+    let mut motions = Motions::default();
+    lay_tall(&mut motions, accordion(true, body_motion(), true), 0.0);
+    let page = lay_tall(&mut motions, accordion(true, body_motion(), true), 0.5);
+    let (open, count) = (at(&page, line(1)), page.nodes.len());
+    let first = lay_tall(&mut motions, accordion(false, body_motion(), true), 1.0);
+    assert_eq!(at(&first, BODY).h, 80.0, "it starts where it was");
+    assert_eq!(
+        first.nodes.len(),
+        count,
+        "the lines are still drawn: they go as they went"
+    );
+    let mut now = 1.0;
+    let mut cut_once = false;
+    while motions.moving() {
+        now += FRAME;
+        let laid = lay_tall(&mut motions, accordion(false, body_motion(), true), now);
+        let body = at(&laid, BODY);
+        for ghost in laid.nodes.iter().skip(4) {
+            assert!(ghost.meta.id.is_none());
+            assert_eq!(ghost.rect.y, open.y.min(ghost.rect.y), "it does not move");
+            assert!(
+                ghost.clip.y + ghost.clip.h <= body.y + body.h + 0.5,
+                "at {now}: cut at {} of {}",
+                ghost.clip.y + ghost.clip.h,
+                body.h
+            );
+            cut_once |= body.h < 70.0;
+        }
+        assert!((at(&laid, FOOT).y - (20.0 + body.h)).abs() <= 1.0);
+    }
+    assert!(cut_once);
+    let rest = lay_tall(
+        &mut motions,
+        accordion(false, body_motion(), true),
+        now + 1.0,
+    );
+    assert_eq!(
+        (at(&rest, BODY).h, rest.nodes.len()),
+        (0.0, 4),
+        "nothing is left of it"
+    );
+}
+
+#[test]
+fn a_box_inside_a_box_that_opens_with_it_is_followed_by_what_comes_after_it() {
+    const OUT: Id = Id::new(60);
+    const IN: Id = Id::new(61);
+    const TAIL: Id = Id::new(62);
+    let page = |open: bool| {
+        let lines: Vec<Element> = if open {
+            (0..2)
+                .map(|n| div().id(line(n)).h(40.0).no_shrink())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        div().col().children(vec![
+            div().id(HEAD).h(20.0).no_shrink(),
+            div().id(OUT).col().motion(body_motion()).children(vec![
+                div().h(20.0).no_shrink(),
+                div().id(IN).col().motion(body_motion()).children(lines),
+                div().id(TAIL).h(20.0).no_shrink(),
+            ]),
+            div().id(FOOT).h(20.0).no_shrink(),
+        ])
+    };
+    let mut motions = Motions::default();
+    lay_tall(&mut motions, page(false), 0.0);
+    lay_tall(&mut motions, page(true), 1.0);
+    let mut now = 1.0;
+    let mut mid = false;
+    while motions.moving() {
+        now += FRAME;
+        let laid = lay_tall(&mut motions, page(true), now);
+        let (out, inner, tail) = (at(&laid, OUT), at(&laid, IN), at(&laid, TAIL));
+        assert!(
+            inner.y + inner.h <= out.y + out.h + 1.0,
+            "the inner is cut by the outer"
+        );
+        assert!(
+            (tail.y - (inner.y + inner.h)).abs() <= 1.0,
+            "it follows the inner at {now}"
+        );
+        assert!(
+            (at(&laid, FOOT).y - (out.y + out.h)).abs() <= 1.0,
+            "and the foot the outer"
+        );
+        mid |= inner.h > 5.0 && inner.h < 75.0;
+    }
+    assert!(mid);
+    let rest = lay_tall(&mut motions, page(true), now + 1.0);
+    assert_eq!(
+        (at(&rest, IN).h, at(&rest, OUT).h, at(&rest, FOOT).y),
+        (80.0, 120.0, 140.0)
+    );
+}
+
+#[test]
+fn what_says_a_size_in_points_with_auto_size_moves_as_it_does_alone() {
+    let by = |motion: Motion| {
+        let mut motions = Motions::default();
+        let page = |open: bool| {
+            div().col().children(vec![
+                div().id(HEAD).h(20.0).no_shrink(),
+                div()
+                    .id(BODY)
+                    .h(if open { 80.0 } else { 0.0 })
+                    .motion(motion),
+                div().id(FOOT).h(20.0).no_shrink(),
+            ])
+        };
+        lay_tall(&mut motions, page(false), 0.0);
+        let mut heights = vec![at(&lay_tall(&mut motions, page(true), 1.0), BODY).h];
+        let mut now = 1.0;
+        while motions.moving() {
+            now += FRAME;
+            heights.push(at(&lay_tall(&mut motions, page(true), now), BODY).h);
+        }
+        heights
+    };
+    let alone = by(body_motion());
+    assert_eq!(by(body_motion().size()), alone);
+    assert!(alone.iter().any(|h| *h > 5.0 && *h < 75.0), "{alone:?}");
+}
+
+#[test]
+fn a_box_that_is_there_when_the_page_first_is_laid_out_does_not_move_and_nor_does_one_under_reduce_motion()
+ {
+    let mut motions = Motions::default();
+    let first = lay_tall(&mut motions, accordion(true, body_motion(), false), 0.0);
+    assert_eq!(at(&first, BODY).h, 80.0);
+    assert!(!motions.moving());
+    let mut still = Motions::default();
+    still.layout(
+        accordion(false, body_motion(), false),
+        PAGE_TALL,
+        1.0,
+        &mut Fixed,
+        0.0,
+        true,
+    );
+    let laid = still.layout(
+        accordion(true, body_motion(), false),
+        PAGE_TALL,
+        1.0,
+        &mut Fixed,
+        1.0,
+        true,
+    );
+    assert_eq!(at(&laid, BODY).h, 80.0);
+    assert!(!still.moving() && !still.lays());
+    // Nor on a resize: that is not a change of the page.
+    let mut resized = Motions::default();
+    lay_tall(&mut resized, accordion(false, body_motion(), false), 0.0);
+    let wider = resized.layout(
+        accordion(true, body_motion(), false),
+        Size::new(300.0, 400.0),
+        1.0,
+        &mut Fixed,
+        1.0,
+        false,
+    );
+    assert_eq!(at(&wider, BODY).h, 80.0);
+    assert!(!resized.moving());
+}
+
+#[test]
+fn a_box_that_has_room_to_grow_is_the_size_it_is_on_its_way_and_not_what_is_left() {
+    const PANEL: Id = Id::new(70);
+    let page = |room: f32| {
+        div().col().child(div().col().h(room).children(vec![
+            div().id(HEAD).h(20.0).no_shrink(),
+            div().id(PANEL).grow(1.0).motion(body_motion()),
+        ]))
+    };
+    let mut motions = Motions::default();
+    lay_tall(&mut motions, page(200.0), 0.0);
+    assert_eq!(
+        at(&lay_tall(&mut motions, page(200.0), 0.1), PANEL).h,
+        180.0
+    );
+    let first = at(&lay_tall(&mut motions, page(100.0), 1.0), PANEL).h;
+    assert_eq!(first, 180.0, "it starts where it was");
+    let (mut was, mut now, mut mid) = (first, 1.0, false);
+    while motions.moving() {
+        now += FRAME;
+        let h = at(&lay_tall(&mut motions, page(100.0), now), PANEL).h;
+        assert!(h <= was && h >= 80.0, "{was} then {h}");
+        mid |= h > 100.0 && h < 160.0;
+        was = h;
+    }
+    assert!(mid);
+    assert_eq!(
+        at(&lay_tall(&mut motions, page(100.0), now + 1.0), PANEL).h,
+        80.0
+    );
+}
+
+#[test]
+fn a_box_that_goes_after_what_changes_inside_it_each_frame_comes_to_rest() {
+    const PAD: Id = Id::new(80);
+    let page = |padded: bool| {
+        div().col().children(vec![
+            div().id(BODY).col().motion(body_motion()).children(vec![
+                div()
+                    .id(PAD)
+                    .p(if padded { 30.0 } else { 0.0 })
+                    .child(div().h(20.0).no_shrink())
+                    .motion(Motion::new(0.2).padding()),
+            ]),
+            div().id(FOOT).h(20.0).no_shrink(),
+        ])
+    };
+    let mut motions = Motions::default();
+    lay_tall(&mut motions, page(false), 0.0);
+    let (mut was, mut now) = (at(&lay_tall(&mut motions, page(true), 1.0), BODY).h, 1.0);
+    assert_eq!(was, 20.0);
+    while motions.moving() {
+        now += FRAME;
+        let h = at(&lay_tall(&mut motions, page(true), now), BODY).h;
+        assert!(h >= was && h <= 80.0, "{was} then {h}");
+        assert!((at(&lay_tall(&mut motions, page(true), now), FOOT).y - h).abs() <= 1.0);
+        was = h;
+        assert!(now < 3.0, "it never comes to rest");
+    }
+    assert!(
+        now < 1.0 + 0.2 + 0.2 + 0.1,
+        "it is at rest within the two moves: {now}"
+    );
+    assert_eq!(
+        at(&lay_tall(&mut motions, page(true), now + 1.0), BODY).h,
+        80.0
+    );
+}
+
+#[test]
+fn a_box_that_opens_inside_one_that_scrolls_makes_the_room_of_it_grow_as_it_goes() {
+    const SCROLLER: Id = Id::new(90);
+    let page = |open: bool| {
+        div().id(SCROLLER).col().h(100.0).scroll().children(vec![
+            div().id(HEAD).h(20.0).no_shrink(),
+            div()
+                .id(BODY)
+                .col()
+                .motion(body_motion())
+                .children(if open {
+                    (0..2)
+                        .map(|n| div().id(line(n)).h(40.0).no_shrink())
+                        .collect()
+                } else {
+                    Vec::new()
+                }),
+            div().id(FOOT).h(20.0).no_shrink(),
+        ])
+    };
+    let mut motions = Motions::default();
+    lay_tall(&mut motions, page(false), 0.0);
+    let content = |laid: &Laid| {
+        laid.scroll_extent(SCROLLER)
+            .expect("a box that scrolls")
+            .content
+            .h
+    };
+    assert_eq!(content(&lay_tall(&mut motions, page(true), 1.0)), 40.0);
+    let (mut was, mut now, mut mid) = (40.0, 1.0, false);
+    while motions.moving() {
+        now += FRAME;
+        let h = content(&lay_tall(&mut motions, page(true), now));
+        assert!(h >= was && h <= 120.0, "{was} then {h}");
+        mid |= h > 60.0 && h < 100.0;
+        was = h;
+    }
+    assert!(mid);
+    assert_eq!(
+        content(&lay_tall(&mut motions, page(true), now + 1.0)),
+        120.0
+    );
+}
+
+#[test]
+fn laying_the_page_out_again_for_the_same_time_gives_the_same_boxes_and_a_spring_goes_on_at_its_speed()
+ {
+    let spring = || body_motion().ease(Ease::Spring);
+    let mut motions = Motions::default();
+    lay_tall(&mut motions, accordion(false, spring(), false), 0.0);
+    lay_tall(&mut motions, accordion(true, spring(), false), 1.0);
+    let once = at(
+        &lay_tall(&mut motions, accordion(true, spring(), false), 1.02),
+        BODY,
+    );
+    let twice = at(
+        &lay_tall(&mut motions, accordion(true, spring(), false), 1.02),
+        BODY,
+    );
+    assert_eq!(once, twice);
+    // Sent back where it came from in flight, it does not jump, and it goes on up for a while as a
+    // spring does.
+    let (mut goes_on, mut sent) = (motions.clone(), motions);
+    let on = at(
+        &lay_tall(&mut goes_on, accordion(true, spring(), false), 1.02),
+        BODY,
+    )
+    .h;
+    let back = at(
+        &lay_tall(&mut sent, accordion(false, spring(), false), 1.02),
+        BODY,
+    )
+    .h;
+    assert!(
+        (back - on).abs() <= 1.0,
+        "it does not jump: {back} against {on}"
+    );
+    let later = at(
+        &lay_tall(&mut sent, accordion(false, spring(), false), 1.035),
+        BODY,
+    )
+    .h;
+    assert!(later > back + 3.0, "its speed is kept: {back} then {later}");
+    let mut now = 1.035;
+    while sent.moving() {
+        now += FRAME;
+        lay_tall(&mut sent, accordion(false, spring(), false), now);
+        assert!(now < 6.0);
+    }
+    assert_eq!(
+        at(
+            &lay_tall(&mut sent, accordion(false, spring(), false), 9.0),
+            BODY
+        )
+        .h,
+        0.0
+    );
+}
+
+#[test]
+fn a_row_of_a_long_list_that_opens_goes_over_its_time_and_the_list_is_not_built_again_for_it() {
+    use crate::rows::{List, Rows};
+    const ROWS: Id = Id::new(95);
+    const OPENS: Id = Id::new(1003);
+    let mut list = List::new(ROWS);
+    let page = |list: &List, open: bool| {
+        let rows = Rows::new((0..1000).map(|n| if n == 3 && open { 80.0 } else { 20.0 }));
+        div()
+            .col()
+            .child(list.build(div().h(100.0), rows, 100.0, |n| {
+                let id = Id::new(1000 + n as u64);
+                if n == 3 {
+                    div()
+                        .id(id)
+                        .col()
+                        .motion(body_motion())
+                        .child(div().h(if open { 80.0 } else { 20.0 }).no_shrink())
+                } else {
+                    div().id(id).h(20.0).no_shrink()
+                }
+            }))
+    };
+    let mut motions = Motions::default();
+    let laid = lay_tall(&mut motions, page(&list, false), 0.0);
+    assert!(!list.settle(&laid));
+    lay_tall(&mut motions, page(&list, true), 1.0);
+    let (mut was, mut now, mut mid) = (20.0, 1.0, false);
+    while motions.moving() {
+        now += FRAME;
+        let laid = lay_tall(&mut motions, page(&list, true), now);
+        let h = at(&laid, OPENS).h;
+        assert!(h >= was && h <= 80.0, "{was} then {h}");
+        assert!(!list.settle(&laid), "the list is not built again at {now}");
+        mid |= h > 30.0 && h < 70.0;
+        was = h;
+    }
+    assert!(mid);
+    let rest = lay_tall(&mut motions, page(&list, true), now + 1.0);
+    assert_eq!(at(&rest, OPENS).h, 80.0);
+    assert_eq!(
+        rest.scroll_extent(ROWS).expect("a list").content.h,
+        20.0 * 999.0 + 80.0
+    );
+}
+
+#[test]
+fn a_box_that_narrows_has_what_stretches_in_it_laid_out_for_the_width_it_goes_to() {
+    const SIDE: Id = Id::new(96);
+    const WORDS: Id = Id::new(97);
+    let page = |wide: bool| {
+        div().row().child(
+            div()
+                .id(SIDE)
+                .w(if wide { 160.0 } else { 40.0 })
+                .motion(body_motion())
+                .child(div().id(WORDS).h(10.0).no_shrink()),
+        )
+    };
+    let mut motions = Motions::default();
+    let before = at(&lay_tall(&mut motions, page(true), 0.0), WORDS);
+    let first = lay_tall(&mut motions, page(false), 1.0);
+    let target = at(&first, WORDS);
+    assert_eq!((before.w, target.w), (160.0, 40.0));
+    let (mut now, mut mid) = (1.0, false);
+    while motions.moving() {
+        now += FRAME;
+        let laid = lay_tall(&mut motions, page(false), now);
+        assert_eq!(at(&laid, WORDS), target, "at {now}");
+        let side = at(&laid, SIDE).w;
+        mid |= side > 60.0 && side < 140.0;
+    }
+    assert!(mid);
+    assert_eq!(
+        at(&lay_tall(&mut motions, page(false), now + 1.0), SIDE).w,
+        40.0
+    );
+}
+
+#[test]
+fn a_row_that_slides_of_its_own_is_where_it_was_against_its_box_while_a_box_above_it_opens() {
+    const LISTED: Id = Id::new(98);
+    const ROW: Id = Id::new(99);
+    let rows = Motion::new(0.2).place();
+    // The row is in a box of its own that is below the one that opens: it follows that box, and
+    // there is no slide to it (nothing moved it against what holds it).
+    let held = |open: bool| {
+        div().col().children(vec![
+            div()
+                .id(BODY)
+                .col()
+                .motion(body_motion())
+                .children(if open {
+                    vec![div().h(80.0).no_shrink()]
+                } else {
+                    Vec::new()
+                }),
+            div()
+                .id(LISTED)
+                .col()
+                .child(div().id(ROW).h(20.0).no_shrink().motion(rows)),
+        ])
+    };
+    let mut motions = Motions::default();
+    lay_tall(&mut motions, held(false), 0.0);
+    lay_tall(&mut motions, held(true), 1.0);
+    let (mut now, mut mid) = (1.0, false);
+    while motions.moving() {
+        now += FRAME;
+        let laid = lay_tall(&mut motions, held(true), now);
+        let (list, row) = (at(&laid, LISTED), at(&laid, ROW));
+        assert_eq!(row.y, list.y, "at {now}");
+        assert!((list.y - at(&laid, BODY).h).abs() <= 1.0);
+        mid |= list.y > 5.0 && list.y < 75.0;
+    }
+    assert!(mid);
+    // The row is in the same box as the one that opens: it is moved, and it slides there once.
+    let sibling = |open: bool| {
+        div().col().id(LISTED).children(vec![
+            div()
+                .id(BODY)
+                .col()
+                .motion(body_motion())
+                .children(if open {
+                    vec![div().h(80.0).no_shrink()]
+                } else {
+                    Vec::new()
+                }),
+            div().id(ROW).h(20.0).no_shrink().motion(rows),
+        ])
+    };
+    let mut motions = Motions::default();
+    lay_tall(&mut motions, sibling(false), 0.0);
+    assert_eq!(at(&lay_tall(&mut motions, sibling(true), 1.0), ROW).y, 0.0);
+    let (mut now, mut was, mut mid) = (1.0, 0.0, false);
+    while motions.moving() {
+        now += FRAME;
+        let y = at(&lay_tall(&mut motions, sibling(true), now), ROW).y;
+        assert!(y >= was && y <= 80.0, "{was} then {y}");
+        mid |= y > 5.0 && y < 75.0;
+        was = y;
+    }
+    assert!(mid);
+    assert_eq!(
+        at(&lay_tall(&mut motions, sibling(true), now + 1.0), ROW).y,
+        80.0
+    );
+}
+
+#[test]
+fn a_box_that_scrolls_and_opens_is_as_large_as_it_is_on_its_way_and_holds_what_it_will_hold() {
+    let page = |open: bool| {
+        div().col().children(vec![
+            div()
+                .id(BODY)
+                .col()
+                .scroll()
+                .motion(body_motion())
+                .children(if open {
+                    vec![
+                        div().id(line(0)).h(60.0).no_shrink(),
+                        div().id(line(1)).h(60.0).no_shrink(),
+                    ]
+                } else {
+                    Vec::new()
+                }),
+            div().id(FOOT).h(20.0).no_shrink(),
+        ])
+    };
+    let mut motions = Motions::default();
+    lay_tall(&mut motions, page(false), 0.0);
+    lay_tall(&mut motions, page(true), 1.0);
+    let (mut now, mut mid) = (1.0, false);
+    while motions.moving() {
+        now += FRAME;
+        let laid = lay_tall(&mut motions, page(true), now);
+        let (body, extent) = (
+            at(&laid, BODY),
+            laid.scroll_extent(BODY).expect("a box that scrolls"),
+        );
+        assert_eq!(
+            extent.content.h, 120.0,
+            "it holds what it will hold at {now}"
+        );
+        assert!(
+            (extent.view.h - body.h).abs() <= 1.0,
+            "and is as large as it is"
+        );
+        assert!((at(&laid, FOOT).y - body.h).abs() <= 1.0);
+        mid |= body.h > 20.0 && body.h < 100.0;
+    }
+    assert!(mid);
+}
+
+#[test]
+fn what_went_from_a_box_that_follows_its_size_is_cut_by_it_at_rest_too() {
+    let page = |open: bool| {
+        let lines: Vec<Element> = if open {
+            (0..2)
+                .map(|n| {
+                    div()
+                        .id(line(n))
+                        .h(40.0)
+                        .no_shrink()
+                        .motion(Motion::new(0.2).exit(Shift {
+                            opacity: 1.0,
+                            ..Shift::fade(0.6)
+                        }))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        div().col().children(vec![
+            div().id(HEAD).h(20.0).no_shrink(),
+            div().id(BODY).col().motion(body_motion()).children(lines),
+            div().id(FOOT).h(20.0).no_shrink(),
+        ])
+    };
+    let mut motions = Motions::default();
+    lay_tall(&mut motions, page(true), 0.0);
+    lay_tall(&mut motions, page(false), 1.0);
+    // The box is at rest after 0.2 seconds; what went is drawn for 0.6.
+    let laid = lay_tall(&mut motions, page(false), 1.4);
+    assert_eq!(at(&laid, BODY).h, 0.0);
+    assert!(!node_of(&laid, BODY).clips, "it is at rest");
+    assert!(laid.nodes.len() > 4, "what went is still drawn");
+    for ghost in laid.nodes.iter().skip(4) {
+        assert!(
+            ghost.clip.h <= 0.5,
+            "cut by the closed box: {:?}",
+            ghost.clip
+        );
+    }
+    assert_eq!(lay_tall(&mut motions, page(false), 1.8).nodes.len(), 4);
+}
+
+#[test]
+fn the_size_of_words_on_its_way_is_in_half_points_so_that_no_font_is_opened_for_each_frame() {
+    let page = |size: f32| {
+        div().col().child(
+            div()
+                .id(BOX)
+                .row()
+                .text_size(size)
+                .motion(Motion::new(0.3).text_size())
+                .child(text("hellowor").id(Id::new(3))),
+        )
+    };
+    let mut motions = Motions::default();
+    lay(&mut motions, page(20.0), 0.0);
+    lay(&mut motions, page(30.0), 1.0);
+    let (mut now, mut sizes) = (1.0, Vec::new());
+    while motions.moving() {
+        now += FRAME / 3.0;
+        let laid = lay(&mut motions, page(30.0), now);
+        // Eight letters, half the size each: a size in half points is a width in 2 (laid out in
+        // whole pixels, a size that is not would give an odd width as often as an even one).
+        sizes.push(laid.bounds(Id::new(3)).unwrap().w / 2.0);
+        assert!(now < 3.0);
+    }
+    assert!(sizes.len() > 20, "{}", sizes.len());
+    for size in &sizes {
+        assert!(
+            (size.round() - size).abs() < 1e-3,
+            "{size} is not whole half points"
+        );
+    }
+    assert!(
+        sizes.iter().any(|size| *size > 40.0 && *size < 58.0),
+        "it was seen on its way"
+    );
+}
+
+#[test]
+fn what_the_host_reads_of_a_page_is_where_the_page_put_a_box_and_not_where_a_loop_has_it() {
+    let page =
+        || {
+            div().col().child(
+                div().id(BOX).w(20.0).h(20.0).motion(
+                    Motion::new(0.2).cycle(Cycle::new(1.0).ease(Ease::Linear).by(0.0, 10.0)),
+                ),
+            )
+        };
+    let mut motions = Motions::default();
+    assert!(lay(&mut motions, page(), 0.0).without_loops().is_none());
+    let moved = lay(&mut motions, page(), 0.25);
+    assert!(moved.bounds(BOX).unwrap().y > 1.0, "the loop moved it");
+    let rest = moved.without_loops().expect("a loop moved it");
+    assert_eq!(rest.bounds(BOX).unwrap().y, 0.0);
+    assert!(rest.without_loops().is_none());
 }

@@ -1410,6 +1410,7 @@ return {{
             .. " loop=" .. tostring(pencere.has("motion.loop"))
             .. " bounce=" .. tostring(pencere.has("motion.bounce"))
             .. " transform=" .. tostring(pencere.has("element.transform"))
+            .. " autosize=" .. tostring(pencere.has("motion.auto_size"))
             .. " nomotion=" .. tostring(pencere.has("motion.nope"))))
     end,
 }}
@@ -1420,7 +1421,7 @@ return {{
     let text = page.reading().text();
     assert!(
         text.contains(
-            "unnamed= roles=29 dialog=true target=true command=true listreveal=true nope=false loop=true bounce=true transform=true nomotion=false"
+            "unnamed= roles=29 dialog=true target=true command=true listreveal=true nope=false loop=true bounce=true transform=true autosize=true nomotion=false"
         ),
         "{text}"
     );

@@ -144,6 +144,9 @@ pub(crate) struct Node {
     /// How many times as large its picture or its canvas is drawn, about its middle: where it is
     /// scaled ([`crate::Style::scale`], [`crate::Motion::cycle`]).
     pub scaled: f32,
+    /// How far a loop ([`crate::Motion::cycle`]) has moved it from where the page put it, pixels:
+    /// what is read of the page is read where the page put it.
+    pub cycled: (f32, f32),
     /// The room inside the box around what is in it, pixels: left, above, right, below.
     pub pad: [f32; 4],
     /// It is put where the page says (laid over the rest, or an overlay), not where the box it is
@@ -494,6 +497,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             clips: entry.overflow != Overflow::Visible,
             turn: entry.turn,
             scaled: entry.scaled,
+            cycled: (0.0, 0.0),
             pad: [
                 laid.padding.left,
                 laid.padding.top,
@@ -877,6 +881,7 @@ fn empty(page: Rect) -> Node {
         overlay: false,
         clips: false,
         turn: 0.0,
+        cycled: (0.0, 0.0),
         scaled: 1.0,
         pad: [0.0; 4],
         placed: false,
@@ -1710,6 +1715,23 @@ impl Laid {
             .find(|command| command.done_by(key, mods))
             .filter(|command| command.enabled)
             .map(|command| command.id)
+    }
+
+    /// The page with what a loop moved ([`crate::Motion::cycle`]) put back where the page had it,
+    /// or `None` where no loop moved anything: what the host is told of the page (for a screen
+    /// reader, its fields) does not go back and forth with a bobbing arrow.
+    #[must_use]
+    pub fn without_loops(&self) -> Option<Self> {
+        if self.nodes.iter().all(|node| node.cycled == (0.0, 0.0)) {
+            return None;
+        }
+        let mut laid = self.clone();
+        for node in &mut laid.nodes {
+            let (dx, dy) = node.cycled;
+            node.rect = node.rect.translate(-dx, -dy);
+            node.cycled = (0.0, 0.0);
+        }
+        Some(laid)
     }
 
     /// How large the content of the scrolling box named `id` is, how large the box is, and how far

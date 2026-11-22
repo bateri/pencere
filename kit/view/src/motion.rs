@@ -17,12 +17,15 @@
 //!
 //! [`Element::motion`]: crate::Element::motion
 
+mod fit;
+
 use std::collections::{HashMap, HashSet};
 
 use crate::layout::{DEFAULT_TEXT, Laid, Node, layout, snap};
 use crate::spring::spring_step;
 use crate::style::{Border, Length, Shadow, Style};
 use crate::{Color, Element, Id, Measure, Mix, Rect, Size};
+use fit::Fit;
 
 /// How a change of an element moves.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -41,6 +44,12 @@ pub struct Motion {
     /// A width or a height given in points follows a change (one that is not given in points, the
     /// content's or a share of the parent's, does not: it snaps).
     pub size: bool,
+    /// The width and the height it is laid out at follow a change, whatever its style gives them
+    /// (in points, the content's, a share of the parent's): a box that opens to its content or
+    /// closes. What is inside is laid out as it is at the size the box is going to, and the box
+    /// shows what fits while it is on its way; it cuts what is inside only then. Said with `size`,
+    /// it is this that moves the box.
+    pub auto_size: bool,
     /// Moved among the others (a row above it went, the list was sorted again), it slides from
     /// where it was to where it is.
     pub place: bool,
@@ -83,6 +92,7 @@ impl Motion {
             color: false,
             opacity: false,
             size: false,
+            auto_size: false,
             place: false,
             rounded: false,
             border: false,
@@ -129,6 +139,15 @@ impl Motion {
     #[must_use]
     pub const fn size(self) -> Self {
         Self { size: true, ..self }
+    }
+
+    /// The width and the height it is laid out at follow a change ([`Motion::auto_size`]).
+    #[must_use]
+    pub const fn auto_size(self) -> Self {
+        Self {
+            auto_size: true,
+            ..self
+        }
     }
 
     #[must_use]
@@ -652,7 +671,10 @@ impl Values {
             }
         }
         if motion.text_size {
-            style.text.size = self.numbers[TEXT];
+            // In half points, as the sizes a page says are held (`world.rs`): each new size opens a
+            // font and keeps it, and a size that is a new one at each frame would open fonts without end.
+            style.text.size =
+                self.numbers[TEXT].map(|size| (size.clamp(1.0, 256.0) * 2.0).round() / 2.0);
         }
     }
 
@@ -883,6 +905,8 @@ struct Track {
     slide: Option<Leg>,
     /// Coming in, from `enter`.
     enter: Option<(Shift, Leg)>,
+    /// The size it is laid out at, where it follows that ([`Motion::auto_size`]).
+    fit: Option<Fit>,
     /// What it looked like when it was last drawn, for going out: its boxes against the content
     /// of the box that held it, and that box's id.
     look: Option<Look>,
@@ -1012,6 +1036,9 @@ struct Pace {
     endless: bool,
     /// What is on its way takes room, so that the next frame is laid out again.
     lays: bool,
+    /// A box follows the size it is laid out at ([`Motion::auto_size`]): the tree is kept for a
+    /// second layout.
+    fits: bool,
 }
 
 impl Motions {
@@ -1039,7 +1066,11 @@ impl Motions {
         self.before(
             &mut root, now, still, &mut seen, &mut fresh, &mut pace, outer,
         );
+        let spare = pace.fits.then(|| root.clone());
         let mut laid = layout(root, viewport, scale, measure);
+        if let Some(spare) = &spare {
+            laid = self.fit(laid, spare, viewport, measure, now, still, &mut pace);
+        }
         // What the frames that follow are drawn from, while something on the page can move.
         self.base = laid
             .nodes
@@ -1121,6 +1152,12 @@ impl Motions {
     ) {
         let said = element.style.text.size.unwrap_or(outer);
         if let (Some(id), Some(motion)) = (element.meta.id, element.meta.motion) {
+            // A box that follows its laid size is moved by that, whatever its style says.
+            pace.fits |= motion.auto_size;
+            let motion = Motion {
+                size: motion.size && !motion.auto_size,
+                ..motion
+            };
             let target = Values::of(&element.style, &motion, outer);
             seen.insert(id);
             let track = self.tracks.entry(id).or_insert_with(|| {
@@ -1133,6 +1170,7 @@ impl Motions {
                     offset: (0.0, 0.0),
                     slide: None,
                     enter: None,
+                    fit: None,
                     look: None,
                 }
             });
@@ -1327,7 +1365,16 @@ impl Motions {
             else {
                 continue;
             };
-            let Some(origin) = laid.nodes.get(holder).map(content_origin) else {
+            let Some((origin, cut)) = laid.nodes.get(holder).map(|node| {
+                // What the box that held it cuts now, not as it did where it went from. A box that
+                // follows its size cuts what went from it at rest too: that is not the page's.
+                let cut = if node.clips || node.meta.motion.is_some_and(|motion| motion.auto_size) {
+                    node.clip.intersect(node.rect)
+                } else {
+                    node.clip
+                };
+                (content_origin(node), cut)
+            }) else {
                 continue;
             };
             let t = ghost.leg.at(now);
@@ -1344,6 +1391,7 @@ impl Motions {
                 node.rect.y += dy;
                 node.clip.x += origin.0;
                 node.clip.y += origin.1;
+                node.clip = node.clip.intersect(cut);
                 node.opacity *= opacity;
                 if at == 0 {
                     node.turn += exit.rotate * t;
@@ -1413,6 +1461,10 @@ fn cycles(laid: &mut Laid, now: f64, reduce_motion: bool, pace: &mut Pace) {
                 node.scaled *= size;
             }
             shift(boxes, dx, dy, opacity);
+            for node in boxes.iter_mut() {
+                node.cycled.0 += dx;
+                node.cycled.1 += dy;
+            }
         }
     }
 }

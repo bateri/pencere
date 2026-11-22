@@ -1174,6 +1174,10 @@ interface types {
         /// The size of its words, and of those inside it that have none of their own, follows a
         /// change.
         text-size: bool,
+        /// The width and the height it is laid out at follow a change, whatever the style gives
+        /// them: a box that opens to its content or closes. What is inside is laid out for the size
+        /// the box goes to, and the box shows what fits and cuts the rest while it is on its way.
+        auto-size: bool,
         /// The turn and the scale of its picture or canvas follow a change.
         transform: bool,
         /// How it comes in when it appears on a page that was there before it.

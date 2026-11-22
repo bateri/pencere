@@ -1790,6 +1790,7 @@ fn motion_out(motion: wit::Motion) -> Motion {
         shadow: motion.shadow,
         padding: motion.padding,
         text_size: motion.text_size,
+        auto_size: motion.auto_size,
         transform: motion.transform,
         cycle: motion.cycle.and_then(cycle_out),
         enter: motion.enter.map(shift_out),

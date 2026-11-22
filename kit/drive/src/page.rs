@@ -1952,7 +1952,9 @@ impl State {
                 self.event(event);
             }
         }
-        let mut outline = Outline::of(&laid, self.place);
+        // What is read of the page is read where the page put it, not where a loop has it for now.
+        let resting = laid.without_loops();
+        let mut outline = Outline::of(resting.as_ref().unwrap_or(&laid), self.place);
         outline.add_markers(self.editing.editors.labels(&laid), self.place);
         let changed = (outline != self.outline).then(|| outline.clone());
         self.outline = outline;

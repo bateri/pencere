@@ -157,6 +157,8 @@ index)` (and `Page::command_on`, `Page::reveal`, the host/test `page:command_on`
 
 ### Fixed
 
+- **A box that a loop moves does not make the outline change at each frame.** What a screen reader and the
+  host's fields are told is read where the page put the box, not where a loop has it for now.
 - **A picture shows the host's text fields.** `Headless::shot` drew a field's box empty, whatever
   was typed in it, and with no hint: it now draws what each field holds in the terminal's face at the
   kit's text size (a secret as dots), or its hint, quiet, where it holds nothing, what is selected in

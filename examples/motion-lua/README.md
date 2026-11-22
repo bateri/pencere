@@ -13,6 +13,9 @@ pencere test         # the page's tests, under the host with no screen
 - a spring that bounces (`ease = "spring"`, `bounce`) under three segments, whose width and place
   are sent elsewhere while they are on their way and keep their speed;
 - a panel as high as its tab (`size`);
+- a list of answers, each of which opens to what it holds and closes (`auto_size`: the lines are laid out
+  for the size the box goes to, the box shows what fits, and the lines that go on being drawn while it
+  closes are cut where it ends);
 - a card whose corners and shadow follow the pointer (`rounded`, `shadow`, `color`);
 - a header whose padding and words follow a press (`padding`, `text_size`);
 - an arrow that turns (`:transform({ rotate = })` with `transform = true`);

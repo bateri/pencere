@@ -102,6 +102,10 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
 - **`Cycle` and `Motion::cycle`**: an element that goes to a shift and back (or one way, and again), over
   and over, for as long as it is on the page, by the host's clock alone, with no id too and not under
   Reduce Motion. A `spin` is the `Cycle` that turns a whole way at one pace (`Cycle::spin`).
+- **`Motion::auto_size`**: the width and the height a box is laid out at follow a change, whatever its
+  style gives them, for an answer that opens to its lines and closes. What is inside is laid out for the
+  size the box goes to and does not move; the box shows what fits while it is on its way, and what is
+  under it follows its edge.
 
 ### Changed
 
@@ -144,6 +148,11 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
   not show no longer holds room of the pixels a view may have. Its box's fill is drawn as before.
 
 ### Fixed
+
+- **An element that goes is cut by the box that held it as that box is now**, not as it was where it
+  went from: a box that closes cuts what was in it as it shrinks.
+- **The size of words on its way is in half points**, as the sizes a page says are: a move of
+  `text_size` opened a font for each frame.
 
 - **A long list is built for the window it has, not for the page's.** `Built` keeps how tall the
   window was that its rows were built for, and `stale` is true where the window is less than three

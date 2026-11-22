@@ -143,7 +143,8 @@ dy, blur, color)` (a glow with no offset), `pencere.linear` and `pencere.radial`
   (`{ seconds, opacity, dx, dy, rotate, scale, ease, alternate }`), and `rotate` and `scale` of an
   `enter` and an `exit`; `Element:transform({ rotate =, scale = })` turns a picture or a canvas and draws
   it larger about its middle. Each has its name in `pencere.has` (`"element.transform"`, `"motion.bounce"`,
-  …).
+  …). `auto_size` (`"motion.auto_size"`) makes a box follow the width and the height it is laid out at,
+  for a box that opens to its content and closes.
 
 ### Changed
 

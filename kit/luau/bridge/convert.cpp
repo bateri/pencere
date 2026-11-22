@@ -709,7 +709,7 @@ pencere_view_types_option_cycle_t optional_cycle(lua_State* L, int t, const char
     return out;
 }
 
-// How an element moves: `{ seconds =, ease =, bounce =, color =, opacity =, size =, place =,
+// How an element moves: `{ seconds =, ease =, bounce =, color =, opacity =, size =, auto_size =, place =,
 // rounded =, border =, shadow =, padding =, text_size =, transform =, enter =, exit =, spin =,
 // loop = }` at `index`.
 pencere_view_types_motion_t motion_at(lua_State* L, int index) {
@@ -720,6 +720,7 @@ pencere_view_types_motion_t motion_at(lua_State* L, int index) {
     motion.color = flag(L, index, "color");
     motion.opacity = flag(L, index, "opacity");
     motion.size = flag(L, index, "size");
+    motion.auto_size = flag(L, index, "auto_size");
     motion.place = flag(L, index, "place");
     motion.bounce = number(L, index, "bounce", 0.0f);
     motion.rounded = flag(L, index, "rounded");
