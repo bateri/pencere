@@ -711,6 +711,19 @@ p {
 .side > * {
   flex: none;
 }
+/* The menu is as tall as it is until the side has no more room, and then it scrolls; the list under
+   it takes what is left, never less than a few lines. None of it is left to run out of the side. */
+.side > .side__docs {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(243 243 241 / 0.26) transparent;
+}
+.side > .side__docs ~ .side__scroll {
+  flex: 1 1 0;
+  min-height: 7rem;
+}
 .side > :is(.side__groups, .side__scroll) {
   flex: 1 1 auto;
   min-height: 0;
@@ -721,10 +734,10 @@ p {
 }
 /* It says that it scrolls: a thin bar that is always there, and its lines fading out at the edge
    there is more past (the layout's script says which: data-more). At an end nothing fades. */
-.side > :is(.side__groups, .side__scroll)::-webkit-scrollbar {
+.side > :is(.side__docs, .side__groups, .side__scroll)::-webkit-scrollbar {
   width: 5px;
 }
-.side > :is(.side__groups, .side__scroll)::-webkit-scrollbar-thumb {
+.side > :is(.side__docs, .side__groups, .side__scroll)::-webkit-scrollbar-thumb {
   border-radius: 3px;
   background: rgb(243 243 241 / 0.26);
 }
@@ -736,7 +749,7 @@ p {
   display: block;
   max-height: none;
 }
-.side--whole > .side__groups {
+.side--whole > :is(.side__docs, .side__groups) {
   overflow: visible;
   padding-bottom: 0;
 }
@@ -762,7 +775,7 @@ p {
   color: var(--ink);
   margin: 26px 0 8px;
 }
-.side > h2:first-child {
+.side__docs > h2:first-child {
   margin-top: 0;
 }
 .side ul {
@@ -830,25 +843,28 @@ p {
   .side::-webkit-scrollbar {
     display: none;
   }
-  .side > h2,
+  .side__docs {
+    display: contents;
+  }
+  .side__docs > h2,
   .side__groups {
     display: none;
   }
   .side > [data-more] {
     mask-image: none;
   }
-  .side > ul,
-  .side > ul > li {
+  .side__docs > ul,
+  .side__docs > ul > li {
     display: contents;
   }
-  .side > ul a {
+  .side__docs > ul a {
     flex: none;
     border: 1px solid var(--rule);
     border-radius: 8px;
     padding: 4px 12px;
     white-space: nowrap;
   }
-  .side > ul a[aria-current="page"] {
+  .side__docs > ul a[aria-current="page"] {
     border-color: var(--rule-strong);
   }
 }

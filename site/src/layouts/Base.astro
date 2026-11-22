@@ -42,7 +42,7 @@ const { title, description, path = "" } = Astro.props;
     <script>
       // The part of a page's side that scrolls says whether there is more of it above or below, so
       // that its lines fade at that edge and at no other (styles/site.css, data-more).
-      for (const part of document.querySelectorAll<HTMLElement>(".side > .side__groups, .side > .side__scroll")) {
+      for (const part of document.querySelectorAll<HTMLElement>(".side > .side__docs, .side > .side__groups, .side > .side__scroll")) {
         const say = () => {
           const up = part.scrollTop > 2, down = part.scrollTop + part.clientHeight < part.scrollHeight - 2;
           part.dataset.more = up && down ? "both" : up ? "up" : down ? "down" : "none";
