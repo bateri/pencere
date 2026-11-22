@@ -6,6 +6,12 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ## [Unreleased]
 
+### Changed
+
+- **`BrowserError` has a `certificate` field and `BrowserAsk` three more variants.** A `BrowserError { .. }`
+  written out in full needs `certificate: None`, and a `match` on every `BrowserAsk` needs the arms for
+  `ClearCache`, `ClearSiteData` and `Proceed` (or a catch-all).
+
 ### Added
 
 - **A browser can empty its cache, a site's data, and go on past a certificate**: `BrowserAsk::ClearCache`,

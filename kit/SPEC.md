@@ -608,7 +608,8 @@ that offers it asks the person first (the host does not say whether a profile is
 computers, so the page says no more than that the person is signed out of the site); and `{ command = "proceed" }`, which goes on
 to the page the browser did not load for its certificate (`error.certificate`): the host accepts that
 certificate for that site for as long as it runs, writes it nowhere and tells it to no other computer,
-and loads the page again; where the last load did not fail for a certificate nothing happens. An ask
+and loads the page again (the host cannot tell whether a person pressed anything, so a page asks only on
+the person's action, never of itself); where the last load did not fail for a certificate nothing happens. An ask
 the kit does not know (a command a
 later kit has, or a table that is none of these) is not an error: it is refused, and the page is told
 (`browser_refused`, `"ask"`), so that a page that runs on a host with an older kit learns what it
