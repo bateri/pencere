@@ -250,11 +250,17 @@ local List = core.component("list", {
 		end
 		return true
 	end,
-	reveal = function(u, id, props, state, part, _, event)
+	reveal = function(u, id, props, state, part, key, event)
 		-- The row `index` (from 1) of this list, as the whole list numbers them: scrolled into view, so
 		-- that a page that reads only what is in view reads it, and the cursor moved there.
 		local index = event.index
-		if part ~= nil or index == nil or index < 1 or index > count_of(props) then
+		if part == "row" then
+			-- The row itself is the target (a screen reader's move to it): its place is looked for.
+			index = index_of(props, count_of(props), key)
+		elseif part ~= nil then
+			return nil
+		end
+		if index == nil or index < 1 or index > count_of(props) then
 			return nil
 		end
 		reveal(u, id, props, index)

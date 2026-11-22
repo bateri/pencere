@@ -31,7 +31,8 @@ pub(crate) fn check(name: &str, actual: &str) {
             path.display()
         );
     };
-    if expected != actual {
+    // By lines: a golden saved with other line ends, or with no last one, is the same reading.
+    if !expected.lines().eq(actual.lines()) {
         panic!(
             "the reading `{name}` is not its golden (src/goldens/{name}.txt; PENCERE_BLESS=1 writes it again):\n{}",
             difference(&expected, actual)

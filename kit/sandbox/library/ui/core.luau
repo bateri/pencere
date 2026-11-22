@@ -950,6 +950,14 @@ function Ctx:handle(event)
 			self.holder = "page"
 		end
 		out.reply = merge(out.reply, true)
+	elseif kind == "command" and event.target ~= nil then
+		-- A command done on one element (the row an agent or a screen reader chose "Delete" of): the page
+		-- is told the command and which element it is done on, and the part of a component the element is
+		-- (`key`, a row's), so that it does it to that one and not to what the page has chosen.
+		local _, _, key = self:_owner(event.target)
+		out.taken = true
+		out.reply = merge(out.reply, true)
+		table.insert(out.actions, { from = "commands", kind = "command", id = event.id, target = event.target, key = key })
 	elseif kind == "command" then
 		if not self:_tell(out, event.id, "command", event) and self.commands[event.id] then
 			out.taken = true

@@ -856,6 +856,49 @@ fn page(covered: bool) -> String {
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_modal_in_front_shuts_the_fields_the_boxes_that_scroll_and_the_editor_behind_it_out_of_the_reading()
+-> Result<(), Error> {
+    let modal = r#":child(pencere.div():id("dialog"):overlay():inset(0, 0, 0, 0):layer(true)
+        :child(pencere.div():id("card"):role("dialog"):label("Settings"):col():w(200):h(80)
+            :child(pencere.div():id("ok"):press("ok"):h(24):w(60):child(pencere.text("OK")))))"#;
+    let mut page = Headless::script(PAGE.replace("--COVER--", modal))
+        .size(400.0, 600.0)
+        .open()?;
+    page.settle()?;
+    let reading = page.reading();
+    let text = reading.text();
+    assert!(
+        reading.fields.is_empty(),
+        "the fields of the page behind are not asked to be filled: {text}"
+    );
+    assert!(
+        reading.scrolls.is_empty(),
+        "nor are its boxes that scroll: {text}"
+    );
+    assert!(reading.editors.is_empty(), "nor its editors: {text}");
+    assert!(
+        reading.items.iter().any(|item| item.words == "OK"),
+        "{text}"
+    );
+    assert!(reading.behind > 0, "{text}");
+    // The same page with no modal in front reads them all.
+    let mut open = Headless::script(page_without_cover())
+        .size(400.0, 600.0)
+        .open()?;
+    open.settle()?;
+    let reading = open.reading();
+    assert!(
+        !reading.fields.is_empty() && !reading.scrolls.is_empty() && !reading.editors.is_empty()
+    );
+    Ok(())
+}
+
+fn page_without_cover() -> String {
+    page(false)
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_reading_gives_the_fields_the_commands_and_the_editor_and_never_a_secret_value()
 -> Result<(), Error> {
     let mut page = Headless::script(page(false)).size(400.0, 600.0).open()?;
@@ -1114,7 +1157,8 @@ fn a_group_is_told_with_its_children_under_it_a_page_behind_a_modal_is_counted_a
     assert_eq!(json["items"][0]["parent"], Value::Null);
     assert_eq!(
         json["items"][1]["parent"],
-        json!(reference(Id::named("row")))
+        json!(0),
+        "the place in the items of the group, though the group's ref might clash or be none"
     );
 }
 
@@ -1360,6 +1404,9 @@ return {{
             "unnamed=" .. table.concat(unnamed, ",") .. " roles=" .. roles
             .. " dialog=" .. tostring(pencere.has("role.dialog"))
             .. " target=" .. tostring(pencere.has("command.target"))
+            .. " command=" .. tostring(pencere.has("event.command"))
+            .. " letters=" .. tostring(pencere.has("ui.dialog.letters"))
+            .. " listreveal=" .. tostring(pencere.has("ui.list.reveal"))
             .. " nope=" .. tostring(pencere.has("element.nope"))))
     end,
 }}
@@ -1369,7 +1416,9 @@ return {{
     page.settle()?;
     let text = page.reading().text();
     assert!(
-        text.contains("unnamed= roles=29 dialog=true target=true nope=false"),
+        text.contains(
+            "unnamed= roles=29 dialog=true target=true command=true letters=true listreveal=true nope=false"
+        ),
         "{text}"
     );
     Ok(())

@@ -240,7 +240,7 @@ agent will see.
   a row, a tab that holds controls) is two spaces in under it; where a modal layer is in front, the page
   behind it is not read and a `note: behind the modal in front, N items of the page, not read` says how much
   it was. The JSON has `format` (2 here; no `format` is the flat reading of before), each item's `parent`
-  (the ref of its group) and `behind`. In the brackets of an item: what it is in (`checked`, `mixed`,
+  (the place in `items`, from 0, of its group) and `behind`. In the brackets of an item: what it is in (`checked`, `mixed`,
   `selected`, `expanded`, `disabled`, `value "…"`), where (`level N`, `N of M`, `rows R, columns C`, `row N`,
   `column N`, `sorted ascending`), and what else (`roledescription "…"`, `description "…"` where the tip says
   more than the name, `keys "…"` of the tip, and `action "…"` for each command the page defined on the

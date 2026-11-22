@@ -360,8 +360,10 @@ into view, loads it, and moves its cursor there.
 **Asking whether the kit has what a page needs.** `pencere.has(name)` says whether the kit has a thing, by a
 name that never changes: `"role.<role>"`, `"element.<method>"` for each method that came after the first
 kit (`layer`, `fallback_name`, `mixed`, `level`, `position`, `table_size`, `cell_at`, `sorted`,
-`role_description`), `"event.reveal"`, `"command.target"`, and `"ui.<component>.<option>"` for the options of
-the library's components; `pencere.roles` is the set of the roles. A kit that is older than this
+`role_description`), `"event.reveal"`, `"event.command"` (a command done on an element), `"command.target"`, and
+`"ui.<component>.<option>"` for the options and abilities of the library's components that came after the
+first kit (`"ui.dialog.letters"`, `"ui.dialog.height"`, `"ui.dialog.top"`, `"ui.modal.height"`,
+`"ui.modal.top"`, `"ui.list.reveal"`, `"ui.grid.reveal"`); `pencere.roles` is the set of the roles. A kit that is older than this
 has no `pencere.has` at all, which is as good as `false`; a page that needs what it names asks before it
 uses it and, where the host is too old, shows a screen that says so and does nothing else:
 

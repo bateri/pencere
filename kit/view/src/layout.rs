@@ -1976,6 +1976,69 @@ impl Laid {
         self.accessible_behind().0
     }
 
+    /// Whether `node` is on the page to be seen: not hidden, with a size, and some of it showing.
+    fn drawn(node: &Node) -> bool {
+        !node.hidden && node.rect.w > 0.0 && node.rect.h > 0.0 && {
+            let seen = Self::shown(node);
+            seen.w > 0.0 && seen.h > 0.0
+        }
+    }
+
+    /// With a layer in front that is modal, whether each element (by its place in the paint order) is
+    /// in what is read: the layer in front is the nearest modal one, which is the last drawn. What
+    /// stands outside it is behind it, unless it is in a layer that is not modal and is drawn after
+    /// it. `None` where no modal layer is in front, and all is read.
+    fn read_nodes(&self) -> Option<Vec<bool>> {
+        let front = self
+            .nodes
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, node)| node.meta.layer == Some(true) && Self::drawn(node))
+            .map(|(index, _)| index)?;
+        // The parent of an element comes before it in `nodes`, an overlay's too (it is the element
+        // that holds it where it is written), so one pass says what is in a layer. A layer that is
+        // not modal is read, though it is not in the one in front, where it is the page's own (a
+        // toast): not where it was opened from inside another layer, which is behind the one in front.
+        let mut read = vec![false; self.nodes.len()];
+        let mut nested = vec![false; self.nodes.len()];
+        for (index, node) in self.nodes.iter().enumerate() {
+            let outer = node.parent.filter(|outer| *outer < index);
+            let held = outer.is_some_and(|outer| on(&read, outer));
+            let inside = outer.is_some_and(|outer| {
+                on(&nested, outer)
+                    || self
+                        .nodes
+                        .get(outer)
+                        .is_some_and(|node| node.meta.layer.is_some())
+            });
+            if let Some(slot) = nested.get_mut(index) {
+                *slot = inside;
+            }
+            if let Some(slot) = read.get_mut(index) {
+                *slot = index == front
+                    || held
+                    || (index > front && node.meta.layer == Some(false) && !inside);
+            }
+        }
+        Some(read)
+    }
+
+    /// The names of the elements that a modal layer in front shuts out (what [`Laid::accessible_behind`]
+    /// does not say): none where no modal layer is in front. What reads the page by its fields, its
+    /// editors and its boxes that scroll leaves these out.
+    pub fn ids_behind(&self) -> HashSet<Id> {
+        let Some(read) = self.read_nodes() else {
+            return HashSet::new();
+        };
+        self.nodes
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !on(&read, *index))
+            .filter_map(|(_, node)| node.meta.id)
+            .collect()
+    }
+
     /// [`Laid::accessible`], and how many items the page behind a modal layer would have said: with a
     /// layer in front that is modal (`Element::layer`), what is outside it is neither read nor
     /// pressable to a screen reader, as behind a sheet or an `aria-modal`; a layer that is not modal
@@ -1985,12 +2048,7 @@ impl Laid {
     pub fn accessible_behind(&self) -> (Vec<Accessible>, usize) {
         let s = self.scale;
         let points = |rect: Rect| Rect::new(rect.x / s, rect.y / s, rect.w / s, rect.h / s);
-        let shown = |node: &Node| {
-            !node.hidden && node.rect.w > 0.0 && node.rect.h > 0.0 && {
-                let seen = Self::shown(node);
-                seen.w > 0.0 && seen.h > 0.0
-            }
-        };
+        let shown = Self::drawn;
         let mut items = Vec::new();
         // The element each item is said for, and whether it is a group.
         let mut owners: Vec<(usize, bool)> = Vec::new();
@@ -2167,42 +2225,8 @@ impl Laid {
                 owners.resize(items.len(), (index, false));
             }
         }
-        // The layer in front: the nearest modal one, which is the last drawn. What stands outside
-        // it is behind it, unless it is in a layer that is not modal and is drawn after it.
-        let front = self
-            .nodes
-            .iter()
-            .enumerate()
-            .rev()
-            .find(|(_, node)| node.meta.layer == Some(true) && shown(node))
-            .map(|(index, _)| index);
         let mut behind = 0;
-        if let Some(front) = front {
-            // The parent of an element comes before it in `nodes`, an overlay's too (it is the element
-            // that holds it where it is written), so one pass says what is in a layer. A layer that is
-            // not modal is read, though it is not in the one in front, where it is the page's own (a
-            // toast): not where it was opened from inside another layer, which is behind the one in front.
-            let mut read = vec![false; self.nodes.len()];
-            let mut nested = vec![false; self.nodes.len()];
-            for (index, node) in self.nodes.iter().enumerate() {
-                let outer = node.parent.filter(|outer| *outer < index);
-                let held = outer.is_some_and(|outer| on(&read, outer));
-                let inside = outer.is_some_and(|outer| {
-                    on(&nested, outer)
-                        || self
-                            .nodes
-                            .get(outer)
-                            .is_some_and(|node| node.meta.layer.is_some())
-                });
-                if let Some(slot) = nested.get_mut(index) {
-                    *slot = inside;
-                }
-                if let Some(slot) = read.get_mut(index) {
-                    *slot = index == front
-                        || held
-                        || (index > front && node.meta.layer == Some(false) && !inside);
-                }
-            }
+        if let Some(read) = self.read_nodes() {
             let keep: Vec<bool> = owners.iter().map(|(node, _)| on(&read, *node)).collect();
             let before = items.len();
             let mut kept = keep.iter();
@@ -2333,7 +2357,8 @@ impl Laid {
                 apart = Some(index);
                 continue;
             }
-            if !node.hidden {
+            // What shows: the rows a list builds past the edge of what it shows are not its name.
+            if Self::drawn(node) {
                 match &node.content {
                     Content::Text(line) if !line.text.is_empty() => words.push(line.text.clone()),
                     Content::Rich(rich) => words.push(crate::rich::words(&rich.spans)),

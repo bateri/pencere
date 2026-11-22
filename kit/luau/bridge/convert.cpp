@@ -154,9 +154,6 @@ bool flag(lua_State* L, int t, const char* name) {
     return value;
 }
 
-// The word `name` holds, as its place in `words`; `fallback` when it holds nothing. -1 when it
-// is none of the words (the caller says which it was).
-// A field that is true, false or not said.
 // A count from `least` (1 for a level, a position, a row, a column; 0 for the size of a table): not said
 // for anything else.
 view_option_u32_t optional_count(lua_State* L, int t, const char* name, double least = 1) {
@@ -173,6 +170,7 @@ view_option_u32_t optional_count(lua_State* L, int t, const char* name, double l
     return out;
 }
 
+// A field that is true, false or not said.
 view_option_bool_t optional_flag(lua_State* L, int t, const char* name) {
     view_option_bool_t out = {};
     get(L, t, name);
@@ -184,6 +182,8 @@ view_option_bool_t optional_flag(lua_State* L, int t, const char* name) {
     return out;
 }
 
+// The word `name` holds, as its place in `words`; `fallback` when it holds nothing. -1 when it
+// is none of the words (the caller says which it was).
 int word(lua_State* L, int t, const char* name, const char* const* words, int count, int fallback) {
     get(L, t, name);
     int found = fallback;

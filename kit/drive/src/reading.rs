@@ -717,15 +717,9 @@ impl Reading {
                     object.insert("ref".into(), Value::Null);
                     object.insert("id".into(), Value::Null);
                 }
-                object.insert(
-                    "parent".into(),
-                    json!(
-                        item.parent
-                            .and_then(|outer| self.items.get(outer))
-                            .and_then(|group| group.id)
-                            .map(reference)
-                    ),
-                );
+                // The group's place in `items` (from 0): not its ref, which an item with no name has none
+                // of and a clash makes ambiguous.
+                object.insert("parent".into(), json!(item.parent));
                 object.insert("role".into(), json!(clean(&item.role, WORDS_LIMIT)));
                 object.insert("text".into(), json!(clean(&item.words, WORDS_LIMIT)));
                 object.insert("state".into(), state_json(&item.state));
@@ -870,8 +864,8 @@ impl Reading {
             }
         };
         let value = json!({
-            // The shape of the reading: 1 had no `format` and a flat list of items; 2 has `parent` and
-            // `behind`.
+            // The shape of the reading: 1 had no `format` and a flat list of items; 2 has `parent` (the
+            // place in `items` of the group an item is in) and `behind`.
             "format": 2,
             "focus": focus,
             "rest": {
@@ -1089,9 +1083,16 @@ fn names(text: &str, members: &[&str]) -> bool {
 pub(crate) fn read(page: &mut Page, input: &ReadingInput<'_>, rest: Rest) -> Reading {
     let outline = page.outline().clone();
     let place = page.placement();
+    // What a modal layer in front shuts out is not in the items, and neither is it a field or a box
+    // that scrolls here: a reader is not told of what it cannot be told to fill or to scroll.
+    let behind = page
+        .laid()
+        .map(pencere_view::Laid::ids_behind)
+        .unwrap_or_default();
     let fields: Vec<FieldReading> = outline
         .fields
         .iter()
+        .filter(|field| !behind.contains(&field.id))
         .map(|field| FieldReading {
             id: field.id,
             kind: field.kind,
@@ -1137,7 +1138,9 @@ pub(crate) fn read(page: &mut Page, input: &ReadingInput<'_>, rest: Rest) -> Rea
         .map(|laid| {
             laid.scroll_areas()
                 .into_iter()
-                .filter(|(id, extent, _)| !editor_ids.contains(id) && extent.max_offset() > 0.5)
+                .filter(|(id, extent, _)| {
+                    !editor_ids.contains(id) && !behind.contains(id) && extent.max_offset() > 0.5
+                })
                 .map(|(id, extent, rect)| {
                     let most = extent.max_offset();
                     let at = extent.offset.y;

@@ -501,6 +501,23 @@ local Grid = core.component("grid", {
 		reveal(u, id, props, state, cell)
 		return true, { kind = "select", row = cell.row, column = cell.column }
 	end,
+	reveal = function(u, id, props, state, part, key, event)
+		-- The row `index` (from 1), or the row that is the target, scrolled into view, and the cursor moved
+		-- to it (in the column it is in).
+		local row = event.index
+		if part == "row" then
+			row = tonumber(key)
+		elseif part ~= nil then
+			return nil
+		end
+		if row == nil or row < 1 or row > props.count then
+			return nil
+		end
+		local cell = { row = row, column = state.cursor and state.cursor.column or 1 }
+		state.cursor = cell
+		reveal(u, id, props, state, cell)
+		return true, { kind = "select", row = cell.row, column = cell.column, how = "reveal" }
+	end,
 	scrolled = function(u, id, props, state, part, _, box)
 		if part == nil then
 			-- Across: the columns are made again where it has gone past what was made.

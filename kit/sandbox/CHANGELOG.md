@@ -18,6 +18,13 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   segments their place, a toast a `status` (`alert` for the tones `warn` and `bad`) and the count of a find
   bar a `status`. A list asked to show a row (`reveal`) scrolls to it, builds it and moves its cursor there
   (`{ kind = "select", key =, how = "reveal" }`).
+- **`letters`, `height` and `top` of a dialog and a modal**: `u:dialog` with `letters = true` answers by the first
+  letter of an action's title (not where it has an `input`); `u:modal` and `u:dialog` take `height` and `top`
+  (the card's height and how far down it stands) as they took `width`. `pencere.has("ui.dialog.letters")`,
+  `"ui.dialog.height"`, `"ui.dialog.top"`, `"ui.modal.height"` and `"ui.modal.top"` say whether a kit has them.
+- **A grid and a list show the row a `reveal` names**: a grid scrolls to the row (by its number or its name),
+  moves its cursor there and says `{ kind = "select", row =, column =, how = "reveal" }`; a list does so for the
+  row that is the target (`pencere.has("ui.grid.reveal")`, `"ui.list.reveal"`).
 - **The page API's new vocabulary, and a way to ask for it**: the roles `dialog` … `alert` (sixteen, by the
   web's names), `Element:mixed`, `level`, `position`, `table_size`, `cell_at`, `sorted` and
   `role_description`, `pencere.roles` and `pencere.has(name)` (`"role.<role>"`, `"element.<method>"`,
@@ -137,6 +144,12 @@ dy, blur, color)` (a glow with no offset), `pencere.linear` and `pencere.radial`
 
 ### Changed
 
+- The rows of the library's lists, palettes, trees and grids are `option`, `treeitem`, `row` and
+  `columnheader` to a screen reader, where they were `menu_item` and `button`: a host that presses an
+  element by its role must press by `Accessible::pressable` (Section 2.5). The `command` a page lists on
+  an element (`Element:command`) done on it reaches the page's `on_action` as `{ from = "commands",
+kind = "command", id =, target =, key = }`, where `key` is the row's if the element is part of a list or
+  a grid.
 - Where the host says `cells`, a grid has no rule under its head and a palette none under its field and
   above its footer. A page that is not on cells is laid out as it was.
 - `pencere.layout.keymap` lists the keys of the host's keyboard: where ⌃ is the main modifier (`"windows"`,

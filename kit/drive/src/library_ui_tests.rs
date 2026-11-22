@@ -848,6 +848,46 @@ fn a_dialog_that_takes_letters_is_answered_by_the_first_letter_of_an_action_and_
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_dialog_and_a_modal_take_the_width_the_height_and_the_top_of_their_card() -> Result<(), Error> {
+    let mut plain = open(DIALOG)?;
+    plain.click("open")?;
+    plain.step()?;
+    let was = plain.bounds("unsaved/card").expect("the card");
+    let sized = DIALOG.replace(
+        "title = \"Save changes to a.lua?\",",
+        "width = 300, height = 220, top = 20, title = \"Save changes to a.lua?\",",
+    );
+    let mut page = open(&sized)?;
+    page.click("open")?;
+    page.step()?;
+    let card = page.bounds("unsaved/card").expect("the card");
+    assert_eq!((card.w, card.h), (300.0, 220.0), "{card:?}");
+    assert!(
+        card.y < was.y - 20.0,
+        "the card stands higher: {card:?} against {was:?}"
+    );
+    // A modal takes them as a dialog does.
+    let mut modal = open(
+        r#"
+S.on = true
+view = function(u)
+    local root = pencere.div():child(u:button("open", { title = "Open" }))
+    if S.on then
+        root:child(u:modal("m", { label = "Pick", width = 260, height = 150, top = 30 },
+            pencere.div():child(pencere.text("Inside"))))
+    end
+    return root
+end
+"#,
+    )?;
+    modal.step()?;
+    let card = modal.bounds("m/card").expect("the card");
+    assert_eq!((card.w, card.h), (260.0, 150.0), "{card:?}");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_dialog_with_an_input_answers_with_what_is_typed() -> Result<(), Error> {
     let mut page = open(&DIALOG.replace("S.asking = false", "S.asking = false\nS.named = true"))?;
     page.click("open")?;
@@ -1319,6 +1359,71 @@ fn a_list_is_asked_to_show_a_row_that_is_not_built_and_builds_it_and_moves_its_c
     // A row there is none of is not an error: nothing moves.
     page.reveal("results", Some(500))?;
     assert!(accessible(&page, "results/row/k150").state.selected);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_list_is_named_by_its_fallback_and_not_by_the_rows_built_past_the_edge_of_what_it_shows()
+-> Result<(), Error> {
+    let mut page = open(LIST)?;
+    let reading = page.reading();
+    let boxes: Vec<_> = reading
+        .items
+        .iter()
+        .filter(|item| item.role == "listbox")
+        .collect();
+    assert_eq!(boxes.len(), 1, "{}", reading.text());
+    assert_eq!(boxes[0].words, "List", "{}", reading.text());
+    assert!(reading.audit().is_empty(), "{:?}", reading.audit());
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_list_is_shown_the_row_that_is_the_target_of_a_reveal_and_a_grid_its_row() -> Result<(), Error>
+{
+    let mut page = open(LIST)?;
+    // The row itself is asked for, as a screen reader's move to it is: by its name.
+    page.reveal("results/row/k2", None)?;
+    assert!(
+        log(&page).contains(&"results select how=reveal key=k2".to_string()),
+        "{:?}",
+        log(&page)
+    );
+    // A grid shows the row, in the column the cursor is in, by its place and by its row.
+    let mut page = open(GRID)?;
+    assert!(page.bounds("g/row/250").is_none());
+    page.reveal("g", Some(250))?;
+    assert!(
+        page.bounds("g/row/250").is_some(),
+        "the row asked for is built"
+    );
+    assert_eq!(log(&page), ["g select column=1 how=reveal row=250"]);
+    // A row that is built is a target by its name too.
+    page.reveal("g/row/248", None)?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("g select column=1 how=reveal row=248")
+    );
+    page.reveal("g", Some(9999))?;
+    assert_eq!(log(&page).len(), 2, "a row there is none of moves nothing");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_command_done_on_an_element_reaches_the_page_with_the_element() -> Result<(), Error> {
+    let mut page = open(
+        r#"
+view = function(u)
+    return pencere.div():gap(8)
+        :child(u:button("stop", { title = "Stop" }):command("kill", "Kill", {}))
+end
+"#,
+    )?;
+    page.command_on("stop", "kill")?;
+    assert_eq!(log(&page), ["commands command id=kill target=stop"]);
     Ok(())
 }
 
