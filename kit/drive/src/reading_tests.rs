@@ -1405,7 +1405,6 @@ return {{
             .. " dialog=" .. tostring(pencere.has("role.dialog"))
             .. " target=" .. tostring(pencere.has("command.target"))
             .. " command=" .. tostring(pencere.has("event.command"))
-            .. " letters=" .. tostring(pencere.has("ui.dialog.letters"))
             .. " listreveal=" .. tostring(pencere.has("ui.list.reveal"))
             .. " nope=" .. tostring(pencere.has("element.nope"))))
     end,
@@ -1417,7 +1416,7 @@ return {{
     let text = page.reading().text();
     assert!(
         text.contains(
-            "unnamed= roles=29 dialog=true target=true command=true letters=true listreveal=true nope=false"
+            "unnamed= roles=29 dialog=true target=true command=true listreveal=true nope=false"
         ),
         "{text}"
     );

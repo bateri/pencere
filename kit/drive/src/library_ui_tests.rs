@@ -7,6 +7,7 @@
 use pencere_sandbox::Fault;
 use pencere_view::{AccessibleRole, Mods};
 
+use crate::audit::Flaw;
 use crate::headless::{Error, Focus, Headless};
 
 /// What every test page begins with: the library, and the page's parts left for the test to give
@@ -810,70 +811,62 @@ fn a_dialog_is_answered_by_a_button_by_enter_and_by_giving_up() -> Result<(), Er
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
-fn a_dialog_that_takes_letters_is_answered_by_the_first_letter_of_an_action_and_otherwise_not()
--> Result<(), Error> {
-    // The same page, its dialog asking for letters; and one asking for none.
-    let lettered = DIALOG.replace(
-        "title = \"Save changes to a.lua?\",",
-        "letters = true, title = \"Save changes to a.lua?\",",
-    );
-    let mut page = open(&lettered)?;
-    page.click("open")?;
-    page.step()?;
-    page.press("d")?;
-    page.step()?;
-    assert_eq!(log(&page), ["open press", "unsaved answer key=drop"]);
-    page.click("open")?;
-    page.step()?;
-    page.press("x")?;
-    page.step()?;
-    assert!(
-        page.says("Save changes to a.lua?"),
-        "a letter no action starts with answers nothing"
-    );
-    page.press("s")?;
-    page.step()?;
-    assert_eq!(
-        log(&page).last().map(String::as_str),
-        Some("unsaved answer key=save")
-    );
+fn a_layer_lists_its_way_out_and_is_given_up_by_it_as_by_escape() -> Result<(), Error> {
+    // The dialog lists "Close" (what a screen reader's actions and `bateri view command` do); doing it on
+    // the card gives the dialog up as escape does.
     let mut page = open(DIALOG)?;
     page.click("open")?;
     page.step()?;
-    page.press("d")?;
+    let text = page.reading().text();
+    assert!(
+        text.contains("alertdialog \"Save changes to a.lua?\" [action \"Close\"]"),
+        "{text}"
+    );
+    page.command_on("unsaved/card", "ui.dismiss")?;
     page.step()?;
-    assert!(page.says("Save changes to a.lua?"), "no letters, no answer");
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("unsaved answer")
+    );
+    assert!(!page.says("Don't Save"), "the dialog is gone");
+    // A modal that cannot be given up lists no way out.
+    let mut modal = open(
+        r#"
+view = function(u)
+    return pencere.div():child(u:button("open", { title = "Open" }))
+        :child(u:modal("m", { label = "Pick", dismiss = false }, pencere.div():child(pencere.text("Inside"))))
+end
+"#,
+    )?;
+    modal.step()?;
+    let text = modal.reading().text();
+    assert!(
+        text.contains("dialog \"Pick\"") && !text.contains("action"),
+        "{text}"
+    );
     Ok(())
 }
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
-fn a_dialog_and_a_modal_take_the_width_the_height_and_the_top_of_their_card() -> Result<(), Error> {
-    let mut plain = open(DIALOG)?;
-    plain.click("open")?;
-    plain.step()?;
-    let was = plain.bounds("unsaved/card").expect("the card");
+fn a_dialog_and_a_modal_take_the_width_of_their_card() -> Result<(), Error> {
     let sized = DIALOG.replace(
         "title = \"Save changes to a.lua?\",",
-        "width = 300, height = 220, top = 20, title = \"Save changes to a.lua?\",",
+        "width = 300, title = \"Save changes to a.lua?\",",
     );
     let mut page = open(&sized)?;
     page.click("open")?;
     page.step()?;
     let card = page.bounds("unsaved/card").expect("the card");
-    assert_eq!((card.w, card.h), (300.0, 220.0), "{card:?}");
-    assert!(
-        card.y < was.y - 20.0,
-        "the card stands higher: {card:?} against {was:?}"
-    );
-    // A modal takes them as a dialog does.
+    assert_eq!(card.w, 300.0, "{card:?}");
+    // A modal takes the width as a dialog does.
     let mut modal = open(
         r#"
 S.on = true
 view = function(u)
     local root = pencere.div():child(u:button("open", { title = "Open" }))
     if S.on then
-        root:child(u:modal("m", { label = "Pick", width = 260, height = 150, top = 30 },
+        root:child(u:modal("m", { label = "Pick", width = 260 },
             pencere.div():child(pencere.text("Inside"))))
     end
     return root
@@ -882,7 +875,7 @@ end
     )?;
     modal.step()?;
     let card = modal.bounds("m/card").expect("the card");
-    assert_eq!((card.w, card.h), (260.0, 150.0), "{card:?}");
+    assert_eq!(card.w, 260.0, "{card:?}");
     Ok(())
 }
 
@@ -3491,5 +3484,194 @@ fn what_is_read_of_a_page_under_a_modal_and_of_what_opens_over_it_is_pinned() ->
     let mut page = open(LAYERS)?;
     page.click("inside/dialog")?;
     golden("layer-sheet-dialog", &mut page);
+    Ok(())
+}
+
+/// A layer as the pens write one by hand: a scrim that answers the pointer over the whole page and holds a
+/// card that answers it too (so that a press on the card is not one on the scrim), a button behind. What is
+/// marked is what a test puts in `CARD_MARKS` and `SCRIM_MARKS`.
+const PEN_LAYER: &str = r#"
+view = function(u)
+    local card = pencere.div():id("card"):press("card"):col():w(240):p(12):gap(8)
+        :child(pencere.text("Delete it?"))
+        :child(pencere.div():id("yes"):press("yes"):label("Delete"):size(80, 24))
+        :child(pencere.div():id("no"):press("no"):label("Keep"):size(80, 24))
+    CARD_MARKS
+    local scrim = pencere.div():id("scrim"):press("scrim"):overlay():inset(0, 0, 0, 0):col():items_center():pt(40)
+        :child(card)
+    SCRIM_MARKS
+    local root = pencere.div():gap(8):p(8):child(u:button("behind", { title = "Behind" }))
+    if not S.shut then
+        root:child(scrim)
+    end
+    return root
+end
+-- A press on the scrim gives the layer up: the page's own, as a pen's is.
+on_event = function(event)
+    if event.type == "release" and pencere.layout.hit({ x = event.x, y = event.y }) == "scrim" then
+        S.shut = true
+        return true
+    end
+end
+"#;
+
+/// [`PEN_LAYER`] with `card` and `scrim` marked as the statements say (Lua, one per line).
+fn pen_layer(card: &str, scrim: &str) -> String {
+    PEN_LAYER
+        .replace("CARD_MARKS", card)
+        .replace("SCRIM_MARKS", scrim)
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_layer_a_pen_marks_by_hand_with_three_marks_is_read_as_a_dialog_and_one_it_forgot_is_found()
+-> Result<(), Error> {
+    // The three marks: the scrim is a layer and is not read, the card is the dialog. The page behind
+    // is out of the reading, and the reading has nothing to be found fault with.
+    let mut page = open(&pen_layer(
+        "card:role(\"dialog\"):label(\"Delete it?\")",
+        "scrim:role(\"none\"):layer(true)",
+    ))?;
+    golden("layer-pen-dialog", &mut page);
+    assert_eq!(page.audit(), [], "{}", crate::audit::report(&page.audit()));
+    // The card's press holds a press on it: the card is no scrim.
+    page.click("card")?;
+    assert!(
+        page.bounds("scrim").is_some(),
+        "a press on the card does not close the layer"
+    );
+    // A press on the scrim, which the card does not cover, does.
+    page.click("scrim")?;
+    assert!(
+        page.bounds("scrim").is_none(),
+        "a press on the scrim gives the layer up"
+    );
+    // Forgotten: no mark at all. The page behind is read in full, under a scrim that lies over it, and the
+    // audit finds what is read and cannot be reached.
+    let mut page = open(&pen_layer("card:label(\"Delete it?\")", ""))?;
+    golden("layer-pen-unmarked", &mut page);
+    let found = page.audit();
+    assert!(
+        found
+            .iter()
+            .any(|finding| finding.flaw == Flaw::Covered && finding.words == "Behind"),
+        "{}",
+        crate::audit::report(&found)
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_layer_marked_the_wrong_way_has_a_reading_of_its_own_that_is_pinned() -> Result<(), Error> {
+    // A dialog that is no layer: the page behind it is read in full, and the audit finds it covered.
+    let mut page = open(&pen_layer(
+        "card:role(\"dialog\"):label(\"Delete it?\")",
+        "",
+    ))?;
+    golden("layer-dialog-no-layer", &mut page);
+    assert!(
+        page.audit()
+            .iter()
+            .any(|finding| finding.flaw == Flaw::Covered && finding.words == "Behind"),
+        "{}",
+        crate::audit::report(&page.audit())
+    );
+    // A layer with no dialog in it: the page behind is out, and what is in front is read as it is.
+    let mut page = open(&pen_layer("", "scrim:role(\"none\"):layer(true)"))?;
+    golden("layer-no-dialog", &mut page);
+    // `none` on an element that has a label: the label is read, and the element is the button it is with no
+    // role at all (what is in the card is not under it).
+    let mut page = open(&pen_layer(
+        "card:role(\"dialog\"):label(\"Delete it?\")",
+        "scrim:role(\"none\"):layer(true):label(\"Close dialog\")",
+    ))?;
+    golden("none-with-label", &mut page);
+    // `none` with a label and a command: read as with no role at all, with the action it lists.
+    let mut page = open(&pen_layer(
+        "card:role(\"dialog\"):label(\"Delete it?\")",
+        "scrim:role(\"none\"):layer(true):label(\"Close dialog\"):command(\"close\", \"Close\")",
+    ))?;
+    golden("none-with-label-and-command", &mut page);
+    // `none` on an element that lists a command and has no label: it is not read, and the command it lists
+    // is not listed with it (a command is listed on what is read: the card).
+    let mut page = open(&pen_layer(
+        "card:role(\"dialog\"):label(\"Delete it?\")",
+        "scrim:role(\"none\"):layer(true):command(\"close\", \"Close\", \"escape\")",
+    ))?;
+    golden("none-with-command", &mut page);
+    // Two modal layers: the one drawn last is in front, the other is behind it with the page.
+    let mut page = open(
+        &pen_layer(
+            "card:role(\"dialog\"):label(\"Delete it?\")",
+            "scrim:role(\"none\"):layer(true)",
+        )
+        .replace(
+            "        root:child(scrim)\n    end\n",
+            "        root:child(scrim)\n    end\n    root:child(pencere.div():id(\"second\"):press(\"second\"):overlay():inset(0, 0, 0, 0):layer(true):role(\"none\")\n        :child(pencere.div():id(\"other\"):role(\"dialog\"):label(\"Other\"):press(\"other\"):w(120):h(60)\n            :child(pencere.div():id(\"ok\"):press(\"ok\"):label(\"OK\"):size(40, 24))))\n",
+        ),
+    )?;
+    golden("layer-two-modals", &mut page);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_layer_of_the_kit_is_never_found_covered_by_the_scrim_it_stands_in() -> Result<(), Error> {
+    // The card of a modal is over its scrim (a press on the scrim is one on the scrim only where the card is
+    // not): what is in the card is not covered by it, whatever it is (a field, a text, a disabled button).
+    let covered = |page: &mut Headless| {
+        page.audit()
+            .into_iter()
+            .filter(|finding| finding.flaw == Flaw::Covered)
+            .map(|finding| format!("{} {}", finding.role, finding.words))
+            .collect::<Vec<_>>()
+    };
+    let mut page = open(&DIALOG.replace("S.asking = false", "S.asking = false\nS.named = true"))?;
+    page.click("open")?;
+    page.step()?;
+    assert_eq!(
+        covered(&mut page),
+        Vec::<String>::new(),
+        "a dialog with a field"
+    );
+    let mut modal = open(
+        r#"
+view = function(u)
+    return pencere.div():child(u:button("open", { title = "Open" }))
+        :child(u:modal("m", { label = "Pick" }, pencere.div():child(pencere.text("Inside"))))
+end
+"#,
+    )?;
+    modal.step()?;
+    assert_eq!(
+        covered(&mut modal),
+        Vec::<String>::new(),
+        "a modal with only text"
+    );
+    // A layer behind another is not listed for doing, so a reference that is old does nothing.
+    let mut two = open(
+        r#"
+view = function(u)
+    return pencere.div():child(u:button("open", { title = "Open" }))
+        :child(u:modal("a", { label = "First" }, pencere.div():child(pencere.text("One"))))
+        :child(u:modal("b", { label = "Second" }, pencere.div():child(pencere.text("Two"))))
+end
+"#,
+    )?;
+    two.step()?;
+    let read = two.reading().text();
+    assert!(
+        read.contains("dialog \"Second\"") && !read.contains("dialog \"First\""),
+        "the layer in front is read: {read}"
+    );
+    assert!(
+        two.command_on("a/card", "ui.dismiss").is_err(),
+        "a layer behind another has no way out listed"
+    );
+    assert!(
+        two.reading().text().contains("dialog \"Second\""),
+        "and the one in front is not given up"
+    );
     Ok(())
 }

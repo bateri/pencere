@@ -362,8 +362,7 @@ name that never changes: `"role.<role>"`, `"element.<method>"` for each method t
 kit (`layer`, `fallback_name`, `mixed`, `level`, `position`, `table_size`, `cell_at`, `sorted`,
 `role_description`), `"event.reveal"`, `"event.command"` (a command done on an element), `"command.target"`, and
 `"ui.<component>.<option>"` for the options and abilities of the library's components that came after the
-first kit (`"ui.dialog.letters"`, `"ui.dialog.height"`, `"ui.dialog.top"`, `"ui.modal.height"`,
-`"ui.modal.top"`, `"ui.list.reveal"`, `"ui.grid.reveal"`); `pencere.roles` is the set of the roles. A kit that is older than this
+first kit (`"ui.list.reveal"`, `"ui.grid.reveal"`); `pencere.roles` is the set of the roles. A kit that is older than this
 has no `pencere.has` at all, which is as good as `false`; a page that needs what it names asks before it
 uses it and, where the host is too old, shows a screen that says so and does nothing else:
 
@@ -384,6 +383,16 @@ under it (a dialog, a row, a tab). An element that is the root of a **layer** dr
 with `layer(modal)`: with a modal layer in front, what is outside it is not read, nor pressable to a screen
 reader (as behind a sheet or an `aria-modal`), and what is inside it, a menu or a popover it opens from
 inside it included, is; a layer that is not modal (`layer(false)`: a popover, a toast) leaves the page.
+`layer` stays a boolean for good: what more a layer comes to say (how it is given up, what it is for) comes as
+methods of their own, each with its own name in `pencere.has`, and no value of `layer` is ever added. A layer a page
+draws by hand says three things: `layer(true)` on its root, `role("dialog")` (or `"alertdialog"`) and a label on
+its card, and `role("none")` on the scrim that only answers the pointer (`none` yields to a label the same
+element has: it is read by it, as with no role at all, with the tip and the commands it has; without one it is
+not read, and the commands it lists are not listed: they are put on what is read). How a layer is given up is told by a command listed on its card (`command(id, "Close")`: a
+screen reader's action, `bateri view command`), which the library's modals, dialogs and palettes list. A layer
+that is drawn and not said to be one leaves the page behind it read in full under what covers it, and
+`Headless::audit` finds that (`covered`: what is read and a press on it does not reach, where what covers it is
+no layer that is not modal).
 `fallback_name(words)` is the name an element is read by where it has none of its own (a row of controls:
 "Row 3"); it never replaces a name.
 

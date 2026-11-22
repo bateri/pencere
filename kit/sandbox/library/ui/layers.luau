@@ -26,7 +26,7 @@ local EDGE = 16
 -- (`<id>/scrim`), and a card in it that answers it too, so that a click on the card is not one on the
 -- scrim (`<id>/card`). `options`: `width`, `top` (how far the card stands from the page's top: by
 -- default it is centred in the upper third), `label`, `initial` (where the keyboard goes when it
--- opens). The layer is `id`'s: while it is in front the keyboard steps among what is in it. The card is
+-- opens), `dismiss` (false: the layer is not given up, and its card lists no way out). The layer is `id`'s: while it is in front the keyboard steps among what is in it. The card is
 -- no taller than the page has under its top, less the page's edge: what is in it that scrolls has
 -- what the rest leaves, so that a page need not work out how tall its list may be (a sum of the
 -- card's parts in points is not their sum on the cells of a terminal).
@@ -57,9 +57,13 @@ function layers.shell(u, id, options, body)
 	-- gives up with escape.
 	if options.label ~= nil then
 		card:role(options.role or "dialog"):label(options.label)
-	end
-	if options.height ~= nil then
-		card:h(options.height)
+		-- The way out, said where it is read: the dialog lists "Close", which a person who cannot press
+		-- escape (a screen reader's actions, `bateri view command REF Close`) does as escape does, so that a
+		-- layer is left by what is read of it and not by a key that is guessed. It has no key of its own:
+		-- escape stays a key of the page (a field in the card that has the keyboard takes it first).
+		if options.dismiss ~= false then
+			card:command(core.DISMISS, "Close")
+		end
 	end
 	return pencere.div()
 		:overlay()
@@ -135,8 +139,6 @@ end
 -- last). Enter does the `primary` one (the first, where none is); escape and a click on the scrim give
 -- up. The answer is `{ kind = "answer", key = <the action's>, value = <the text> }`, with no `key` for
 -- giving up: the page that keeps what it asks of the person stops drawing the dialog on any answer.
--- `letters = true` makes the first letter of an action's title answer with it (not where the dialog has an
--- `input`); `width`, `height` and `top` (the card's, and how far down it stands) are as a modal's.
 local Dialog = core.component("dialog", {
 	state = function(props)
 		return { value = props.input and props.input.value or "" }
@@ -191,8 +193,6 @@ local Dialog = core.component("dialog", {
 		end
 		return layers.shell(u, id, {
 			width = props.width or 420,
-			height = props.height,
-			top = props.top,
 			label = props.title,
 			role = danger and "alertdialog" or "dialog",
 			initial = initial,
@@ -205,23 +205,10 @@ local Dialog = core.component("dialog", {
 		return true, { kind = "answer" }
 	end,
 	key = function(u, id, props, state, event)
-		local mods = event.mods or {}
-		if props.letters == true and props.input == nil and type(event.key) == "string" and #event.key == 1 then
-			-- `letters`: the first letter of an action's title answers with it, as a person who knows the
-			-- dialog answers it (never where the dialog takes typing, an input).
-			if not (mods.command or mods.control or mods.alt) then
-				local typed = string.lower(event.key)
-				for _, act in props.actions do
-					if string.lower(string.sub(act.title, 1, 1)) == typed then
-						return true, { kind = "answer", key = act.key }
-					end
-				end
-			end
-			return nil
-		end
 		if event.key ~= "enter" then
 			return nil
 		end
+		local mods = event.mods or {}
 		if mods.command or mods.control or mods.alt or mods.shift then
 			return nil
 		end

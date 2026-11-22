@@ -1,0 +1,9 @@
+== screen reader
+Dialog "Other"
+Button "OK"
+== agent
+focus: page
+note: behind the modal in front, 5 items of the page, not read
+items:
+7h027v  dialog "Other"
+s0e0ec    button "OK"

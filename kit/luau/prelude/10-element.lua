@@ -927,11 +927,8 @@ local HAS = {
 	["element.level"] = true, ["element.position"] = true, ["element.table_size"] = true,
 	["element.cell_at"] = true, ["element.sorted"] = true, ["element.role_description"] = true,
 	["event.reveal"] = true, ["event.command"] = true, ["command.target"] = true,
-	-- What the library's components took after the first kit, as `ui.<component>.<option>`: `letters`
-	-- of a dialog (the first letter of an action answers with it), `height` and `top` of a modal's and a
-	-- dialog's card, and the `reveal` of a list and of a grid.
-	["ui.dialog.letters"] = true, ["ui.dialog.height"] = true, ["ui.dialog.top"] = true,
-	["ui.modal.height"] = true, ["ui.modal.top"] = true,
+	-- What the library's components took after the first kit, as `ui.<component>.<option>`: the `reveal`
+	-- of a list and of a grid.
 	["ui.list.reveal"] = true, ["ui.grid.reveal"] = true,
 }
 local roles = {}

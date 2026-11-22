@@ -26,6 +26,13 @@ pub enum Flaw {
     /// An item of the page behind a modal layer that is in front of it, read: a person who reads by ear
     /// meets what they cannot reach, and an agent presses what is covered.
     Behind,
+    /// An item, a field or an editor that is read and has something over it that answers the pointer, so
+    /// that a press where it shows goes to that instead (a scrim of a layer that was not made a modal
+    /// one, so the page behind it is read in full): read, and not to be reached. Not where what is over
+    /// it is in a layer that is not modal (a popover, a toast), nor a box that does not answer the
+    /// pointer. Found on the page itself ([`crate::Headless::audit`]): the reading alone does not know
+    /// what lies over what.
+    Covered,
 }
 
 impl Flaw {
@@ -37,6 +44,7 @@ impl Flaw {
             Self::NoId => "no id",
             Self::Misfit => "misfit",
             Self::Behind => "behind",
+            Self::Covered => "covered",
         }
     }
 }

@@ -1449,6 +1449,72 @@ impl Laid {
         Some(Rect::new(rect.x / s, rect.y / s, rect.w / s, rect.h / s))
     }
 
+    /// Whether a press where the element named `id` shows reaches it: at the middle of what shows of
+    /// it and at four points around that, nothing that answers the pointer ([`Laid::hit`]: a box that
+    /// answers it, a link in a text) is painted over it, other than what is inside it or holds it. A box
+    /// over it that does not answer the pointer (a shade, a badge) does not cover it, nor does one that
+    /// is painted under it (a scrim, whose card is over it), nor one of a layer that is not modal (a
+    /// popover, a toast: the page it stands over is read and is meant to be covered there).
+    /// `Some(false)` where none of the five is reached; `None` where the element is not on the page, or
+    /// none of it shows (what a box around it cuts off is not covered by anything).
+    pub fn reached_where_shown(&self, id: Id) -> Option<bool> {
+        let index = self
+            .nodes
+            .iter()
+            .position(|node| node.meta.id == Some(id))?;
+        let node = self.nodes.get(index)?;
+        let seen = Self::shown(node);
+        if node.hidden || seen.w <= 0.0 || seen.h <= 0.0 {
+            return None;
+        }
+        let reached = |x: f32, y: f32| {
+            let over = self.nodes.iter().rposition(|other| {
+                !other.hidden
+                    && !other.meta.state.disabled
+                    && Self::shown(other).contains(x, y)
+                    && (other.meta.pressable
+                        || other.meta.draggable
+                        || self
+                            .links_of(other)
+                            .iter()
+                            .any(|(rect, _)| rect.contains(x, y)))
+            });
+            let Some(over) = over else {
+                return true;
+            };
+            over < index
+                || self.is_inside(over, index)
+                || self.is_inside(index, over)
+                || self.in_passing_layer(over)
+        };
+        let (mid_x, mid_y) = (seen.x + seen.w / 2.0, seen.y + seen.h / 2.0);
+        let (near_x, near_y) = (seen.w / 4.0, seen.h / 4.0);
+        let points = [
+            (mid_x, mid_y),
+            (mid_x - near_x, mid_y),
+            (mid_x + near_x, mid_y),
+            (mid_x, mid_y - near_y),
+            (mid_x, mid_y + near_y),
+        ];
+        Some(points.iter().any(|&(x, y)| reached(x, y)))
+    }
+
+    /// Whether the node at `index` is in a layer that is not modal (`layer(false)`): the nearest layer
+    /// that holds it is one.
+    fn in_passing_layer(&self, index: usize) -> bool {
+        let mut at = Some(index);
+        while let Some(here) = at {
+            let Some(node) = self.nodes.get(here) else {
+                return false;
+            };
+            if let Some(modal) = node.meta.layer {
+                return !modal;
+            }
+            at = node.parent;
+        }
+        false
+    }
+
     /// Whether an overlay of the page stands beside `id` (an element, or an editor's caret).
     pub fn anchored_to(&self, id: Id) -> bool {
         self.anchored.contains(&id)
@@ -2188,7 +2254,18 @@ impl Laid {
                     detail,
                 });
                 // A role and controls inside make a group of it: its children are its own.
-                owners.resize(items.len(), (index, carrier && node.meta.role.is_some()));
+                owners.resize(
+                    items.len(),
+                    (
+                        index,
+                        // A `none` that is read for its label is no group: it is as with no role.
+                        carrier
+                            && node
+                                .meta
+                                .role
+                                .is_some_and(|role| role != AccessibleRole::None),
+                    ),
+                );
                 continue;
             }
             if let Content::Text(line) = &node.content
@@ -2289,7 +2366,15 @@ impl Laid {
             Some(AccessibleRole::Editor)
         } else if browser {
             Some(AccessibleRole::Browser)
-        } else if let Some(role) = node.meta.role {
+        } else if let Some(role) = node
+            .meta
+            .role
+            // `none` is for what has nothing to say (a scrim that answers the pointer): an element
+            // that has a label says it, and is read by it as with no role at all (with the tip and the
+            // commands it has, as such an element is). Without one it is not read, nor are the tip and
+            // the commands it has: they are said by what is read.
+            .filter(|role| *role != AccessibleRole::None || node.meta.label.is_none())
+        {
             Some(role)
         } else if node.meta.pressable {
             Some(AccessibleRole::Button)

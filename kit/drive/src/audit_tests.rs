@@ -201,3 +201,105 @@ return {
     assert_eq!(page.audit(), [], "{}", report(&page.audit()));
     Ok(())
 }
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn what_is_read_under_a_scrim_that_was_not_made_a_layer_is_covered_and_is_not_where_it_is_one()
+-> Result<(), Error> {
+    // A page behind a scrim that answers the pointer: read in full, and a press on it goes to the scrim.
+    let page = |marks: &str| {
+        format!(
+            r#"
+return {{
+    render = function(size, now, reduce_motion)
+        local scrim = pencere.div():id("scrim"):press("scrim"):overlay():inset(0, 0, 0, 0):items_center():pt(40)
+            :child(pencere.div():id("card"):press("card"):role("dialog"):label("Delete it?"):w(200):h(60))
+        {marks}
+        return pencere.div():size_full():p(8):gap(8)
+            :child(pencere.div():id("behind"):press("behind"):label("Behind"):size(80, 24))
+            :child(scrim)
+    end,
+    settle = function() end,
+    handle = function(event) return true end,
+}}
+"#
+        )
+    };
+    let mut forgotten = Headless::script(page("")).size(400.0, 300.0).open()?;
+    let found = forgotten.audit();
+    assert!(
+        found
+            .iter()
+            .any(|finding| finding.flaw == Flaw::Covered && finding.words == "Behind"),
+        "{}",
+        report(&found)
+    );
+    // The same page with its scrim marked: the page behind is not read, and nothing is found.
+    let mut marked = Headless::script(page("scrim:role(\"none\"):layer(true)"))
+        .size(400.0, 300.0)
+        .open()?;
+    assert_eq!(marked.audit(), [], "{}", report(&marked.audit()));
+    Ok(())
+}
+
+/// A page whose `render` returns what `body` makes of `root` (Lua statements, `root` is the page's box).
+fn page_with(body: &str) -> Result<Headless, Error> {
+    Headless::script(format!(
+        r#"
+return {{
+    render = function(size, now, reduce_motion)
+        local root = pencere.div():size_full():p(8):gap(8)
+            :child(pencere.div():id("behind"):press("behind"):label("Behind"):size(120, 24))
+            :child(pencere.div():id("name"):text_field("name"):label("Name"):size(120, 24))
+        {body}
+        return root
+    end,
+    settle = function() end,
+    handle = function(event) return true end,
+}}
+"#
+    ))
+    .size(400.0, 300.0)
+    .open()
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_box_over_what_is_read_covers_it_only_where_it_answers_the_pointer_and_is_in_no_passing_layer()
+-> Result<(), Error> {
+    let covers = |marks: &str| {
+        format!(
+            r#"root:child(pencere.div():id("over"):press("over"):overlay():inset(0, 0, 0, 0){marks}:label("Over"))"#
+        )
+    };
+    // A scrim over the page that answers the pointer covers a button and a field behind it.
+    let mut page = page_with(&covers(""))?;
+    let found = page.audit();
+    let covered: Vec<&str> = found
+        .iter()
+        .filter(|finding| finding.flaw == Flaw::Covered)
+        .map(|finding| finding.words.as_str())
+        .collect();
+    assert!(
+        covered.contains(&"Behind") && covered.contains(&"Name"),
+        "{}",
+        report(&found)
+    );
+    // A box that does not answer the pointer (a shade, a fade at an edge) covers nothing.
+    let mut shade =
+        page_with(r#"root:child(pencere.div():overlay():inset(0, 0, 0, 0):bg("shadow"))"#)?;
+    assert_eq!(shade.audit(), [], "{}", report(&shade.audit()));
+    // A layer that is not modal (a popover, a toast) covers what it stands over, which is read as well.
+    let mut popover = page_with(&covers(":layer(false)"))?;
+    assert_eq!(popover.audit(), [], "{}", report(&popover.audit()));
+    // A small box that answers the pointer over the middle of a wide one leaves the rest of it reached
+    // (the badge is over the middle point and the two points above and below it, not the two at its sides).
+    let mut floating = page_with(
+        r#"root:child(pencere.div():id("badge"):press("badge"):label("Badge"):overlay():inset(10, nil, nil, 58):size(20, 20))"#,
+    )?;
+    assert_eq!(floating.audit(), [], "{}", report(&floating.audit()));
+    // A box that answers the pointer and is disabled does not answer it, and covers nothing.
+    let mut disabled = page_with(&covers(":disabled(true)"))?;
+    assert_eq!(disabled.audit(), [], "{}", report(&disabled.audit()));
+    Ok(())
+}

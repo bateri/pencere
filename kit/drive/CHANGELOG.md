@@ -25,7 +25,10 @@ index)` (and `Page::command_on`, `Page::reveal`, the host/test `page:command_on`
 - **`Outline::behind`**: how many items of the page the layer in front shuts out of `accessible`.
 - **`Reading::audit` and `Headless::audit`** (`audit::{Finding, Flaw}`): what is wrong with a page's reading,
   each flaw with the line of the reading's text it is on: a control with no name, the same words twice in
-  a row, a control with no id, an element that answers the pointer and says it only shows. A page's test
+  a row, a control with no id, an element that answers the pointer and says it only shows, and (`covered`, found
+  on the page) an item, a field or an editor that is read and that something that answers the pointer lies over,
+  as the page behind a scrim of a layer that was not said to be a modal one (a layer that is not modal covers
+  what it stands over on purpose). A page's test
   holds the page to an empty list; `pencere test` has it as `page:audit()`, and `page:reading()` for the
   reading's text, which a pen pins as a golden.
 - **`Accessible::pressable`** (`pencere-view`) and **`reading::Item::pressable`**: whether an element

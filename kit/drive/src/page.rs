@@ -1258,6 +1258,13 @@ impl Page {
         }
     }
 
+    /// Whether a press at the middle of what shows of the element named `id` reaches it: `Some(false)`
+    /// where something lies over it (a scrim over a page that a modal layer does not shut out), `None`
+    /// where it is not on the page or none of it shows ([`pencere_view::Laid::reached_where_shown`]).
+    pub fn reached_where_shown(&self, id: Id) -> Option<bool> {
+        self.state.laid.as_deref()?.reached_where_shown(id)
+    }
+
     /// Whether a press at `at` (the host's points) reaches the element named `id`: it is the
     /// topmost there, or holds it.
     pub fn reaches(&self, id: Id, at: Point) -> bool {

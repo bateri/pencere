@@ -2559,10 +2559,55 @@ impl<P: Peer> Headless<P> {
     }
 
     /// What is wrong with the page's reading ([`Reading::audit`]): a control with no name, the same
-    /// words twice, a control with no id, one that answers the pointer and says it only shows. Empty
-    /// where the page is read well; what a page's test holds it to.
+    /// words twice, a control with no id, one that answers the pointer and says it only shows, and what
+    /// is read where a press does not reach it ([`crate::audit::Flaw::Covered`]). Empty where the page is
+    /// read well; what a page's test holds it to.
     pub fn audit(&mut self) -> Vec<crate::audit::Finding> {
-        self.reading().audit()
+        use crate::audit::{Finding, Flaw};
+        use pencere_view::Id;
+        let reading = self.reading();
+        let mut found = reading.audit();
+        // What the reading says and a press does not reach: an item, a field or an editor that
+        // something lies over (a scrim over a page whose layer was not said to be a modal one).
+        let at = reading.written();
+        let mut said: Vec<(Id, usize, String, String)> = Vec::new();
+        for (item, line) in reading.items.iter().zip(&at.items) {
+            if let Some(id) = item.id
+                && !item.behind
+            {
+                said.push((id, *line, item.role.clone(), item.words.clone()));
+            }
+        }
+        for (field, line) in reading.fields.iter().zip(&at.fields) {
+            let words = field.label.as_deref().or(field.hint.as_deref());
+            said.push((
+                field.id,
+                *line,
+                "field".to_owned(),
+                words.unwrap_or_default().to_owned(),
+            ));
+        }
+        for (editor, line) in reading.editors.iter().zip(&at.editors) {
+            said.push((
+                editor.id,
+                *line,
+                "editor".to_owned(),
+                editor.label.clone().unwrap_or_default(),
+            ));
+        }
+        for (id, line, role, words) in said {
+            if self.page.reached_where_shown(id) == Some(false) {
+                found.push(Finding {
+                    flaw: Flaw::Covered,
+                    line,
+                    at: Some(id),
+                    role,
+                    words,
+                });
+            }
+        }
+        found.sort_by_key(|finding| finding.line);
+        found
     }
 
     /// What an agent reads of the page as it stands, as the host of a terminal would give it: the

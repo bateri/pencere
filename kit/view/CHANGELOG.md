@@ -91,6 +91,9 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
 
 ### Changed
 
+- **`role("none")` yields to a label**: an element with `none` that also has a label is read by it, as with no role
+  at all (a button where it answers the pointer, with the tip and commands it has); `none` is for the element
+  that has nothing to say (a scrim that answers the pointer), and is not read, nor are its commands listed. `Laid::reached_where_shown` says whether a press where an element shows reaches it.
 - **Breaking for hosts: new fields and variants.** `State`, `Accessible` and `Meta` have new public fields
   (`State::mixed`, `level`, `setsize`, `posinset`, `rowcount`, `colcount`, `rowindex`, `colindex`, `sort`;
   `Accessible::parent`, `detail`, `pressable`; `Meta::layer`, `fallback`, `role_description`, `commands`),

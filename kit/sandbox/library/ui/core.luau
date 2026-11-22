@@ -32,6 +32,9 @@ local merge = pencere.merge
 
 local core = {}
 
+-- The command a layer's card lists for giving it up (`layers.shell`): done on the card, as escape does it.
+core.DISMISS = "ui.dismiss"
+
 local Ctx = {}
 Ctx.__index = Ctx
 core.Ctx = Ctx
@@ -954,10 +957,27 @@ function Ctx:handle(event)
 		-- A command done on one element (the row an agent or a screen reader chose "Delete" of): the page
 		-- is told the command and which element it is done on, and the part of a component the element is
 		-- (`key`, a row's), so that it does it to that one and not to what the page has chosen.
-		local _, _, key = self:_owner(event.target)
-		out.taken = true
-		out.reply = merge(out.reply, true)
-		table.insert(out.actions, { from = "commands", kind = "command", id = event.id, target = event.target, key = key })
+		local mount, _, key = self:_owner(event.target)
+		if event.id == core.DISMISS and mount ~= nil then
+			-- A layer's own "Close": given up as escape gives it up, and only the modal layer in front is (a
+			-- reference that is old does not give up one that is behind another, and the page is not told it
+			-- was done).
+			if mount.id == self.top then
+				out.taken = true
+				out.reply = merge(out.reply, true)
+				if mount.spec.dismiss then
+					local reply, action = call(self, mount, "dismiss")
+					out.reply = merge(out.reply, reply)
+					self:_emit(out, mount, action)
+				else
+					self:_emit(out, mount, { kind = "dismiss" })
+				end
+			end
+		else
+			out.taken = true
+			out.reply = merge(out.reply, true)
+			table.insert(out.actions, { from = "commands", kind = "command", id = event.id, target = event.target, key = key })
+		end
 	elseif kind == "command" then
 		if not self:_tell(out, event.id, "command", event) and self.commands[event.id] then
 			out.taken = true

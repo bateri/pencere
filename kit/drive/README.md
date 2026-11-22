@@ -250,8 +250,11 @@ agent will see.
 - **A reading is audited** (`Reading::audit`, `Headless::audit`; in `pencere test`, `page:audit()`): the flaws
   that a person who reads by ear and an agent meet first, each with the line of the reading's text it is
   on and the name it begins with (`audit::Finding`): a control with no name (`nameless`), the same words
-  twice in a row (`twice`), a control with no id (`no id`), and an element that answers the pointer and
-  says it only shows (`misfit`). The list is empty where the page is read well, and a test holds the
+  twice in a row (`twice`), a control with no id (`no id`), an element that answers the pointer and
+  says it only shows (`misfit`), and, found on the page and not in the reading, an item, a field or an
+  editor that is read and that something that answers the pointer lies over, so that a press on it goes to the
+  thing over it (`covered`: a scrim of a layer that was not said to be a modal one, so the page behind it is read
+  in full; not where the thing over it is in a layer that is not modal, a popover or a toast). The list is empty where the page is read well, and a test holds the
   page to that: `assert_eq!(page.audit(), [])` (`audit::report` writes the findings a line each).
 - **A reading is pinned by a golden** (a pen's test sets `page:reading()` against a file it keeps; the
   kit's own are `src/goldens/`, one for each component and each state of a layer, and

@@ -1,0 +1,13 @@
+== screen reader
+Button "Close dialog"
+Dialog "Delete it?"
+Button "Delete"
+Button "Keep"
+== agent
+focus: page
+note: behind the modal in front, 2 items of the page, not read
+items:
+7fn3kd  button "Close dialog" [action "Close"]
+3q2ekw  dialog "Delete it?"
+p48t6m    button "Delete"
+b937c0    button "Keep"
