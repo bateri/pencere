@@ -1,22 +1,16 @@
 /* The pages under the home page: the kit's and the specification. The ground, the type and the
-   colours are the site's (styles/shell.css); the names below are this file's own for them. The
-   kit's pictures keep their own ground: they are drawn in a terminal's GitHub colours. */
+   colours are the site's (styles/shell.css), in the theme the system or the person chose; the names
+   below are this file's own for them. The kit's pictures keep their own ground: they are drawn in a
+   terminal's GitHub colours, and the one in the page's theme is shown. */
 
 :root {
   --ink-2: var(--soft);
   --ink-3: var(--muted);
   --rule: var(--line);
-  --rule-strong: rgb(243 243 241 / 0.24);
+  --rule-strong: var(--line-strong);
   --accent: var(--warm);
-  --accent-ink: #111;
-  --code-ground: rgb(243 243 241 / 0.08);
-  /* The ground of the kit's pictures, and of a pane: a dark terminal's, unless a part says light. */
-  --shot-ground: #0d1117;
-  --pane: #0d1117;
-  --pane-ink: #c9d1d9;
-  --pane-line: rgb(243 243 241 / 0.12);
-  --show-light: none;
-  --show-dark: block;
+  --accent-ink: var(--ground);
+  --code-ground: var(--wash);
 
   --sans: var(--font);
   --maxw: 1180px;
@@ -25,12 +19,12 @@
 
 /* A part of the page that shows the kit's pictures in one theme, whatever the page's. */
 [data-shots="dark"] {
-  --shot-ground: #0d1117;
+  --shot-ground: var(--shot-dark);
   --show-light: none;
   --show-dark: block;
 }
 [data-shots="light"] {
-  --shot-ground: #ffffff;
+  --shot-ground: var(--shot-light);
   --show-light: block;
   --show-dark: none;
 }
@@ -75,7 +69,7 @@ a {
   text-decoration: underline;
   text-underline-offset: 4px;
   text-decoration-thickness: 1px;
-  text-decoration-color: rgb(243 243 241 / 0.4);
+  text-decoration-color: var(--underline);
   transition: text-decoration-color 0.15s ease;
 }
 :is(.doc, .notice) :is(p, li, dd, td) a:not([class]):hover {
@@ -152,7 +146,7 @@ p {
   border-radius: 12px;
   box-shadow:
     0 0 0 1px var(--pane-line),
-    0 30px 80px -40px rgba(10, 14, 22, 0.55);
+    0 30px 80px -40px var(--pane-shadow);
   overflow: hidden;
 }
 
@@ -162,8 +156,8 @@ p {
   gap: 12px;
   height: 34px;
   padding: 0 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  color: #8b949e;
+  border-bottom: 1px solid var(--pane-rule);
+  color: var(--pane-dim);
   font-size: 0.8rem;
   font-family: var(--mono);
 }
@@ -196,7 +190,7 @@ p {
   white-space: pre;
 }
 .pane__shell .prompt {
-  color: #7ee787;
+  color: var(--pane-prompt);
 }
 
 /* ───────── Home ───────── */
@@ -624,7 +618,7 @@ p {
 .segmented button[aria-pressed="true"] {
   background: var(--sheet);
   color: var(--ink);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 2px var(--shadow);
 }
 
 .more {
@@ -718,7 +712,7 @@ p {
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgb(243 243 241 / 0.26) transparent;
+  scrollbar-color: var(--scroll) transparent;
 }
 .side > .side__docs ~ .side__scroll {
   flex: 1 1 0;
@@ -730,7 +724,7 @@ p {
   overflow-y: auto;
   padding-bottom: 24px;
   scrollbar-width: thin;
-  scrollbar-color: rgb(243 243 241 / 0.26) transparent;
+  scrollbar-color: var(--scroll) transparent;
 }
 /* It says that it scrolls: a thin bar that is always there, and its lines fading out at the edge
    there is more past (the layout's script says which: data-more). At an end nothing fades. */
@@ -739,7 +733,7 @@ p {
 }
 .side > :is(.side__docs, .side__groups, .side__scroll)::-webkit-scrollbar-thumb {
   border-radius: 3px;
-  background: rgb(243 243 241 / 0.26);
+  background: var(--scroll);
 }
 /* The components' pages: the list of all of them is the page's own way about, and it is longer
    than a window. It is shown whole and goes with the page, so that nothing of it is behind a
@@ -757,13 +751,18 @@ p {
   mask-image: none !important;
 }
 .side > [data-more="down"] {
-  mask-image: linear-gradient(#000 calc(100% - 56px), transparent);
+  mask-image: linear-gradient(var(--mask) calc(100% - 56px), transparent);
 }
 .side > [data-more="up"] {
-  mask-image: linear-gradient(transparent, #000 40px);
+  mask-image: linear-gradient(transparent, var(--mask) 40px);
 }
 .side > [data-more="both"] {
-  mask-image: linear-gradient(transparent, #000 40px, #000 calc(100% - 56px), transparent);
+  mask-image: linear-gradient(
+    transparent,
+    var(--mask) 40px,
+    var(--mask) calc(100% - 56px),
+    transparent
+  );
 }
 /* Three sizes, so that what is a name and what is under it are told apart at a glance: a list's
    name is a small label, its links are the size of reading, and what is inside one of them (a
@@ -990,7 +989,7 @@ p {
   transition: box-shadow 0.15s;
 }
 .card:hover .shot {
-  box-shadow: 0 0 0 1px rgb(243 243 241 / 0.3);
+  box-shadow: 0 0 0 1px var(--line-strong);
 }
 .card .shot img {
   width: var(--w);
@@ -1139,7 +1138,7 @@ p {
   text-decoration: underline;
   text-underline-offset: 5px;
   text-decoration-thickness: 1px;
-  text-decoration-color: rgb(243 243 241 / 0.4);
+  text-decoration-color: var(--underline);
   transition: text-decoration-color 0.15s ease;
 }
 .go:hover {
@@ -1148,13 +1147,13 @@ p {
 .go--main {
   padding: 12px 19px 13px;
   border-radius: 999px;
-  background: var(--ink);
-  color: #111;
+  background: var(--button);
+  color: var(--button-ink);
   text-decoration: none;
   transition: background 0.15s ease;
 }
 .go--main:hover {
-  background: #fff;
+  background: var(--button-hover);
 }
 
 /* Start: the steps in the order a person takes them, each a heading, a command and what it does.

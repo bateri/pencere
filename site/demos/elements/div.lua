@@ -17,4 +17,7 @@ return page(function()
 		:shadow(0, 8, 24, pencere.alpha("shadow", 0.4))
 		:child(header)
 		:child(figures)
-end)
+end, {
+	-- The picture is cut to the demo's box: its padding must hold the shadow (8 down, 24 blur).
+	pad = 40,
+})

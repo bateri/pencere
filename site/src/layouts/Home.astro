@@ -1,9 +1,10 @@
 ---
-// The document of the home page: dark, in the type and the colours of its first scene, which the
-// body's class hero-scene carries. The navigation lies over the scene.
+// The document of the home page: in the site's theme, and its first scene dark in both, in the type
+// and the colours the body's class hero-scene carries. The navigation lies over the scene.
 import "../styles/shell.css";
 import "../styles/home.css";
 import Meta from "../components/Meta.astro";
+import ThemeHead from "../components/ThemeHead.astro";
 import SiteNav from "../components/SiteNav.astro";
 import SiteFoot from "../components/SiteFoot.astro";
 
@@ -21,8 +22,7 @@ const { title, description } = Astro.props;
     <title>{title}</title>
     <meta name="description" content={description} />
     <Meta title={title} description={description} />
-    <meta name="theme-color" content="#040404" />
-    <meta name="color-scheme" content="dark" />
+    <ThemeHead top="dark" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   </head>
   <body class="hero-scene home">

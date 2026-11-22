@@ -1,0 +1,51 @@
+---
+// The site's theme, set before the page is first painted (so that a person who chose the other theme
+// than their system's does not see the system's for a moment). The site follows the system's setting
+// until the button at the end of the navigation is used; the choice is kept in localStorage, and is
+// forgotten again when it is the system's own. `top` is the colour the top of the page is: on the home
+// page that is the dark first scene, in both themes.
+interface Props {
+  top?: "ground" | "dark";
+}
+const { top = "ground" } = Astro.props;
+const LIGHT = "#fbfbf9";
+const DARK = "#040404";
+const light = top === "dark" ? DARK : LIGHT;
+---
+<meta name="color-scheme" content="light dark" />
+<meta name="theme-color" content={light} media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content={DARK} media="(prefers-color-scheme: dark)" />
+<script is:inline define:vars={{ light, DARK }}>
+  // The button at the end of the navigation asks for a theme with the event pencere:theme, its detail
+  // "light", "dark" or null (the system's again), which is answered here.
+  (function () {
+    var root = document.documentElement;
+    var KEY = "pencere-theme";
+    var metas = document.querySelectorAll('meta[name="theme-color"]');
+    function paint(choice) {
+      if (choice) root.setAttribute("data-theme", choice);
+      else root.removeAttribute("data-theme");
+      // A chosen theme is also what the browser's own bar is painted in; otherwise the two metas speak.
+      metas.forEach(function (m, i) {
+        var own = i === 0 ? light : DARK;
+        m.setAttribute("content", choice ? (choice === "dark" ? DARK : light) : own);
+        if (choice) m.removeAttribute("media");
+        else m.setAttribute("media", i === 0 ? "(prefers-color-scheme: light)" : "(prefers-color-scheme: dark)");
+      });
+    }
+    window.addEventListener("pencere:theme", function (event) {
+      var choice = event.detail;
+      paint(choice);
+      try {
+        if (choice) localStorage.setItem(KEY, choice);
+        else localStorage.removeItem(KEY);
+      } catch (e) {}
+      window.dispatchEvent(new Event("themechange"));
+    });
+    var saved = null;
+    try {
+      saved = localStorage.getItem(KEY);
+    } catch (e) {}
+    if (saved === "light" || saved === "dark") paint(saved);
+  })();
+</script>

@@ -10,6 +10,7 @@ import "../styles/site.css";
 // after them while it is watched, and the two then look different wherever both say something.
 import "../styles/spec.css";
 import Meta from "../components/Meta.astro";
+import ThemeHead from "../components/ThemeHead.astro";
 import SiteNav from "../components/SiteNav.astro";
 import SiteFoot from "../components/SiteFoot.astro";
 
@@ -28,8 +29,7 @@ const { title, description, path = "" } = Astro.props;
     <title>{title}</title>
     <meta name="description" content={description} />
     <Meta title={title} description={description} path={path} />
-    <meta name="theme-color" content="#040404" />
-    <meta name="color-scheme" content="dark" />
+    <ThemeHead />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   </head>
   <body class="inner">

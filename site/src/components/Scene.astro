@@ -323,10 +323,15 @@ const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
 </script>
 <style is:global>
+  /* The scene, and the navigation that lies over it, are dark in both of the site's themes: the
+     colours are the site's pairs (styles/shell.css), read in the dark one. The words on them are set
+     here too, since a colour that was inherited was read in the page's theme. */
+  .scene,
+  body.hero-scene .hn {
+    color-scheme: dark;
+    color: var(--ink);
+  }
   body.hero-scene {
-    --ground: #040404;
-    --ink: #f3f3f1;
-    --muted: #9c9c98;
     --font: "Instrument Sans Variable", ui-sans-serif, system-ui, sans-serif;
     --mono: "JetBrains Mono Variable", ui-monospace, monospace;
     --gutter: clamp(20px, 4.4vw, 64px);
@@ -334,6 +339,16 @@ const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
        past the right edge, so that the display stands near that edge. */
     --w: max(103.7vw, 177.78svh);
     --past: min(0.035 * var(--w), var(--w) - 100vw);
+  }
+  /* The controls at the navigation's end can lie over the lit wall, which is bright: they stand on a
+     dark glass of their own. */
+  body.hero-scene .hn__tools {
+    padding: 3px;
+    border-radius: 13px;
+    background: color-mix(in srgb, var(--ground) 68%, transparent);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 0 0 1px var(--line);
   }
   body.hero-scene .hn {
     position: absolute;
@@ -343,6 +358,8 @@ const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
   .scene {
     position: relative;
+    /* Its own ground: the page's may be the light one. */
+    background: var(--ground);
     min-height: 100svh;
     display: grid;
     align-items: center;

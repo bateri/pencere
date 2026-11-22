@@ -1,6 +1,7 @@
 /* What every page of the site shares: the ground, the two families of type and the colours of the
    home page's first scene, the navigation and the footer. One family for words, one for code; the
-   only colour is the warmth of the scene's light. The site is dark and has no other theme. */
+   only colour is the warmth of the scene's light. The site follows the system's theme until a person
+   chooses one (the button at the end of the navigation); the first scene of the home page is dark in both. */
 
 *,
 *::before,
@@ -18,13 +19,41 @@ html {
 }
 
 :root {
-  --ground: #040404;
-  --ink: #f3f3f1;
-  --soft: #c4c4c0;
-  --muted: #9c9c98;
-  --line: rgb(243 243 241 / 0.12);
-  --sheet: #0d0d0c;
-  --warm: #e2cfa8;
+  /* Every colour is written as a pair, light-dark(light, dark): the light theme is the dark one's
+     counterpart, role for role. Which of the two is read is the page's colour-scheme: the system's
+     until a person chooses (data-theme on <html>, set before the first paint by components/ThemeHead.astro). */
+  --ground: light-dark(#fbfbf9, #040404);
+  --ink: light-dark(#131312, #f3f3f1);
+  --soft: light-dark(#3f3f3c, #c4c4c0);
+  --muted: light-dark(#62625d, #9c9c98);
+  --line: light-dark(rgb(19 19 18 / 0.12), rgb(243 243 241 / 0.12));
+  --line-strong: light-dark(rgb(19 19 18 / 0.24), rgb(243 243 241 / 0.24));
+  /* The underline of a link in a sentence, and the bar of a scrolling part. */
+  --underline: light-dark(rgb(19 19 18 / 0.4), rgb(243 243 241 / 0.4));
+  --scroll: light-dark(rgb(19 19 18 / 0.28), rgb(243 243 241 / 0.26));
+  /* A faint wash: the ground of inline code, of a chosen tab, of a button on a sheet. */
+  --wash: light-dark(rgb(19 19 18 / 0.06), rgb(243 243 241 / 0.08));
+  --wash-tab: light-dark(rgb(19 19 18 / 0.07), rgb(243 243 241 / 0.1));
+  --wash-hover: light-dark(rgb(19 19 18 / 0.1), rgb(243 243 241 / 0.16));
+  --sheet: light-dark(#f2f2ef, #0d0d0c);
+  --warm: light-dark(#7a5a1a, #e2cfa8);
+  /* The solid button: the ink as ground, the page's ground as its words; lifted a little on hover. */
+  --button: var(--ink);
+  --button-ink: var(--ground);
+  --button-hover: light-dark(#2e2e2c, #ffffff);
+  --shadow: light-dark(rgb(19 19 18 / 0.08), rgb(0 0 0 / 0.5));
+  /* A pane: a terminal's, in the colours of GitHub's light theme or its dark one. */
+  --pane: light-dark(#ffffff, #0d1117);
+  --pane-ink: light-dark(#24292f, #c9d1d9);
+  --pane-dim: light-dark(#57606a, #8b949e);
+  --pane-rule: light-dark(rgb(19 19 18 / 0.08), rgb(255 255 255 / 0.06));
+  --pane-prompt: light-dark(#1a7f37, #7ee787);
+  --pane-line: var(--line);
+  --pane-shadow: light-dark(rgb(10 14 22 / 0.18), rgb(10 14 22 / 0.55));
+  /* What a mask is drawn with: only its alpha counts, so it is opaque. */
+  --mask: #000;
+  /* The empty tile of a card that has no picture yet. */
+  --tile: light-dark(#e9e9e5, #131312);
   --font: "Instrument Sans Variable", ui-sans-serif, system-ui, sans-serif;
   --mono: "JetBrains Mono Variable", ui-monospace, monospace;
   /* The width of a paragraph: about seventy characters of the reading text. */
@@ -34,20 +63,46 @@ html {
      The home page's first scene alone runs edge to edge. */
   --side: max(var(--gutter), (100% - 1180px) / 2);
 
-  --code-foreground: #d8d9dd;
+  --code-foreground: light-dark(#2a2c31, #d8d9dd);
   --code-background: transparent;
-  /* A comment is read as words are: six to one on the block's ground. */
-  --code-token-comment: #8d9199;
-  --code-token-string: #a9c29a;
-  --code-token-string-expression: #a9c29a;
-  --code-token-constant: #8fbcbc;
-  --code-token-keyword: #d9bd84;
-  --code-token-parameter: #d8d9dd;
-  --code-token-function: #9db5d6;
-  --code-token-punctuation: #909093;
-  --code-token-link: #9db5d6;
+  /* A comment is read as words are: it has the contrast of the muted words on the block's ground. */
+  --code-token-comment: light-dark(#656a73, #8d9199);
+  --code-token-string: light-dark(#3d6a2a, #a9c29a);
+  --code-token-string-expression: light-dark(#3d6a2a, #a9c29a);
+  --code-token-constant: light-dark(#1f6b6b, #8fbcbc);
+  --code-token-keyword: light-dark(#7a5a1a, #d9bd84);
+  --code-token-parameter: light-dark(#2a2c31, #d8d9dd);
+  --code-token-function: light-dark(#2d5a9a, #9db5d6);
+  --code-token-punctuation: light-dark(#666a70, #909093);
+  --code-token-link: light-dark(#2d5a9a, #9db5d6);
 
+  /* The kit's pictures: drawn in a terminal's GitHub colours, in a light terminal's and a dark one's.
+     The one that matches the theme is shown, on the ground it was drawn on. */
+  --shot-light: #ffffff;
+  --shot-dark: #0d1117;
+  --shot-ground: var(--shot-light);
+  --show-light: block;
+  --show-dark: none;
+
+  color-scheme: light dark;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
   color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --shot-ground: var(--shot-dark);
+    --show-light: none;
+    --show-dark: block;
+  }
+}
+:root[data-theme="dark"] {
+  --shot-ground: var(--shot-dark);
+  --show-light: none;
+  --show-dark: block;
 }
 
 .skip {
@@ -61,7 +116,7 @@ html {
   padding: 8px 12px;
   border-radius: 8px;
   background: var(--ink);
-  color: #111;
+  color: var(--ground);
 }
 
 /* Astro's own toolbar, while the site is written: it lay on the scene's lower edge. */
@@ -107,13 +162,167 @@ astro-dev-toolbar {
 .hn__links a:hover {
   color: var(--ink);
 }
-/* On a narrow screen the three a reader comes for stay: Start, Docs and Specification. */
+/* The links are as tall to touch as the controls after them: 36 points, and a little wider than
+   their words, which does not move the words. */
+.hn__links a {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+}
+.hn__links a::after {
+  content: "";
+  position: absolute;
+  inset: 0 -7px;
+}
+
+/* The end of the navigation: search, then the theme. Both are 36 points tall. */
+.hn__tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.hn__tool {
+  position: relative;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  min-width: 36px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: none;
+  color: var(--muted);
+  font: 400 14.5px/1 var(--font);
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+.hn__tool:hover {
+  background: var(--wash);
+  color: var(--ink);
+}
+.hn__tool:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+.hn__tool svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.hn__search {
+  gap: 8px;
+  padding: 0 8px 0 11px;
+  border-color: var(--line);
+}
+.hn__search[aria-disabled="true"] {
+  cursor: default;
+}
+.hn__search-key {
+  padding: 3px 5px 2px;
+  border-radius: 5px;
+  background: var(--wash);
+  color: var(--muted);
+  font: 500 11.5px/1 var(--font);
+  letter-spacing: 0.02em;
+}
+/* The theme button shows the theme it switches to: the sun in the dark theme, the moon in the light. */
+.hn__sun {
+  display: none;
+}
+:root[data-theme="dark"] .hn__sun {
+  display: block;
+}
+:root[data-theme="dark"] .hn__moon {
+  display: none;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .hn__sun {
+    display: block;
+  }
+  :root:not([data-theme="light"]) .hn__moon {
+    display: none;
+  }
+}
+/* What a control does, said when it is pointed at or reached with the keyboard. */
+.hn__tool::after {
+  content: attr(data-tip);
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 6px);
+  right: 0;
+  padding: 5px 9px 6px;
+  border-radius: 7px;
+  background: var(--ink);
+  color: var(--ground);
+  font: 500 12.5px/1.2 var(--font);
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(-2px);
+  pointer-events: none;
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+.hn__tool:hover::after,
+.hn__tool:focus-visible::after {
+  opacity: 1;
+  transform: none;
+  transition-delay: 0.25s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hn__tool::after {
+    transition: none;
+    transform: none;
+  }
+}
+
+/* Where the five links and a search with its words would not fit, search is its icon alone. */
+@media (max-width: 900px) {
+  .hn__search {
+    padding: 0;
+    border-color: transparent;
+  }
+  .hn__search-label,
+  .hn__search-key {
+    display: none;
+  }
+}
+
+/* On a narrow screen the three a reader comes for stay: Start, Docs and Specification. Under 480 the mark stands for the name, so that the two controls leave the links where they are. */
 @media (max-width: 640px) {
-  .hn__wide {
+  .hn__links .hn__wide {
     display: none;
   }
   .hn {
     height: 60px;
+  }
+}
+@media (max-width: 480px) {
+  .hn__word {
+    display: none;
+  }
+  html body .hn,
+  html body.hero-scene .hn {
+    gap: 16px;
+  }
+  .hn__links {
+    gap: 12px;
+  }
+  .hn__tools {
+    gap: 0;
   }
 }
 .hn__links a[aria-current="page"] {

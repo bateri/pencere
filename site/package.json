@@ -10,8 +10,10 @@
     "catalog": "node scripts/catalog.mjs",
     "shots": "sh shots.sh",
     "check": "node scripts/check.mjs",
+    "colours": "node scripts/colours.mjs",
+    "contrast": "node scripts/contrast.mjs",
     "dev": "node scripts/catalog.mjs && node scripts/check.mjs && astro dev",
-    "build": "node scripts/catalog.mjs && node scripts/check.mjs && astro build",
+    "build": "node scripts/catalog.mjs && node scripts/check.mjs && node scripts/colours.mjs && node scripts/contrast.mjs && astro build",
     "preview": "astro preview"
   },
   "dependencies": {
