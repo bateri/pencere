@@ -8,6 +8,9 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Added
 
+- **A browser can empty its cache, a site's data, and go on past a certificate**: `BrowserAsk::ClearCache`,
+  `ClearSiteData` and `Proceed`, and `BrowserError::certificate` (why the browser did not trust the site's
+  certificate, when that failed the load).
 - **The vocabulary of what a screen reader is told**: the roles `dialog`, `alertdialog`, `group`, `list`,
   `listitem`, `listbox`, `option` (`ListOption`), `table`, `row`, `cell`, `columnheader`, `tree`, `treeitem`,
   `tablist`, `status` and `alert` after the first thirteen; the states `State::mixed`, `level`, `setsize`,

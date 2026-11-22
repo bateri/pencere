@@ -8,6 +8,8 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **`clear_cache`, `clear_site_data` and `proceed` asks of a browser**, and `certificate` in the error of a
+  browser's state (the interface `browser-ask-kind` and `browser-error`); the interpreter is rebuilt with them.
 - **The library's components are read as what they are**: a modal, a dialog (`alertdialog` where an action is
   `danger`) and a palette with a label are a `dialog` named by it, with what is in it under it; the scrim
   that answers the pointer to give up is `none` (not read: a person gives up with escape; it was a

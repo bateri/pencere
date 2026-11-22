@@ -127,7 +127,8 @@
 --     whatever else the page put in it) }, editor = { [name] = ask, or { ask, ... } },
 --     browser = { [name] = ask, or a list of them (at most 64 in a reply) }, each ask
 --     { go = "https://..." }, { zoom = size } (0.25 to 5), { command = "back" | "forward" | "stop" |
---     "find_next" | "find_previous" | "stop_finding" | "devtools" }, { command = "reload", cache =
+--     "find_next" | "find_previous" | "stop_finding" | "devtools" | "clear_cache" |
+--     "clear_site_data" | "proceed" }, { command = "reload", cache =
 --     false (load it again from where it is) }, or { command = "find", pattern = "text", case =
 --     false (either case) } (an empty pattern ends the search), link = "https://...", wake = seconds,
 --     text_size = points,

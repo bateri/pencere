@@ -2335,6 +2335,18 @@ interface types {
         zoom(f32),
         /// Open the application's tools for looking into the page.
         devtools,
+        /// Empty what the browser keeps to load pages faster: the files of every site it has been to,
+        /// and the service workers and cache storage of the site it is at. Sessions and what pages
+        /// saved stay. The page is not loaded again.
+        clear-cache,
+        /// Delete what the sites of the name the browser is at keep, at every port (cookies, local
+        /// storage, databases, service workers): the person is signed out of it. The page is not
+        /// loaded again.
+        clear-site-data,
+        /// Go on to the page the browser would not load for its certificate (`certificate` of its
+        /// error): the application accepts that certificate for the site while it runs, and loads the
+        /// page again. Nothing happens when the last load did not fail for a certificate.
+        proceed,
         /// An ask the page's kit does not know, as a later kit's: it is not given to the browser,
         /// and the page is told it was refused (`ask`).
         unknown,
@@ -2372,6 +2384,10 @@ interface types {
         code: s32,
         /// What went wrong, in a sentence.
         message: string,
+        /// Why the browser did not trust the site's certificate, when that is what failed the load
+        /// (`self-signed`, `expired`, `wrong host name`, `revoked`, `unknown issuer`, `not trusted`;
+        /// an application may say another): the page may ask to go on (`proceed`).
+        certificate: option<string>,
     }
 
     /// What a search of a browser finds.

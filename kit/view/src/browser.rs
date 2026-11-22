@@ -105,6 +105,20 @@ pub enum BrowserAsk {
     Zoom(f32),
     /// Open the host's tools for looking into the page.
     Devtools,
+    /// Empty what the browser keeps to load pages faster: the files it holds of the sites it has
+    /// been to (all of them, not only this page's, the engine keeps them together) and the
+    /// service workers and cache storage of the site the browser is at. What the person is signed
+    /// in with, and what a page saved, stay. The page is not loaded again: that is
+    /// [`BrowserAsk::Reload`] without its cache.
+    ClearCache,
+    /// Delete what the sites of the name the browser is at keep (cookies, local storage, databases,
+    /// service workers: the person is signed out of it), at every port. The page is not loaded
+    /// again.
+    ClearSiteData,
+    /// Go on to the page the browser would not load for its certificate ([`BrowserError::certificate`]):
+    /// the host accepts that certificate for that site for as long as it runs, and loads the page
+    /// again. Nothing happens when the last load did not fail for a certificate.
+    Proceed,
     /// An ask this kit does not know (a command a later kit has, or none the page's table is):
     /// never given to a host, the page is told it was refused ([`BrowserRefusal::Ask`]).
     Unknown,
@@ -178,6 +192,11 @@ pub struct BrowserError {
     pub code: i32,
     /// What went wrong, in a sentence a person can read.
     pub message: String,
+    /// The load failed because the browser did not trust the site's certificate, and this says why
+    /// in words for the person (`self-signed`, `expired`, `wrong host name`, `revoked`, `unknown
+    /// issuer`, `not trusted`; a host may say another): the page may ask to go on
+    /// ([`BrowserAsk::Proceed`]). None for any other failure.
+    pub certificate: Option<String>,
 }
 
 /// What a search of a browser finds ([`BrowserAsk::Find`]).

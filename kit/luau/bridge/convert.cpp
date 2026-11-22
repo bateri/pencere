@@ -2638,7 +2638,7 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             break;
         case PENCERE_VIEW_TYPES_EVENT_BROWSER: {
             // { browser =, url =, title =, loading =, back =, forward =, status =, message =,
-            // error = { url =, code =, message = }, found = { count =, current = }, zoom = }: all of
+            // error = { url =, code =, message =, certificate = }, found = { count =, current = }, zoom = }: all of
             // what a browser is, told at each change.
             const pencere_view_types_browser_state_t& browser = event.val.browser;
             set_word(L, "type", "browser");
@@ -2661,12 +2661,16 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
                 lua_setfield(L, -2, "message");
             }
             if (browser.error.is_some) {
-                lua_createtable(L, 0, 3);
+                lua_createtable(L, 0, 4);
                 lua_pushlstring(L, (const char*)browser.error.val.url.ptr, browser.error.val.url.len);
                 lua_setfield(L, -2, "url");
                 set_number(L, "code", (double)browser.error.val.code);
                 lua_pushlstring(L, (const char*)browser.error.val.message.ptr, browser.error.val.message.len);
                 lua_setfield(L, -2, "message");
+                if (browser.error.val.certificate.is_some) {
+                    lua_pushlstring(L, (const char*)browser.error.val.certificate.val.ptr, browser.error.val.certificate.val.len);
+                    lua_setfield(L, -2, "certificate");
+                }
                 lua_setfield(L, -2, "error");
             }
             if (browser.found.is_some) {
@@ -3423,7 +3427,7 @@ pencere_view_types_editor_ask_kind_t ask_at(lua_State* L, int t) {
 
 // One ask of a browser, at the absolute index `t`: `{ go = "address" }`, `{ zoom = 1.25 }` or
 // `{ command = "back" | "forward" | "reload" | "stop" | "find" | "find_next" | "find_previous" |
-// "stop_finding" | "devtools", ... }`. A table that is none of them, or a command that is not one, is
+// "stop_finding" | "devtools" | "clear_cache" | "clear_site_data" | "proceed", ... }`. A table that is none of them, or a command that is not one, is
 // not a mistake of the page's: a later kit has asks this one does not, and a page that runs on this
 // one learns it was refused (`unknown`), as it is of an address that is not one.
 pencere_view_types_browser_ask_kind_t browser_ask_at(lua_State* L, int t) {
@@ -3467,6 +3471,9 @@ pencere_view_types_browser_ask_kind_t browser_ask_at(lua_State* L, int t) {
         else if (strcmp(word, "find_previous") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_FIND_PREVIOUS;
         else if (strcmp(word, "stop_finding") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_STOP_FINDING;
         else if (strcmp(word, "devtools") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_DEVTOOLS;
+        else if (strcmp(word, "clear_cache") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_CLEAR_CACHE;
+        else if (strcmp(word, "clear_site_data") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_CLEAR_SITE_DATA;
+        else if (strcmp(word, "proceed") == 0) out.tag = PENCERE_VIEW_TYPES_BROWSER_ASK_KIND_PROCEED;
         lua_pop(L, 1);
     }
     return out;

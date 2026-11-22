@@ -8,6 +8,9 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
+- **`pencere test` knows the asks of a browser that empty its cache or a site's data and go on past a
+  certificate** (`clear_cache`, `clear_site_data`, `proceed` in `locator:navigations()`), and `error.certificate`
+  in the state a test says (`locator:say`).
 - **`page:command_on(target, command)` and `page:reveal(target, index)`** in `pencere test`: a command done on an
   element that lists it as an action, and something to be shown; `"mixed"` is in a locator's `state`; the new roles
   are found by `get_by_role`.
