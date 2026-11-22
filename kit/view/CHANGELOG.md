@@ -8,6 +8,9 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Added
 
+- **A browser can empty its cache, a site's data, and go on past a certificate**: `BrowserAsk::ClearCache`,
+  `ClearSiteData` and `Proceed`, and `BrowserError::certificate` (why the browser did not trust the site's
+  certificate, when that failed the load).
 - **The vocabulary of what a screen reader is told**: the roles `dialog`, `alertdialog`, `group`, `list`,
   `listitem`, `listbox`, `option` (`ListOption`), `table`, `row`, `cell`, `columnheader`, `tree`, `treeitem`,
   `tablist`, `status` and `alert` after the first thirteen; the states `State::mixed`, `level`, `setsize`,
@@ -27,6 +30,7 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
   inside it is its children.
 - **`Element::fallback_name`**: the name an element is read by where it has none of its own (a row of
   controls: "Row 3"); it never replaces a name.
+- **`Laid::reached_where_shown`**: whether a press where an element shows (or a link in a text of many looks, where it stands in its text) reaches it, or something that answers the pointer lies over it.
 - **`Laid::ids_behind`**: the names of the elements a modal layer in front shuts out of `accessible`, for a reader that lists a page's fields, editors and boxes that scroll apart from its items.
 - **`Accessible::pressable`**: whether an element answers the pointer, whatever its role says it is (a
   text that is pressed is a control read as words; the reading's audit finds it).
@@ -123,7 +127,7 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
   after the dialog, as on the web, and the audit does not count it as said twice.
 - **`role("none")` yields to a label**: an element with `none` that also has a label is read by it, as with no role
   at all (a button where it answers the pointer, with the tip and commands it has); `none` is for the element
-  that has nothing to say (a scrim that answers the pointer), and is not read, nor are its commands listed. `Laid::reached_where_shown` says whether a press where an element shows reaches it.
+  that has nothing to say (a scrim that answers the pointer), and is not read, nor are its commands listed.
 - **Breaking for hosts: new fields and variants.** `State`, `Accessible` and `Meta` have new public fields
   (`State::mixed`, `level`, `setsize`, `posinset`, `rowcount`, `colcount`, `rowindex`, `colindex`, `sort`;
   `Accessible::parent`, `detail`, `pressable`; `Meta::layer`, `fallback`, `role_description`, `commands`),

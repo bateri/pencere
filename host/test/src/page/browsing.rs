@@ -9,7 +9,7 @@ use pencere_view::{
 use super::{Handle, rect_table};
 
 /// The state a test tells a browser: `{ status =, message =, url =, title =, loading =, back =,
-/// forward =, error = { url =, code =, message = }, found = { count =, current = }, zoom = }`, each
+/// forward =, error = { url =, code =, message =, certificate = }, found = { count =, current = }, zoom = }`, each
 /// member optional; a browser that is told nothing of its status is ready, and of its zoom is at the
 /// page's size.
 fn state_of(table: &Table) -> mlua::Result<BrowserState> {
@@ -28,6 +28,7 @@ fn state_of(table: &Table) -> mlua::Result<BrowserState> {
             url: error.get::<Option<String>>("url")?.unwrap_or_default(),
             code: error.get::<Option<i32>>("code")?.unwrap_or(0),
             message: error.get::<Option<String>>("message")?.unwrap_or_default(),
+            certificate: error.get::<Option<String>>("certificate")?,
         });
     }
     if let Some(found) = table.get::<Option<Table>>("found")? {
@@ -138,6 +139,9 @@ pub(super) fn add<M: UserDataMethods<Handle>>(methods: &mut M) {
                 BrowserAsk::StopFinding => item.set("command", "stop_finding")?,
                 BrowserAsk::Zoom(zoom) => item.set("zoom", rounded(*zoom))?,
                 BrowserAsk::Devtools => item.set("command", "devtools")?,
+                BrowserAsk::ClearCache => item.set("command", "clear_cache")?,
+                BrowserAsk::ClearSiteData => item.set("command", "clear_site_data")?,
+                BrowserAsk::Proceed => item.set("command", "proceed")?,
                 // The drive gives a host none of this kind: the page was told it was refused.
                 BrowserAsk::Unknown => item.set("command", "unknown")?,
             }

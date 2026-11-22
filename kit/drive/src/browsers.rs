@@ -337,6 +337,9 @@ mod tests {
             (Id::new(1), BrowserAsk::Zoom(0.0)),
             (Id::new(1), BrowserAsk::Zoom(1.5)),
             (Id::new(2), BrowserAsk::Devtools),
+            (Id::new(2), BrowserAsk::ClearCache),
+            (Id::new(2), BrowserAsk::ClearSiteData),
+            (Id::new(2), BrowserAsk::Proceed),
         ];
         let told = browsers.check(&mut asks);
         assert_eq!(
@@ -346,6 +349,9 @@ mod tests {
                 (Id::new(1), BrowserAsk::Zoom(pencere_view::ZOOM_LEAST)),
                 (Id::new(1), BrowserAsk::Zoom(1.5)),
                 (Id::new(2), BrowserAsk::Devtools),
+                (Id::new(2), BrowserAsk::ClearCache),
+                (Id::new(2), BrowserAsk::ClearSiteData),
+                (Id::new(2), BrowserAsk::Proceed),
             ]
         );
         assert_eq!(

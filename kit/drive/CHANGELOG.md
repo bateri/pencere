@@ -8,6 +8,9 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Added
 
+- **A page that asks a browser to empty its cache or a site's data, or to go on past a certificate it did not
+  trust, is given to the host as asked** (`clear_cache`, `clear_site_data`, `proceed`), and is told why a load
+  failed on a certificate (`error.certificate`); the test host (`pencere test`) reads and says them too.
 - **A reading says the whole vocabulary**: the new roles by their web names, and in the brackets of an item
   `mixed`, `level N`, `N of M`, `rows R, columns C`, `row N`, `column N`, `sorted ascending`, `roledescription "…"`,
   `description "…"` (what the tip says more than the name), `keys "…"` (the keys of the tip) and `action "…"` for each

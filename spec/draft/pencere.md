@@ -2352,6 +2352,12 @@ notifications, the pasteboard) is refused, since the person was not asked of the
 looking into the page open, in a window of the host's, only when the view asks or the person does; the
 view is given nothing of what they show.
 
+**A certificate the browser does not trust** fails the load, and the view is told so with the reason
+(`kit/SPEC.md`, Section 2.1). Only the view can ask to go on, and the host does it: the certificate is
+accepted for that site for as long as the host runs, written nowhere and told to no other computer,
+and the person is the one the view asked. A page that offers it names the site and the reason; the
+host does not go on by itself.
+
 **Downloads are asked.** A file a page offers is saved only after the person has been asked, naming
 the file and its size, and then where the system puts the person's downloads and with the system's
 mark of a file that came from the internet. A host does not save what a page sends without asking:

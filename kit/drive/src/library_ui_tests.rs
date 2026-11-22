@@ -829,6 +829,33 @@ fn a_layer_lists_its_way_out_and_is_given_up_by_it_as_by_escape() -> Result<(), 
         Some("unsaved answer")
     );
     assert!(!page.says("Don't Save"), "the dialog is gone");
+    // The same "Close", done with no element named, as a terminal's list of commands does it where the keyboard
+    // is in the card: it gives up the layer in front.
+    let mut kept = open(
+        r#"
+S.asking = false
+view = function(u)
+    local root = pencere.div():child(u:button("open", { title = "Open" }))
+    if S.asking then
+        root:child(u:modal("m", { label = "Pick" }, pencere.div():focused(true):child(pencere.text("Inside"))))
+    end
+    return root
+end
+on_action = function(act)
+    if act.from == "open" then
+        S.asking = true
+    elseif act.from == "m" and act.kind == "dismiss" then
+        S.asking = false
+    end
+end
+"#,
+    )?;
+    kept.click("open")?;
+    kept.step()?;
+    assert!(kept.says("Inside"));
+    kept.command("ui.dismiss")?;
+    kept.step()?;
+    assert!(!kept.says("Inside"), "the layer is given up");
     // A modal that cannot be given up lists no way out.
     let mut modal = open(
         r#"
@@ -3612,6 +3639,35 @@ fn a_layer_marked_the_wrong_way_has_a_reading_of_its_own_that_is_pinned() -> Res
         ),
     )?;
     golden("layer-two-modals", &mut page);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_link_in_a_text_is_found_covered_as_a_control_is() -> Result<(), Error> {
+    // A link is read with the name of its part of the text, not of a box: it is tried where it stands in its
+    // text, and a scrim that was not marked, over the page it stands in, covers it.
+    let with_link = |card: &str, scrim: &str| {
+        pen_layer(card, scrim).replace(
+            ":child(u:button(\"behind\", { title = \"Behind\" }))",
+            ":child(u:button(\"behind\", { title = \"Behind\" })):child(pencere.rich({ pencere.span(\"see \"), pencere.span(\"the docs\"):link(\"docs\") }))",
+        )
+    };
+    let mut page = open(&with_link("card:label(\"Delete it?\")", ""))?;
+    let found = page.audit();
+    assert!(
+        found
+            .iter()
+            .any(|finding| finding.flaw == Flaw::Covered && finding.words == "the docs"),
+        "{}",
+        crate::audit::report(&found)
+    );
+    // Marked, the page behind is out of the reading and so is the link.
+    let mut page = open(&with_link(
+        "card:role(\"dialog\"):label(\"Delete it?\")",
+        "scrim:role(\"none\"):layer(true)",
+    ))?;
+    assert_eq!(page.audit(), [], "{}", crate::audit::report(&page.audit()));
     Ok(())
 }
 

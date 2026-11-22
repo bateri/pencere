@@ -654,6 +654,20 @@ local function call(u, mount, handler, ...)
 	return fn(u, mount.id, mount.props, mount.state, ...)
 end
 
+-- The layer `mount` gives up (a layer's own "Close"): what its `dismiss` says, or the dismissal itself where it says
+-- none; the event is taken.
+function Ctx:_give_up(out, mount)
+	out.taken = true
+	out.reply = merge(out.reply, true)
+	if mount.spec.dismiss then
+		local reply, action = call(self, mount, "dismiss")
+		out.reply = merge(out.reply, reply)
+		self:_emit(out, mount, action)
+	else
+		self:_emit(out, mount, { kind = "dismiss" })
+	end
+end
+
 -- `action` came of `mount`: each component around it may take it and say another of its own
 -- (`action`); what none takes is the page's.
 function Ctx:_emit(out, mount, action)
@@ -963,20 +977,19 @@ function Ctx:handle(event)
 			-- reference that is old does not give up one that is behind another, and the page is not told it
 			-- was done).
 			if mount.id == self.top then
-				out.taken = true
-				out.reply = merge(out.reply, true)
-				if mount.spec.dismiss then
-					local reply, action = call(self, mount, "dismiss")
-					out.reply = merge(out.reply, reply)
-					self:_emit(out, mount, action)
-				else
-					self:_emit(out, mount, { kind = "dismiss" })
-				end
+				self:_give_up(out, mount)
 			end
 		else
 			out.taken = true
 			out.reply = merge(out.reply, true)
 			table.insert(out.actions, { from = "commands", kind = "command", id = event.id, target = event.target, key = key })
+		end
+	elseif kind == "command" and event.id == core.DISMISS then
+		-- A layer's "Close" done with no element named (the commands list it with the keyboard in the card, and
+		-- `bateri view commands` shows it there): the layer in front is given up, as escape gives it up.
+		local top = self.top and self.mounts[self.top] or nil
+		if top ~= nil then
+			self:_give_up(out, top)
 		end
 	elseif kind == "command" then
 		if not self:_tell(out, event.id, "command", event) and self.commands[event.id] then

@@ -6,8 +6,8 @@
 
 use pencere_sandbox::Fault;
 use pencere_view::{
-    BrowserAsk, BrowserFound, BrowserRefusal, BrowserState, BrowserWindows, Event, Id, Key, Mods,
-    Paint,
+    BrowserAsk, BrowserError, BrowserFound, BrowserRefusal, BrowserState, BrowserWindows, Event,
+    Id, Key, Mods, Paint,
 };
 
 use crate::UNSUPPORTED;
@@ -245,6 +245,10 @@ return {{
 	end,
 	handle = function(event)
 		if event.type == "browser" then
+			if event.error then
+				line = "error " .. event.error.code .. " " .. tostring(event.error.certificate)
+				return true
+			end
 			local found = event.found
 			line = string.format(
 				"state found=%s/%s zoom=%s",
@@ -283,6 +287,9 @@ fn a_page_finds_zooms_reloads_and_opens_the_tools_by_the_words_of_its_asks() -> 
 			{ command = "reload", cache = false },
 			{ command = "reload" },
 			{ command = "devtools" },
+			{ command = "clear_cache" },
+			{ command = "clear_site_data" },
+			{ command = "proceed" },
 		}"#,
     ))?;
     page.browser_state("web", BrowserState::default())?;
@@ -315,8 +322,32 @@ fn a_page_finds_zooms_reloads_and_opens_the_tools_by_the_words_of_its_asks() -> 
             (web, BrowserAsk::Reload { cache: false }),
             (web, BrowserAsk::Reload { cache: true }),
             (web, BrowserAsk::Devtools),
+            (web, BrowserAsk::ClearCache),
+            (web, BrowserAsk::ClearSiteData),
+            (web, BrowserAsk::Proceed),
         ]
     );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_failed_load_tells_the_page_why_when_it_was_a_certificate() -> Result<(), Error> {
+    let mut page = open(&asking("{}"))?;
+    let failed = |code, certificate: Option<&str>| BrowserState {
+        error: Some(BrowserError {
+            url: "https://localhost:8443/".into(),
+            code,
+            message: "ERR".into(),
+            certificate: certificate.map(str::to_owned),
+        }),
+        ..BrowserState::default()
+    };
+    page.browser_state("web", failed(-202, Some("self-signed")))?;
+    assert!(page.says("error -202 self-signed"), "{:?}", page.words());
+    // Any other failure has no certificate to go on with.
+    page.browser_state("web", failed(-105, None))?;
+    assert!(page.says("error -105 nil"), "{:?}", page.words());
     Ok(())
 }
 

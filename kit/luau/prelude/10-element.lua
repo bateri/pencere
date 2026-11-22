@@ -753,7 +753,10 @@ end
 -- `id` is the same browser. Where it goes is not an option but an ask, in the `browser` of a reply:
 -- `{ go = "https://..." }`, `{ zoom = 1.25 }` (from 0.25 to 5), or `{ command = name }`: "back", "forward",
 -- "reload" (`cache = false` loads the page again from where it is), "stop", "find" (`pattern`, `case`),
--- "find_next", "find_previous", "stop_finding" and "devtools". An ask the kit does not know is refused
+-- "find_next", "find_previous", "stop_finding", "devtools", "clear_cache" (the files the browser
+-- keeps and the service workers of its site), "clear_site_data" (what the sites of its name keep, at
+-- every port) and "proceed" (on to the page whose certificate it did not trust: the state's `error`
+-- has `certificate`, why). An ask the kit does not know is refused
 -- (`browser_refused`, "ask"). `options` are
 -- `profile` (the name its cookies and storage are kept under, apart from any other's, 1 to 32 of
 -- a-z, 0-9 and -; none, and they are gone with the browser; read when the browser is first made),

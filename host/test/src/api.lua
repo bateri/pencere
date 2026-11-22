@@ -484,14 +484,15 @@ end
 -- locator:navigations(): what the page asked of this browser, oldest first, each { go = "https://…" },
 -- { zoom = 1.5 } (held to 0.25 to 5) or { command = name }: "back", "forward", "reload" (`cache = false`
 -- where it asked for a load from where it is), "stop", "find" (`pattern`, `case`), "find_next",
--- "find_previous", "stop_finding" or "devtools". An address a browser does not go to, and an ask the
+-- "find_previous", "stop_finding", "devtools", "clear_cache", "clear_site_data" or "proceed". An
+-- address a browser does not go to, and an ask the
 -- kit does not know, are not among them (the page was told it was refused).
 function Locator:navigations()
 	return self.page.raw:browser_asks(browser_of(self, "navigations"))
 end
 
--- locator:say({ status =, message =, url =, title =, loading =, back =, forward =, error =, found =,
--- zoom = }): the engine of this browser says what it is and does; a state with no `status` is ready,
+-- locator:say({ status =, message =, url =, title =, loading =, back =, forward =, error = { url =,
+-- code =, message =, certificate = }, found =, zoom = }): the engine of this browser says what it is and does; a state with no `status` is ready,
 -- and one with no `zoom` is at the page's size. The page is told it as it is by a host that shows
 -- browsers.
 function Locator:say(state)

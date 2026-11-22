@@ -743,6 +743,7 @@ fn event_in(event: Event) -> wit::Event {
                 url: error.url,
                 code: error.code,
                 message: error.message,
+                certificate: error.certificate,
             }),
             found: state.found.map(|found| wit::BrowserFound {
                 count: found.count,
@@ -2598,6 +2599,9 @@ fn browser_asks_out(asks: Vec<wit::BrowserAsk>) -> Result<Vec<(Id, BrowserAsk)>,
                     wit::BrowserAskKind::StopFinding => BrowserAsk::StopFinding,
                     wit::BrowserAskKind::Zoom(zoom) => BrowserAsk::Zoom(zoom),
                     wit::BrowserAskKind::Devtools => BrowserAsk::Devtools,
+                    wit::BrowserAskKind::ClearCache => BrowserAsk::ClearCache,
+                    wit::BrowserAskKind::ClearSiteData => BrowserAsk::ClearSiteData,
+                    wit::BrowserAskKind::Proceed => BrowserAsk::Proceed,
                     wit::BrowserAskKind::Unknown => BrowserAsk::Unknown,
                 },
             )
@@ -3546,6 +3550,30 @@ mod tests {
     }
 
     #[test]
+    fn why_a_certificate_failed_a_load_reaches_the_page_with_the_error() {
+        let failed = |certificate: Option<&str>| {
+            let state = pencere_view::BrowserState {
+                error: Some(pencere_view::BrowserError {
+                    url: "https://localhost:8443/".to_owned(),
+                    code: -202,
+                    message: "ERR_CERT_AUTHORITY_INVALID".to_owned(),
+                    certificate: certificate.map(str::to_owned),
+                }),
+                ..pencere_view::BrowserState::default()
+            };
+            let wit::Event::Browser(told) = event_in(Event::Browser {
+                browser: Id::new(1),
+                state: Box::new(state),
+            }) else {
+                panic!("not a browser's state");
+            };
+            told.error.expect("the error").certificate
+        };
+        assert_eq!(failed(Some("self-signed")).as_deref(), Some("self-signed"));
+        assert_eq!(failed(None), None);
+    }
+
+    #[test]
     fn what_a_reply_asks_of_browsers_is_read_by_its_names_and_held_to_a_count() {
         let ask = |browser: u64, ask: wit::BrowserAskKind| wit::BrowserAsk { browser, ask };
         let read = browser_asks_out(vec![
@@ -3571,6 +3599,9 @@ mod tests {
             ask(7, wit::BrowserAskKind::StopFinding),
             ask(7, wit::BrowserAskKind::Zoom(9.0)),
             ask(7, wit::BrowserAskKind::Devtools),
+            ask(7, wit::BrowserAskKind::ClearCache),
+            ask(7, wit::BrowserAskKind::ClearSiteData),
+            ask(7, wit::BrowserAskKind::Proceed),
             ask(7, wit::BrowserAskKind::Unknown),
         ])
         .expect("asks");
@@ -3599,6 +3630,9 @@ mod tests {
                 // The zoom is held to its range by the drive and not here.
                 (Id::new(7), BrowserAsk::Zoom(9.0)),
                 (Id::new(7), BrowserAsk::Devtools),
+                (Id::new(7), BrowserAsk::ClearCache),
+                (Id::new(7), BrowserAsk::ClearSiteData),
+                (Id::new(7), BrowserAsk::Proceed),
                 (Id::new(7), BrowserAsk::Unknown),
             ]
         );
