@@ -119,6 +119,12 @@ pub struct Item {
     pub rect: Rect,
     /// A press on it does something, whatever it says it is ([`pencere_view::Accessible::pressable`]).
     pub pressable: bool,
+    /// The item that holds this one, as an index of the reading's items: a dialog, a row, a tab that
+    /// carries controls is a group, and what is inside it is read under it.
+    pub parent: Option<usize>,
+    /// It is in the page behind a modal layer that is in front, which a reader that cannot take it
+    /// out of the reading says so (a web page's script); the model's own reading never has it.
+    pub behind: bool,
 }
 
 /// A text field the host puts over the page.
@@ -236,6 +242,9 @@ pub struct Reading {
     pub menu: Option<Vec<MenuLine>>,
     /// What this reading cannot say of this page, each a sentence.
     pub notes: Vec<String>,
+    /// How many items the page has behind a modal layer in front of it: not in `items`, which are
+    /// what the layer says, and not pressable ([`pencere_view::Laid::accessible_behind`]).
+    pub behind: usize,
 }
 
 /// What [`Reading::find`] came to.
@@ -329,6 +338,7 @@ fn role_of(role: AccessibleRole) -> String {
         AccessibleRole::Progress => "progress".to_owned(),
         AccessibleRole::Slider => "slider".to_owned(),
         AccessibleRole::Browser => "browser".to_owned(),
+        AccessibleRole::None => "none".to_owned(),
     }
 }
 
@@ -342,6 +352,8 @@ impl Item {
             state: item.state.clone(),
             rect: item.rect,
             pressable: item.pressable,
+            parent: item.parent,
+            behind: false,
         }
     }
 }
@@ -397,6 +409,22 @@ fn rounded(rect: Rect) -> Value {
 }
 
 impl Reading {
+    /// How many groups hold the item: the indent it is told by.
+    fn depth(&self, item: &Item) -> usize {
+        let (mut depth, mut at) = (0, item.parent);
+        while let Some(outer) = at {
+            depth += 1;
+            // A reading is a list in which a group is before what it holds: a parent that is not, is
+            // no parent (a reading made by hand), and ends the walk.
+            at = self
+                .items
+                .get(outer)
+                .and_then(|group| group.parent)
+                .filter(|above| *above < outer);
+        }
+        depth
+    }
+
     /// Every element of the reading that has an [`Id`], once, in the order they are told.
     pub fn ids(&self) -> Vec<Id> {
         let mut seen = HashSet::new();
@@ -489,14 +517,22 @@ impl Reading {
         for note in &self.notes {
             out.push_str(&format!("note: {}\n", clean(note, WORDS_LIMIT)));
         }
+        if self.behind > 0 {
+            out.push_str(&format!(
+                "note: behind the modal in front, {} item{} of the page, not read\n",
+                self.behind,
+                if self.behind == 1 { "" } else { "s" }
+            ));
+        }
         if !self.items.is_empty() {
             out.push_str("items:\n");
         }
         let mut row = out.matches('\n').count();
         for item in &self.items {
             let line = format!(
-                "{} {} {}{}\n",
+                "{} {}{} {}{}\n",
                 name(item.id),
+                "  ".repeat(self.depth(item)),
                 clean(&item.role, WORDS_LIMIT),
                 quoted(&clean(&item.words, WORDS_LIMIT)),
                 state_words(&item.state)
@@ -660,6 +696,15 @@ impl Reading {
                     object.insert("ref".into(), Value::Null);
                     object.insert("id".into(), Value::Null);
                 }
+                object.insert(
+                    "parent".into(),
+                    json!(
+                        item.parent
+                            .and_then(|outer| self.items.get(outer))
+                            .and_then(|group| group.id)
+                            .map(reference)
+                    ),
+                );
                 object.insert("role".into(), json!(clean(&item.role, WORDS_LIMIT)));
                 object.insert("text".into(), json!(clean(&item.words, WORDS_LIMIT)));
                 object.insert("state".into(), state_json(&item.state));
@@ -762,6 +807,9 @@ impl Reading {
             }
         };
         let value = json!({
+            // The shape of the reading: 1 had no `format` and a flat list of items; 2 has `parent` and
+            // `behind`.
+            "format": 2,
             "focus": focus,
             "rest": {
                 "resting": self.rest.resting(),
@@ -773,6 +821,7 @@ impl Reading {
                 "moving": self.rest.moving,
             },
             "notes": self.notes.iter().map(|note| clean(note, WORDS_LIMIT)).collect::<Vec<_>>(),
+            "behind": self.behind,
             "items": items,
             "fields": fields,
             "editors": editors,
@@ -923,14 +972,26 @@ pub(crate) fn read(page: &mut Page, input: &ReadingInput<'_>, rest: Rest) -> Rea
     let keyboard = page.focused_editor();
     let mut editors = Vec::new();
     let mut items = Vec::new();
+    // An item taken out of the list (a field, an editor) is not where its children's `parent` says:
+    // where each item of the outline stands in the reading's.
+    let mut placed: Vec<Option<usize>> = Vec::with_capacity(outline.accessible.len());
     for item in &outline.accessible {
         match (item.role, item.id) {
             (AccessibleRole::Editor, Some(id)) => {
                 editors.push(editor_of(page, id, item, keyboard == Some(id)));
+                placed.push(None);
             }
-            (AccessibleRole::Field(_), Some(id)) if field_ids.contains(&id) => {}
-            _ => items.push(Item::of(item)),
+            (AccessibleRole::Field(_), Some(id)) if field_ids.contains(&id) => placed.push(None),
+            _ => {
+                placed.push(Some(items.len()));
+                items.push(Item::of(item));
+            }
         }
+    }
+    for item in &mut items {
+        item.parent = item
+            .parent
+            .and_then(|outer| placed.get(outer).copied().flatten());
     }
     let editor_ids: HashSet<Id> = editors.iter().map(|editor| editor.id).collect();
     let scrolls = page
@@ -983,6 +1044,7 @@ pub(crate) fn read(page: &mut Page, input: &ReadingInput<'_>, rest: Rest) -> Rea
             .collect(),
         menu: input.menu.clone(),
         notes: Vec::new(),
+        behind: outline.behind,
     }
 }
 

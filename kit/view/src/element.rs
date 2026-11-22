@@ -124,6 +124,13 @@ pub struct Meta {
     pub role: Option<AccessibleRole>,
     /// Where it stands, to a screen reader ([`State`]).
     pub state: State,
+    /// The element is the root of a layer the page draws over the rest (a modal, a popover, a
+    /// toast): `Some(true)` for one that shuts the page behind it out of what a screen reader and an
+    /// agent read, `Some(false)` for one that leaves it ([`Element::layer`]).
+    pub layer: Option<bool>,
+    /// What a screen reader says of the element where its own name comes to no words
+    /// ([`Element::fallback_name`]).
+    pub fallback: Option<String>,
     /// What the page can be told to do while the keyboard is on it or inside it.
     pub commands: Vec<Command>,
     /// The keyboard is on it: its commands, and those of the boxes around it, can be done.
@@ -421,6 +428,25 @@ impl Element {
         ) {
             self.meta.role = Some(role);
         }
+        self
+    }
+
+    /// The element is the root of a layer drawn over the page: with `modal` it shuts the page behind
+    /// it out of what a screen reader and an agent read (the nearest layer of the kind in front
+    /// wins), without it (a popover, a toast) the page stays. The element is an overlay, written where
+    /// the page writes it; what is inside it, and what it opens, is in the layer.
+    #[must_use]
+    pub fn layer(mut self, modal: bool) -> Self {
+        self.meta.layer = Some(modal);
+        self
+    }
+
+    /// What a screen reader says of the element where its own name comes to no words (no label, no
+    /// words inside it, no tip): a row of controls that has none of its own is "Row 3". It never
+    /// replaces what the element has.
+    #[must_use]
+    pub fn fallback_name(mut self, words: impl Into<String>) -> Self {
+        self.meta.fallback = Some(words.into());
         self
     }
 

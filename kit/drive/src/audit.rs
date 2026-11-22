@@ -23,6 +23,9 @@ pub enum Flaw {
     /// An element that answers the pointer and whose role says it only shows (a text, a picture, a
     /// progress): it is a control read as words.
     Misfit,
+    /// An item of the page behind a modal layer that is in front of it, read: a person who reads by ear
+    /// meets what they cannot reach, and an agent presses what is covered.
+    Behind,
 }
 
 impl Flaw {
@@ -33,6 +36,7 @@ impl Flaw {
             Self::Twice => "twice",
             Self::NoId => "no id",
             Self::Misfit => "misfit",
+            Self::Behind => "behind",
         }
     }
 }
@@ -120,6 +124,9 @@ impl Reading {
             }
             if item.pressable && only_shows(&item.role) {
                 found.push(of(Flaw::Misfit, *line, item));
+            }
+            if item.behind {
+                found.push(of(Flaw::Behind, *line, item));
             }
             if let Some(last) = before
                 && !item.words.trim().is_empty()

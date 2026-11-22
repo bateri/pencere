@@ -9,8 +9,8 @@ Button "z.lua"
 focus: page
 items:
 rx6xax  button "src" [expanded]
-mq7hj8  button "Collapse src"
+mq7hj8    button "Collapse src"
 8damfv  button "a.lua"
 vdh89t  button "lib" [collapsed]
-qpj0ah  button "Expand lib"
+qpj0ah    button "Expand lib"
 m8rhtd  button "z.lua"

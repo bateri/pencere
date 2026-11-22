@@ -1,5 +1,4 @@
 == screen reader
-Button "Open"
 Button "Close Settings"
 Text "Settings"
 Field(Line) "Name"
@@ -7,8 +6,8 @@ Button "OK"
 == agent
 focus: page
 rest: motion
+note: behind the modal in front, 2 items of the page, not read
 items:
-md27z1  button "Open"
 y2rfbr  button "Close Settings"
         text "Settings"
 s0e0ec  button "OK"

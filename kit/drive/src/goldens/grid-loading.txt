@@ -15,12 +15,12 @@ focus: page
 items:
         text "#"
 pc0pnp  button "id"
-        text "int"
-yzcv03  slider "id column width" [value "60 pt"]
+          text "int"
+yzcv03    slider "id column width" [value "60 pt"]
 b3aywj  button "name, sorted ascending"
-35tcvs  slider "name column width" [value "100 pt"]
+35tcvs    slider "name column width" [value "100 pt"]
 eh2fsg  button "qty"
-qksav0  slider "qty column width" [value "70 pt"]
+qksav0    slider "qty column width" [value "70 pt"]
 pa4p5n  menuitem "Row 1, loading"
 mva8xy  menuitem "Row 2, loading" [selected]
 10drg4  menuitem "Row 3, loading"

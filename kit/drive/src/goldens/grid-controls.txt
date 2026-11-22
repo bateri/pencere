@@ -22,21 +22,21 @@ Button "qty 3"
 focus: page
 items:
 pc0pnp  button "id"
-        text "int"
-yzcv03  slider "id column width" [value "60 pt"]
+          text "int"
+yzcv03    slider "id column width" [value "60 pt"]
 b3aywj  button "name, sorted ascending"
-35tcvs  slider "name column width" [value "100 pt"]
+35tcvs    slider "name column width" [value "100 pt"]
 eh2fsg  button "qty"
-qksav0  slider "qty column width" [value "70 pt"]
+qksav0    slider "qty column width" [value "70 pt"]
 pa4p5n  menuitem ""
-966m9e  button "id 1"
-06s4e5  button "name 1"
-e49ay6  button "qty 1"
+966m9e    button "id 1"
+06s4e5    button "name 1"
+e49ay6    button "qty 1"
 mva8xy  menuitem "" [selected]
-2p40en  button "id 2"
-k8xpkw  button "name 2"
-6hk00s  button "qty 2"
+2p40en    button "id 2"
+k8xpkw    button "name 2"
+6hk00s    button "qty 2"
 10drg4  menuitem ""
-qejmp3  button "id 3"
-j06dcs  button "name 3"
-nhnm9s  button "qty 3"
+qejmp3    button "id 3"
+j06dcs    button "name 3"
+nhnm9s    button "qty 3"

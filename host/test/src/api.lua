@@ -263,6 +263,7 @@ local ROLES = {
 	progress = "progress",
 	progressbar = "progress",
 	slider = "slider",
+	none = "none",
 }
 
 local function lower(text)

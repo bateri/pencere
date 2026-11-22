@@ -87,6 +87,9 @@ pub struct Outline {
     /// The browsers of the page, as the page names them ([`crate::Browser`]).
     pub browsers: Vec<Browser>,
     pub accessible: Vec<Accessible>,
+    /// How many items the page has behind a modal layer that is in front: they are not in
+    /// `accessible` ([`pencere_view::Laid::accessible_behind`]).
+    pub behind: usize,
     /// What the page says of a part of it while the pointer rests there, innermost last.
     pub tips: Vec<Tip>,
     /// What the page can be told to do now (`Laid::commands`), the nearest the keyboard first:
@@ -116,6 +119,7 @@ impl Outline {
                 words: words.clone(),
                 state: State::default(),
                 pressable: false,
+                parent: None,
             });
             self.tips.push(Tip { rect, words });
         }
@@ -123,6 +127,7 @@ impl Outline {
 
     /// The outline of `laid`, placed in the host's view as `at` says.
     pub fn of(laid: &Laid, at: Placement) -> Self {
+        let (accessible, behind) = laid.accessible_behind();
         Self {
             browsers: laid
                 .browsers()
@@ -141,14 +146,14 @@ impl Outline {
                     covered: field.covered,
                 })
                 .collect(),
-            accessible: laid
-                .accessible()
+            accessible: accessible
                 .into_iter()
                 .map(|item| Accessible {
                     rect: at.to_host(item.rect),
                     ..item
                 })
                 .collect(),
+            behind,
             tips: laid
                 .tips()
                 .into_iter()

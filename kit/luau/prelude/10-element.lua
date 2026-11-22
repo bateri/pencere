@@ -910,18 +910,46 @@ end
 local ROLES = {
 	button = true, text = true, link = true, checkbox = true, switch = true, radio = true,
 	tab = true, menu_item = true, heading = true, image = true, progress = true, slider = true,
+	none = true,
 }
 
 -- What the element is to a screen reader, where its look says it and its answers do not:
 -- "checkbox", "switch", "radio", "tab", "menu_item", "link", "heading" (with its level, 1 to 6),
--- "image", "progress", "slider", "button", "text".
+-- "image", "progress", "slider", "button", "text", and "none" (not read: it answers the pointer or
+-- holds words and is no control to a person who reads by ear, and what is inside it is read). A role
+-- this kit does not know is left out, with a warning, and not a page that fails: a page written for a
+-- later kit still runs.
 function Element:role(role, level)
+	if type(role) ~= "string" then
+		refuse("a role is a word, not " .. type(role))
+	end
 	if not ROLES[role] then
-		refuse("a role is one of button, text, link, checkbox, switch, radio, tab, menu_item, "
-			.. "heading, image, progress, slider; not " .. tostring(role))
+		warn("an element's role is not one this kit knows (" .. role .. "), and is left out")
+		return self
 	end
 	self.meta.role = role
 	self.meta.level = level
+	return self
+end
+
+-- The element is the root of a layer drawn over the page: with `modal` (the default) it shuts the page
+-- behind it out of what a screen reader and an agent read, as a sheet or an `aria-modal` does;
+-- `layer(false)` (a popover, a toast) leaves the page. What the layer opens from inside it is in it.
+function Element:layer(modal)
+	if modal ~= nil and type(modal) ~= "boolean" then
+		refuse("layer takes true for a modal layer and false for one that is not, not " .. type(modal))
+	end
+	self.meta.layer = modal ~= false
+	return self
+end
+
+-- What a screen reader says of the element where its own name comes to no words (no label, no
+-- words inside it, no tip): "Row 3" for a row of controls that has none. It never replaces a name.
+function Element:fallback_name(words)
+	if type(words) ~= "string" then
+		refuse("fallback_name takes the words, not " .. type(words))
+	end
+	self.meta.fallback_name = words
 	return self
 end
 

@@ -1,5 +1,4 @@
 == screen reader
-Button "Behind"
 Button "Close Sheet"
 Text "Sheet"
 Button "Hint"
@@ -10,8 +9,8 @@ Text "Help"
 == agent
 focus: page
 rest: motion
+note: behind the modal in front, 5 items of the page, not read
 items:
-vsvf5n  button "Behind"
 vmxnag  button "Close Sheet"
         text "Sheet"
 m43dq7  button "Hint"

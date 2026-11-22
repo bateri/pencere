@@ -59,6 +59,7 @@ function layers.shell(u, id, options, body)
 		:items_center()
 		:pt(top)
 		:id(id)
+		:layer(true)
 		:child(
 			pencere.div()
 				:absolute()
@@ -268,7 +269,7 @@ local Toasts = core.component("toasts", {
 	end,
 	view = function(u, id, props)
 		local t = u.theme
-		local stack = pencere.div():overlay():inset(nil, EDGE, EDGE, nil):items_end():gap(8):w(360):id(id)
+		local stack = pencere.div():overlay():inset(nil, EDGE, EDGE, nil):items_end():gap(8):w(360):id(id):layer(false)
 		local shown = {}
 		for _, item in props.items do
 			if item.at == nil or item.at > u.now then
@@ -473,6 +474,7 @@ local Popover = core.component("popover", {
 		local card = pencere.div()
 			:anchor(props.anchor, props.side or "below", { gap = props.gap or 4, align = props.align })
 			:id(id)
+			:layer(false)
 			:bg(t.popup)
 			:rounded(t.radius.card)
 			:border(1, t.line)

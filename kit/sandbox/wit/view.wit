@@ -594,6 +594,9 @@ interface types {
         progress,
         /// A value set by moving something along a line (`state.value`).
         slider,
+        /// It is no control to a person who reads by ear: not read, and what is inside it is (a
+        /// scrim that closes a dialog, a card that takes the click).
+        none,
     }
 
     /// Where an element stands, to a screen reader.
@@ -1146,6 +1149,13 @@ interface types {
         /// What it is to a screen reader, where its look says it.
         role: option<accessible-role>,
         state: state,
+        /// The element is the root of a layer drawn over the page: `true` for one that shuts the
+        /// page behind it out of what a screen reader and an agent read (a modal), `false` for one
+        /// that leaves it (a popover, a toast).
+        layer: option<bool>,
+        /// What a screen reader says of the element where its own name comes to no words (no label,
+        /// no words inside it, no tip): a part of the frame's `text`.
+        fallback-name: option<slice>,
         /// The box is the room of an editor of text the application puts there, named by the
         /// element's `id` (one with no id is none), set up as the options at this place of the
         /// frame's `editors` say. The application keeps its document, lays out and draws its

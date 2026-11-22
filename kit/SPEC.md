@@ -336,7 +336,17 @@ An element says what it is to a **screen reader** where its look says it and its
 `checked(on)` (a checkbox, a switch, a radio), `selected(chosen)` (the tab in front, the row picked),
 `expanded(open)`, `disabled(on)` (it does not answer the pointer, nor take the keyboard) and
 `value(words)` (a progress's `"40%"`). A text field is one by `text_field`, an editor by `editor` and a browser by `browser`,
-not by a role.
+not by a role. The role `"none"` says the element is no control to a person who reads by ear (a scrim that
+answers the pointer, a card that takes the click): it is not read, and what is inside it is. A role the
+kit does not know is left out with a warning (`warn`), so that a page written for a later kit still runs.
+
+An element that has a role and holds controls is read as a **group**: its name, and what is inside it
+under it (a dialog, a row, a tab). An element that is the root of a **layer** drawn over the page says so
+with `layer(modal)`: with a modal layer in front, what is outside it is not read, nor pressable to a screen
+reader (as behind a sheet or an `aria-modal`), and what is inside it, a menu or a popover it opens from
+inside it included, is; a layer that is not modal (`layer(false)`: a popover, a toast) leaves the page.
+`fallback_name(words)` is the name an element is read by where it has none of its own (a row of controls:
+"Row 3"); it never replaces a name.
 
 An **editor** (`pencere.editor(id, options)`) is the host's, as a text field is: its document, its
 carets and selections (as many as the person makes, a column with ⌥), undoing, what an input method

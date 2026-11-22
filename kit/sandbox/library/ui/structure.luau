@@ -254,7 +254,7 @@ local Split = core.component("split", {
 					:shadow(0, 0, 24, alpha("shadow", 0.4))
 					:motion({ seconds = 0.16, enter = { opacity = 0, dx = at_start and -16 or 16, seconds = 0.16 } })
 					:child(sized)
-				local drawer = pencere.div():overlay():inset(0, 0, 0, 0):row()
+				local drawer = pencere.div():overlay():inset(0, 0, 0, 0):row():layer(false)
 				if not at_start then
 					drawer:justify_end()
 				end

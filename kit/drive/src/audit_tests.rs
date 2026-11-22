@@ -15,6 +15,7 @@ fn item(role: AccessibleRole, name: Option<&str>, words: &str, pressable: bool) 
         words: words.to_owned(),
         state: State::default(),
         pressable,
+        parent: None,
     })
 }
 
@@ -121,6 +122,19 @@ fn every_flaw_of_a_bad_reading_is_found_with_its_line_and_its_kind() {
     assert!(on(&found[5]).contains("editor"), "{}", on(&found[5]));
     // And a report says where, for a person to find it.
     assert!(report(&found).starts_with("line 3: "), "{}", report(&found));
+}
+
+#[test]
+fn an_item_of_the_page_behind_a_modal_that_is_read_is_found_and_the_models_own_reading_never_has_one()
+ {
+    let mut reading = good();
+    reading.items[5].behind = true;
+    let found = reading.audit();
+    assert_eq!(found.len(), 1, "{}", report(&found));
+    assert_eq!(found[0].flaw, Flaw::Behind);
+    assert!(report(&found).contains("behind"), "{}", report(&found));
+    // The model's own reading has none: it has taken the page behind a modal out.
+    assert!(good().items.iter().all(|item| !item.behind));
 }
 
 #[test]

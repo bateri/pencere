@@ -8,6 +8,11 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **`Element:layer(modal)` and `Element:fallback_name(words)`, and the role `"none"`** of the page's
+  `Element:role`: a layer that shuts the page behind it out of what a screen reader and an agent read, the
+  name an element falls back on, and an element that is not read. The library's modals, dialogs and
+  palettes are modal layers, its popovers, completions, drawers and toasts layers that leave the page. A role
+  this kit does not know is left out of the element with a warning (`warn`), and does not fail the page.
 - **`row_label(row)` of `ui.grid`**: the words a screen reader and an agent say a row by where the page
   has better than its cells' (nil leaves it to them), checked to be a function.
 - **`Module::idle`**: whether the module has done everything it was told and what came of it is out,

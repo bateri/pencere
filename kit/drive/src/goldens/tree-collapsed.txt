@@ -5,4 +5,4 @@ Button "Expand src"
 focus: page
 items:
 rx6xax  button "src" [collapsed]
-mq7hj8  button "Expand src"
+mq7hj8    button "Expand src"

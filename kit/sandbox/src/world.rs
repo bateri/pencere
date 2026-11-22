@@ -1605,6 +1605,7 @@ fn accessible_role_out(role: wit::AccessibleRole) -> AccessibleRole {
         wit::AccessibleRole::Image => AccessibleRole::Image,
         wit::AccessibleRole::Progress => AccessibleRole::Progress,
         wit::AccessibleRole::Slider => AccessibleRole::Slider,
+        wit::AccessibleRole::None => AccessibleRole::None,
     }
 }
 
@@ -1768,6 +1769,16 @@ fn node_out(node: &wit::Node, limits: &ModuleLimits, lists: &mut Lists<'_>) -> R
                 })
                 .transpose()?,
             role: node.role.map(accessible_role_out),
+            layer: node.layer,
+            fallback: node
+                .fallback_name
+                .as_ref()
+                .map(|part| {
+                    lists
+                        .words(part, limits.text, "a fallback name")
+                        .map(str::to_owned)
+                })
+                .transpose()?,
             state: State {
                 checked: node.state.checked,
                 selected: node.state.selected,
@@ -3266,6 +3277,8 @@ mod tests {
             motion: None,
             tip: None,
             role: None,
+            layer: None,
+            fallback_name: None,
             state: wit::State {
                 checked: None,
                 selected: false,

@@ -1468,3 +1468,200 @@ fn what_a_box_that_scrolls_holds_and_what_is_laid_over_a_box_are_not_said_to_sta
     );
     assert_eq!(spill_page(over).spills(), []);
 }
+
+// --- The model of what is read: layers, groups, `none`, the name a page falls back on ----------------
+
+/// The words a screen reader is told of `root`, one line each, a group's children under it by the
+/// two spaces of their depth, and how many items the page behind a modal layer has.
+fn told_of(root: crate::Element) -> (Vec<String>, usize) {
+    let laid = layout(root, Size::new(400.0, 400.0), 1.0, &mut Fixed);
+    let (items, behind) = laid.accessible_behind();
+    let depth = |mut at: Option<usize>| {
+        let mut depth = 0;
+        while let Some(outer) = at {
+            depth += 1;
+            at = items[outer].parent;
+        }
+        depth
+    };
+    let told = items
+        .iter()
+        .map(|item| {
+            format!(
+                "{}{:?} {}",
+                "  ".repeat(depth(item.parent)),
+                item.role,
+                item.words
+            )
+        })
+        .collect();
+    (told, behind)
+}
+
+/// A page with a button, a modal over it (a scrim that answers the pointer and says nothing, a card
+/// with a title and a button) and the layers `extra` writes after it.
+fn under_a_modal(modal: bool, extra: Vec<crate::Element>) -> crate::Element {
+    let card = div()
+        .col()
+        .child(text("Settings"))
+        .child(div().press(Id::named("ok")).h(20.0).child(text("OK")));
+    let layer = div()
+        .overlay()
+        .inset(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+        .layer(modal)
+        .child(
+            div()
+                .absolute()
+                .inset(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+                .press(Id::named("scrim"))
+                .role(crate::AccessibleRole::None),
+        )
+        .child(card);
+    let mut page = div()
+        .child(text("Page"))
+        .child(
+            div()
+                .press(Id::named("behind"))
+                .h(20.0)
+                .child(text("Behind")),
+        )
+        .child(layer);
+    for more in extra {
+        page = page.child(more);
+    }
+    page
+}
+
+#[test]
+fn a_modal_layer_shuts_the_page_behind_it_out_of_what_is_read_and_counts_what_it_shut_out() {
+    let (told, behind) = told_of(under_a_modal(true, vec![]));
+    // The scrim is `none`: it is not read, and the card's words are.
+    assert_eq!(told, ["Text Settings", "Button OK"]);
+    assert_eq!(behind, 2, "the text and the button of the page");
+    // The same layer that is not modal leaves the page, and the scrim, a control no more, is not there.
+    let (told, behind) = told_of(under_a_modal(false, vec![]));
+    assert_eq!(
+        told,
+        ["Text Page", "Button Behind", "Text Settings", "Button OK"]
+    );
+    assert_eq!(behind, 0);
+}
+
+#[test]
+fn what_a_modal_opens_from_inside_it_is_in_it_and_the_modal_in_front_is_the_layer() {
+    // A popover written inside the card (an overlay laid after the rest) is in the modal; a toast, a layer
+    // of its own that does not shut the page, is read though it is not inside; a dialog written after
+    // is the modal in front, and the first modal and the page are behind it.
+    let popover = div()
+        .overlay()
+        .inset(Some(0.0), Some(0.0), None, None)
+        .layer(false)
+        .child(text("Hint"));
+    let mut card = div()
+        .col()
+        .child(text("Settings"))
+        .child(div().press(Id::named("more")).h(20.0).child(text("More")))
+        .child(popover);
+    card = card.child(text("tail"));
+    let modal = div()
+        .overlay()
+        .inset(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+        .layer(true)
+        .child(card);
+    let toast = div()
+        .overlay()
+        .inset(None, Some(0.0), Some(0.0), None)
+        .layer(false)
+        .child(text("Saved"));
+    let dialog = div()
+        .overlay()
+        .inset(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+        .layer(true)
+        .child(text("Sure?"));
+    let page = |layers: Vec<crate::Element>| {
+        let mut page = div().child(text("Page"));
+        for layer in layers {
+            page = page.child(layer);
+        }
+        page
+    };
+    let (told, behind) = told_of(page(vec![modal.clone(), toast.clone()]));
+    assert_eq!(
+        told,
+        [
+            "Text Settings",
+            "Button More",
+            "Text tail",
+            "Text Saved",
+            "Text Hint"
+        ]
+    );
+    assert_eq!(behind, 1);
+    let (told, _) = told_of(page(vec![modal, toast, dialog]));
+    assert_eq!(told, ["Text Sure?"]);
+}
+
+#[test]
+fn an_element_with_a_role_that_holds_controls_is_a_group_and_what_is_in_it_is_its_children() {
+    use crate::AccessibleRole::{MenuItem, Text};
+    let button = |name: &str, words: &str| div().press(Id::named(name)).h(20.0).child(text(words));
+    let row = div()
+        .col()
+        .press(Id::named("row"))
+        .role(MenuItem)
+        .label("alpha")
+        .child(text("alpha"))
+        .child(text("extra"))
+        .child(button("mark", "Mark"));
+    let (told, _) = told_of(div().child(row).child(text("after")));
+    assert_eq!(
+        told,
+        [
+            format!("{MenuItem:?} alpha"),
+            format!("  {Text:?} extra"),
+            "  Button Mark".to_owned(),
+            format!("{Text:?} after"),
+        ]
+    );
+    // A box with no role that holds controls stays as it was: its controls are apart, no group.
+    let plain = div()
+        .col()
+        .press(Id::named("card"))
+        .label("card")
+        .child(button("inside", "Inside"));
+    let (told, _) = told_of(plain);
+    assert_eq!(told, ["Button card", "Button Inside"]);
+}
+
+#[test]
+fn a_row_with_no_name_of_its_own_is_read_by_the_name_the_page_falls_back_on_and_never_by_it_over_a_name()
+ {
+    use crate::AccessibleRole::MenuItem;
+    let control = |name: &str| {
+        div()
+            .press(Id::named(name))
+            .role(crate::AccessibleRole::Checkbox)
+            .label(name)
+            .h(10.0)
+    };
+    let row = |fallback: bool| {
+        let row = div()
+            .col()
+            .press(Id::named("row"))
+            .role(MenuItem)
+            .child(control("mark"));
+        if fallback {
+            row.fallback_name("Row 3")
+        } else {
+            row
+        }
+    };
+    let (told, _) = told_of(row(true));
+    assert_eq!(told[0], format!("{MenuItem:?} Row 3"));
+    let (told, _) = told_of(row(false));
+    assert_eq!(told[0], format!("{MenuItem:?} "));
+    // Where the row has words of its own, they are its name.
+    let named = row(true).label("alpha");
+    let (told, _) = told_of(named);
+    assert_eq!(told[0], format!("{MenuItem:?} alpha"));
+}

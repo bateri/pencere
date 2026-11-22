@@ -34,6 +34,7 @@ fn item(role: AccessibleRole, id: Option<Id>, words: &str) -> Item {
         words: words.to_owned(),
         state: State::default(),
         pressable: false,
+        parent: None,
     })
 }
 
@@ -349,6 +350,7 @@ fn a_reading_is_written_for_a_person_and_for_a_program_from_the_same_parts() {
                 ..State::default()
             },
             pressable: false,
+            parent: None,
         })],
         fields: vec![FieldReading {
             id: Id::named("q"),
@@ -401,6 +403,7 @@ fn a_reading_is_written_for_a_person_and_for_a_program_from_the_same_parts() {
             enabled: true,
         }]),
         notes: vec!["no commands here".to_owned()],
+        behind: 0,
     };
     let text = reading.text();
     let q = reference(Id::named("q"));
@@ -1070,4 +1073,123 @@ fn a_call_with_no_answer_is_waited_for_and_a_push_to_a_subscription_is_not() -> 
 fn long_lines_of_an_editor_are_cut_where_the_writers_cut_them() {
     let long = "y".repeat(LINE_LIMIT + 10);
     assert_eq!(clean(&long, LINE_LIMIT).chars().count(), LINE_LIMIT + 1);
+}
+
+#[test]
+fn a_group_is_told_with_its_children_under_it_a_page_behind_a_modal_is_counted_and_the_shape_is_numbered()
+ {
+    let group = item(AccessibleRole::MenuItem, Some(Id::named("row")), "alpha");
+    let mut child = item(AccessibleRole::Checkbox, Some(Id::named("mark")), "Mark");
+    child.parent = Some(0);
+    let reading = Reading {
+        items: vec![group, child],
+        behind: 3,
+        ..Reading::default()
+    };
+    let text = reading.text();
+    assert!(
+        text.contains("note: behind the modal in front, 3 items of the page"),
+        "the page behind is counted: {text}"
+    );
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|line| line.contains("alpha") || line.contains("Mark"))
+        .collect();
+    assert!(lines[0].contains(" menuitem \"alpha\""), "{lines:?}");
+    assert!(
+        lines[1].contains("   checkbox \"Mark\""),
+        "a child is two spaces in: {lines:?}"
+    );
+    let json: Value = serde_json::from_str(&reading.json()).expect("json");
+    assert_eq!(json["format"], 2);
+    assert_eq!(json["behind"], 3);
+    assert_eq!(json["items"][0]["parent"], Value::Null);
+    assert_eq!(
+        json["items"][1]["parent"],
+        json!(reference(Id::named("row")))
+    );
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_page_that_writes_a_layer_a_scrim_that_is_not_read_and_a_name_to_fall_back_on_is_read_by_the_model()
+-> Result<(), Error> {
+    let source = r#"
+return {
+    render = function()
+        local scrim = pencere.div():absolute():inset(0, 0, 0, 0):press("scrim"):role("none")
+        local card = pencere.div():col():child(pencere.text("Settings"))
+            :child(pencere.div():id("ok"):press("ok"):h(24):w(60):child(pencere.text("OK")))
+        local row = pencere.div():id("row"):press("row"):role("menu_item"):fallback_name("Row 3"):h(24):w(200)
+            :child(pencere.div():id("mark"):role("checkbox"):checked(true):press("mark"):size(16, 16))
+        return pencere.div():size_full()
+            :child(pencere.div():id("behind"):press("behind"):h(24):w(80):child(pencere.text("Behind")))
+            :child(row)
+            :child(pencere.div():overlay():inset(0, 0, 0, 0):id("dialog"):layer(true):child(scrim):child(card))
+            -- A role this kit does not know is left out, and the page runs.
+            :child(pencere.div():role("a role of a later kit"):child(pencere.text("Later")))
+    end,
+}
+"#;
+    let mut page = Headless::script(source).size(400.0, 300.0).open()?;
+    page.settle()?;
+    let reading = page.reading();
+    let text = reading.text();
+    // The page behind the dialog is not read, and says how much of it there was; the scrim is not read
+    // and what is in the dialog is.
+    assert!(
+        reading
+            .items
+            .iter()
+            .all(|item| item.id != Some(Id::named("behind"))),
+        "{text}"
+    );
+    assert!(reading.behind >= 2, "{text}");
+    assert!(
+        reading.items.iter().any(|item| item.words == "OK"),
+        "{text}"
+    );
+    assert!(
+        reading.items.iter().all(|item| item.role != "none"),
+        "{text}"
+    );
+    assert!(reading.audit().is_empty(), "{:?}", reading.audit());
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_row_with_a_control_in_it_and_no_name_is_read_by_its_fallback_name_with_the_control_under_it()
+-> Result<(), Error> {
+    let source = r#"
+return {
+    render = function()
+        local row = pencere.div():id("row"):press("row"):role("menu_item"):fallback_name("Row 3"):h(24):w(200)
+            :child(pencere.div():id("mark"):role("checkbox"):checked(true):press("mark"):size(16, 16))
+        return pencere.div():size_full():child(row):child(pencere.div():role("a role of a later kit"):child(pencere.text("Later")))
+    end,
+}
+"#;
+    let mut page = Headless::script(source).size(400.0, 300.0).open()?;
+    page.settle()?;
+    let reading = page.reading();
+    let row = reading
+        .items
+        .iter()
+        .position(|item| item.id == Some(Id::named("row")))
+        .expect("row");
+    assert_eq!(reading.items[row].words, "Row 3", "{}", reading.text());
+    let mark = reading
+        .items
+        .iter()
+        .find(|item| item.id == Some(Id::named("mark")))
+        .expect("mark");
+    assert_eq!(mark.parent, Some(row));
+    // The text of the page that has a role the kit does not know is read as words.
+    assert!(
+        reading.items.iter().any(|item| item.words == "Later"),
+        "{}",
+        reading.text()
+    );
+    Ok(())
 }

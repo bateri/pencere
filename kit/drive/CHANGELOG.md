@@ -8,6 +8,13 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Added
 
+- **A reading is a tree, and says what a modal shuts out**: an item has its `parent` (a group, with the
+  children under it, indented by two spaces in the text), the reading has `behind` (how many items of the
+  page behind a modal layer are not read: a note line in the text) and its JSON has
+  `format: 2`, each item's `parent` (the ref of the group) and `behind`. A JSON with no `format` is the
+  flat one of before. The audit's flaw `behind` is an item of the page behind a modal that is read, which
+  a reader that cannot take it out says (the model's own never does).
+- **`Outline::behind`**: how many items of the page the layer in front shuts out of `accessible`.
 - **`Reading::audit` and `Headless::audit`** (`audit::{Finding, Flaw}`): what is wrong with a page's reading,
   each flaw with the line of the reading's text it is on: a control with no name, the same words twice in
   a row, a control with no id, an element that answers the pointer and says it only shows. A page's test

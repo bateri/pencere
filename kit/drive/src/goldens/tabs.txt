@@ -7,6 +7,6 @@ Tab "c.lua"
 focus: page
 items:
 fqrzfe  tab "a.lua" [selected]
-hc3jvy  button "Close a.lua"
+hc3jvy    button "Close a.lua"
 t6s0s0  tab "b.lua"
 3n36jr  tab "c.lua"

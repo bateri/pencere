@@ -8,6 +8,17 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Added
 
+- **A layer shuts the page behind it out of what is read** (`Element::layer`, `Laid::accessible_behind`):
+  the root of a layer drawn over the page says whether it is modal; with a modal one in front, what is
+  outside it (and outside a layer that is not modal and is drawn after it) is not in `Laid::accessible`,
+  and `accessible_behind` says how many items that was. What a modal opens from inside it (a menu, a
+  popover, a tip) is in it, by where it was written.
+- **`AccessibleRole::None`**: an element that answers the pointer or holds words and is no control to a
+  person who reads by ear (a scrim, a card that takes the click) is not read; what is inside it is.
+- **`Accessible::parent`**: an element that has a role and holds controls is a group, and what is
+  inside it is its children.
+- **`Element::fallback_name`**: the name an element is read by where it has none of its own (a row of
+  controls: "Row 3"); it never replaces a name.
 - **`Accessible::pressable`**: whether an element answers the pointer, whatever its role says it is (a
   text that is pressed is a control read as words; the reading's audit finds it).
 - **`Laid::scroll_areas`**: the boxes that scroll and have a name, each with how far it is scrolled and

@@ -243,6 +243,7 @@ fn role_name(role: AccessibleRole) -> (&'static str, Option<u8>) {
         AccessibleRole::Image => ("image", None),
         AccessibleRole::Progress => ("progress", None),
         AccessibleRole::Slider => ("slider", None),
+        AccessibleRole::None => ("none", None),
     }
 }
 

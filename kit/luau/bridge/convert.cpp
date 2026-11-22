@@ -1092,10 +1092,11 @@ pencere_view_types_slice_t commands_at(lua_State* L, int list, Arenas& arenas) {
 }
 
 // What an element is to a screen reader, by its word, and the level of a heading.
-const char* const kAccessibleRoles[] = {"button", "text", "link", "checkbox", "switch", "radio",
-                                "tab",    "menu_item", "heading", "image", "progress", "slider"};
+const char* const kAccessibleRoles[] = {"button", "text", "link", "checkbox", "switch", "radio", "tab",
+                                "menu_item", "heading", "image", "progress", "slider", "none"};
 static_assert(PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_BUTTON == 0 && PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_MENU_ITEM == 7 &&
-                  PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_HEADING == 8 && PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_SLIDER == 11,
+                  PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_HEADING == 8 && PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_SLIDER == 11 &&
+                  PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_NONE == 12,
               "kAccessibleRoles is the order of accessible-role");
 
 // --- An editor ------------------------------------------------------------------------------
@@ -1733,7 +1734,7 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
             lua_pop(L, 1);
         }
         lua_pop(L, 1);
-        int role = word(L, meta, "role", kAccessibleRoles, 12, -1);
+        int role = word(L, meta, "role", kAccessibleRoles, sizeof(kAccessibleRoles) / sizeof(kAccessibleRoles[0]), -1);
         if (role >= 0) {
             nodes.ptr[at].role.is_some = true;
             nodes.ptr[at].role.val.tag = (uint8_t)role;
@@ -1742,6 +1743,15 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
                 nodes.ptr[at].role.val.val.heading = level < 1 ? 1 : (level > 6 ? 6 : (uint8_t)level);
             }
         }
+        nodes.ptr[at].layer = optional_flag(L, meta, "layer");
+        get(L, meta, "fallback_name");
+        if (lua_type(L, -1) == LUA_TSTRING) {
+            size_t length = 0;
+            const char* bytes = lua_tolstring(L, -1, &length);
+            nodes.ptr[at].fallback_name.is_some = true;
+            nodes.ptr[at].fallback_name.val = add_words(flat.arenas, bytes, length);
+        }
+        lua_pop(L, 1);
         nodes.ptr[at].state.checked = optional_flag(L, meta, "checked");
         nodes.ptr[at].state.selected = flag(L, meta, "selected");
         nodes.ptr[at].state.expanded = optional_flag(L, meta, "expanded");

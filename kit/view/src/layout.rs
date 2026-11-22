@@ -1973,6 +1973,16 @@ impl Laid {
     /// stands in a zone of an editor, or in an overlay written inside it, is the page's own and is
     /// read apart, whatever the label says.
     pub fn accessible(&self) -> Vec<Accessible> {
+        self.accessible_behind().0
+    }
+
+    /// [`Laid::accessible`], and how many items the page behind a modal layer would have said: with a
+    /// layer in front that is modal (`Element::layer`), what is outside it is neither read nor
+    /// pressable to a screen reader, as behind a sheet or an `aria-modal`; a layer that is not modal
+    /// and stands in front of it (a toast) is read too. A popover, a menu or a tip that a modal
+    /// opens is in it, by where it was written. An element that has a role and holds controls is
+    /// a group: what is inside it is its children ([`Accessible::parent`]).
+    pub fn accessible_behind(&self) -> (Vec<Accessible>, usize) {
         let s = self.scale;
         let points = |rect: Rect| Rect::new(rect.x / s, rect.y / s, rect.w / s, rect.h / s);
         let shown = |node: &Node| {
@@ -1982,6 +1992,8 @@ impl Laid {
             }
         };
         let mut items = Vec::new();
+        // The element each item is said for, and whether it is a group.
+        let mut owners: Vec<(usize, bool)> = Vec::new();
         let (controls, holds) = self.controls(&shown);
         // The elements whose words are said for them (a button, a field, a labelled box), the
         // innermost last, and what each lets be said apart: nothing, where it carries no control
@@ -2011,11 +2023,17 @@ impl Laid {
                 // controls of their own.
                 if apart == Apart::Controls {
                     self.say_links(node, &mut items);
+                    owners.resize(items.len(), (index, false));
                 }
                 continue;
             }
             let role = Self::role_of(node);
             if let Some(role) = role {
+                // A scrim that answers the pointer, a card that takes the click: not read, and what
+                // is inside it is read as if it were not there.
+                if role == AccessibleRole::None {
+                    continue;
+                }
                 let carrier = on(&holds, index)
                     && !matches!(
                         role,
@@ -2053,6 +2071,11 @@ impl Laid {
                     Some(tip) if named_by_tip(role) && words.trim().is_empty() => tip.words.clone(),
                     _ => words,
                 };
+                // What the page says the element is called where it has no name: a row of controls.
+                let words = match &node.meta.fallback {
+                    Some(name) if words.trim().is_empty() => name.clone(),
+                    _ => words,
+                };
                 // A box that holds controls and has no name of its own, says nothing of what it is and
                 // is in no state (a scrim), is not said; one that is a row, a tab or chosen is, though
                 // every word in it be a control's.
@@ -2070,7 +2093,10 @@ impl Laid {
                     words,
                     state: node.meta.state.clone(),
                     pressable: node.meta.pressable,
+                    parent: None,
                 });
+                // A role and controls inside make a group of it: its children are its own.
+                owners.resize(items.len(), (index, carrier && node.meta.role.is_some()));
                 continue;
             }
             if let Content::Text(line) = &node.content
@@ -2084,7 +2110,9 @@ impl Laid {
                     words: line.text.clone(),
                     state: node.meta.state.clone(),
                     pressable: false,
+                    parent: None,
                 });
+                owners.resize(items.len(), (index, false));
             }
             if let Content::Rich(rich) = &node.content {
                 let words = crate::rich::words(&rich.spans);
@@ -2096,12 +2124,75 @@ impl Laid {
                         words,
                         state: node.meta.state.clone(),
                         pressable: false,
+                        parent: None,
                     });
                 }
                 self.say_links(node, &mut items);
+                owners.resize(items.len(), (index, false));
             }
         }
-        items
+        // The layer in front: the nearest modal one, which is the last drawn. What stands outside
+        // it is behind it, unless it is in a layer that is not modal and is drawn after it.
+        let front = self
+            .nodes
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, node)| node.meta.layer == Some(true) && shown(node))
+            .map(|(index, _)| index);
+        let mut behind = 0;
+        if let Some(front) = front {
+            // The parent of an element comes before it in `nodes`, an overlay's too (it is the element
+            // that holds it where it is written), so one pass says what is in a layer. A layer that is
+            // not modal is read, though it is not in the one in front, where it is the page's own (a
+            // toast): not where it was opened from inside another layer, which is behind the one in front.
+            let mut read = vec![false; self.nodes.len()];
+            let mut nested = vec![false; self.nodes.len()];
+            for (index, node) in self.nodes.iter().enumerate() {
+                let outer = node.parent.filter(|outer| *outer < index);
+                let held = outer.is_some_and(|outer| on(&read, outer));
+                let inside = outer.is_some_and(|outer| {
+                    on(&nested, outer)
+                        || self
+                            .nodes
+                            .get(outer)
+                            .is_some_and(|node| node.meta.layer.is_some())
+                });
+                if let Some(slot) = nested.get_mut(index) {
+                    *slot = inside;
+                }
+                if let Some(slot) = read.get_mut(index) {
+                    *slot = index == front
+                        || held
+                        || (index > front && node.meta.layer == Some(false) && !inside);
+                }
+            }
+            let keep: Vec<bool> = owners.iter().map(|(node, _)| on(&read, *node)).collect();
+            let before = items.len();
+            let mut kept = keep.iter();
+            items.retain(|_| kept.next().copied().unwrap_or(false));
+            let mut kept = keep.iter();
+            owners.retain(|_| kept.next().copied().unwrap_or(false));
+            behind = before - items.len();
+        }
+        // Who holds whom: a group holds what is inside its element after it.
+        let mut groups: Vec<(usize, usize)> = Vec::new();
+        for (at, item) in items.iter_mut().enumerate() {
+            let Some(&(node, group)) = owners.get(at) else {
+                continue;
+            };
+            while groups
+                .last()
+                .is_some_and(|(_, outer)| !self.is_inside(node, *outer))
+            {
+                groups.pop();
+            }
+            item.parent = groups.last().map(|(held, _)| *held);
+            if group {
+                groups.push((at, node));
+            }
+        }
+        (items, behind)
     }
 
     /// Whether the words at `index` are said already by the label of the element around them, one
@@ -2160,7 +2251,9 @@ impl Laid {
             .nodes
             .iter()
             .map(|node| {
-                shown(node) && (node.meta.pressable || Self::role_of(node).is_some_and(works_on))
+                shown(node)
+                    && Self::role_of(node) != Some(AccessibleRole::None)
+                    && (node.meta.pressable || Self::role_of(node).is_some_and(works_on))
             })
             .collect();
         let linked: Vec<bool> = self
@@ -2241,6 +2334,7 @@ impl Laid {
                 words,
                 state: State::default(),
                 pressable: false,
+                parent: None,
             });
         }
     }
@@ -2598,6 +2692,10 @@ pub enum AccessibleRole {
     Progress,
     /// A value that is set by moving something along a line ([`crate::Element::value`]).
     Slider,
+    /// It answers the pointer or holds words, and is no control to a person who reads by ear: it is
+    /// not read, and what is inside it is (a scrim that closes a dialog, a card that takes the
+    /// click).
+    None,
 }
 
 /// One thing a screen reader says of the page ([`Laid::accessible`]).
@@ -2614,6 +2712,9 @@ pub struct Accessible {
     pub state: State,
     /// Whether it answers the pointer: a press on it does something, whatever its role says it is.
     pub pressable: bool,
+    /// The item that holds this one, as an index of the list it is in: a dialog, a row, a tab that
+    /// has a role and carries controls reads as a group, and what is inside it is its children.
+    pub parent: Option<usize>,
 }
 
 /// A text field the host puts over the page ([`Laid::fields`]).

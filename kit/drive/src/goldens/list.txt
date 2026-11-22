@@ -9,4 +9,4 @@ items:
 bdpt3h  menuitem "Alpha"
 esb1hg  menuitem "Beta" [selected, collapsed]
 n33em3  menuitem "Gamma" [checked]
-sr7zbz  button "Open"
+sr7zbz    button "Open"

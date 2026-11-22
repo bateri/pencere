@@ -1,5 +1,4 @@
 == screen reader
-Button "Open"
 Button "Close Save changes to a.lua?"
 Heading(2) "Save changes to a.lua?"
 Text "Your changes will be lost."
@@ -9,8 +8,8 @@ Button "Save"
 == agent
 focus: page
 rest: motion
+note: behind the modal in front, 2 items of the page, not read
 items:
-md27z1  button "Open"
 aa2j92  button "Close Save changes to a.lua?"
         heading2 "Save changes to a.lua?"
         text "Your changes will be lost."
