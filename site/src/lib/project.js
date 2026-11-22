@@ -16,22 +16,43 @@ import {
   items,
 } from "./repo.js";
 
-/** Installing: the command's one line, the libraries' lines, and the README's words for them. */
+/** Installing: the command's one line (the command's own README), the libraries' lines, and the words for them. */
 export function install() {
+  const command = block("cli/README.md", "Install", "sh");
   const said = section("README.md", "Install");
-  const [command, libraries] = blocks(said).filter((entry) => entry.lang === "sh");
-  if (!command || !libraries)
-    throw new Error(
-      "README.md, Install: the command's line and the libraries' lines are not there.",
-    );
+  const [libraries] = blocks(said).filter((entry) => entry.lang === "sh");
+  if (!libraries) throw new Error("README.md, Install: the libraries' lines are not there.");
   const words = paragraphs(said);
   return {
     command: command.code.trim(),
-    // The README's sentence without its pointer to the command's own README, which is a page here.
+    // The sentence over the command's line, without a pointer to a README, which would be a page here.
     says: rich(command.before.replace(/\s*\(\[[^\]]*\]\([^)]*\)\)/, "").replace(/:$/, ".")),
     libraries: libraries.code.trim().split("\n"),
     librariesSay: rich(libraries.before.replace(/:$/, "")),
     host: rich(words.at(-1)),
+  };
+}
+
+/** How it works, in the README's words: the six messages, how they are carried, and how early it is. */
+export function works() {
+  const how = paragraphs(section("README.md", "How it works"));
+  const messages = how.find((words) => words.includes("While the view is up,"));
+  const carried = how.find((words) => words.startsWith("The messages ride"));
+  const status = paragraphs(section("README.md", "Status")).find((words) =>
+    words.startsWith("Early:"),
+  );
+  if (!messages || !carried || !status)
+    throw new Error(
+      "README.md, How it works and Status: the sentences of the home page are not there.",
+    );
+  const early = sentence(status)
+    .replace(/^Early:\s*/, "")
+    .replace(/`/g, "");
+  return {
+    // What is said of the six messages, from the sentence that says there are six.
+    messages: rich(messages.slice(messages.indexOf("While the view is up,"))),
+    carried: inline(sentence(carried)),
+    early: inline(early.charAt(0).toUpperCase() + early.slice(1)),
   };
 }
 
@@ -126,7 +147,8 @@ export const kinds = () =>
 
 /** Installing the command: its README's line, and the sentence that says where it goes. */
 export const command = () => ({
-  says: inline(sentence(paragraphs(section("cli/README.md", "Install"))[0])),
+  // The paragraph after the one over the line: where the command goes.
+  says: inline(sentence(paragraphs(section("cli/README.md", "Install"))[1])),
 });
 
 // The names `pencere new` has for its projects, in cli/src/new.rs.

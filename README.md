@@ -8,11 +8,7 @@ a grid of characters.
 ## Install
 
 The `pencere` command makes, runs and packs an app. It installs with one line, on macOS and Linux
-([more in its README](cli/README.md#install)):
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/bateri/pencere/main/cli/install.sh | sh
-```
+([how, and more](cli/README.md#install)).
 
 A program in TypeScript or Rust takes the library instead:
 
@@ -126,9 +122,9 @@ let outcome = pencere::serve(
 
 ## How it works
 
-The program does not draw the view. It hands the terminal the files of the view, the terminal runs
-them, and while the view is up the two talk to each other in six small messages: the view calls the
-program and subscribes to its topics, and the program answers and pushes. That is the whole
+The program does not draw the view. It hands the terminal the files of the view, and the terminal runs
+them. While the view is up, the program and the view talk in six small messages. The view sends `call`,
+`subscribe` and `cancel`; the program sends `response`, `push` and `progress`. That is the whole
 protocol, and it is the same for every kind of view.
 
 There are two families of views:
@@ -176,6 +172,18 @@ Early: everything is `0.x`, and a minor release may still break. The repository 
 [bateri](https://github.com/bateri/bateri) is the first host. The SDK is on npm, the crates on
 crates.io and the command on the GitHub releases; how they are released is in
 [RELEASING.md](RELEASING.md).
+
+## Documentation
+
+- **Make an app**: [the `pencere` command](cli/README.md) installs, runs, tests and packs it.
+- **Write the page of an app**: [the kit's page API](kit/SPEC.md), a topic at a time, and
+  [`examples/`](examples) to read and run.
+- **Show a view from a program**: [`@pencere/sdk`](sdk/typescript/README.md) for TypeScript,
+  [`pencere`](program/README.md) for Rust.
+- **Host views in a terminal**: [`pencere-host`](host/rust/README.md), and what a host does for a view
+  of the kit, in [the kit's host topic](kit/spec/host.md).
+- **The protocol**: [`spec/draft/pencere.md`](spec/draft/pencere.md), and [`spec/draft/apps.md`](spec/draft/apps.md)
+  for packed apps.
 
 ## License
 

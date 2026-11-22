@@ -1,12 +1,8 @@
 # What a host does for a kit view
 
-The sandbox floors are those of the protocol, Section 9.8 (memory 64 MiB, a call 250 ms, the start 2 s,
-20 000 elements to a frame, a tree 128 deep, a line of text 64 KiB, the scripts of a view 4 MiB together (the
-entry and the scripts it requires), 32 messages to the program to a call, a message
-1 MiB, 4096 values to a sparkline or steps to a path, 1024 parts to a text, paths to a canvas or
-commands to an element, 16 stops to a gradient and 16 lengths to a dash, and the limits on
-pictures). A view that stays within them
-opens on every host. The values of this repository's implementation are `ModuleLimits::floor()` in
+The sandbox floors are those of the protocol ([Section 9.8](../../spec/draft/pencere.md#98-kit-views): the table of what a host
+gives a view at least), and the kit adds 16 stops to a gradient and 16 lengths to a dash. A view that
+stays within them opens on every host. The values of this repository's implementation are `ModuleLimits::floor()` in
 `kit/sandbox/src/sandbox.rs`: what an author's page is written and tested against (`pencere test`
 holds a page to them). A terminal gives more time: `ModuleLimits::default()` is the floors with a call
 5 s and the start 10 s. Time is the wall clock's and the wall clock of a busy machine is no measure of a
@@ -32,12 +28,9 @@ A host:
 - draws a run's `underline` and `strike` where its font puts those lines, in the run's colour, and
   sets an `italic` run in its face's italic;
 - takes the pointer's shape a reply asks for, and tells a press's `count` and a scroll across;
-- opens the link a reply asks to open as it opens a web page's `link` (protocol, Sections 9.7 and
-  9.8): only an `http` or `https` address of printable ASCII without the space, at most 8192 bytes, in
-  the person's browser on the person's machine, the person asked first where it asks for a page's,
-  with as many questions open at once as for a page's; it drops any other and tells the page nothing
-  either way (`pencere_host::session::Session::module_link`, which raises `Action::OpenLink` as a
-  page's `link` does);
+- opens the link a reply asks to open as the protocol says of the links of a kit view ([Section 9.8](../../spec/draft/pencere.md#98-kit-views),
+  Links): `pencere_host::session::Session::module_link` does it, and raises `Action::OpenLink` as a
+  page's `link` does;
 - wakes a page at the time it asked to be woken at: the earliest of what its replies and frames
   asked, which the sandbox keeps (`pencere_sandbox::Update::wake`, on render's clock). It arms one
   wakeup for that time and, at the first frame at or after it, wakes the page with the frame's time
@@ -75,11 +68,8 @@ A host:
   (`Host::carry`: the words or the path, the url, where the pointer is and the element's room), and
   holds the page's pointer events back until it is over, when it tells the page `carried`
   (`Page::carried`); a host that does not carry says nothing (`Page::set_carry`) and the page hears
-  every move and the release of an element that carries as of any other. It re-checks what it carries as the sandbox did (`pencere_wire::carry`), shows
-  the person the words it will insert and not a label the page chose, never reads a `path` (to the
-  host it is words, and a terminal quotes it for its shell as it does a dropped file's), and puts a
-  carry into a pane that accepts only its own (a pasteboard type of the host's, never text from
-  another application);
+  every move and the release of an element that carries as of any other. It takes what it carries from the view as the protocol says ([Section 12.3](../../spec/draft/pencere.md#123-files-and-navigation)), and
+  `pencere_wire::carry` is the check;
 - may draw a point of the page larger than a point of its screen, the page given fewer points for
   the same room: a terminal draws a page as large as its own text is to the kit's (12.5 points), so a
   page's words are the size of the terminal's and grow and shrink with them (`Laid::accessible` and the
@@ -166,16 +156,12 @@ A host:
   nothing of what the page asks of it;
 - posts the page the text of each editor before it tells the page of the version it is (the copy
   costs nothing that grows with the document), and holds a reply to what one may hand the editors
-  (1 MiB of text, 20 000 decorations) and the editors to the floors of the protocol (Section 9.8).
+  and the editors to the floors of the protocol ([Section 9.8](../../spec/draft/pencere.md#98-kit-views), its table).
 
 ## Pictures
 
-[`README.md`](../README.md) describes how a page names a picture and how the host draws it; the limits
-and the formats are those of the protocol, Section 9.8.
-
-Besides a file of the bundle, a page of `lua` names a file beside it: `sha256:`
-and the digest of a file its program attached (protocol, Section 8.8) and `file:` and the handle of
-one the person gave it (Section 8.9). A manifest path has no `:`, so the names never meet; the host
-answers them from its own tables (the program's attached files, its handles), and a name that is in
-neither is a picture that is not there. A file the program lets go of (`detach`) is forgotten, and
-not drawn any more.
+What a page may name as a picture, the formats and the limits are the protocol's ([Section 9.8](../../spec/draft/pencere.md#98-kit-views),
+Images); [`README.md`](../README.md) says how a terminal draws them. The host answers a `sha256:` name
+from the files the program attached to the view (protocol, Section 8.8) and a `file:` name from the
+handles it made (Section 8.9), each from its own table. A file the program lets go of (`detach`) is
+forgotten, and not drawn any more.

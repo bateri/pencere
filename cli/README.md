@@ -6,6 +6,8 @@ build` makes one executable of it that runs anywhere its kind of machine does.
 
 ## Install
 
+The `pencere` command makes, runs and packs an app. It installs with one line, on macOS and Linux:
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/bateri/pencere/main/cli/install.sh | sh
 ```
@@ -143,23 +145,8 @@ and `serve` finds them there. It is what to write for an app of a script and a p
 
 ## An app
 
-```lua
--- src/program/app.lua: the program
-local pencere = require("pencere")
-
-pencere.serve {                            -- shows src/view/: page.lua, a page of the kit
-  calls = {                                -- what the view asks for, once
-    hello = function(params) return { message = "Hello, " .. (params.name or "world") end,
-  },
-  topics = {                               -- what the view listens to as it changes
-    clock = function(_, sub)
-      local timer = pencere.time.every(1, function() sub:push({ now = pencere.time.now() }) end)
-      sub:on_end(function() timer:cancel() end)
-    end,
-  },
-  fallback = function() print("This terminal shows no views.") end,
-}
-```
+`pencere new` starts an app like the first one of [the repository's README](https://github.com/bateri/pencere/blob/main/README.md#a-first-app-in-three-languages),
+in Lua: the program is `src/program/app.lua` and the page it shows `src/view/page.lua`.
 
 `require("pencere")` is all an app has:
 

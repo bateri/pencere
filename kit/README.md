@@ -64,34 +64,13 @@ line (`@pencere/syntax:12: …`); one a module raises for what its caller gave i
 line. The language server of Luau reads the requires where a `.luaurc` gives the alias `pencere`
 the directory [`sandbox/library`](sandbox/library).
 
-| Module               | What it is                                                                                                                                                                                                                                               |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@pencere/syntax`    | A language that colours an editor as it changes, read a line at a time from a stream, as CodeMirror's `StreamLanguage` reads one                                                                                                                         |
-| `@pencere/languages` | The languages an editor reads, as CodeMirror's `language-data` knows them: a description of each (its names, how a file in it is told), and the language (its colours for `@pencere/syntax` and what an editor is told of it) built when a page loads it |
-| `@pencere/fuzzy`     | What a person types found in texts as fzf and VS Code find it: scored and ordered, a list at once or a slice a frame, the matched characters as parts of a rich text                                                                                     |
-| `@pencere/keys`      | Keys a page writes (`"cmd+shift+k"`) as a Mac writes them (`⇧⌘K`) or another platform (`Ctrl+Shift+K`), as key caps, and matched against a key event as the host matches a command's                                                                     |
-| `@pencere/charts`    | Area charts on a canvas: what a chart is (its model, in the points of its box) painted by the kit's smooth painter or a page's own, its drawing kept while only the pointer moves                                                                        |
-| `@pencere/markdown`  | Markdown (CommonMark and GitHub's extensions) read into a tree and drawn as elements: a document kept for a text that changes is read again only where it changed, and a long one is drawn a view at a time                                              |
-
-[`spec/library.md`](spec/library.md) says what each module does.
+The modules, and what each does, are in [`spec/library.md`](spec/library.md), one section each.
 
 ## Images
 
-A page shows pictures with `image(src, fit)` (in Lua, `pencere.image(src):fit(…):tint(…):opacity(…)`):
-`src` is the path of a file of the view's own bundle, as its manifest names it, or a file beside
-the bundle: `sha256:` and the digest of one its program attached, `file:` and the handle of one the
-person gave the page; nothing else is reachable (no network, no file system). PNG, JPEG, SVG and PDF (`:page(n)` is the page of a PDF shown); at most 4096 × 4096 pixels an image and
-64 MiB of pixels a view holds (a PNG or a JPEG is kept at the size it is drawn at, not the file's; a
-large SVG or page of a PDF is drawn only where it is seen, so a page larger than 4096 pixels is
-sharp at every zoom and the pixels held are those of the screen; one that has no room at its size
-is drawn smaller until it has, and a picture scrolled out of view holds none); `contain` (all of it, centred) or `cover` (the box filled, the
-rest cut off); `tint` paints the image's opacity in a colour, so that an icon of one colour follows
-the theme. The size is the element's, and where it says a side only the image's proportions give the
-other; where it says neither the image's own size in pixels, a point to a pixel.
-
-**Give the size in points and send twice the pixels**: a 64-pixel PNG shown at 32 points is sharp
-on a display with two pixels to the point, and shown at its own size (64 points) it is blurry.
-An SVG is drawn at the size it comes to on the display and needs nothing of the kind.
+A page shows pictures with `image(src, fit)` (in Lua, `pencere.image(src):fit(…):tint(…):opacity(…)`;
+`:page(n)` is the page of a PDF shown). What a `src` may name, the formats, the limits, and how a
+picture is sized, fitted and tinted are the protocol's ([Section 9.8](../spec/draft/pencere.md#98-kit-views), Images).
 
 The sandbox crate does the decoding, so that every terminal takes the same formats and the same
 limits. A terminal gives it the files (`Assets`, a path to bytes: its store of the bundle), makes
@@ -124,26 +103,12 @@ page asks for are the drive's `Host::panel`, which the terminal hands the sessio
 
 ## Versions
 
-The kit's version is the one a view names in its `open` (specification Sections 5.4 and 5.5): `lua`
-`0.1`, the page API whose `pencere.version` is the string `"0.1"`. While the specification is a
-draft the versions of `lua` are `0.x`: a change an existing view can notice moves the minor number
-(`0.2` after `0.1`), and an addition does not. A terminal opens one version, and a program written
-for another is not opened and says so in a sentence. (The rules the versions follow from the first
-general release on are in [`spec/versions.md`](spec/versions.md).) The interface `pencere:view` has no
-version of the kit's: it is the link between the interpreter and the sandbox, and a change of it is
-a new build of the interpreter (`make luau`).
-
-From the first general release on:
-
-- An **addition** that no existing view can notice is a new minor version (`1.1`): a new element or
-  a new colour role in the page API. A host opens every published minor version of a major.
-- A **change to something a view already uses** is a new major version (`2.0`), and comes only when
-  a function has to mean something else and a new name cannot do it. A host opens the newest major
-  and the one before it; an older view is refused in words that name both sides.
-- The interpreter is the terminal's, so a new element or a new role is an addition for a script.
-  What breaks a script is a function of the page API that means something else.
-- The library is a part of the page API. A new module, or a new function of a module, is an
-  addition; a function of a module that means something else is a change.
+The kit's version is the one a view names in its `open`: `lua` `0.1`, the page API whose
+`pencere.version` is the string `"0.1"`. The rules the versions follow, in the draft and from the first
+general release on, are the protocol's ([Sections 5.4 and 5.5](../spec/draft/pencere.md#54-versions)), and
+[`spec/versions.md`](spec/versions.md) says what is the kit's own. The interface `pencere:view` has no
+version of the kit's: it is the link between the interpreter and the sandbox, and a change of it is a
+new build of the interpreter (`make luau`).
 
 ## Building
 

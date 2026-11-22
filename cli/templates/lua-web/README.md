@@ -5,13 +5,10 @@ the terminal it runs in. The program is Lua; the view is a web page.
 
 - `src/program/` is the program (`app.lua` and the modules it requires), `src/view/` the web page it
   shows (`index.html` is its entry), `src/assets/` the pictures the program names as `assets/…`.
-- Nothing generated is under `src/`: `pencere build` makes one executable, `dist/{{name}}`, of the
-  app: the program, the page and the interpreter in one file. `pencere build --target
-x86_64-unknown-linux-musl` makes it for another kind of machine. A page that a tool builds (Vite,
-  say) is packed from where it is built: `pencere build --web dist/view`.
-- `pencere dev` runs it in this pane and runs it again when a file under `src/` changes; a change to
-  the page shows the page again without ending the program. `print` goes to `.pencere/log`, since
-  the terminal is under the view.
+- `pencere dev` runs it in this pane, and again when a file under `src/` changes.
+- `pencere build` makes one executable of it, `dist/{{name}}`.
+
+What each does, in full: [the command's README](https://pencere.dev/kit/command).
 
 `src/view/pencere-page.js` is the bridge between the page and the program (`@pencere/sdk/page` of the
 TypeScript SDK, one file with no dependencies); the page imports it by the name its import map gives.

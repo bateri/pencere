@@ -3,9 +3,8 @@
 Show a view in the pane of the terminal your program runs in.
 
 [pencere](https://github.com/bateri/pencere) is a protocol for programs that run in a terminal to
-ask it for a real interface — a web page, or a Lua script that the terminal draws itself —
-that takes the pane the way `vim` takes it and gives it back when it is
-done. This crate is the program's side: it asks the terminal what it can show, opens the view,
+ask it for a real interface in the pane they run in, a web page or a Lua script the terminal draws
+itself ([how it works](https://github.com/bateri/pencere/blob/main/README.md#how-it-works)). This crate is the program's side: it asks the terminal what it can show, opens the view,
 sends the files the terminal lacks, answers the calls of the view and feeds its subscriptions, and
 leaves the terminal as it found it. There is no async runtime in it.
 

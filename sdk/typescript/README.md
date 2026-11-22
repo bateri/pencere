@@ -2,11 +2,9 @@
 
 Show a view in the terminal pane your program runs in.
 
-A program running in a terminal pane — on your machine, or on a server reached over plain
-ssh — can show a view of its own in that pane, the way a full-screen program takes the screen and
-gives it back when it ends. The view is a web page, or a Lua script the terminal draws itself;
-whichever it is, it and your program talk in six small messages, carried in the terminal's own byte
-stream. This package is the program's side of that, as the
+A program running in a terminal pane can show a view of its own in that pane: a web page, or a Lua
+script the terminal draws itself ([what pencere is, and how it works](https://github.com/bateri/pencere/blob/main/README.md#how-it-works)). This package is the
+program's side of that, as the
 [specification](https://github.com/bateri/pencere/blob/main/spec/draft/pencere.md) defines it.
 
 ```sh

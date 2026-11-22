@@ -6,10 +6,11 @@ import { Code } from "astro:components";
 import Home from "../layouts/Home.astro";
 import Scene from "../components/Scene.astro";
 import { REPO, theme } from "../lib/code.js";
-import { install, pens, firstApps } from "../lib/project.js";
+import { install, pens, firstApps, works } from "../lib/project.js";
 
 const first = firstApps();
 const start = install();
+const how = works();
 
 // The tile on a terminal's tab: a prompt, as on the tab of the scene's display.
 const tile = `<svg viewBox="0 0 22 18" aria-hidden="true"><rect x="0.75" y="0.75" width="20.5" height="16.5" rx="5" /><path d="M6.5 6l3 3-3 3M12 12.4h4" /></svg>`;
@@ -78,16 +79,12 @@ const shown = made.pens.map((pen) => {
       </li>
     </ol>
 
-    <p class="said">
-      While the view is up, the program and the view talk in six small messages. The view sends <code>call</code>,
-      <code>subscribe</code> and <code>cancel</code>; the program sends <code>response</code>, <code>push</code> and
-      <code>progress</code>. That is the whole protocol, and it is the same for every kind of view.
-    </p>
+    <p class="said" set:html={how.messages} />
 
     <ul class="facts">
       <li>
         <h3>Plain ssh is enough</h3>
-        <p>The messages ride in the terminal's own stream: no port, no extra connection, nothing to set up on the server.</p>
+        <p set:html={how.carried} />
       </li>
       <li>
         <h3>The terminal's font and theme</h3>
@@ -184,7 +181,7 @@ const shown = made.pens.map((pen) => {
       </li>
       <li>
         <h3>Early</h3>
-        <p>Everything is 0.x, and a minor release may still break.</p>
+        <p set:html={how.early} />
       </li>
     </ul>
     <div class="ends">
