@@ -1,0 +1,28 @@
+== screen reader
+Table "Table"
+Row "Header"
+ColumnHeader "id"
+Text "int"
+Slider "id column width" [value 60 pt]
+ColumnHeader "name"
+Slider "name column width" [value 100 pt]
+ColumnHeader "qty"
+Slider "qty column width" [value 70 pt]
+Row "1 name 1 7"
+Row "2 name 2 14" [selected]
+Row "3 name 3 21"
+== agent
+focus: page
+items:
+qa4pqy  table "Table" [rows 3, columns 3]
+          row "Header"
+pc0pnp      columnheader "id" [column 1]
+              text "int"
+yzcv03        slider "id column width" [value "60 pt"]
+b3aywj      columnheader "name" [column 2, sorted ascending]
+35tcvs        slider "name column width" [value "100 pt"]
+eh2fsg      columnheader "qty" [column 3]
+qksav0        slider "qty column width" [value "70 pt"]
+pa4p5n    row "1 name 1 7" [row 1]
+mva8xy    row "2 name 2 14" [selected, row 2]
+10drg4    row "3 name 3 21" [row 3]

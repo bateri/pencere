@@ -266,6 +266,21 @@ pub enum Event {
     /// The person asked for the command named this, from the host's list of the page's commands
     /// or by its keys ([`crate::Command`]): the key is not told as well.
     Command(Id),
+    /// The command `id` of the element `target` (one of the actions it lists: a command the page
+    /// defined on it) was asked for, by the person, a screen reader or an agent: the page does it
+    /// on that element.
+    CommandOn {
+        id: Id,
+        target: Id,
+    },
+    /// `target` is to be shown: a screen reader moved to it, or an agent asked to see it. The
+    /// element of that id; or, where `index` is there, the row of that number (from 1) of the list, the
+    /// table or the tree of that id. The page scrolls it into view, loads it where it builds only
+    /// what is in view, and moves its cursor to it.
+    Reveal {
+        target: Id,
+        index: Option<u32>,
+    },
     /// The person gave the page files at `at` (the point dropped on, the caret's for a paste, the
     /// page's corner for the Open panel): how, the files, and the paths of those that have one, as
     /// the system that the host runs on writes them.
@@ -540,7 +555,8 @@ impl Panel {
         match event {
             Event::Input(Input::Press { .. } | Input::Release { .. } | Input::Key { .. })
             | Event::MenuPick { .. }
-            | Event::Command(_) => true,
+            | Event::Command(_)
+            | Event::CommandOn { .. } => true,
             // The press an editor takes is the person's as much as one the page takes: the pointer
             // over an editor is told with the editor's place, and a press in a gutter or on a word
             // the page holds is a press.

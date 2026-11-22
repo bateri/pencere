@@ -243,6 +243,23 @@ fn role_name(role: AccessibleRole) -> (&'static str, Option<u8>) {
         AccessibleRole::Image => ("image", None),
         AccessibleRole::Progress => ("progress", None),
         AccessibleRole::Slider => ("slider", None),
+        AccessibleRole::None => ("none", None),
+        AccessibleRole::Dialog => ("dialog", None),
+        AccessibleRole::AlertDialog => ("alertdialog", None),
+        AccessibleRole::Group => ("group", None),
+        AccessibleRole::List => ("list", None),
+        AccessibleRole::ListItem => ("listitem", None),
+        AccessibleRole::ListBox => ("listbox", None),
+        AccessibleRole::ListOption => ("option", None),
+        AccessibleRole::Table => ("table", None),
+        AccessibleRole::Row => ("row", None),
+        AccessibleRole::Cell => ("cell", None),
+        AccessibleRole::ColumnHeader => ("columnheader", None),
+        AccessibleRole::Tree => ("tree", None),
+        AccessibleRole::TreeItem => ("treeitem", None),
+        AccessibleRole::TabList => ("tablist", None),
+        AccessibleRole::Status => ("status", None),
+        AccessibleRole::Alert => ("alert", None),
     }
 }
 
@@ -270,6 +287,7 @@ fn snapshot(lua: &Lua, page: &Headless<Any>) -> mlua::Result<Table> {
         table.set("words", item.words.as_str())?;
         let state = lua.create_table()?;
         state.set("checked", item.state.checked)?;
+        state.set("mixed", item.state.mixed)?;
         state.set("selected", item.state.selected)?;
         state.set("expanded", item.state.expanded)?;
         state.set("disabled", item.state.disabled)?;
@@ -552,6 +570,15 @@ impl UserData for Handle {
         methods.add_method("command", |_, this, name: String| {
             this.act(|page| page.command(&name))
         });
+        methods.add_method("command_on", |_, this, (target, name): (String, String)| {
+            this.act(|page| page.command_on(&target, &name))
+        });
+        methods.add_method(
+            "reveal",
+            |_, this, (target, index): (String, Option<u32>)| {
+                this.act(|page| page.reveal(&target, index))
+            },
+        );
         methods.add_method("pick", |_, this, which: Value| match which {
             Value::String(title) => {
                 let title = title.to_str()?.to_owned();
@@ -1096,6 +1123,21 @@ impl UserData for Handle {
             }
             out.set("commands", list)?;
             Ok(out)
+        });
+        // What an agent reads of the page (`Headless::reading`), written as text: what a golden
+        // reading of a pen's page is set against.
+        methods.add_method("reading", |_, this, ()| {
+            this.act(|page| Ok(page.reading().text()))
+        });
+        // What is wrong with that reading (`Headless::audit`), a line for each flaw; empty where the
+        // page is read well.
+        methods.add_method("audit", |lua, this, ()| {
+            let found = this.act(|page| Ok(page.audit()))?;
+            let list = lua.create_table()?;
+            for (index, finding) in found.iter().enumerate() {
+                list.raw_set(index + 1, finding.to_string())?;
+            }
+            Ok(list)
         });
         methods.add_method("snapshot", |lua, this, ()| {
             this.look(|page| snapshot(lua, page))?

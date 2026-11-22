@@ -1,0 +1,20 @@
+== screen reader
+AlertDialog "Save changes to a.lua?"
+Text "Your changes will be lost."
+Field(Line) "File name"
+Button "Don't Save"
+Button "Save"
+== agent
+focus: page
+rest: motion
+note: behind the modal in front, 2 items of the page, not read
+items:
+ssqwpq  alertdialog "Save changes to a.lua?"
+          text "Your changes will be lost."
+jgf45p    button "Don't Save"
+hcjzws    button "Save"
+fields:
+vdr9rr  field "File name" = "a.lua"
+commands:
+  "Save" [cmd+s] (disabled)
+  "Help" [f1]

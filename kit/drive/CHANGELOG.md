@@ -8,6 +8,28 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Added
 
+- **A reading says the whole vocabulary**: the new roles by their web names, and in the brackets of an item
+  `mixed`, `level N`, `N of M`, `rows R, columns C`, `row N`, `column N`, `sorted ascending`, `roledescription "…"`,
+  `description "…"` (what the tip says more than the name), `keys "…"` (the keys of the tip) and `action "…"` for each
+  command the page defined on the element; the JSON has the same under `state` and as `roledescription`,
+  `description`, `keys` and `actions`. `Headless::command_on(target, command)` and `Headless::reveal(target,
+index)` (and `Page::command_on`, `Page::reveal`, the host/test `page:command_on` and `page:reveal`) ask for
+  them. An item has `detail` (`pencere_view::Detail`).
+- **A reading is a tree, and says what a modal shuts out**: an item has its `parent` (a group, with the
+  children under it, indented by two spaces in the text), the reading has `behind` (how many items of the
+  page behind a modal layer are not read: a note line in the text) and its JSON has
+  `format: 2`, each item's `parent` (the place in `items`, from 0, of its group) and `behind`. A JSON with no `format` is the
+  flat one of before. The audit's flaw `behind` is an item of the page behind a modal that is read, which
+  a reader that cannot take it out says (the model's own never does).
+- **A modal shuts out the page's fields, editors' markers and boxes that scroll too**: with a modal layer in front, the reading has no `fields`, `scrolls` or gutter markers of what is behind it (`Laid::ids_behind`).
+- **`Outline::behind`**: how many items of the page the layer in front shuts out of `accessible`.
+- **`Reading::audit` and `Headless::audit`** (`audit::{Finding, Flaw}`): what is wrong with a page's reading,
+  each flaw with the line of the reading's text it is on: a control with no name, the same words twice in
+  a row, a control with no id, an element that answers the pointer and says it only shows. A page's test
+  holds the page to an empty list; `pencere test` has it as `page:audit()`, and `page:reading()` for the
+  reading's text, which a pen pins as a golden.
+- **`Accessible::pressable`** (`pencere-view`) and **`reading::Item::pressable`**: whether an element
+  answers the pointer, whatever its role says it is.
 - **`Page::reading` and `reading::Reading`**: what an agent reads of a page: its elements by a six-letter
   name made of their `Id`, its fields, the lines its editors show and what is selected, the boxes that
   scroll, its commands, where the keyboard is (a field, an editor or a browser) and whether it is at

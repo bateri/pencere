@@ -1,0 +1,20 @@
+== screen reader
+Editor ""
+== agent
+focus: editor 5tk4vs
+items:
+editors:
+5tk4vs  editor "" lines 1-2 of 2, caret 1:1 (keyboard)
+  1| alpha beta
+  2| gamma delta
+commands:
+  "Show Editor Menu" [shift+f10]
+== menu
+Cut
+Copy
+Paste
+-
+Select All
+-
+Toggle Line Comment
+Select All Occurrences

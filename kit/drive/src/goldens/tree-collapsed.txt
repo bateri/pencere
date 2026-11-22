@@ -1,0 +1,10 @@
+== screen reader
+Tree "Tree"
+TreeItem "src" [collapsed]
+Button "Expand src"
+== agent
+focus: page
+items:
+56mfvd  tree "Tree"
+rx6xax    treeitem "src" [collapsed, level 1]
+mq7hj8      button "Expand src"

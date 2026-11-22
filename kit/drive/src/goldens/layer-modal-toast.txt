@@ -1,0 +1,20 @@
+== screen reader
+Dialog "Sheet"
+Button "Hint"
+Button "Menu"
+Button "Search"
+Button "Delete"
+Status "Saved"
+Button "Dismiss"
+== agent
+focus: page
+rest: motion
+note: behind the modal in front, 2 items of the page, not read
+items:
+y4nskw  dialog "Sheet"
+m43dq7    button "Hint"
+f49gtz    button "Menu"
+vd6rxz    button "Search"
+hx5sx8    button "Delete"
+cjkx13  status "Saved"
+ackz2n    button "Dismiss"

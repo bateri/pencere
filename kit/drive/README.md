@@ -236,8 +236,28 @@ agent will see.
 - **What the host holds, it gives** (`ReadingInput`): the text of its fields and where its keyboard is,
   a field of its own or a browser.
   The value of a secret field is never asked for and is in no reading.
+- **A reading is a tree, and the page behind a modal is not in it**: an item that is in a group (a dialog,
+  a row, a tab that holds controls) is two spaces in under it; where a modal layer is in front, the page
+  behind it is not read and a `note: behind the modal in front, N items of the page, not read` says how much
+  it was. The JSON has `format` (2 here; no `format` is the flat reading of before), each item's `parent`
+  (the place in `items`, from 0, of its group) and `behind`. In the brackets of an item: what it is in (`checked`, `mixed`,
+  `selected`, `expanded`, `disabled`, `value "…"`), where (`level N`, `N of M`, `rows R, columns C`, `row N`,
+  `column N`, `sorted ascending`), and what else (`roledescription "…"`, `description "…"` where the tip says
+  more than the name, `keys "…"` of the tip, and `action "…"` for each command the page defined on the
+  element: `Headless::command_on` does one, `Headless::reveal` asks for a row to be shown).
 - **A reading is cleaned**: control characters are `?`, long words are cut (a `…` says so), line breaks
   stay.
+- **A reading is audited** (`Reading::audit`, `Headless::audit`; in `pencere test`, `page:audit()`): the flaws
+  that a person who reads by ear and an agent meet first, each with the line of the reading's text it is
+  on and the name it begins with (`audit::Finding`): a control with no name (`nameless`), the same words
+  twice in a row (`twice`), a control with no id (`no id`), and an element that answers the pointer and
+  says it only shows (`misfit`). The list is empty where the page is read well, and a test holds the
+  page to that: `assert_eq!(page.audit(), [])` (`audit::report` writes the findings a line each).
+- **A reading is pinned by a golden** (a pen's test sets `page:reading()` against a file it keeps; the
+  kit's own are `src/goldens/`, one for each component and each state of a layer, and
+  `PENCERE_BLESS=1` writes them again): what a change of the model or of a component changes in what is
+  read is then the change of those files, which is where it is reviewed. A golden is the reading's
+  text; a pen that pins one holds the refs fixed by its own ids.
 - **At rest** (`Page::rest`) says whether the module has more to do of what it was told, how many
   calls to the program have no answer (a subscription and what the program pushes are not calls), whether
   an image is on its way and whether the page is laid out for what it last was. It never waits: a host

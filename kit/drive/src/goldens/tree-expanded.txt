@@ -1,0 +1,18 @@
+== screen reader
+Tree "Tree"
+TreeItem "src" [expanded]
+Button "Collapse src"
+TreeItem "a.lua"
+TreeItem "lib" [collapsed]
+Button "Expand lib"
+TreeItem "z.lua"
+== agent
+focus: page
+items:
+56mfvd  tree "Tree"
+rx6xax    treeitem "src" [expanded, level 1]
+mq7hj8      button "Collapse src"
+8damfv    treeitem "a.lua" [level 2]
+vdh89t    treeitem "lib" [collapsed, level 2]
+qpj0ah      button "Expand lib"
+m8rhtd    treeitem "z.lua" [level 2]

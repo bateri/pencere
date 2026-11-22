@@ -910,18 +910,146 @@ end
 local ROLES = {
 	button = true, text = true, link = true, checkbox = true, switch = true, radio = true,
 	tab = true, menu_item = true, heading = true, image = true, progress = true, slider = true,
+	none = true,
+	dialog = true, alertdialog = true, group = true, list = true, listitem = true, listbox = true,
+	option = true, table = true, row = true, cell = true, columnheader = true, tree = true,
+	treeitem = true, tablist = true, status = true, alert = true,
 }
+
+-- What this kit has that an earlier one has not, by name: the roles it knows (`pencere.roles`, and
+-- "role.<name>"), the methods of an element that came after the first (`"element.<method>"`), what a
+-- host tells the page (`"event.<type>"`, `"command.target"`), and the options of the library's
+-- components (`"ui.<component>.<option>"`). A page written for a later kit asks `pencere.has(name)`
+-- before it uses what it asks for and shows a screen that says so where the host is too old: an older
+-- kit has no `pencere.has` at all, and that is as good as `false`.
+local HAS = {
+	["element.layer"] = true, ["element.fallback_name"] = true, ["element.mixed"] = true,
+	["element.level"] = true, ["element.position"] = true, ["element.table_size"] = true,
+	["element.cell_at"] = true, ["element.sorted"] = true, ["element.role_description"] = true,
+	["event.reveal"] = true, ["event.command"] = true, ["command.target"] = true,
+	-- What the library's components took after the first kit, as `ui.<component>.<option>`: `letters`
+	-- of a dialog (the first letter of an action answers with it), `height` and `top` of a modal's and a
+	-- dialog's card, and the `reveal` of a list and of a grid.
+	["ui.dialog.letters"] = true, ["ui.dialog.height"] = true, ["ui.dialog.top"] = true,
+	["ui.modal.height"] = true, ["ui.modal.top"] = true,
+	["ui.list.reveal"] = true, ["ui.grid.reveal"] = true,
+}
+local roles = {}
+for role in ROLES do
+	HAS["role." .. role] = true
+	roles[role] = true
+end
+pencere.roles = roles
+function pencere.has(name)
+	if type(name) ~= "string" then
+		refuse("pencere.has takes the name of a thing, not " .. type(name))
+	end
+	return HAS[name] == true
+end
 
 -- What the element is to a screen reader, where its look says it and its answers do not:
 -- "checkbox", "switch", "radio", "tab", "menu_item", "link", "heading" (with its level, 1 to 6),
--- "image", "progress", "slider", "button", "text".
+-- "image", "progress", "slider", "button", "text", and "none" (not read: it answers the pointer or
+-- holds words and is no control to a person who reads by ear, and what is inside it is read). A role
+-- this kit does not know is left out, with a warning, and not a page that fails: a page written for a
+-- later kit still runs.
 function Element:role(role, level)
+	if type(role) ~= "string" then
+		refuse("a role is a word, not " .. type(role))
+	end
 	if not ROLES[role] then
-		refuse("a role is one of button, text, link, checkbox, switch, radio, tab, menu_item, "
-			.. "heading, image, progress, slider; not " .. tostring(role))
+		warn("an element's role is not one this kit knows (" .. role .. "), and is left out")
+		return self
 	end
 	self.meta.role = role
 	self.meta.level = level
+	return self
+end
+
+-- The element is the root of a layer drawn over the page: with `modal` (the default) it shuts the page
+-- behind it out of what a screen reader and an agent read, as a sheet or an `aria-modal` does;
+-- `layer(false)` (a popover, a toast) leaves the page. What the layer opens from inside it is in it.
+function Element:layer(modal)
+	if modal ~= nil and type(modal) ~= "boolean" then
+		refuse("layer takes true for a modal layer and false for one that is not, not " .. type(modal))
+	end
+	self.meta.layer = modal ~= false
+	return self
+end
+
+-- What a screen reader says of the element where its own name comes to no words (no label, no
+-- words inside it, no tip): "Row 3" for a row of controls that has none. It never replaces a name.
+function Element:fallback_name(words)
+	if type(words) ~= "string" then
+		refuse("fallback_name takes the words, not " .. type(words))
+	end
+	self.meta.fallback_name = words
+	return self
+end
+
+-- A count from 1: a level, a place in a set, the size of a set, a row, a column.
+local function count(what, value, least)
+	least = least or 1
+	if type(value) ~= "number" or value < least or value ~= math.floor(value) then
+		refuse(what .. " takes a whole number from " .. least .. ", not " .. tostring(value))
+	end
+	return value
+end
+
+-- Neither on nor off: a checkbox that stands for some that are chosen and some that are not.
+function Element:mixed(...)
+	local on = told(...)
+	self.meta.mixed = on
+	if on then
+		self.meta.checked = nil
+	end
+	return self
+end
+
+-- How deep the element is in a tree, from 1.
+function Element:level(depth)
+	self.meta.state_level = count("level", depth)
+	return self
+end
+
+-- Which of `size` the element is, from 1: a tab, an option, an item of a list built only where it shows.
+function Element:position(index, size)
+	self.meta.posinset = count("position's index", index)
+	self.meta.setsize = count("position's size", size)
+	return self
+end
+
+-- How many rows and columns the whole table has (more than the cells the page builds, where it builds
+-- only what is in view).
+function Element:table_size(rows, columns)
+	self.meta.rowcount = count("table_size's rows", rows, 0)
+	self.meta.colcount = count("table_size's columns", columns, 0)
+	return self
+end
+
+-- Which row and which column of the table the element is, from 1: a row has no column (nil), a cell both.
+function Element:cell_at(row, column)
+	self.meta.rowindex = row ~= nil and count("cell_at's row", row) or nil
+	self.meta.colindex = column ~= nil and count("cell_at's column", column) or nil
+	return self
+end
+
+-- How the table is sorted by the column this header is: "ascending" or "descending".
+function Element:sorted(order)
+	if order ~= "ascending" and order ~= "descending" then
+		refuse('sorted takes "ascending" or "descending", not ' .. tostring(order))
+	end
+	self.meta.sort = order
+	return self
+end
+
+-- What the page calls the kind of element this is, in its own words ("process", "issue card"): a
+-- screen reader says it in place of the role's.
+function Element:role_description(words)
+	if type(words) ~= "string" then
+		refuse("role_description takes the words, not " .. type(words))
+	end
+	self.meta.role_description = words
 	return self
 end
 

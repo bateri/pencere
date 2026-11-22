@@ -13,7 +13,7 @@ keywords = ["terminal", "pencere", "ui", "testing"]
 categories = ["gui", "development-tools::testing"]
 # The tests of `src/` read the example pages of the repository, which a crate does not carry.
 include = [
-    "src/**", "!src/*_tests.rs", "!src/fixtures/**",
+    "src/**", "!src/*_tests.rs", "!src/fixtures/**", "!src/goldens/**",
     "Cargo.toml", "build.rs", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE", "fonts/**",
 ]
 

@@ -154,8 +154,22 @@ bool flag(lua_State* L, int t, const char* name) {
     return value;
 }
 
-// The word `name` holds, as its place in `words`; `fallback` when it holds nothing. -1 when it
-// is none of the words (the caller says which it was).
+// A count from `least` (1 for a level, a position, a row, a column; 0 for the size of a table): not said
+// for anything else.
+view_option_u32_t optional_count(lua_State* L, int t, const char* name, double least = 1) {
+    view_option_u32_t out = {};
+    get(L, t, name);
+    if (lua_type(L, -1) == LUA_TNUMBER) {
+        double given = lua_tonumber(L, -1);
+        if (given >= least && given <= 4294967295.0) {
+            out.is_some = true;
+            out.val = (uint32_t)given;
+        }
+    }
+    lua_pop(L, 1);
+    return out;
+}
+
 // A field that is true, false or not said.
 view_option_bool_t optional_flag(lua_State* L, int t, const char* name) {
     view_option_bool_t out = {};
@@ -168,6 +182,8 @@ view_option_bool_t optional_flag(lua_State* L, int t, const char* name) {
     return out;
 }
 
+// The word `name` holds, as its place in `words`; `fallback` when it holds nothing. -1 when it
+// is none of the words (the caller says which it was).
 int word(lua_State* L, int t, const char* name, const char* const* words, int count, int fallback) {
     get(L, t, name);
     int found = fallback;
@@ -1092,10 +1108,17 @@ pencere_view_types_slice_t commands_at(lua_State* L, int list, Arenas& arenas) {
 }
 
 // What an element is to a screen reader, by its word, and the level of a heading.
-const char* const kAccessibleRoles[] = {"button", "text", "link", "checkbox", "switch", "radio",
-                                "tab",    "menu_item", "heading", "image", "progress", "slider"};
+const char* const kAccessibleRoles[] = {"button", "text", "link", "checkbox", "switch", "radio", "tab",
+                                "menu_item", "heading", "image", "progress", "slider", "none",
+                                "dialog", "alertdialog", "group", "list", "listitem", "listbox",
+                                "option", "table", "row", "cell", "columnheader", "tree",
+                                "treeitem", "tablist", "status", "alert"};
 static_assert(PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_BUTTON == 0 && PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_MENU_ITEM == 7 &&
-                  PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_HEADING == 8 && PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_SLIDER == 11,
+                  PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_HEADING == 8 && PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_SLIDER == 11 &&
+                  PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_NONE == 12 &&
+                  PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_DIALOG == 13 &&
+                  PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_ALERT == 28 &&
+                  sizeof(kAccessibleRoles) / sizeof(kAccessibleRoles[0]) == 29,
               "kAccessibleRoles is the order of accessible-role");
 
 // --- An editor ------------------------------------------------------------------------------
@@ -1733,7 +1756,7 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
             lua_pop(L, 1);
         }
         lua_pop(L, 1);
-        int role = word(L, meta, "role", kAccessibleRoles, 12, -1);
+        int role = word(L, meta, "role", kAccessibleRoles, sizeof(kAccessibleRoles) / sizeof(kAccessibleRoles[0]), -1);
         if (role >= 0) {
             nodes.ptr[at].role.is_some = true;
             nodes.ptr[at].role.val.tag = (uint8_t)role;
@@ -1742,10 +1765,43 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
                 nodes.ptr[at].role.val.val.heading = level < 1 ? 1 : (level > 6 ? 6 : (uint8_t)level);
             }
         }
+        nodes.ptr[at].layer = optional_flag(L, meta, "layer");
+        get(L, meta, "fallback_name");
+        if (lua_type(L, -1) == LUA_TSTRING) {
+            size_t length = 0;
+            const char* bytes = lua_tolstring(L, -1, &length);
+            nodes.ptr[at].fallback_name.is_some = true;
+            nodes.ptr[at].fallback_name.val = add_words(flat.arenas, bytes, length);
+        }
+        lua_pop(L, 1);
         nodes.ptr[at].state.checked = optional_flag(L, meta, "checked");
         nodes.ptr[at].state.selected = flag(L, meta, "selected");
         nodes.ptr[at].state.expanded = optional_flag(L, meta, "expanded");
         nodes.ptr[at].state.disabled = flag(L, meta, "disabled");
+        nodes.ptr[at].state.mixed = flag(L, meta, "mixed");
+        nodes.ptr[at].state.level = optional_count(L, meta, "state_level");
+        nodes.ptr[at].state.setsize = optional_count(L, meta, "setsize");
+        nodes.ptr[at].state.posinset = optional_count(L, meta, "posinset");
+        nodes.ptr[at].state.rowcount = optional_count(L, meta, "rowcount", 0);
+        nodes.ptr[at].state.colcount = optional_count(L, meta, "colcount", 0);
+        nodes.ptr[at].state.rowindex = optional_count(L, meta, "rowindex");
+        nodes.ptr[at].state.colindex = optional_count(L, meta, "colindex");
+        {
+            static const char* const kSorts[] = {"ascending", "descending"};
+            int sort = word(L, meta, "sort", kSorts, 2, -1);
+            if (sort >= 0) {
+                nodes.ptr[at].state.sort.is_some = true;
+                nodes.ptr[at].state.sort.val = (uint8_t)sort;
+            }
+        }
+        get(L, meta, "role_description");
+        if (lua_type(L, -1) == LUA_TSTRING) {
+            size_t length = 0;
+            const char* bytes = lua_tolstring(L, -1, &length);
+            nodes.ptr[at].role_description.is_some = true;
+            nodes.ptr[at].role_description.val = add_words(flat.arenas, bytes, length);
+        }
+        lua_pop(L, 1);
         get(L, meta, "value");
         if (lua_type(L, -1) == LUA_TSTRING) {
             size_t length = 0;
@@ -2218,6 +2274,22 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             set_word(L, "type", "command");
             push_id(L, event.val.command);
             lua_setfield(L, -2, "id");
+            break;
+        case PENCERE_VIEW_TYPES_EVENT_COMMAND_ON:
+            // { type = "command", id =, target = }: the command of this id, done on that element.
+            set_word(L, "type", "command");
+            push_id(L, event.val.command_on.id);
+            lua_setfield(L, -2, "id");
+            push_id(L, event.val.command_on.target);
+            lua_setfield(L, -2, "target");
+            break;
+        case PENCERE_VIEW_TYPES_EVENT_REVEAL:
+            // { type = "reveal", target =, index = }: show the element, or that row (from 1) of the
+            // list, table or tree of that id.
+            set_word(L, "type", "reveal");
+            push_id(L, event.val.reveal.target);
+            lua_setfield(L, -2, "target");
+            if (event.val.reveal.index.is_some) set_number(L, "index", event.val.reveal.index.val);
             break;
         case PENCERE_VIEW_TYPES_EVENT_FILES: {
             // { type = "files", x =, y =, source = "drop" | "paste" | "pick", files = { { handle =,

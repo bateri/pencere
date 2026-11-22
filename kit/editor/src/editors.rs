@@ -340,15 +340,17 @@ impl Editors {
     }
 
     /// What the markers of the gutters in view say of themselves (their `label`s): each with its box
-    /// in the page's points, for a screen reader and for the host's tooltips.
+    /// in the page's points, for a screen reader and for the host's tooltips. Not those of an editor
+    /// behind a modal layer in front, which a screen reader does not read.
     pub fn labels(&self, laid: &Laid) -> Vec<(Rect, String)> {
         let s = self.scale.max(0.01);
         let mut out = Vec::new();
+        let behind = laid.ids_behind();
         for room in laid.editors() {
             let Some(editor) = self
                 .editors
                 .get(&room.id)
-                .filter(|e| e.shown && !room.hidden)
+                .filter(|e| e.shown && !room.hidden && !behind.contains(&room.id))
             else {
                 continue;
             };

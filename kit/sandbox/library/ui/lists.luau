@@ -154,7 +154,7 @@ local List = core.component("list", {
 		local rows, height = rows_of(u, props)
 		local has_keys = props.active or u:focus_within(id)
 		state.marks = state.marks or {}
-		local box = pencere.div():id(id):grow(1):min_h(0):scroll()
+		local box = pencere.div():id(id):grow(1):min_h(0):scroll():role(props.container_role or "listbox"):fallback_name(props.container_name or "List")
 		if props.focusable ~= false then
 			box:focusable()
 		end
@@ -190,7 +190,7 @@ local List = core.component("list", {
 			end
 			local row = pencere.div()
 				:press(part)
-				:role(props.role or "menu_item")
+				:role(props.role or "option")
 				:selected(selected)
 				:label(item.label or item.title or tostring(key))
 				:h(height)
@@ -200,6 +200,12 @@ local List = core.component("list", {
 				:items_center()
 				:bg(ground)
 				:child(content)
+			if props.positions ~= false then
+				row:position(index, count_of(props))
+			end
+			if item.level ~= nil then
+				row:level(item.level)
+			end
 			if item.expanded ~= nil then
 				row:expanded(item.expanded)
 			end
@@ -243,6 +249,27 @@ local List = core.component("list", {
 			return true, { kind = "select", key = key, how = "pointer" }
 		end
 		return true
+	end,
+	reveal = function(u, id, props, state, part, key, event)
+		-- The row `index` (from 1) of this list, as the whole list numbers them: scrolled into view, so
+		-- that a page that reads only what is in view reads it, and the cursor moved there.
+		local index = event.index
+		if part == "row" then
+			-- The row itself is the target (a screen reader's move to it): its place is looked for.
+			index = index_of(props, count_of(props), key)
+		elseif part ~= nil then
+			return nil
+		end
+		if index == nil or index < 1 or index > count_of(props) then
+			return nil
+		end
+		reveal(u, id, props, index)
+		local item = props.items[index]
+		if item == nil then
+			return true
+		end
+		state.cursor = key_of(props, item)
+		return true, { kind = "select", key = state.cursor, how = "reveal" }
 	end,
 	hover = function(u, id, props, state, part, key)
 		if part == "row" and props.hover_selects and state.cursor ~= key then
@@ -751,6 +778,7 @@ local Picker = core.component("picker", {
 		local card = pencere.div()
 			:anchor(props.anchor, props.side or "below", { gap = props.gap or 4, align = props.align })
 			:id(id)
+			:layer(false)
 			:w(math.min(props.width or 280, math.max(u.size.w - 2 * 8, 120)))
 			:bg(t.popup)
 			:rounded(t.radius.card)
@@ -869,6 +897,7 @@ local Completions = core.component("completions", {
 		local card = pencere.div()
 			:anchor(pencere.caret_of(props.editor), "below", { gap = 4 })
 			:id(id)
+			:layer(false)
 			:w(props.width or 320)
 			:bg(t.popup)
 			:rounded(t.radius.card)

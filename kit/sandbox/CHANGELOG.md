@@ -8,6 +8,35 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **The library's components are read as what they are**: a modal, a dialog (`alertdialog` where an action is
+  `danger`) and a palette with a label are a `dialog` named by it, with what is in it under it; the scrim
+  that answers the pointer to give up is `none` (not read: a person gives up with escape; it was a
+  button "Close …"), and a dialog's title is its name and no heading inside it. A list is a `listbox` of
+  `option`s with their place (`1 of 200`), a tree a `tree` of `treeitem`s with their `level`, a grid a `table` (its label, "Table"
+  where it has none) with a header `row` of `columnheader`s (`column N`, `sorted ascending`) and `row`s
+  (`row N`), whose rows have "Row N" where their cells say nothing, tabs a `tablist` of `tab`s with their place,
+  segments their place, a toast a `status` (`alert` for the tones `warn` and `bad`) and the count of a find
+  bar a `status`. A list asked to show a row (`reveal`) scrolls to it, builds it and moves its cursor there
+  (`{ kind = "select", key =, how = "reveal" }`).
+- **`letters`, `height` and `top` of a dialog and a modal**: `u:dialog` with `letters = true` answers by the first
+  letter of an action's title (not where it has an `input`); `u:modal` and `u:dialog` take `height` and `top`
+  (the card's height and how far down it stands) as they took `width`. `pencere.has("ui.dialog.letters")`,
+  `"ui.dialog.height"`, `"ui.dialog.top"`, `"ui.modal.height"` and `"ui.modal.top"` say whether a kit has them.
+- **A grid and a list show the row a `reveal` names**: a grid scrolls to the row (by its number or its name),
+  moves its cursor there and says `{ kind = "select", row =, column =, how = "reveal" }`; a list does so for the
+  row that is the target (`pencere.has("ui.grid.reveal")`, `"ui.list.reveal"`).
+- **The page API's new vocabulary, and a way to ask for it**: the roles `dialog` … `alert` (sixteen, by the
+  web's names), `Element:mixed`, `level`, `position`, `table_size`, `cell_at`, `sorted` and
+  `role_description`, `pencere.roles` and `pencere.has(name)` (`"role.<role>"`, `"element.<method>"`,
+  `"event.reveal"`, `"command.target"`): a page asks before it uses what a kit has not always had; a test fails
+  for an element method that is new and has no name. The page is told `{ type = "command", id =, target = }` when a
+  command is done on an element and `{ type = "reveal", target =, index = }` when something is to be shown (WIT
+  `event.command-on` and `event.reveal`, and `node.role-description`, `state.mixed` … `state.sort`).
+- **`Element:layer(modal)` and `Element:fallback_name(words)`, and the role `"none"`** of the page's
+  `Element:role`: a layer that shuts the page behind it out of what a screen reader and an agent read, the
+  name an element falls back on, and an element that is not read. The library's modals, dialogs and
+  palettes are modal layers, its popovers, completions, drawers and toasts layers that leave the page. A role
+  this kit does not know is left out of the element with a warning (`warn`), and does not fail the page.
 - **`row_label(row)` of `ui.grid`**: the words a screen reader and an agent say a row by where the page
   has better than its cells' (nil leaves it to them), checked to be a function.
 - **`Module::idle`**: whether the module has done everything it was told and what came of it is out,
@@ -119,6 +148,12 @@ dy, blur, color)` (a glow with no offset), `pencere.linear` and `pencere.radial`
   shows the page and, for a program that runs on a server, at that server too (unless the person has
   chosen to keep none there), so that every computer that shows the program finds the same sessions. Nothing of it passes through the protocol and the
   page never reads it; the `profile` option and the kit do not change.
+- The rows of the library's lists, palettes, trees and grids are `option`, `treeitem`, `row` and
+  `columnheader` to a screen reader, where they were `menu_item` and `button`: a host that presses an
+  element by its role must press by `Accessible::pressable` (Section 2.5). The `command` a page lists on
+  an element (`Element:command`) done on it reaches the page's `on_action` as `{ from = "commands",
+kind = "command", id =, target =, key = }`, where `key` is the row's if the element is part of a list or
+  a grid.
 - Where the host says `cells`, a grid has no rule under its head and a palette none under its field and
   above its footer. A page that is not on cells is laid out as it was.
 - `pencere.layout.keymap` lists the keys of the host's keyboard: where ⌃ is the main modifier (`"windows"`,

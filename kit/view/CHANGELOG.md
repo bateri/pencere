@@ -8,6 +8,28 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Added
 
+- **The vocabulary of what a screen reader is told**: the roles `dialog`, `alertdialog`, `group`, `list`,
+  `listitem`, `listbox`, `option` (`ListOption`), `table`, `row`, `cell`, `columnheader`, `tree`, `treeitem`,
+  `tablist`, `status` and `alert` after the first thirteen; the states `State::mixed`, `level`, `setsize`,
+  `posinset`, `rowcount`, `colcount`, `rowindex`, `colindex` and `sort` (`Sort`); `Element::mixed`, `level`,
+  `position`, `table_size`, `cell_at`, `sorted` and `role_description`; and `Accessible::detail`
+  (`Detail`: what the tip says more than the name, its keys, the page's name for the kind, and the
+  `Action`s, the commands defined on an element but the outermost).
+- **`Event::CommandOn` and `Event::Reveal`**: a command done on an element, and something to be shown.
+- **A layer shuts the page behind it out of what is read** (`Element::layer`, `Laid::accessible_behind`):
+  the root of a layer drawn over the page says whether it is modal; with a modal one in front, what is
+  outside it (and outside a layer that is not modal and is drawn after it) is not in `Laid::accessible`,
+  and `accessible_behind` says how many items that was. What a modal opens from inside it (a menu, a
+  popover, a tip) is in it, by where it was written.
+- **`AccessibleRole::None`**: an element that answers the pointer or holds words and is no control to a
+  person who reads by ear (a scrim, a card that takes the click) is not read; what is inside it is.
+- **`Accessible::parent`**: an element that has a role and holds controls is a group, and what is
+  inside it is its children.
+- **`Element::fallback_name`**: the name an element is read by where it has none of its own (a row of
+  controls: "Row 3"); it never replaces a name.
+- **`Laid::ids_behind`**: the names of the elements a modal layer in front shuts out of `accessible`, for a reader that lists a page's fields, editors and boxes that scroll apart from its items.
+- **`Accessible::pressable`**: whether an element answers the pointer, whatever its role says it is (a
+  text that is pressed is a control read as words; the reading's audit finds it).
 - **`Laid::scroll_areas`**: the boxes that scroll and have a name, each with how far it is scrolled and
   the part of it that shows.
 - **A browser the host keeps** (`Element::browser`, `BrowserOptions`, `BrowserAsk`, `BrowserState`,
@@ -69,6 +91,14 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
 
 ### Changed
 
+- **Breaking for hosts: new fields and variants.** `State`, `Accessible` and `Meta` have new public fields
+  (`State::mixed`, `level`, `setsize`, `posinset`, `rowcount`, `colcount`, `rowindex`, `colindex`, `sort`;
+  `Accessible::parent`, `detail`, `pressable`; `Meta::layer`, `fallback`, `role_description`, `commands`),
+  `AccessibleRole` and `Event` have new variants (`Event::CommandOn`, `Event::Reveal`), and none is
+  `#[non_exhaustive]`: a host that builds these types, or matches them without a `_` arm, is written again.
+  A host that decides what presses by the role of an element (`button`, `menu_item`, `tab`) must decide it
+  by `Accessible::pressable`: the library's rows are `option`, `treeitem` and `row` now and answer the
+  pointer all the same.
 - **Breaking: a path is painted with a `Brush`.** `Path::fill` is an `Option<Brush>` and `Stroke` has
   a `brush` where it had a `color`, with `dash`, `dash_offset`, `cap` and `join`, and is no longer
   `Copy`. `Path::fill(colour)` and `Path::stroke(width, colour)` are called as they were. A path

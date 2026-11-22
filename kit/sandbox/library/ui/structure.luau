@@ -81,6 +81,7 @@ local Tree = core.component("tree", {
 			row.shown = shown
 			row.label = shown.title or tostring(row.key)
 			row.expanded = row.open
+			row.level = row.depth + 1
 		end
 		state.flat = flat
 		local guides = props.guides ~= false
@@ -89,7 +90,10 @@ local Tree = core.component("tree", {
 			state = state,
 			height = props.height,
 			key_map = props.key_map,
-			role = "button",
+			role = "treeitem",
+			container_role = "tree",
+			container_name = "Tree",
+			positions = false,
 			row = function(row, _, look_of)
 				local shown = row.shown
 				local line = pencere.div():row():items_center():w_full():h_full()
@@ -254,7 +258,7 @@ local Split = core.component("split", {
 					:shadow(0, 0, 24, alpha("shadow", 0.4))
 					:motion({ seconds = 0.16, enter = { opacity = 0, dx = at_start and -16 or 16, seconds = 0.16 } })
 					:child(sized)
-				local drawer = pencere.div():overlay():inset(0, 0, 0, 0):row()
+				local drawer = pencere.div():overlay():inset(0, 0, 0, 0):row():layer(false)
 				if not at_start then
 					drawer:justify_end()
 				end

@@ -15,6 +15,7 @@
 //!
 //! The crate knows no window, no renderer, no font and no terminal.
 
+pub mod audit;
 mod browsers;
 mod editing;
 mod glide;
@@ -28,6 +29,7 @@ mod scrolling;
 pub mod shot;
 mod waking;
 
+pub use audit::{Finding, Flaw};
 pub use browsers::{Browser, UNSUPPORTED, frame, placeholder};
 pub use host::{CarryOut, Copied, Drained, Held, Host};
 pub use outline::{Field, Outline, Placement, Tip, ZOOM_TEXT};
@@ -36,12 +38,16 @@ pub use pencere_editor::Route;
 pub use reading::{Reading, ReadingInput, Rest};
 pub use scrolling::Scrolling;
 
+#[cfg(test)]
+mod audit_tests;
 #[cfg(all(test, feature = "shot"))]
 mod browser_shot_tests;
 #[cfg(all(test, feature = "shot"))]
 mod fonts_tests;
 #[cfg(test)]
 mod glide_tests;
+#[cfg(test)]
+mod golden_tests;
 #[cfg(test)]
 mod headless_tests;
 #[cfg(all(test, feature = "program"))]

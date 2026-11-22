@@ -1,0 +1,12 @@
+== screen reader
+Button "Toggle"
+Text "Sidebar"
+Slider "Sidebar width" [value 240 pt]
+Text "Main"
+== agent
+focus: page
+items:
+1gn8sk  button "Toggle"
+        text "Sidebar"
+824ngb  slider "Sidebar width" [value "240 pt"]
+        text "Main"

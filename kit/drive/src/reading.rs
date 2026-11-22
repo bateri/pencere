@@ -20,7 +20,9 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use pencere_view::{AccessibleRole, FieldKind, Id, Key, Mods, Point, Rect, Shortcut, State};
+use pencere_view::{
+    AccessibleRole, Detail, FieldKind, Id, Key, Mods, Point, Rect, Shortcut, Sort, State,
+};
 use pencere_wire::messages::numbered;
 use serde_json::{Map, Value, json};
 
@@ -117,6 +119,16 @@ pub struct Item {
     pub state: State,
     /// Where it stands, in the host's points.
     pub rect: Rect,
+    /// A press on it does something, whatever it says it is ([`pencere_view::Accessible::pressable`]).
+    pub pressable: bool,
+    /// The item that holds this one, as an index of the reading's items: a dialog, a row, a tab that
+    /// carries controls is a group, and what is inside it is read under it.
+    pub parent: Option<usize>,
+    /// It is in the page behind a modal layer that is in front, which a reader that cannot take it
+    /// out of the reading says so (a web page's script); the model's own reading never has it.
+    pub behind: bool,
+    /// What it is for, its keys, what the page calls its kind, what else can be done with it.
+    pub detail: Detail,
 }
 
 /// A text field the host puts over the page.
@@ -211,6 +223,15 @@ pub struct ReadingInput<'a> {
     pub menu: Option<Vec<MenuLine>>,
 }
 
+/// A reading written, and the line each of its items, fields and editors begins at.
+#[derive(Default)]
+pub(crate) struct Written {
+    pub text: String,
+    pub items: Vec<usize>,
+    pub fields: Vec<usize>,
+    pub editors: Vec<usize>,
+}
+
 /// What a page is to an agent.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Reading {
@@ -225,6 +246,9 @@ pub struct Reading {
     pub menu: Option<Vec<MenuLine>>,
     /// What this reading cannot say of this page, each a sentence.
     pub notes: Vec<String>,
+    /// How many items the page has behind a modal layer in front of it: not in `items`, which are
+    /// what the layer says, and not pressable ([`pencere_view::Laid::accessible_behind`]).
+    pub behind: usize,
 }
 
 /// What [`Reading::find`] came to.
@@ -318,6 +342,23 @@ fn role_of(role: AccessibleRole) -> String {
         AccessibleRole::Progress => "progress".to_owned(),
         AccessibleRole::Slider => "slider".to_owned(),
         AccessibleRole::Browser => "browser".to_owned(),
+        AccessibleRole::None => "none".to_owned(),
+        AccessibleRole::Dialog => "dialog".to_owned(),
+        AccessibleRole::AlertDialog => "alertdialog".to_owned(),
+        AccessibleRole::Group => "group".to_owned(),
+        AccessibleRole::List => "list".to_owned(),
+        AccessibleRole::ListItem => "listitem".to_owned(),
+        AccessibleRole::ListBox => "listbox".to_owned(),
+        AccessibleRole::ListOption => "option".to_owned(),
+        AccessibleRole::Table => "table".to_owned(),
+        AccessibleRole::Row => "row".to_owned(),
+        AccessibleRole::Cell => "cell".to_owned(),
+        AccessibleRole::ColumnHeader => "columnheader".to_owned(),
+        AccessibleRole::Tree => "tree".to_owned(),
+        AccessibleRole::TreeItem => "treeitem".to_owned(),
+        AccessibleRole::TabList => "tablist".to_owned(),
+        AccessibleRole::Status => "status".to_owned(),
+        AccessibleRole::Alert => "alert".to_owned(),
     }
 }
 
@@ -330,6 +371,10 @@ impl Item {
             words: item.words.clone(),
             state: item.state.clone(),
             rect: item.rect,
+            pressable: item.pressable,
+            parent: item.parent,
+            behind: false,
+            detail: item.detail.clone(),
         }
     }
 }
@@ -385,6 +430,22 @@ fn rounded(rect: Rect) -> Value {
 }
 
 impl Reading {
+    /// How many groups hold the item: the indent it is told by.
+    fn depth(&self, item: &Item) -> usize {
+        let (mut depth, mut at) = (0, item.parent);
+        while let Some(outer) = at {
+            depth += 1;
+            // A reading is a list in which a group is before what it holds: a parent that is not, is
+            // no parent (a reading made by hand), and ends the walk.
+            at = self
+                .items
+                .get(outer)
+                .and_then(|group| group.parent)
+                .filter(|above| *above < outer);
+        }
+        depth
+    }
+
     /// Every element of the reading that has an [`Id`], once, in the order they are told.
     pub fn ids(&self) -> Vec<Id> {
         let mut seen = HashSet::new();
@@ -450,6 +511,13 @@ impl Reading {
 
     /// The reading written for a person or a model: one line to an element, its name first.
     pub fn text(&self) -> String {
+        self.written().text
+    }
+
+    /// [`Reading::text`], and the line each item, field and editor of it begins at (from 1), which
+    /// the audit tells a flaw by.
+    pub(crate) fn written(&self) -> Written {
+        let mut at = Written::default();
         let clashes = self.clashes();
         let name = |id: Option<Id>| match id {
             Some(id) => {
@@ -470,22 +538,35 @@ impl Reading {
         for note in &self.notes {
             out.push_str(&format!("note: {}\n", clean(note, WORDS_LIMIT)));
         }
+        if self.behind > 0 {
+            out.push_str(&format!(
+                "note: behind the modal in front, {} item{} of the page, not read\n",
+                self.behind,
+                if self.behind == 1 { "" } else { "s" }
+            ));
+        }
         if !self.items.is_empty() {
             out.push_str("items:\n");
         }
+        let mut row = out.matches('\n').count();
         for item in &self.items {
-            out.push_str(&format!(
-                "{} {} {}{}\n",
+            let line = format!(
+                "{} {}{} {}{}\n",
                 name(item.id),
+                "  ".repeat(self.depth(item)),
                 clean(&item.role, WORDS_LIMIT),
                 quoted(&clean(&item.words, WORDS_LIMIT)),
-                state_words(&item.state)
-            ));
+                state_words(&item.state, &item.detail)
+            );
+            at.items.push(row + 1);
+            row += line.matches('\n').count();
+            out.push_str(&line);
         }
         if !self.fields.is_empty() {
             out.push_str("fields:\n");
         }
         for field in &self.fields {
+            at.fields.push(out.matches('\n').count() + 1);
             let kind = match field.kind {
                 FieldKind::Line => "field",
                 FieldKind::Lines => "field (lines)",
@@ -518,6 +599,7 @@ impl Reading {
             out.push_str("editors:\n");
         }
         for editor in &self.editors {
+            at.editors.push(out.matches('\n').count() + 1);
             self.write_editor(&mut out, editor, &name(Some(editor.id)));
         }
         if !self.scrolls.is_empty() {
@@ -566,7 +648,8 @@ impl Reading {
                 out.push('\n');
             }
         }
-        out
+        at.text = out;
+        at
     }
 
     fn write_editor(&self, out: &mut String, editor: &EditorReading, name: &str) {
@@ -634,9 +717,54 @@ impl Reading {
                     object.insert("ref".into(), Value::Null);
                     object.insert("id".into(), Value::Null);
                 }
+                // The group's place in `items` (from 0): not its ref, which an item with no name has none
+                // of and a clash makes ambiguous.
+                object.insert("parent".into(), json!(item.parent));
                 object.insert("role".into(), json!(clean(&item.role, WORDS_LIMIT)));
                 object.insert("text".into(), json!(clean(&item.words, WORDS_LIMIT)));
                 object.insert("state".into(), state_json(&item.state));
+                object.insert(
+                    "roledescription".into(),
+                    json!(
+                        item.detail
+                            .role_description
+                            .as_deref()
+                            .map(|words| clean(words, WORDS_LIMIT))
+                    ),
+                );
+                object.insert(
+                    "description".into(),
+                    json!(
+                        item.detail
+                            .description
+                            .as_deref()
+                            .map(|words| clean(words, WORDS_LIMIT))
+                    ),
+                );
+                object.insert(
+                    "keys".into(),
+                    json!(
+                        item.detail
+                            .keys
+                            .as_deref()
+                            .map(|words| clean(words, WORDS_LIMIT))
+                    ),
+                );
+                object.insert(
+                    "actions".into(),
+                    Value::Array(
+                        item.detail
+                            .actions
+                            .iter()
+                            .map(|action| {
+                                json!({
+                                    "title": clean(&action.title, WORDS_LIMIT),
+                                    "enabled": action.enabled,
+                                })
+                            })
+                            .collect(),
+                    ),
+                );
                 object.insert("box".into(), rounded(item.rect));
                 Value::Object(object)
             })
@@ -736,6 +864,9 @@ impl Reading {
             }
         };
         let value = json!({
+            // The shape of the reading: 1 had no `format` and a flat list of items; 2 has `parent` (the
+            // place in `items` of the group an item is in) and `behind`.
+            "format": 2,
             "focus": focus,
             "rest": {
                 "resting": self.rest.resting(),
@@ -747,6 +878,7 @@ impl Reading {
                 "moving": self.rest.moving,
             },
             "notes": self.notes.iter().map(|note| clean(note, WORDS_LIMIT)).collect::<Vec<_>>(),
+            "behind": self.behind,
             "items": items,
             "fields": fields,
             "editors": editors,
@@ -763,12 +895,15 @@ fn quoted(words: &str) -> String {
     format!("\"{}\"", words.replace('\n', "\n        "))
 }
 
-fn state_words(state: &State) -> String {
+fn state_words(state: &State, detail: &Detail) -> String {
     let mut parts: Vec<String> = Vec::new();
     match state.checked {
         Some(true) => parts.push("checked".to_owned()),
         Some(false) => parts.push("unchecked".to_owned()),
         None => {}
+    }
+    if state.mixed {
+        parts.push("mixed".to_owned());
     }
     if state.selected {
         parts.push("selected".to_owned());
@@ -784,6 +919,53 @@ fn state_words(state: &State) -> String {
     if let Some(value) = &state.value {
         parts.push(format!("value {}", quoted(&clean(value, WORDS_LIMIT))));
     }
+    if let Some(level) = state.level {
+        parts.push(format!("level {level}"));
+    }
+    match (state.posinset, state.setsize) {
+        (Some(at), Some(of)) => parts.push(format!("{at} of {of}")),
+        (None, Some(of)) => parts.push(format!("of {of}")),
+        _ => {}
+    }
+    match (state.rowcount, state.colcount) {
+        (Some(rows), Some(columns)) => parts.push(format!("rows {rows}, columns {columns}")),
+        (Some(rows), None) => parts.push(format!("rows {rows}")),
+        (None, Some(columns)) => parts.push(format!("columns {columns}")),
+        _ => {}
+    }
+    if let Some(row) = state.rowindex {
+        parts.push(format!("row {row}"));
+    }
+    if let Some(column) = state.colindex {
+        parts.push(format!("column {column}"));
+    }
+    match state.sort {
+        Some(Sort::Ascending) => parts.push("sorted ascending".to_owned()),
+        Some(Sort::Descending) => parts.push("sorted descending".to_owned()),
+        None => {}
+    }
+    if let Some(words) = &detail.role_description {
+        parts.push(format!(
+            "roledescription {}",
+            quoted(&clean(words, WORDS_LIMIT))
+        ));
+    }
+    if let Some(words) = &detail.description {
+        parts.push(format!(
+            "description {}",
+            quoted(&clean(words, WORDS_LIMIT))
+        ));
+    }
+    if let Some(keys) = &detail.keys {
+        parts.push(format!("keys {}", quoted(&clean(keys, WORDS_LIMIT))));
+    }
+    for action in &detail.actions {
+        parts.push(format!(
+            "action {}{}",
+            quoted(&clean(&action.title, WORDS_LIMIT)),
+            if action.enabled { "" } else { " (disabled)" }
+        ));
+    }
     if parts.is_empty() {
         String::new()
     } else {
@@ -796,6 +978,9 @@ fn state_json(state: &State) -> Value {
     if let Some(checked) = state.checked {
         object.insert("checked".into(), json!(checked));
     }
+    if state.mixed {
+        object.insert("mixed".into(), json!(true));
+    }
     if state.selected {
         object.insert("selected".into(), json!(true));
     }
@@ -807,6 +992,28 @@ fn state_json(state: &State) -> Value {
     }
     if let Some(value) = &state.value {
         object.insert("value".into(), json!(clean(value, WORDS_LIMIT)));
+    }
+    for (name, count) in [
+        ("level", state.level),
+        ("setsize", state.setsize),
+        ("posinset", state.posinset),
+        ("rowcount", state.rowcount),
+        ("colcount", state.colcount),
+        ("rowindex", state.rowindex),
+        ("colindex", state.colindex),
+    ] {
+        if let Some(count) = count {
+            object.insert(name.into(), json!(count));
+        }
+    }
+    if let Some(sort) = state.sort {
+        object.insert(
+            "sort".into(),
+            json!(match sort {
+                Sort::Ascending => "ascending",
+                Sort::Descending => "descending",
+            }),
+        );
     }
     Value::Object(object)
 }
@@ -876,9 +1083,16 @@ fn names(text: &str, members: &[&str]) -> bool {
 pub(crate) fn read(page: &mut Page, input: &ReadingInput<'_>, rest: Rest) -> Reading {
     let outline = page.outline().clone();
     let place = page.placement();
+    // What a modal layer in front shuts out is not in the items, and neither is it a field or a box
+    // that scrolls here: a reader is not told of what it cannot be told to fill or to scroll.
+    let behind = page
+        .laid()
+        .map(pencere_view::Laid::ids_behind)
+        .unwrap_or_default();
     let fields: Vec<FieldReading> = outline
         .fields
         .iter()
+        .filter(|field| !behind.contains(&field.id))
         .map(|field| FieldReading {
             id: field.id,
             kind: field.kind,
@@ -897,14 +1111,26 @@ pub(crate) fn read(page: &mut Page, input: &ReadingInput<'_>, rest: Rest) -> Rea
     let keyboard = page.focused_editor();
     let mut editors = Vec::new();
     let mut items = Vec::new();
+    // An item taken out of the list (a field, an editor) is not where its children's `parent` says:
+    // where each item of the outline stands in the reading's.
+    let mut placed: Vec<Option<usize>> = Vec::with_capacity(outline.accessible.len());
     for item in &outline.accessible {
         match (item.role, item.id) {
             (AccessibleRole::Editor, Some(id)) => {
                 editors.push(editor_of(page, id, item, keyboard == Some(id)));
+                placed.push(None);
             }
-            (AccessibleRole::Field(_), Some(id)) if field_ids.contains(&id) => {}
-            _ => items.push(Item::of(item)),
+            (AccessibleRole::Field(_), Some(id)) if field_ids.contains(&id) => placed.push(None),
+            _ => {
+                placed.push(Some(items.len()));
+                items.push(Item::of(item));
+            }
         }
+    }
+    for item in &mut items {
+        item.parent = item
+            .parent
+            .and_then(|outer| placed.get(outer).copied().flatten());
     }
     let editor_ids: HashSet<Id> = editors.iter().map(|editor| editor.id).collect();
     let scrolls = page
@@ -912,7 +1138,9 @@ pub(crate) fn read(page: &mut Page, input: &ReadingInput<'_>, rest: Rest) -> Rea
         .map(|laid| {
             laid.scroll_areas()
                 .into_iter()
-                .filter(|(id, extent, _)| !editor_ids.contains(id) && extent.max_offset() > 0.5)
+                .filter(|(id, extent, _)| {
+                    !editor_ids.contains(id) && !behind.contains(id) && extent.max_offset() > 0.5
+                })
                 .map(|(id, extent, rect)| {
                     let most = extent.max_offset();
                     let at = extent.offset.y;
@@ -957,6 +1185,7 @@ pub(crate) fn read(page: &mut Page, input: &ReadingInput<'_>, rest: Rest) -> Rea
             .collect(),
         menu: input.menu.clone(),
         notes: Vec::new(),
+        behind: outline.behind,
     }
 }
 

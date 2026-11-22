@@ -119,7 +119,7 @@ local Bar = core.component("find_bar", {
 		row:child(pencere.div():grow(1):min_w(120):max_w(360):child(query))
 		row:child(
 			pencere.div():min_w(78):no_shrink():child(
-				pencere.text(count_words(state)):text_size(t.text.small):color(state.invalid and "error" or t.ink_dim)
+				pencere.text(count_words(state)):role("status"):text_size(t.text.small):color(state.invalid and "error" or t.ink_dim)
 			)
 		)
 		row:child(u:icon_button(u:part(id, "previous"), { icon = "chevron_up", label = "Previous match", keys = "shift+enter", size = t.size.control - 4 }))

@@ -69,8 +69,8 @@ pub use browser::{
 pub use color::{Color, Mix, Rgba, Role, Source};
 pub use command::{Command, Shortcut};
 pub use element::{
-    Carry, Element, FieldKind, Fit, Image, Payload, State, canvas, div, image, rich, spacer, spark,
-    text,
+    Carry, Element, FieldKind, Fit, Image, Payload, Sort, State, canvas, div, image, rich, spacer,
+    spark, text,
 };
 pub use fades::{FADE_SECONDS, Fades};
 pub use field::{FieldState, Fill};
@@ -82,8 +82,8 @@ pub use input::{
     MenuEntry, Mods, Panel, Place, Reply, Saving, Scrolled, copy_key,
 };
 pub use layout::{
-    Accessible, AccessibleRole, BrowserRoom, Carrying, EditorRoom, Extent, Field, Laid, Queries,
-    Spill, layout,
+    Accessible, AccessibleRole, Action, BrowserRoom, Carrying, Detail, EditorRoom, Extent, Field,
+    Laid, Queries, Spill, layout,
 };
 pub use motion::{Ease, Motion, Motions, Shift, Tip};
 pub use paint::{BrowserSlot, DrawList, EditorSlot, Figure, Paint, Picture, Quad, Run};

@@ -1,0 +1,35 @@
+== screen reader
+Radio "List" [checked]
+Radio "Grid" [unchecked]
+Radio "Tree" [unchecked]
+Checkbox "Match case" [checked]
+Field(Line) "Name"
+Text "a.lua changed on disk"
+Button "Reload"
+Button "Keep mine"
+Button "Dismiss"
+Text "12"
+Text "draft"
+Text "⇧"
+Text "⌘"
+Text "K"
+Text "⌃Enter"
+== agent
+focus: page
+items:
+ke8c9s  radio "List" [checked, 1 of 3]
+jj19z2  radio "Grid" [unchecked, 2 of 3]
+nyrmw3  radio "Tree" [unchecked, 3 of 3]
+9h5zzx  checkbox "Match case" [checked, keys "⌥⌘C"]
+        text "a.lua changed on disk"
+aq5cew  button "Reload"
+wrnsqw  button "Keep mine"
+vers2r  button "Dismiss"
+        text "12"
+        text "draft"
+        text "⇧"
+        text "⌘"
+        text "K"
+        text "⌃Enter"
+fields:
+wvwfwt  field "Name"

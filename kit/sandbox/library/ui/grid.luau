@@ -256,7 +256,7 @@ local Grid = core.component("grid", {
 		local keyboard = u:focus_within(body_name)
 		local chosen = state.cursor
 
-		local header = pencere.div():row():h(head):w(room):no_shrink():bg(t.surface)
+		local header = pencere.div():row():h(head):w(room):no_shrink():bg(t.surface):role("row"):fallback_name("Header")
 		if look.in_cells() then
 			-- It centres its cells' words (the cells are as tall as it is), which on the cells of a
 			-- terminal makes it as many rows as the lines in its cells, one for a title and two where a
@@ -280,8 +280,9 @@ local Grid = core.component("grid", {
 			local over = u:hovered(part)
 			local cell = pencere.div()
 				:press(part)
-				:role("button")
-				:label((column.title or tostring(column.key)) .. (sorted and (state.sort.descending and ", sorted descending" or ", sorted ascending") or ""))
+				:role("columnheader")
+				:label(column.title or tostring(column.key))
+				:cell_at(nil, index)
 				:row()
 				:items_center()
 				:gap(4)
@@ -291,6 +292,9 @@ local Grid = core.component("grid", {
 				:no_shrink()
 				:bg(over and t.hover or nil)
 				:motion({ seconds = t.motion, color = true })
+			if sorted then
+				cell:sorted(state.sort.descending and "descending" or "ascending")
+			end
 			if column.align == "end" then
 				cell:justify_end()
 			end
@@ -332,7 +336,9 @@ local Grid = core.component("grid", {
 			local row_part = u:part(id, "row", place)
 			local line = pencere.div()
 				:press(row_part)
-				:role("menu_item")
+				:role("row")
+				:fallback_name("Row " .. place)
+				:cell_at(place, nil)
 				:selected(chosen ~= nil and chosen.row == place)
 				:row()
 				:items_center()
@@ -394,7 +400,7 @@ local Grid = core.component("grid", {
 			return line
 		end)
 
-		local grid = pencere.div():id(id):col():grow(1):min_h(0):min_w(0):scroll():child(header)
+		local grid = pencere.div():id(id):col():grow(1):min_h(0):min_w(0):scroll():role("table"):label(props.label or "Table"):table_size(props.count, #props.columns):child(header)
 		-- A rule under the head is a row of its own on the cells of a terminal (a point is a row there),
 		-- one a table has not the rows to spare: the head is told from the rows by its words alone.
 		if not look.in_cells() then
@@ -494,6 +500,23 @@ local Grid = core.component("grid", {
 		state.cursor = cell
 		reveal(u, id, props, state, cell)
 		return true, { kind = "select", row = cell.row, column = cell.column }
+	end,
+	reveal = function(u, id, props, state, part, key, event)
+		-- The row `index` (from 1), or the row that is the target, scrolled into view, and the cursor moved
+		-- to it (in the column it is in).
+		local row = event.index
+		if part == "row" then
+			row = tonumber(key)
+		elseif part ~= nil then
+			return nil
+		end
+		if row == nil or row < 1 or row > props.count then
+			return nil
+		end
+		local cell = { row = row, column = state.cursor and state.cursor.column or 1 }
+		state.cursor = cell
+		reveal(u, id, props, state, cell)
+		return true, { kind = "select", row = cell.row, column = cell.column, how = "reveal" }
 	end,
 	scrolled = function(u, id, props, state, part, _, box)
 		if part == nil then

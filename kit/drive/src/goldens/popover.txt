@@ -1,0 +1,11 @@
+== screen reader
+Button "Anchor"
+Button "Elsewhere"
+Text "Hello"
+== agent
+focus: page
+rest: motion
+items:
+9vd4pn  button "Anchor"
+begqdq  button "Elsewhere"
+        text "Hello"

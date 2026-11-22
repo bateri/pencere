@@ -950,11 +950,32 @@ function Ctx:handle(event)
 			self.holder = "page"
 		end
 		out.reply = merge(out.reply, true)
+	elseif kind == "command" and event.target ~= nil then
+		-- A command done on one element (the row an agent or a screen reader chose "Delete" of): the page
+		-- is told the command and which element it is done on, and the part of a component the element is
+		-- (`key`, a row's), so that it does it to that one and not to what the page has chosen.
+		local _, _, key = self:_owner(event.target)
+		out.taken = true
+		out.reply = merge(out.reply, true)
+		table.insert(out.actions, { from = "commands", kind = "command", id = event.id, target = event.target, key = key })
 	elseif kind == "command" then
 		if not self:_tell(out, event.id, "command", event) and self.commands[event.id] then
 			out.taken = true
 			out.reply = merge(out.reply, true)
 			table.insert(out.actions, { from = "commands", kind = "command", id = event.id })
+		end
+	elseif kind == "reveal" then
+		-- Something is to be shown (a screen reader moved to a row that is not built, an agent asked to see
+		-- it): the component that is the target, or that the target is a part of, scrolls it into view and
+		-- moves its cursor there (`reveal`), and the page is told what came of it.
+		local mount, part, key = self:_owner(event.target)
+		if mount then
+			local reply, action = call(self, mount, "reveal", part, key, event)
+			if reply ~= nil then
+				out.taken = true
+				out.reply = merge(out.reply, reply)
+				self:_emit(out, mount, action)
+			end
 		end
 	elseif kind == "menu" then
 		-- The line picked is the one of the menu the person was shown, which the page may have asked for

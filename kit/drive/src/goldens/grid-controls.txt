@@ -1,0 +1,46 @@
+== screen reader
+Table "Table"
+Row "Header"
+ColumnHeader "id"
+Text "int"
+Slider "id column width" [value 60 pt]
+ColumnHeader "name"
+Slider "name column width" [value 100 pt]
+ColumnHeader "qty"
+Slider "qty column width" [value 70 pt]
+Row "Row 1"
+Button "id 1"
+Button "name 1"
+Button "qty 1"
+Row "Row 2" [selected]
+Button "id 2"
+Button "name 2"
+Button "qty 2"
+Row "Row 3"
+Button "id 3"
+Button "name 3"
+Button "qty 3"
+== agent
+focus: page
+items:
+qa4pqy  table "Table" [rows 3, columns 3]
+          row "Header"
+pc0pnp      columnheader "id" [column 1]
+              text "int"
+yzcv03        slider "id column width" [value "60 pt"]
+b3aywj      columnheader "name" [column 2, sorted ascending]
+35tcvs        slider "name column width" [value "100 pt"]
+eh2fsg      columnheader "qty" [column 3]
+qksav0        slider "qty column width" [value "70 pt"]
+pa4p5n    row "Row 1" [row 1]
+966m9e      button "id 1"
+06s4e5      button "name 1"
+e49ay6      button "qty 1"
+mva8xy    row "Row 2" [selected, row 2]
+2p40en      button "id 2"
+k8xpkw      button "name 2"
+6hk00s      button "qty 2"
+10drg4    row "Row 3" [row 3]
+qejmp3      button "id 3"
+j06dcs      button "name 3"
+nhnm9s      button "qty 3"

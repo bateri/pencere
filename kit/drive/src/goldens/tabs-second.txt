@@ -1,0 +1,13 @@
+== screen reader
+TabList "Tabs"
+Tab "a.lua"
+Tab "b.lua" [selected]
+Tab "c.lua"
+== agent
+focus: page
+rest: motion
+items:
+fadwqh  tablist "Tabs"
+fqrzfe    tab "a.lua" [1 of 3]
+t6s0s0    tab "b.lua" [selected, 2 of 3]
+3n36jr    tab "c.lua" [3 of 3]

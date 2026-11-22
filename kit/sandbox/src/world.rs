@@ -24,7 +24,8 @@ use pencere_view::{
     Extent, Family, FileSource, Fill, GesturePhase, Gradient, Id, Input, Join, Key, KeyConvention,
     Keyboard, Laid, MOST_KEYS, Matrix, Menu, MenuEntry, Mix, Mods, Motion, PROFILE_CHARS, Panel,
     Path, Payload, Phase, Point, Rect, Reply, Rgba, Role, ScrollTo, Segment, Shadow, Shift,
-    Shortcut, Side, Size, Source, Span, State, Stop, Stroke, Tip, Track, Zoom, profile_allowed,
+    Shortcut, Side, Size, Sort, Source, Span, State, Stop, Stroke, Tip, Track, Zoom,
+    profile_allowed,
 };
 use pencere_wire::bundle::{LUA_MEDIA_TYPE, is_path};
 use pencere_wire::json::unescaped_len;
@@ -570,6 +571,14 @@ fn event_in(event: Event) -> wit::Event {
             index: u32::try_from(index).unwrap_or(u32::MAX),
         }),
         Event::Command(id) => wit::Event::Command(id_out(id)),
+        Event::CommandOn { id, target } => wit::Event::CommandOn(wit::CommandOn {
+            id: id_out(id),
+            target: id_out(target),
+        }),
+        Event::Reveal { target, index } => wit::Event::Reveal(wit::RevealRequest {
+            target: id_out(target),
+            index,
+        }),
         Event::Files {
             at,
             source,
@@ -1605,6 +1614,23 @@ fn accessible_role_out(role: wit::AccessibleRole) -> AccessibleRole {
         wit::AccessibleRole::Image => AccessibleRole::Image,
         wit::AccessibleRole::Progress => AccessibleRole::Progress,
         wit::AccessibleRole::Slider => AccessibleRole::Slider,
+        wit::AccessibleRole::None => AccessibleRole::None,
+        wit::AccessibleRole::Dialog => AccessibleRole::Dialog,
+        wit::AccessibleRole::AlertDialog => AccessibleRole::AlertDialog,
+        wit::AccessibleRole::Group => AccessibleRole::Group,
+        wit::AccessibleRole::List => AccessibleRole::List,
+        wit::AccessibleRole::ListItem => AccessibleRole::ListItem,
+        wit::AccessibleRole::ListBox => AccessibleRole::ListBox,
+        wit::AccessibleRole::Option => AccessibleRole::ListOption,
+        wit::AccessibleRole::Table => AccessibleRole::Table,
+        wit::AccessibleRole::Row => AccessibleRole::Row,
+        wit::AccessibleRole::Cell => AccessibleRole::Cell,
+        wit::AccessibleRole::ColumnHeader => AccessibleRole::ColumnHeader,
+        wit::AccessibleRole::Tree => AccessibleRole::Tree,
+        wit::AccessibleRole::TreeItem => AccessibleRole::TreeItem,
+        wit::AccessibleRole::TabList => AccessibleRole::TabList,
+        wit::AccessibleRole::Status => AccessibleRole::Status,
+        wit::AccessibleRole::Alert => AccessibleRole::Alert,
     }
 }
 
@@ -1768,11 +1794,42 @@ fn node_out(node: &wit::Node, limits: &ModuleLimits, lists: &mut Lists<'_>) -> R
                 })
                 .transpose()?,
             role: node.role.map(accessible_role_out),
+            layer: node.layer,
+            fallback: node
+                .fallback_name
+                .as_ref()
+                .map(|part| {
+                    lists
+                        .words(part, limits.text, "a fallback name")
+                        .map(str::to_owned)
+                })
+                .transpose()?,
+            role_description: node
+                .role_description
+                .as_ref()
+                .map(|part| {
+                    lists
+                        .words(part, limits.text, "a role description")
+                        .map(str::to_owned)
+                })
+                .transpose()?,
             state: State {
                 checked: node.state.checked,
                 selected: node.state.selected,
                 expanded: node.state.expanded,
                 disabled: node.state.disabled,
+                mixed: node.state.mixed,
+                level: node.state.level,
+                setsize: node.state.setsize,
+                posinset: node.state.posinset,
+                rowcount: node.state.rowcount,
+                colcount: node.state.colcount,
+                rowindex: node.state.rowindex,
+                colindex: node.state.colindex,
+                sort: node.state.sort.map(|order| match order {
+                    wit::SortOrder::Ascending => Sort::Ascending,
+                    wit::SortOrder::Descending => Sort::Descending,
+                }),
                 value: node
                     .state
                     .value
@@ -3266,12 +3323,24 @@ mod tests {
             motion: None,
             tip: None,
             role: None,
+            layer: None,
+            fallback_name: None,
+            role_description: None,
             state: wit::State {
                 checked: None,
                 selected: false,
                 expanded: None,
                 disabled: false,
                 value: None,
+                mixed: false,
+                level: None,
+                setsize: None,
+                posinset: None,
+                rowcount: None,
+                colcount: None,
+                rowindex: None,
+                colindex: None,
+                sort: None,
             },
             commands: nothing(),
             focused: false,

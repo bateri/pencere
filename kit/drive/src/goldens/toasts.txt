@@ -1,0 +1,15 @@
+== screen reader
+Button "Say"
+Status "Saved a.lua"
+Button "Dismiss"
+Alert "Disk is full"
+Button "Dismiss"
+== agent
+focus: page
+rest: motion
+items:
+tyy8q3  button "Say"
+cjkx13  status "Saved a.lua"
+ackz2n    button "Dismiss"
+cncrkk  alert "Disk is full"
+98vpy7    button "Dismiss"

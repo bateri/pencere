@@ -1,0 +1,14 @@
+== screen reader
+TabList "Tabs"
+Tab "a.lua" [selected]
+Button "Close a.lua"
+Tab "b.lua"
+Tab "c.lua"
+== agent
+focus: page
+items:
+fadwqh  tablist "Tabs"
+fqrzfe    tab "a.lua" [selected, 1 of 3]
+hc3jvy      button "Close a.lua"
+t6s0s0    tab "b.lua" [2 of 3]
+3n36jr    tab "c.lua" [3 of 3]

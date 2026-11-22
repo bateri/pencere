@@ -940,6 +940,18 @@ impl Page {
         self.state.event(Event::Command(id));
     }
 
+    /// The command `id` was asked for on the element `target`, one of the actions it lists
+    /// ([`pencere_view::Detail::actions`]): the page does it on that element.
+    pub fn command_on(&mut self, id: Id, target: Id) {
+        self.state.event(Event::CommandOn { id, target });
+    }
+
+    /// `target` is to be shown (a screen reader moved to it, or an agent asked to see it): the
+    /// element of that id, or, with `index` (from 1), that row of the list, table or tree of that id.
+    pub fn reveal(&mut self, target: Id, index: Option<u32>) {
+        self.state.event(Event::Reveal { target, index });
+    }
+
     /// Files were dropped on the page at `at`, in the host's points: their paths, and nothing more
     /// of them (a host that gives the page files with handles says [`Page::give`]).
     pub fn files(&mut self, at: Point, paths: Vec<String>) {

@@ -810,6 +810,84 @@ fn a_dialog_is_answered_by_a_button_by_enter_and_by_giving_up() -> Result<(), Er
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_dialog_that_takes_letters_is_answered_by_the_first_letter_of_an_action_and_otherwise_not()
+-> Result<(), Error> {
+    // The same page, its dialog asking for letters; and one asking for none.
+    let lettered = DIALOG.replace(
+        "title = \"Save changes to a.lua?\",",
+        "letters = true, title = \"Save changes to a.lua?\",",
+    );
+    let mut page = open(&lettered)?;
+    page.click("open")?;
+    page.step()?;
+    page.press("d")?;
+    page.step()?;
+    assert_eq!(log(&page), ["open press", "unsaved answer key=drop"]);
+    page.click("open")?;
+    page.step()?;
+    page.press("x")?;
+    page.step()?;
+    assert!(
+        page.says("Save changes to a.lua?"),
+        "a letter no action starts with answers nothing"
+    );
+    page.press("s")?;
+    page.step()?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("unsaved answer key=save")
+    );
+    let mut page = open(DIALOG)?;
+    page.click("open")?;
+    page.step()?;
+    page.press("d")?;
+    page.step()?;
+    assert!(page.says("Save changes to a.lua?"), "no letters, no answer");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_dialog_and_a_modal_take_the_width_the_height_and_the_top_of_their_card() -> Result<(), Error> {
+    let mut plain = open(DIALOG)?;
+    plain.click("open")?;
+    plain.step()?;
+    let was = plain.bounds("unsaved/card").expect("the card");
+    let sized = DIALOG.replace(
+        "title = \"Save changes to a.lua?\",",
+        "width = 300, height = 220, top = 20, title = \"Save changes to a.lua?\",",
+    );
+    let mut page = open(&sized)?;
+    page.click("open")?;
+    page.step()?;
+    let card = page.bounds("unsaved/card").expect("the card");
+    assert_eq!((card.w, card.h), (300.0, 220.0), "{card:?}");
+    assert!(
+        card.y < was.y - 20.0,
+        "the card stands higher: {card:?} against {was:?}"
+    );
+    // A modal takes them as a dialog does.
+    let mut modal = open(
+        r#"
+S.on = true
+view = function(u)
+    local root = pencere.div():child(u:button("open", { title = "Open" }))
+    if S.on then
+        root:child(u:modal("m", { label = "Pick", width = 260, height = 150, top = 30 },
+            pencere.div():child(pencere.text("Inside"))))
+    end
+    return root
+end
+"#,
+    )?;
+    modal.step()?;
+    let card = modal.bounds("m/card").expect("the card");
+    assert_eq!((card.w, card.h), (260.0, 150.0), "{card:?}");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_dialog_with_an_input_answers_with_what_is_typed() -> Result<(), Error> {
     let mut page = open(&DIALOG.replace("S.asking = false", "S.asking = false\nS.named = true"))?;
     page.click("open")?;
@@ -1233,7 +1311,7 @@ fn a_list_builds_the_rows_in_view_and_is_chosen_and_opened_with_the_pointer() ->
     );
     assert_eq!(
         accessible(&page, "results/row/k1").role,
-        AccessibleRole::MenuItem
+        AccessibleRole::ListOption
     );
     page.click("results/row/k2")?;
     assert_eq!(log(&page), ["results select how=pointer key=k2"]);
@@ -1249,6 +1327,103 @@ fn a_list_builds_the_rows_in_view_and_is_chosen_and_opened_with_the_pointer() ->
         log(&page).last().map(String::as_str),
         Some("results context key=k4")
     );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_list_is_asked_to_show_a_row_that_is_not_built_and_builds_it_and_moves_its_cursor_there()
+-> Result<(), Error> {
+    let mut page = open(LIST)?;
+    assert!(page.bounds("results/row/k150").is_none());
+    // The row 150 of the 200: not built, and not where the pointer or the keys went.
+    page.reveal("results", Some(150))?;
+    assert!(
+        page.bounds("results/row/k150").is_some(),
+        "the row asked for is built and in view"
+    );
+    assert!(accessible(&page, "results/row/k150").state.selected);
+    assert_eq!(
+        accessible(&page, "results/row/k150").state.posinset,
+        Some(150)
+    );
+    assert_eq!(
+        accessible(&page, "results/row/k150").state.setsize,
+        Some(200)
+    );
+    assert!(
+        log(&page).contains(&"results select how=reveal key=k150".to_string()),
+        "{:?}",
+        log(&page)
+    );
+    // A row there is none of is not an error: nothing moves.
+    page.reveal("results", Some(500))?;
+    assert!(accessible(&page, "results/row/k150").state.selected);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_list_is_named_by_its_fallback_and_not_by_the_rows_built_past_the_edge_of_what_it_shows()
+-> Result<(), Error> {
+    let mut page = open(LIST)?;
+    let reading = page.reading();
+    let boxes: Vec<_> = reading
+        .items
+        .iter()
+        .filter(|item| item.role == "listbox")
+        .collect();
+    assert_eq!(boxes.len(), 1, "{}", reading.text());
+    assert_eq!(boxes[0].words, "List", "{}", reading.text());
+    assert!(reading.audit().is_empty(), "{:?}", reading.audit());
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_list_is_shown_the_row_that_is_the_target_of_a_reveal_and_a_grid_its_row() -> Result<(), Error>
+{
+    let mut page = open(LIST)?;
+    // The row itself is asked for, as a screen reader's move to it is: by its name.
+    page.reveal("results/row/k2", None)?;
+    assert!(
+        log(&page).contains(&"results select how=reveal key=k2".to_string()),
+        "{:?}",
+        log(&page)
+    );
+    // A grid shows the row, in the column the cursor is in, by its place and by its row.
+    let mut page = open(GRID)?;
+    assert!(page.bounds("g/row/250").is_none());
+    page.reveal("g", Some(250))?;
+    assert!(
+        page.bounds("g/row/250").is_some(),
+        "the row asked for is built"
+    );
+    assert_eq!(log(&page), ["g select column=1 how=reveal row=250"]);
+    // A row that is built is a target by its name too.
+    page.reveal("g/row/248", None)?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("g select column=1 how=reveal row=248")
+    );
+    page.reveal("g", Some(9999))?;
+    assert_eq!(log(&page).len(), 2, "a row there is none of moves nothing");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_command_done_on_an_element_reaches_the_page_with_the_element() -> Result<(), Error> {
+    let mut page = open(
+        r#"
+view = function(u)
+    return pencere.div():gap(8)
+        :child(u:button("stop", { title = "Stop" }):command("kill", "Kill", {}))
+end
+"#,
+    )?;
+    page.command_on("stop", "kill")?;
+    assert_eq!(log(&page), ["commands command id=kill target=stop"]);
     Ok(())
 }
 
@@ -1936,7 +2111,7 @@ fn a_tree_opens_and_closes_folders_with_the_pointer_and_the_arrow_keys() -> Resu
     assert!(page.says("src") && !page.says("a.lua"));
     assert_eq!(
         accessible(&page, "files/list/row/src").role,
-        AccessibleRole::Button
+        AccessibleRole::TreeItem
     );
     assert_eq!(
         accessible(&page, "files/list/row/src").state.expanded,
@@ -2420,7 +2595,8 @@ fn a_grid_row_is_read_by_the_words_of_its_cells_and_the_controls_in_it_apart() -
     // A row with words only is said by them (its number first), not by "Row 3".
     let mut page = open(GRID)?;
     let row = accessible(&page, "g/row/3");
-    assert_eq!(row.role, pencere_view::AccessibleRole::MenuItem);
+    assert_eq!(row.role, pencere_view::AccessibleRole::Row);
+    assert_eq!(row.state.rowindex, Some(3));
     assert_eq!(row.words, "3 3 name 3 21");
     assert!(!row.state.selected);
     page.click_in("g/row/3", 40.0, 5.0)?;
@@ -2489,11 +2665,10 @@ fn a_grid_sorts_by_a_press_on_a_head_and_sizes_a_column_by_its_edge() -> Result<
     let mut page = open(GRID)?;
     page.click("g/head/name")?;
     assert_eq!(log(&page), ["g sort column=name"]);
-    assert!(
-        accessible(&page, "g/head/name")
-            .words
-            .contains("sorted ascending")
-    );
+    let head = accessible(&page, "g/head/name");
+    assert_eq!(head.role, pencere_view::AccessibleRole::ColumnHeader);
+    assert_eq!(head.words, "name");
+    assert_eq!(head.state.sort, Some(pencere_view::Sort::Ascending));
     let before = page.bounds("g/head/qty").expect("head").x;
     let edge = page.bounds("g/edge/id").expect("an edge");
     page.drag_between(
@@ -2886,10 +3061,11 @@ end
 
 // --- What a screen reader is told of a component, whole -----------------------------------------------
 //
-// A golden reading: the whole of what a component says to a screen reader (and to an agent, which reads
-// the same), item by item, set against the text it is expected to be. The parts' own tests look at one
-// item each; what they miss is an item that is gone, twice there, or nameless, which is only seen in
-// the whole.
+// A golden reading: the whole of what a component says to a screen reader and to an agent, item by item,
+// set against the text it is expected to be, which is a file of `src/goldens/` (`golden_tests`). The
+// parts' own tests look at one item each; what they miss is an item that is gone, twice there, or
+// nameless, which is only seen in the whole. A change of what is read is a change of those files, in
+// the diff, where it is reviewed; `PENCERE_BLESS=1` writes them again.
 
 /// What a screen reader is told of the page, a line for each item: its role, its words and its state.
 /// The page's own lines (where the keyboard is, what the log says), which every test page has, are
@@ -2920,6 +3096,38 @@ fn reading_of(page: &Headless) -> Vec<String> {
             line
         })
         .collect()
+}
+
+/// Sets what the page says of itself, whole, against the golden `name`: what a screen reader is told,
+/// item by item, and what an agent reads, line by line. The page's own lines (where the keyboard is,
+/// what the log says) are left out of both.
+fn golden(name: &str, page: &mut Headless) {
+    let logged = log(page);
+    let agent = page.reading().text();
+    let mut text = String::from("== screen reader\n");
+    for line in reading_of(page) {
+        text.push_str(&line);
+        text.push('\n');
+    }
+    text.push_str("== agent\n");
+    for line in agent.lines() {
+        let own = line.contains("\"keys at ")
+            || logged
+                .iter()
+                .any(|entry| line.contains(&format!("\"{entry}\"")));
+        if !own {
+            text.push_str(line);
+            text.push('\n');
+        }
+    }
+    // The host holds a menu the page asked for, and tells its lines.
+    if page.menu().is_some() {
+        text.push_str("== menu\n");
+        for title in menu_titles(page) {
+            text.push_str(&format!("{title}\n"));
+        }
+    }
+    crate::golden_tests::check(name, &text);
 }
 
 /// A grid of three rows of words, with widths, a sort and the cursor on a cell, for a golden reading.
@@ -2985,95 +3193,27 @@ fn a_grid_row_label_that_is_not_a_function_is_refused() {
     assert!(why.contains("row_label is a function"), "{why}");
 }
 
-/// The head of `GRID_READ`, as it is read: the number's head where the rows are numbered, then each
-/// column's head with its type and its edge.
-fn grid_head(numbered: bool) -> Vec<String> {
-    let mut lines: Vec<String> = Vec::new();
-    if numbered {
-        lines.push(r##"Text "#""##.to_owned());
-    }
-    lines.extend(
-        [
-            r#"Button "id""#,
-            r#"Text "int""#,
-            r#"Slider "id column width" [value 60 pt]"#,
-            r#"Button "name, sorted ascending""#,
-            r#"Slider "name column width" [value 100 pt]"#,
-            r#"Button "qty""#,
-            r#"Slider "qty column width" [value 70 pt]"#,
-        ]
-        .map(str::to_owned),
-    );
-    lines
-}
-
-/// `lines` after the head of `GRID_READ`.
-fn after(mut head: Vec<String>, lines: &[&str]) -> Vec<String> {
-    head.extend(lines.iter().map(|line| (*line).to_owned()));
-    head
-}
-
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_grid_is_read_whole_by_its_heads_edges_and_rows() -> Result<(), Error> {
-    let page = open(GRID_READ)?;
-    assert_eq!(
-        reading_of(&page),
-        [
-            r##"Text "#""##,
-            r#"Button "id""#,
-            // What the label does not say (the type under the title) is read apart; the title is not.
-            r#"Text "int""#,
-            r#"Slider "id column width" [value 60 pt]"#,
-            r#"Button "name, sorted ascending""#,
-            r#"Slider "name column width" [value 100 pt]"#,
-            r#"Button "qty""#,
-            r#"Slider "qty column width" [value 70 pt]"#,
-            r#"MenuItem "1 1 name 1 7""#,
-            r#"MenuItem "2 2 name 2 14" [selected]"#,
-            r#"MenuItem "3 3 name 3 21""#,
-        ]
-    );
+    // What the label does not say (the type under the title) is read apart; the title is not.
+    golden("grid", &mut open(GRID_READ)?);
     // Without the numbers the rows are as they were, less the number.
-    let page = open(&GRID_READ.replace("numbers = S.numbers,", "numbers = false,"))?;
-    assert_eq!(
-        reading_of(&page),
-        after(
-            grid_head(false),
-            &[
-                r#"MenuItem "1 name 1 7""#,
-                r#"MenuItem "2 name 2 14" [selected]"#,
-                r#"MenuItem "3 name 3 21""#,
-            ]
-        )
+    golden(
+        "grid-plain",
+        &mut open(&GRID_READ.replace("numbers = S.numbers,", "numbers = false,"))?,
     );
     // A row the page has not read is said so, and a name the page gives wins.
-    let page = open(&GRID_READ.replace("S.state =", "S.loading = true\nS.state ="))?;
-    assert_eq!(
-        reading_of(&page),
-        after(
-            grid_head(true),
-            &[
-                r#"MenuItem "Row 1, loading""#,
-                r#"MenuItem "Row 2, loading" [selected]"#,
-                r#"MenuItem "Row 3, loading""#,
-            ]
-        )
+    golden(
+        "grid-loading",
+        &mut open(&GRID_READ.replace("S.state =", "S.loading = true\nS.state ="))?,
     );
-    let page = open(&GRID_READ.replace(
-        "numbers = S.numbers,",
-        "row_label = function(row) return \"Item \" .. row end,",
-    ))?;
-    assert_eq!(
-        reading_of(&page),
-        after(
-            grid_head(true),
-            &[
-                r#"MenuItem "Item 1""#,
-                r#"MenuItem "Item 2" [selected]"#,
-                r#"MenuItem "Item 3""#,
-            ]
-        )
+    golden(
+        "grid-labelled",
+        &mut open(&GRID_READ.replace(
+            "numbers = S.numbers,",
+            "row_label = function(row) return \"Item \" .. row end,",
+        ))?,
     );
     Ok(())
 }
@@ -3082,33 +3222,16 @@ fn a_grid_is_read_whole_by_its_heads_edges_and_rows() -> Result<(), Error> {
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_grid_with_a_control_in_every_cell_and_no_numbers_is_read_by_its_rows_and_its_controls()
 -> Result<(), Error> {
-    let page = open(&GRID_READ.replace(
-        r#"            if S.loading then return nil end
-            return ({ id = row, name = "name " .. row, qty = row * 7 })[column.key]"#,
-        r#"            local name = "c/" .. row .. "/" .. column.key
-            return pencere.div():id(name):press(name):role("button"):label(column.title .. " " .. row):size(12, 12)"#,
-    ).replace("numbers = S.numbers,", "numbers = false,"))?;
     // Each row is there, with what it is and whether it is chosen, though every cell in it is a control
     // and it has no words of its own; each control is there apart.
-    assert_eq!(
-        reading_of(&page),
-        after(
-            grid_head(false),
-            &[
-                r#"MenuItem """#,
-                r#"Button "id 1""#,
-                r#"Button "name 1""#,
-                r#"Button "qty 1""#,
-                r#"MenuItem "" [selected]"#,
-                r#"Button "id 2""#,
-                r#"Button "name 2""#,
-                r#"Button "qty 2""#,
-                r#"MenuItem """#,
-                r#"Button "id 3""#,
-                r#"Button "name 3""#,
-                r#"Button "qty 3""#,
-            ]
-        )
+    golden(
+        "grid-controls",
+        &mut open(&GRID_READ.replace(
+            r#"            if S.loading then return nil end
+            return ({ id = row, name = "name " .. row, qty = row * 7 })[column.key]"#,
+            r#"            local name = "c/" .. row .. "/" .. column.key
+            return pencere.div():id(name):press(name):role("button"):label(column.title .. " " .. row):size(12, 12)"#,
+        ).replace("numbers = S.numbers,", "numbers = false,"))?,
     );
     Ok(())
 }
@@ -3117,22 +3240,9 @@ fn a_grid_with_a_control_in_every_cell_and_no_numbers_is_read_by_its_rows_and_it
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_tree_is_read_whole_by_its_rows_and_its_arrows() -> Result<(), Error> {
     let mut page = open(TREE)?;
-    assert_eq!(
-        reading_of(&page),
-        [r#"Button "src" [collapsed]"#, r#"Button "Expand src""#,]
-    );
+    golden("tree-collapsed", &mut page);
     page.click("files/chevron/src")?;
-    assert_eq!(
-        reading_of(&page),
-        [
-            r#"Button "src" [expanded]"#,
-            r#"Button "Collapse src""#,
-            r#"Button "a.lua""#,
-            r#"Button "lib" [collapsed]"#,
-            r#"Button "Expand lib""#,
-            r#"Button "z.lua""#,
-        ]
-    );
+    golden("tree-expanded", &mut page);
     Ok(())
 }
 
@@ -3140,31 +3250,16 @@ fn a_tree_is_read_whole_by_its_rows_and_its_arrows() -> Result<(), Error> {
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn tabs_are_read_whole_by_their_titles_and_their_close_buttons() -> Result<(), Error> {
     let mut page = open(TABS)?;
-    assert_eq!(
-        reading_of(&page),
-        [
-            r#"Tab "a.lua" [selected]"#,
-            r#"Button "Close a.lua""#,
-            r#"Tab "b.lua""#,
-            r#"Tab "c.lua""#,
-        ]
-    );
+    golden("tabs", &mut page);
     page.click("tabs/tab/b.lua")?;
-    assert_eq!(
-        reading_of(&page),
-        [
-            r#"Tab "a.lua""#,
-            r#"Tab "b.lua" [selected]"#,
-            r#"Tab "c.lua""#,
-        ]
-    );
+    golden("tabs-second", &mut page);
     Ok(())
 }
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_list_is_read_whole_with_a_button_in_a_row_and_the_row_not_said_twice() -> Result<(), Error> {
-    let page = open(
+    let mut page = open(
         r#"
 S.items = {
     { key = "a", title = "Alpha", hint = "first" },
@@ -3186,23 +3281,12 @@ end
 "#,
     )?;
     // The row's title is not said again by the words in it, and a button in it is apart.
-    assert_eq!(
-        reading_of(&page),
-        [
-            r#"MenuItem "Alpha""#,
-            r#"MenuItem "Beta" [selected] [collapsed]"#,
-            r#"MenuItem "Gamma" [checked]"#,
-            r#"Button "Open""#,
-        ]
-    );
+    golden("list", &mut page);
     Ok(())
 }
 
-#[test]
-#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
-fn a_modal_is_read_whole_by_its_scrim_its_words_its_field_and_its_button() -> Result<(), Error> {
-    let page = open(
-        r#"
+/// A modal over a page, for a golden reading.
+const MODAL_READ: &str = r#"
 view = function(u)
     return pencere.div():gap(8):child(u:button("open", { title = "Open" }))
         :child(u:modal("settings", { width = 400, label = "Settings" },
@@ -3211,19 +3295,13 @@ view = function(u)
                 :child(u:input("name", { label = "Name" }))
                 :child(u:button("ok", { title = "OK" }))))
 end
-"#,
-    )?;
+"#;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_modal_is_read_whole_by_its_scrim_its_words_its_field_and_its_button() -> Result<(), Error> {
     // The scrim says what a press on it does; the card is no element, so its words are words.
-    assert_eq!(
-        reading_of(&page),
-        [
-            r#"Button "Open""#,
-            r#"Button "Close Settings""#,
-            r#"Text "Settings""#,
-            r#"Field(Line) "Name""#,
-            r#"Button "OK""#,
-        ]
-    );
+    golden("modal", &mut open(MODAL_READ)?);
     Ok(())
 }
 
@@ -3231,18 +3309,187 @@ end
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_dialog_is_read_whole_by_its_title_its_message_its_field_and_its_buttons() -> Result<(), Error>
 {
-    let page = open(&DIALOG.replace("S.asking = false", "S.asking = true\nS.named = true"))?;
-    assert_eq!(
-        reading_of(&page),
-        [
-            r#"Button "Open""#,
-            r#"Button "Close Save changes to a.lua?""#,
-            r#"Heading(2) "Save changes to a.lua?""#,
-            r#"Text "Your changes will be lost.""#,
-            r#"Field(Line) "File name""#,
-            r#"Button "Don't Save""#,
-            r#"Button "Save""#,
-        ]
+    let mut page = open(&DIALOG.replace("S.asking = false", "S.asking = true\nS.named = true"))?;
+    golden("dialog", &mut page);
+    // Closed, the commands the page asks for are what is read besides the button.
+    golden("commands", &mut open(DIALOG)?);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_popover_toasts_and_a_menu_are_read_whole() -> Result<(), Error> {
+    golden(
+        "popover",
+        &mut open(
+            r#"
+view = function(u)
+    return pencere.div():gap(8):p(20)
+        :child(u:button("anchor", { title = "Anchor" }))
+        :child(u:button("elsewhere", { title = "Elsewhere" }))
+        :child(u:popover("card", { anchor = "anchor", side = "below" }, pencere.div():p(8):child(pencere.text("Hello"))))
+end
+"#,
+        )?,
     );
+    // A toast of each tone, each with its own button to close it.
+    golden(
+        "toasts",
+        &mut open(
+            r#"
+S.items = {}
+ui.toast(S.items, "Saved a.lua", "ok", 0)
+ui.toast(S.items, "Disk is full", "bad", 0)
+view = function(u)
+    ui.toasts_prune(S.items, u.now)
+    return pencere.div():gap(8)
+        :child(u:button("say", { title = "Say" }))
+        :child(u:toasts("toasts", { items = S.items }))
+end
+"#,
+        )?,
+    );
+    // The page's side of a menu is the button that opened it; the host holds the menu, whose lines
+    // are told after.
+    let mut page = open(
+        r#"
+view = function(u)
+    return u:button("more", { title = "More" })
+end
+on_action = function(act, u)
+    if act.from == "more" then
+        return u:menu("more-menu", { { key = "copy", title = "Copy", keys = "cmd+c" }, "-",
+            { key = "paste", title = "Paste", enabled = false }, { key = "delete", title = "Delete" } },
+            { near = "more" })
+    end
+end
+"#,
+    )?;
+    page.click("more")?;
+    golden("menu", &mut page);
+    assert_eq!(menu_titles(&page), ["Copy", "-", "Paste (off)", "Delete"]);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_palette_the_controls_and_the_bars_are_read_whole() -> Result<(), Error> {
+    let mut page = open(PALETTE)?;
+    page.click("open")?;
+    golden("palette", &mut page);
+    golden(
+        "controls",
+        &mut open(
+            r#"
+S.view = "list"
+S.case = true
+view = function(u)
+    return pencere.div():gap(8):p(8)
+        :child(u:segments("view", { value = S.view, items = {
+            { key = "list", title = "List" }, { key = "grid", title = "Grid" }, { key = "tree", title = "Tree" } } }))
+        :child(u:toggle("case", { on = S.case, glyph = "Aa", label = "Match case", keys = "alt+cmd+c" }))
+        :child(u:input("name", { label = "Name", value = "a.lua" }))
+        :child(u:banner("conflict", {
+            tone = "warn", icon = "warning", words = "a.lua changed on disk",
+            actions = { { key = "reload", title = "Reload", primary = true }, { key = "keep", title = "Keep mine" } },
+            dismiss = true }))
+        :child(pencere.div():row():gap(6)
+            :child(u:badge(12, { tone = "info", round = true }))
+            :child(u:badge("draft"))
+            :child(u:kbd("cmd+shift+k"))
+            :child(u:kbd("ctrl+enter", { quiet = true })))
+end
+"#,
+        )?,
+    );
+    golden(
+        "status",
+        &mut open(
+            r#"
+view = function(u)
+    return u:status("status", {
+        start = { { key = "branch", words = "main", icon = "dot", press = true, priority = 9 } },
+        center = { { key = "saved", words = "Saved", priority = 1 } },
+        finish = {
+            { key = "pos", words = "Ln 12, Col 4", press = true, priority = 6, tip = "Go to line", keys = "ctrl+g" },
+            { key = "lang", words = "Lua", priority = 3 },
+        },
+    })
+end
+"#,
+        )?,
+    );
+    golden("split", &mut open(SPLIT)?);
+    let mut page = open(FIND)?;
+    page.click("open")?;
+    golden("find", &mut page);
+    let mut page = open(&editor_menu_page("", ""))?;
+    right_press_in(&mut page, "code")?;
+    golden("editor-menu", &mut page);
+    Ok(())
+}
+
+/// A modal that holds a button that opens a popover and one that opens a menu, an icon button that
+/// has a tip and no words, and a button that opens a dialog; the page behind it has a button and a
+/// toast. What is open is `S.open` (`popover`, `dialog`) and `S.toast`.
+const LAYERS: &str = r#"
+S.open = nil
+S.items = {}
+view = function(u)
+    ui.toasts_prune(S.items, u.now)
+    local root = pencere.div():gap(8):p(8)
+        :child(u:button("behind", { title = "Behind" }))
+        :child(u:modal("sheet", { label = "Sheet", width = 300 }, pencere.div():p(12):gap(8)
+            :child(pencere.text("Sheet"))
+            :child(u:button("inside/popover", { title = "Hint" }))
+            :child(u:button("inside/menu", { title = "Menu" }))
+            :child(u:button("inside/tip", { title = "" }):child(pencere.div():size(12, 12)):tip("Search"))
+            :child(u:button("inside/dialog", { title = "Delete" }))
+            :child(S.open == "popover"
+                and u:popover("hint", { anchor = "inside/popover", side = "below" }, pencere.div():p(8):child(pencere.text("Help")))
+                or pencere.div())))
+    if S.open == "dialog" then
+        root:child(u:dialog("sure", { title = "Delete it?", message = "It cannot be undone.",
+            actions = { { key = "no", title = "Keep" }, { key = "yes", title = "Delete", danger = true } } }))
+    end
+    return root:child(u:toasts("toasts", { items = S.items }))
+end
+on_action = function(act, u)
+    if act.from == "inside/popover" then
+        S.open = "popover"
+    elseif act.from == "inside/menu" then
+        return u:menu("sheet-menu", { { key = "copy", title = "Copy" }, { key = "paste", title = "Paste" } },
+            { near = "inside/menu" })
+    elseif act.from == "inside/dialog" then
+        S.open = "dialog"
+    elseif act.from == "behind" then
+        ui.toast(S.items, "Saved", "ok", 0)
+    end
+end
+"#;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn what_is_read_of_a_page_under_a_modal_and_of_what_opens_over_it_is_pinned() -> Result<(), Error> {
+    // A modal in front of a page: the page behind it is read today, which phase 2 of the model
+    // takes out (the golden is where that shows).
+    let mut page = open(LAYERS)?;
+    golden("layer-modal", &mut page);
+    // A popover, a menu and a tip opened from inside the modal are in it.
+    page.click("inside/popover")?;
+    golden("layer-modal-popover", &mut page);
+    page.click("inside/menu")?;
+    golden("layer-modal-menu", &mut page);
+    assert_eq!(menu_titles(&page), ["Copy", "Paste"]);
+    // A toast that comes up while the modal is open is a layer of its own, over both.
+    let mut page = open(&LAYERS.replace(
+        "S.items = {}",
+        "S.items = {}\nui.toast(S.items, \"Saved\", \"ok\", 0)",
+    ))?;
+    golden("layer-modal-toast", &mut page);
+    // A dialog over a sheet is the front layer: the sheet and the page are behind it.
+    let mut page = open(LAYERS)?;
+    page.click("inside/dialog")?;
+    golden("layer-sheet-dialog", &mut page);
     Ok(())
 }

@@ -1,0 +1,9 @@
+== screen reader
+Button "Open"
+== agent
+focus: page
+items:
+md27z1  button "Open"
+commands:
+  "Save" [cmd+s]
+  "Help" [f1]

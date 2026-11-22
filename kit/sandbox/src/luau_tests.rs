@@ -3625,7 +3625,7 @@ fn what_the_page_api_refuses_it_refuses_at_the_line_of_the_script_that_gave_it()
                 "pencere.div():motion({ spin = 0 })",
                 "pencere.div():tip(5)",
                 r#"pencere.div():tip("a", 5)"#,
-                r#"pencere.div():role("zig")"#,
+                "pencere.div():role(5)",
                 "pencere.div():value({})",
                 "pencere.div():command()",
                 r#"pencere.div():command("a", 5)"#,
