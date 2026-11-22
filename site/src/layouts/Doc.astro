@@ -21,13 +21,14 @@ interface Props {
     heading?: string;
     alone?: boolean;
     note?: string;
+    whole?: [string, string];
     shows?: string;
     crumbs?: [string, string][];
   };
   headings: { depth: number; slug: string; text: string }[];
 }
 const { page, headings } = Astro.props;
-const { title, description, path, words: name, source, note = "", crumbs = [], heading, sections: only, opening = true, shows = source } = page;
+const { title, description, path, words: name, source, note = "", crumbs = [], whole, heading, sections: only, opening = true, shows = source } = page;
 // A page of the documentation has its menu over the list of the sections.
 const docs = !page.alone;
 
@@ -96,6 +97,7 @@ const listed = sections.length > 1;
       {crumbs.length > 0 && <p class="crumbs">{crumbs.map(([words, address], i) => <>{i > 0 && " / "}<a href={address}>{words}</a></>)}</p>}
       {heading && <h1>{heading}</h1>}
       <Numbered source={source} path={path} keep={only} opening={opening}><slot /></Numbered>
+      {whole && <p class="spec__whole"><a href={whole[1]}>{whole[0]}</a></p>}
       <p class="spec__said" role="status" aria-live="polite"></p>
       <p class="spec__source">
         This page is {only ? "a part of " : ""}<a href={`${REPO}/blob/main/${shows}`}>{shows}</a> of the repository{note}.

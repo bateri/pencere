@@ -92,8 +92,7 @@ dy, blur, color)` (a glow with no offset), `pencere.linear` and `pencere.radial`
   malformed; a long list (`:list`) on a box that zooms is refused, in either order, as is a range that is none
   (the line of the script that said it). The interface (`view.wit`) has `zoom-range`, `style.zoom`, `layout.zoom-to`,
   `extent.zoom` and `scrolled.zoom`; the interpreter is built again.
-- **A script is told what a trackpad's fingers and a mouse's side buttons do** (the kit's
-  specification, Section 2.3): `magnify`, `smart_magnify`, `rotate`, `swipe`, `pressure` and
+- **A script is told what a trackpad's fingers and a mouse's side buttons do** (`kit/spec/events.md`): `magnify`, `smart_magnify`, `rotate`, `swipe`, `pressure` and
   `extra_press`/`extra_release` events, `mods` on `move` and `release` (over an editor too), and
   `phase`, `precise` and `mods` on `wheel`. A run of pinches or rotations one gesture makes that the
   page is too slow to hear one by one is one event (a factor of them all, a turn by all of them); a

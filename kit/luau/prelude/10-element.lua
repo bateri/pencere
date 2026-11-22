@@ -1452,7 +1452,7 @@ function Element:draggable(id)
 	return self
 end
 
--- What a drag out of the view may take (the rule of the kit's specification, Section 2.1): one line,
+-- What a drag out of the view may take (the rule of `kit/spec/commands.md`): one line,
 -- never empty, at most 64 KiB, no control character (the C0 ones, the delete character, the C1
 -- ones), no separator of lines or paragraphs, no control of the direction of text (the embeddings,
 -- overrides and isolates that make words look other than they are); an address only of the kind a

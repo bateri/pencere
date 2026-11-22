@@ -1,4 +1,4 @@
-// Two rules about the kit's page API, which is a file for each topic (kit/spec) and an index of
+// Three rules about the kit's page API, which is a file for each topic (kit/spec) and an index of
 // them (kit/SPEC.md):
 //
 // 1. Every link into a topic goes to a file that is there and to a heading that is in it: a Markdown
@@ -7,6 +7,9 @@
 // 2. The index holds no rule: only its headings, one line that says what it is, and a line for each
 //    topic, a link and a description. The rules are in the topics, where a change to one is a change
 //    to the one place that says it.
+// 3. Nothing names the kit's document by a number of its old sections: the document had numbered
+//    sections once, and a reference that kept the number goes to no place now. A comment of code
+//    or a sentence of a document names the topic's file (or links it).
 //
 // The functions are given the files (a map of path to text) and say what is wrong, so that a test
 // can give them a repository made up; scripts/check.mjs reads the real one.
@@ -92,6 +95,7 @@ export function linkProblems(files) {
 }
 
 // The words of a rule: the protocol's key words, and the lower-case ones that say the same.
+const ITEM = /^- \[[^\]]+\]\(spec\/([a-z0-9-]+)\.md\): (.+)$/;
 const RULE = /\b(MUST|SHALL|SHOULD|REQUIRED|RECOMMENDED|OPTIONAL|must|shall|should)\b/;
 const words = (text) => text.split(/\s+/).filter(Boolean).length;
 
@@ -112,7 +116,7 @@ export function indexProblems(text, topics) {
       return;
     }
     if (/^## /.test(line)) return;
-    const item = line.match(/^- \[[^\]]+\]\(spec\/([a-z0-9-]+)\.md\): (.+)$/);
+    const item = line.match(ITEM);
     if (item) {
       const file = `kit/spec/${item[1]}.md`;
       listed.set(file, (listed.get(file) ?? 0) + 1);
@@ -136,6 +140,47 @@ export function indexProblems(text, topics) {
     if (!topics.includes(file))
       found.push(`kit/SPEC.md: lists ${file}, which is no file of the topics`);
     else if (times > 1) found.push(`kit/SPEC.md: ${file} is listed more than once`);
+  }
+  return found;
+}
+
+/** The files the index lists for the topics (its lines of a topic, not every link it has), in its order. */
+export function topicsOf(text) {
+  const found = [];
+  for (const line of text.split("\n")) {
+    const item = line.match(ITEM);
+    if (item) found.push(`kit/spec/${item[1]}.md`);
+  }
+  return found;
+}
+
+// The kit's document by its path or its names, and a number of its sections within a few words of it, the
+// number first or the document first. A sentence ends at a full stop or a semicolon.
+const DOCUMENT = String.raw`(?:kit/SPEC(?:\.md)?\x60?|SPEC\.md\x60?|\bkit(?:'s)? (?:[Ss]pecification|[Ss]pec|SPEC|[Dd]ocument|page API))`;
+const NUMBER = String.raw`(?:Sections?|§)\s*\d`;
+const OLD_NUMBER = new RegExp(
+  `${DOCUMENT}[^.;]{0,40}?${NUMBER}|${NUMBER}[\\d.]*[^.;]{0,25}?\\b(?:of|in) (?:the )?${DOCUMENT}`,
+  "g",
+);
+// What a comment or a list adds to the front of a line, which the sentence does not have.
+const LEADER = /^[ \t]*(?:\/\/[/!]?|--|#|\*|>)?[ \t]*/;
+
+/** The places that name the kit's document by a number of its old sections; `files` is a map of path to text. */
+export function numberProblems(files) {
+  const found = [];
+  for (const [path, text] of files) {
+    let flat = "";
+    const starts = [];
+    for (const line of text.split("\n")) {
+      starts.push(flat.length);
+      flat += `${line.replace(LEADER, "")} `;
+    }
+    for (const match of flat.matchAll(OLD_NUMBER)) {
+      const line = starts.findLastIndex((start) => start <= match.index) + 1;
+      found.push(
+        `${path}:${line}: names the kit's document by a number of its old sections ("${match[0].replace(/\s+/g, " ")}"): name the topic's file, kit/spec/..., or link it`,
+      );
+    }
   }
   return found;
 }

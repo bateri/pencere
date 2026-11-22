@@ -7,13 +7,13 @@ params, on_value, on_error)` asks to hear a topic, `pencere.cancel(id)` gives ei
 and decodes JSON (arrays and objects nested up to 127 levels, the outermost counting as the first: protocol, Section 4.5).
 `pencere.json.decode(text)` is the reader the program's own messages are read with, and gives the
 value, or nil and why (`a comma or a brace was expected at 12`, the place counted from 1; nil alone for
-the text `null`); it reads a message of any length the limits of Section 5 allow. A member that is `null` holds nothing in what is decoded, as one that is not there does, so that
+the text `null`); it reads a message of any length the limits of the protocol ([Section 9.3](../../spec/draft/pencere.md#93-carrying-them)) allow. A member that is `null` holds nothing in what is decoded, as one that is not there does, so that
 `if changes.git then` reads both alike; where they mean different things, `pencere.json.has(object,
 key)` says whether the object had the key (`null` too) and `pencere.json.is_null(object, key)`
 whether it had it as `null`, for every object decoded, those of the program's messages included,
 while the page has set nothing at that key. What is decoded is encoded again as it was: its `null`
 members, and an empty list as a list. A message the program cannot take yet waits its turn (`pencere.send`, the raw word,
-says whether it took the message), and the host holds the page to the limits of Section 5.
+says whether it took the message), and the host holds the page to the limits of [What a host does for a kit view](host.md).
 
 `method` and `topic` are strings, `params` is nil or a table, `done`, `progress`, `on_value` and
 `on_error` are nil or functions, and the `id` of `pencere.cancel` is the number a request was

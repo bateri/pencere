@@ -29,6 +29,7 @@
 //   heading   a title in place of the document's own
 //   alone     the page stands outside the menus, with the list of its own sections beside it
 //   note      what else is said of the file at the page's end
+//   whole     a link, `[words, address]`, to the same text on one page, after the document
 //   own       a file of src/pages makes the page: it shows the document with what else the page has
 //   also      the other menus the page is in, each `{ area, group }`
 export const PAGES = [
@@ -353,6 +354,7 @@ export const PAGES = [
     path: "kit/spec",
     words: "The page API",
     source: "kit/SPEC.md",
+    whole: ["Every topic on one page, to search in the browser or to print", "/kit/spec/all"],
     title: "The page API: the pencere kit",
     description:
       "The topics of the pencere kit's page API: elements, events and replies, motion, the editor, the library, colours and what a host does.",

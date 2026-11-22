@@ -116,7 +116,7 @@ none of them.
 A language is a frozen `{ name =, description =, syntax =, config = }`. `syntax` is a language of
 `@pencere/syntax`: `Syntax.new(language.syntax, id)` colours an editor with it, and
 `language.syntax:tokens(line, state)` a text that is not in one. `config` is what an editor is told
-of the language, in the editor's own options ([The editor](editor.md#how-an-editor-looks)): `comment`, `indent` (in Rust's syntax),
+of the language, in the editor's own options ([The editor](editor.md#an-editor-and-its-language)): `comment`, `indent` (in Rust's syntax),
 `folds` (`"indent"`), `pairs`, and `hard_tabs` and `tab_width` only where the language or its one
 formatter fixes how it indents (Go and the Makefile, tabs; Rust and Python, four spaces; YAML, two
 spaces and no tabs). A page gives `config` to an editor as it is (`pencere.editor(id,
@@ -247,7 +247,7 @@ Keys as a page writes them (`"cmd+shift+k"`, [Commands and dragging](commands.md
   unless `keys.set_symbols(true)` said so for the page; `keys.symbols()` says which).
 - `options.platform` is `"mac"`, `"windows"`, `"linux"` or `"other"` (a platform a page does not name:
   written as Linux is); where it is not given it is `keys.platform()`, which `keys.set_platform(name)`
-  sets for the page and which is the host's keyboard convention, `pencere.keyboard()` ([Layout and scrolling](layout.md)),
+  sets for the page and which is the host's keyboard convention, `pencere.keyboard()` ([Commands and dragging](commands.md)),
   or `"mac"` where the page API says none. Windows writes the command key `Win`, Linux and `"other"`
   `Super`.
 - `keys.matches(event, words)` is whether a key event (`key` or `key_up`, or a table with no `type`)

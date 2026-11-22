@@ -2,7 +2,7 @@
 // each one's content and headings, and where a link to a file of the repository goes on the site.
 import { PAGES, LEFT } from "../docs.js";
 import { read as readFile } from "./repo.js";
-import { slug } from "../../scripts/links.mjs";
+import { slug, topicsOf } from "../../scripts/links.mjs";
 
 // The files themselves. The builder has to be told them here, as written paths: a page of the map
 // whose file is not among them stops the build and says so.
@@ -27,11 +27,9 @@ export async function document(source) {
   return { Content: module.Content, headings: module.getHeadings() };
 }
 
-// The topics of the kit's page API, in the order its index lists them: the files `kit/SPEC.md` links.
-export const topics = () =>
-  [...readFile("kit/SPEC.md").matchAll(/\]\(spec\/([a-z-]+)\.md\)/g)].map(
-    (match) => `kit/spec/${match[1]}.md`,
-  );
+// The topics of the kit's page API, in the order its index lists them: the files of the lines of
+// `kit/SPEC.md` for a topic (its other links, to a topic it names, are not a place of its own).
+export const topics = () => topicsOf(readFile("kit/SPEC.md"));
 
 // For each document, the section (a heading of depth 2) every heading of it is in.
 let sections;

@@ -34,7 +34,7 @@
 -- given, so a page, and a module of the library, can neither read nor change it.
 local internal = ...
 
--- The version of the page API, a string (`kit/SPEC.md`, Section 1).
+-- The version of the page API, a string (`kit/spec/versions.md`).
 pencere.version = "0.1"
 
 -- A number as the engine holds it, in single precision. The engine measures and draws in

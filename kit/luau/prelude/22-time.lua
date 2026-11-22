@@ -56,7 +56,7 @@ local own_due, own_delay = nil, nil
 -- last asked for its wakes (`hooks.asked`).
 local owed = false
 
--- What one reply may hand the page's editors, as the host holds it (the kit's SPEC, Section 4, the
+-- What one reply may hand the page's editors, as the host holds it (`kit/spec/host.md`, the
 -- protocol's floors): decorations, and bytes of text (what loads, changes and commands put in, and
 -- the names of the layers decorated).
 local REPLY_DECORATIONS = 20000

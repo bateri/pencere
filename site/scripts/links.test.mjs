@@ -1,7 +1,7 @@
 // The rules of scripts/links.mjs, against small repositories made up here: a link into the kit's
 // topics (kit/spec) that goes nowhere is found, and so is a rule written in the index.
 import { describe, expect, it } from "vitest";
-import { indexProblems, linkProblems, slug } from "./links.mjs";
+import { indexProblems, linkProblems, numberProblems, slug, topicsOf } from "./links.mjs";
 
 const files = (entries) => new Map(Object.entries(entries));
 
@@ -95,5 +95,54 @@ describe("the index of the topics", () => {
     expect(
       indexProblems(`${INDEX}- [Events](spec/events.md): Again.\n`, topics).join("\n"),
     ).toContain("more than once");
+  });
+});
+
+describe("the topics the index lists", () => {
+  it("are the files of its lines for a topic, once each and in its order", () => {
+    expect(topicsOf(INDEX)).toEqual(["kit/spec/elements.md", "kit/spec/events.md"]);
+  });
+  it("are not the files its other lines link (the line that says what the index is)", () => {
+    const text = INDEX.replace(
+      "One file for each topic.",
+      "One file for each topic; [Elements](spec/elements.md) says how to read them.",
+    );
+    expect(topicsOf(text)).toEqual(["kit/spec/elements.md", "kit/spec/events.md"]);
+  });
+  it("have names with digits", () => {
+    expect(topicsOf("- [Two](spec/page2.md): The second.\n")).toEqual(["kit/spec/page2.md"]);
+  });
+});
+
+describe("the old numbers of the kit's document", () => {
+  const found = (text, path = "kit/luau/prelude/00-core.lua") =>
+    numberProblems(new Map([[path, text]]));
+  it("are found in a comment of code, by the path of the document", () => {
+    const problems = found("-- The version of the page API (`kit/SPEC.md`, Section 1).\n");
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("kit/luau/prelude/00-core.lua:1");
+  });
+  it("are found where the comment goes on at the next line, and at the line it begins", () => {
+    const problems = found(
+      "local a = 1\n-- What a drag may take (the rule of the kit's\n-- specification, Section 2.1): one line.\n",
+    );
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(":2");
+  });
+  it("are found in a document, by the words that name it", () => {
+    expect(found("As the kit's SPEC, Section 4 says.\n", "cli/README.md")).toHaveLength(1);
+    expect(found("See Section 2.3 of the kit's specification.\n", "cli/README.md")).toHaveLength(1);
+    expect(found("The kit's document says it (§4).\n", "cli/README.md")).toHaveLength(1);
+  });
+  it("are not the protocol's own sections, nor a topic named by its file", () => {
+    expect(found("(specification §9.2), and protocol, Section 4.5.\n")).toEqual([]);
+    expect(
+      found(
+        "What the kit's document says (`kit/spec/events.md`): see Section 2 of the protocol.\n",
+      ),
+    ).toEqual([]);
+    expect(
+      found("The kit's library is in `kit/spec/library.md`.\nSection 5 is the protocol's.\n"),
+    ).toEqual([]);
   });
 });
