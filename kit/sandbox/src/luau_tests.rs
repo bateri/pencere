@@ -10,9 +10,9 @@ use std::time::{Duration, Instant};
 
 use pencere_view::wire::{Direction, Display, Kind, Overflow};
 use pencere_view::{
-    Built, Button, Color, Cursor, Ease, Element, Event, FieldKind, Fill, Fit, GesturePhase, Id,
-    Input, Key, Keyboard, Mix, Mods, Motion, Phase, Point, Rgba, Role, Rows, ScrollTo, Scrolled,
-    Shift, Source, Tip, image,
+    Built, Button, Color, Cursor, Cycle, Ease, Element, Event, FieldKind, Fill, Fit, GesturePhase,
+    Id, Input, Key, Keyboard, Mix, Mods, Motion, Phase, Point, Rgba, Role, Rows, ScrollTo,
+    Scrolled, Shift, Source, Tip, image,
 };
 
 use crate::test_support::{Open, Rough, SIZE};
@@ -1198,6 +1198,111 @@ fn a_script_says_how_an_element_moves_and_what_its_tip_says() {
         nodes[3].meta.tip.as_ref().map(|tip| tip.keys.clone()),
         Some(None)
     );
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_script_says_the_spring_the_looks_the_turn_and_the_loop_of_an_element() {
+    let update = first(
+        r##"return { render = function()
+            return pencere.div()
+                :child(pencere.image("arrow.svg"):id("arrow"):size(16, 16)
+                    :transform({ rotate = 90, scale = 1.5 })
+                    :motion({
+                        seconds = 0.4, ease = "spring", bounce = 0.3, transform = true,
+                        rounded = true, border = true, shadow = true, padding = true, text_size = true,
+                        enter = { opacity = 0, rotate = -90, scale = 0.5, seconds = 0.3 },
+                        exit = { scale = 0 },
+                        spin = 2,
+                        loop = { seconds = 1.5, opacity = 0.2, dy = 4, rotate = 20, scale = 1.2, ease = "linear", alternate = false },
+                    }))
+                :child(pencere.div():id("dot"):motion({ loop = { seconds = 2, opacity = 0.8 } }))
+                :child(pencere.div():id("flat"):motion({ ease = "spring", bounce = 5 }))
+                :child(pencere.div():id("fast"):motion({ loop = { seconds = 0.1, opacity = 0.4 } }))
+                :child(pencere.image("a.svg"):id("spins"):size(8, 8):motion({ loop = { seconds = 0.1, rotate = 90 } }))
+                :child(pencere.canvas({ pencere.path():rect(0, 0, 5, 5):fill("accent") }):size(10, 10)
+                    :transform({ rotate = 45, scale = 2 })
+                    :motion({ loop = { seconds = 2, rotate = 90 }, enter = { scale = 0 } }))
+                :child(pencere.div():id("plain"):transform({ rotate = 45 }))
+        end }"##,
+        ModuleLimits::default(),
+    );
+    assert_eq!(update.closed, None);
+    let nodes = update.frame.expect("a page").root.fold();
+    assert_eq!(
+        (nodes[1].style.turn, nodes[1].style.scale),
+        (90.0, Some(1.5))
+    );
+    assert_eq!(
+        nodes[1].meta.motion,
+        Some(
+            Motion::new(0.4)
+                .ease(Ease::Spring)
+                .bounce(0.3)
+                .transform()
+                .rounded()
+                .border()
+                .shadow()
+                .padding()
+                .text_size()
+                .enter(Shift::fade(0.3).turned(-90.0).scaled(0.5))
+                .exit(Shift::fade(0.4).scaled(0.0))
+                .spin(2.0)
+                .cycle(
+                    Cycle::new(1.5)
+                        .ease(Ease::Linear)
+                        .once()
+                        .fade(0.2)
+                        .by(0.0, 4.0)
+                        .turned(20.0)
+                        .scaled(1.2)
+                )
+        )
+    );
+    // A loop has its defaults: there and back, in and out, as it is.
+    assert_eq!(
+        nodes[2].meta.motion.and_then(|motion| motion.cycle),
+        Some(Cycle::new(2.0).fade(0.8))
+    );
+    // A bounce is held to what it can be.
+    assert_eq!(
+        nodes[3].meta.motion,
+        Some(Motion::new(0.2).ease(Ease::Spring).bounce(0.9))
+    );
+    // A turn of a loop that fades takes at least half a second; one that does not fade, as long as
+    // it was given.
+    assert_eq!(
+        nodes[4].meta.motion.and_then(|motion| motion.cycle),
+        Some(Cycle::new(0.1).fade(0.4))
+    );
+    assert_eq!(
+        nodes[4]
+            .meta
+            .motion
+            .and_then(|motion| motion.cycle)
+            .map(|cycle| cycle.seconds),
+        Some(Cycle::FASTEST_FADE)
+    );
+    assert_eq!(
+        nodes[5].meta.motion.and_then(|motion| motion.cycle),
+        Some(Cycle::new(0.1).turned(90.0))
+    );
+    // A canvas is turned and drawn larger as a picture is; no other element is (it is warned).
+    assert_eq!(
+        (nodes[6].style.turn, nodes[6].style.scale),
+        (45.0, Some(2.0))
+    );
+    assert_eq!(
+        nodes[6]
+            .meta
+            .motion
+            .map(|motion| (motion.cycle, motion.enter)),
+        Some((
+            Some(Cycle::new(2.0).turned(90.0)),
+            Some(Shift::fade(0.2).scaled(0.0))
+        ))
+    );
+    assert_eq!((nodes[7].style.turn, nodes[7].style.scale), (0.0, None));
 }
 
 #[test]
@@ -3621,8 +3726,18 @@ fn what_the_page_api_refuses_it_refuses_at_the_line_of_the_script_that_gave_it()
                 "pencere.div():zone()",
                 "pencere.div():label(5)",
                 "pencere.div():motion(5)",
-                r#"pencere.div():motion({ ease = "zig" })"#,
-                "pencere.div():motion({ spin = 0 })",
+                // What is of the wrong kind is the page's mistake; what this kit does not know is not.
+                r#"pencere.div():motion({ ease = 5 })"#,
+                r#"pencere.div():motion({ ease = "spring", bounce = "a" })"#,
+                r#"pencere.div():motion({ spin = "a" })"#,
+                "pencere.div():motion({ loop = 5 })",
+                r#"pencere.div():motion({ loop = { seconds = "a" } })"#,
+                r#"pencere.div():motion({ loop = { seconds = 1, alternate = "x" } })"#,
+                r#"pencere.div():motion({ loop = { seconds = 1, ease = 5 } })"#,
+                r#"pencere.div():motion({ enter = { rotate = "a" } })"#,
+                "pencere.div():motion({ exit = 5 })",
+                "pencere.div():transform(5)",
+                r#"pencere.image("a.png"):transform({ rotate = "a" })"#,
                 "pencere.div():tip(5)",
                 r#"pencere.div():tip("a", 5)"#,
                 "pencere.div():role(5)",

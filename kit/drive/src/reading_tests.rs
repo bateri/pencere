@@ -1406,7 +1406,11 @@ return {{
             .. " target=" .. tostring(pencere.has("command.target"))
             .. " command=" .. tostring(pencere.has("event.command"))
             .. " listreveal=" .. tostring(pencere.has("ui.list.reveal"))
-            .. " nope=" .. tostring(pencere.has("element.nope"))))
+            .. " nope=" .. tostring(pencere.has("element.nope"))
+            .. " loop=" .. tostring(pencere.has("motion.loop"))
+            .. " bounce=" .. tostring(pencere.has("motion.bounce"))
+            .. " transform=" .. tostring(pencere.has("element.transform"))
+            .. " nomotion=" .. tostring(pencere.has("motion.nope"))))
     end,
 }}
 "#
@@ -1416,7 +1420,7 @@ return {{
     let text = page.reading().text();
     assert!(
         text.contains(
-            "unnamed= roles=29 dialog=true target=true command=true listreveal=true nope=false"
+            "unnamed= roles=29 dialog=true target=true command=true listreveal=true nope=false loop=true bounce=true transform=true nomotion=false"
         ),
         "{text}"
     );

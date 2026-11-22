@@ -88,6 +88,20 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
 - **`Picture::shown`**: what of the whole image is inside the picture's clip, as shares of it like
   `crop`. A host that rasterises a large SVG or page draws that part and not all of it
   (`pencere-sandbox`'s `Images::picture`).
+- **More of what a `Motion` follows, and a spring that bounces**: `Motion::rounded`, `border`, `shadow`,
+  `padding`, `text_size` and `transform` (the radii of its corners, the thickness and the colour of its
+  border, how far its shadow falls and how blurred it is, its padding, the size of its words and of the
+  words inside it that have none of their own, and the turn and the scale of a picture or a canvas
+  follow a change), `Motion::bounce` (a spring that swings past where it goes, and keeps its speed where
+  a change, or a slide among the others, is sent elsewhere in flight) and `spring_step`, the closed form of a damped spring that a
+  caret's glide and the springs of a motion both go by.
+- **A picture or a canvas turned and drawn larger**: `Element::turned`, `Element::scaled` (`Style::turn`,
+  `Style::scale`), about its middle: the box and the boxes around it do not change, and what is drawn
+  larger is cut only by what holds it. `Shift::turned` and `Shift::scaled` give an `enter` and an `exit`
+  the same.
+- **`Cycle` and `Motion::cycle`**: an element that goes to a shift and back (or one way, and again), over
+  and over, for as long as it is on the page, by the host's clock alone, with no id too and not under
+  Reduce Motion. A `spin` is the `Cycle` that turns a whole way at one pace (`Cycle::spin`).
 
 ### Changed
 

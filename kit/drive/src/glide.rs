@@ -21,6 +21,7 @@
 
 use pencere_editor::CaretSpots;
 use pencere_view::edit::CaretMotion;
+use pencere_view::spring_step;
 use pencere_view::{Id, Point, Rect};
 
 /// How far a frame's time may be from the one before it, seconds: a view that was not seen for a
@@ -234,10 +235,7 @@ fn ease(from: f32, to: f32, time: f32) -> f32 {
 /// that would cross its target is stopped on it.
 fn spring(position: f32, speed: f32, target: f32, dt: f32, stiffness: f32) -> (f32, f32) {
     let before = position - target;
-    let c = speed + stiffness * before;
-    let decay = (-stiffness * dt).exp();
-    let after = (before + c * dt) * decay;
-    let speed = (c - stiffness * (before + c * dt)) * decay;
+    let (after, speed) = spring_step(before, speed, stiffness, 1.0, dt);
     if before != 0.0 && (before < 0.0) != (after < 0.0) {
         (target, 0.0)
     } else {

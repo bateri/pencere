@@ -122,6 +122,9 @@ index)` (and `Page::command_on`, `Page::reveal`, the host/test `page:command_on`
   in (`Laid::spills` of `pencere-view`), in the host's points, for a test that looks at a page at
   every size of its window. `pencere test` has it as `page:spills()`: a list of tables, each with
   `box`, `inside`, `left`, `above`, `right`, `below`, `words` and `around`.
+- **A page that loops draws a frame for each step of it, and `idle` does not wait for it**: what loops or
+  spins goes by the host's clock alone and never ends, so `Headless::idle` returns where only it moves, as
+  it does for a spin; a spring that bounces is waited for until it has come to rest.
 
 ### Changed
 

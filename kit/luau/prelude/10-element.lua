@@ -842,55 +842,272 @@ function Element:label(words)
 end
 
 local EASES = { linear = true, out = true, ["in-out"] = true, spring = true }
+local CYCLE_EASES = { linear = true, out = true, ["in-out"] = true }
+local MOTION_FIELDS = {
+	seconds = true, ease = true, bounce = true, color = true, opacity = true, size = true,
+	place = true, rounded = true, border = true, shadow = true, padding = true, text_size = true,
+	transform = true, enter = true, exit = true, spin = true, loop = true,
+}
+local SHIFT_FIELDS = { opacity = true, dx = true, dy = true, seconds = true, rotate = true, scale = true }
+local LOOP_FIELDS = {
+	seconds = true, ease = true, alternate = true, opacity = true, dx = true, dy = true,
+	rotate = true, scale = true,
+}
+local TRANSFORM_FIELDS = { rotate = true, scale = true }
+
+-- What a page asks of this kit that it does not know (a field a later kit has, a value that makes
+-- no sense) is left out and said once for each name, in the program's log, and the page goes on: a
+-- later kit may give it a meaning, and a page written for it runs on this one without it. Only a
+-- thing of the wrong kind (a word for a number) is the page's mistake.
+local said_once = {}
+local function leave_out(name, message)
+	if not said_once[name] then
+		said_once[name] = true
+		warn(message)
+	end
+end
+
+local function number_of(what, value)
+	if type(value) ~= "number" then
+		refuse(what .. " is a number, not " .. type(value))
+	end
+	if value ~= value or value == math.huge or value == -math.huge then
+		return 0
+	end
+	return value
+end
+
+-- A picture and a canvas are turned and made larger; no other element is.
+local function turns(element)
+	return element.kind == "image" or element.kind == "canvas"
+end
 
 -- How a change of this element moves instead of jumping; the host does the moving, frame by
 -- frame, without asking the page again. `motion` is a table:
 --   seconds   how long a change takes (0.2)
---   ease      "out" (the default: fast, then settling), "linear", "in-out" or "spring"
+--   ease      "out" (the default: fast, then settling), "linear", "in-out" or "spring" (a spring
+--             that keeps its speed where the page changes what it goes to)
+--   bounce    for a spring, how much it swings past and back, 0 to 0.9 (0: none)
 --   color     the colours of its fill, border, shadow and words follow a change
 --   opacity   its opacity follows a change
 --   size      a width or height given in points follows a change
 --   place     moved among the others, it slides from where it was to where it is
---   enter     how it comes in when it appears: { opacity =, dx =, dy =, seconds = }
+--   rounded   its corners' radii, `rounded_corners` too, follow a change
+--   border    the thickness and the colour of its border follow a change
+--   shadow    how far its shadow falls, how blurred it is and its colour follow a change
+--   padding   its padding on all four sides follows a change
+--   text_size the size of its words, and of those inside it that have no size of their own,
+--             follows a change
+--   transform the `rotate` and `scale` of its picture or canvas (`:transform()`) follow a change
+--   enter     how it comes in when it appears: { opacity =, dx =, dy =, seconds =, rotate =, scale = }
 --   exit      how it goes when it is no longer on the page, the same
 --   spin      it turns round, clockwise, a turn in this many seconds, while it is on the page: its
 --             picture or its canvas about its middle (a spinner: `image("loader.svg"):motion({
---             spin = 1 })`); with no id too, and not under Reduce Motion
--- The element is followed by its id, so one with no id does not move. Nothing moves under Reduce
--- Motion, on the frame the page changes size, or for what scrolling brings in or takes out.
+--             spin = 1 })`); with no id too, and not under Reduce Motion. It is
+--             `loop = { rotate = 360, ease = "linear", alternate = false, seconds = turn }`
+--   loop      it goes to a shift and back, over and over, while it is on the page, by the host's
+--             clock alone: { seconds = a turn of it, opacity =, dx =, dy =, rotate =, scale =,
+--             ease = "linear", "out" or "in-out" (the default), alternate = true (there and back;
+--             false: one way, and again) }. With no id too, and not under Reduce Motion. A turn of
+--             one that fades (an `opacity` under 1) takes at least half a second: nothing that
+--             loops flashes. `rotate` and `scale` are for a picture and a canvas; `dx` and `dy`
+--             move the element and what is inside it.
+-- `rotate` and `scale` of an `enter`, an `exit` and a `loop` are for a picture and a canvas too;
+-- degrees clockwise, and how many times as large. What this kit does not know of a motion (a field
+-- a later kit has, an ease it has not, a number that makes no sense: seconds of a spin or a loop
+-- that are 0 or less) is left out and said once, and the rest of it moves; a number less than 0
+-- for the seconds is 0, and an opacity or a bounce outside what it can be is the nearest. The
+-- element is followed by its id, so one with no id does not move (but for a spin and a loop).
+-- Nothing moves under Reduce Motion, on the frame the page changes size, or for what scrolling
+-- brings in or takes out.
 function Element:motion(motion)
 	if type(motion) ~= "table" then
 		refuse("motion takes a table, not " .. type(motion))
 	end
-	local seconds = motion.seconds or 0.2
-	if motion.ease ~= nil and not EASES[motion.ease] then
-		refuse('an ease is "out", "linear", "in-out" or "spring", not ' .. tostring(motion.ease))
+	for key in motion do
+		if not MOTION_FIELDS[key] then
+			leave_out("motion." .. tostring(key), "motion has no " .. tostring(key) .. " in this kit, and it is left out")
+		end
 	end
-	if motion.spin ~= nil and not (type(motion.spin) == "number" and motion.spin > 0 and motion.spin < math.huge) then
-		refuse("spin is the seconds of a turn, more than 0, not " .. tostring(motion.spin))
+	local seconds = 0.2
+	if motion.seconds ~= nil then
+		seconds = math.max(0, number_of("motion's seconds", motion.seconds))
 	end
-	local function shift(given)
+	local ease = motion.ease
+	if ease ~= nil then
+		if type(ease) ~= "string" then
+			refuse("an ease is a word, not " .. type(ease))
+		end
+		if not EASES[ease] then
+			leave_out("ease." .. ease, 'this kit has no ease "' .. ease .. '" (it has "out", "linear", "in-out" and "spring"): it is "out"')
+			ease = "out"
+		end
+	end
+	local bounce = nil
+	if motion.bounce ~= nil then
+		local given = number_of("motion's bounce", motion.bounce)
+		if ease == "spring" then
+			bounce = math.clamp(given, 0, 0.9)
+		else
+			leave_out("motion.bounce.ease", 'a bounce is a spring\'s (ease = "spring"), and it is left out of a motion that is not one')
+		end
+	end
+	local spin = nil
+	if motion.spin ~= nil then
+		spin = number_of("spin", motion.spin)
+		if not (spin > 0 and spin < math.huge) then
+			leave_out("spin.seconds", "spin is the seconds of a turn, more than 0: a motion that has none does not turn")
+			spin = nil
+		end
+	end
+	local rotates = turns(self)
+	local transform = motion.transform == true
+	if transform and not rotates then
+		leave_out("motion.transform", "motion's transform is for a picture and a canvas, and it is left out of this element")
+		transform = false
+	end
+	local function shift(given, name)
 		if given == nil then
 			return nil
 		end
-		return {
-			opacity = given.opacity or 0,
-			dx = given.dx or 0,
-			dy = given.dy or 0,
-			seconds = given.seconds or seconds,
-		}
+		if type(given) ~= "table" then
+			refuse(name .. " is { opacity =, dx =, dy =, seconds =, rotate =, scale = }, not " .. type(given))
+		end
+		for key in given do
+			if not SHIFT_FIELDS[key] then
+				leave_out(name .. "." .. tostring(key), name .. " has no " .. tostring(key) .. " in this kit, and it is left out")
+			end
+		end
+		local made = { opacity = 0, dx = 0, dy = 0, seconds = seconds, rotate = 0, scale = 1 }
+		if given.opacity ~= nil then
+			made.opacity = math.clamp(number_of(name .. "'s opacity", given.opacity), 0, 1)
+		end
+		if given.dx ~= nil then
+			made.dx = number_of(name .. "'s dx", given.dx)
+		end
+		if given.dy ~= nil then
+			made.dy = number_of(name .. "'s dy", given.dy)
+		end
+		if given.seconds ~= nil then
+			made.seconds = math.max(0, number_of(name .. "'s seconds", given.seconds))
+		end
+		if given.rotate ~= nil or given.scale ~= nil then
+			local rotate = given.rotate ~= nil and number_of(name .. "'s rotate", given.rotate) or 0
+			local scale = given.scale ~= nil and number_of(name .. "'s scale", given.scale) or 1
+			if rotates then
+				made.rotate, made.scale = rotate, math.max(0, scale)
+			else
+				leave_out(name .. ".turns", name .. "'s rotate and scale are for a picture and a canvas, and are left out of this element")
+			end
+		end
+		return made
+	end
+	local function cycle(given)
+		if given == nil then
+			return nil
+		end
+		if type(given) ~= "table" then
+			refuse("loop is { seconds =, opacity =, dx =, dy =, rotate =, scale =, ease =, alternate = }, not " .. type(given))
+		end
+		for key in given do
+			if not LOOP_FIELDS[key] then
+				leave_out("loop." .. tostring(key), "loop has no " .. tostring(key) .. " in this kit, and it is left out")
+			end
+		end
+		if given.seconds == nil then
+			leave_out("loop.seconds", "a loop is told its seconds, a turn of it: with none it does not go round")
+			return nil
+		end
+		local turn = number_of("loop's seconds", given.seconds)
+		if not (turn > 0 and turn < math.huge) then
+			leave_out("loop.seconds", "loop's seconds are more than 0: a loop that has none does not go round")
+			return nil
+		end
+		local made = { seconds = turn, ease = "in-out", alternate = true, opacity = 1, dx = 0, dy = 0, rotate = 0, scale = 1 }
+		if given.ease ~= nil then
+			if type(given.ease) ~= "string" then
+				refuse("an ease is a word, not " .. type(given.ease))
+			end
+			if CYCLE_EASES[given.ease] then
+				made.ease = given.ease
+			else
+				leave_out("loop.ease." .. given.ease, 'a loop has the eases "linear", "out" and "in-out", not "' .. given.ease .. '": it is "in-out"')
+			end
+		end
+		if given.alternate ~= nil then
+			if type(given.alternate) ~= "boolean" then
+				refuse("loop's alternate is true or false, not " .. type(given.alternate))
+			end
+			made.alternate = given.alternate
+		end
+		if given.opacity ~= nil then
+			made.opacity = math.clamp(number_of("loop's opacity", given.opacity), 0, 1)
+			-- A turn of one that fades takes at least half a second: it blinks no more than twice a
+			-- second, and nothing that loops flashes.
+			if made.opacity < 1 then
+				made.seconds = math.max(made.seconds, 0.5)
+			end
+		end
+		if given.dx ~= nil then
+			made.dx = number_of("loop's dx", given.dx)
+		end
+		if given.dy ~= nil then
+			made.dy = number_of("loop's dy", given.dy)
+		end
+		if given.rotate ~= nil or given.scale ~= nil then
+			local rotate = given.rotate ~= nil and number_of("loop's rotate", given.rotate) or 0
+			local scale = given.scale ~= nil and number_of("loop's scale", given.scale) or 1
+			if rotates then
+				made.rotate, made.scale = rotate, math.max(0, scale)
+			else
+				leave_out("loop.turns", "loop's rotate and scale are for a picture and a canvas, and are left out of this element")
+			end
+		end
+		return made
 	end
 	self.meta.motion = {
 		seconds = seconds,
-		ease = motion.ease,
+		ease = ease,
+		bounce = bounce,
 		color = motion.color == true,
 		opacity = motion.opacity == true,
 		size = motion.size == true,
 		place = motion.place == true,
-		enter = shift(motion.enter),
-		exit = shift(motion.exit),
-		spin = motion.spin,
+		rounded = motion.rounded == true,
+		border = motion.border == true,
+		shadow = motion.shadow == true,
+		padding = motion.padding == true,
+		text_size = motion.text_size == true,
+		transform = transform,
+		enter = shift(motion.enter, "enter"),
+		exit = shift(motion.exit, "exit"),
+		spin = spin,
+		loop = cycle(motion.loop),
 	}
+	return self
+end
+
+-- A picture or a canvas turned and drawn larger, about its middle, as `Path:transform` does a path
+-- of it: `{ rotate = degrees clockwise, scale = how many times as large }`. Its box and the boxes
+-- around do not change. Called again, it replaces the one before. Of no other element: it is left
+-- out and said once. `motion({ transform = true })` makes a change of it move.
+function Element:transform(parts)
+	if type(parts) ~= "table" then
+		refuse("transform takes { rotate =, scale = }, not " .. type(parts))
+	end
+	for key in parts do
+		if not TRANSFORM_FIELDS[key] then
+			leave_out("transform." .. tostring(key), "an element's transform has rotate and scale in this kit, not " .. tostring(key) .. ", and it is left out")
+		end
+	end
+	local rotate = parts.rotate ~= nil and number_of("transform's rotate", parts.rotate) or 0
+	local scale = parts.scale ~= nil and math.max(0, number_of("transform's scale", parts.scale)) or nil
+	if not turns(self) then
+		leave_out("transform.element", "an element's transform is for a picture and a canvas, and it is left out of this element")
+		return self
+	end
+	self.style.turn = rotate
+	self.style.scale = scale
 	return self
 end
 
@@ -918,7 +1135,8 @@ local ROLES = {
 
 -- What this kit has that an earlier one has not, by name: the roles it knows (`pencere.roles`, and
 -- "role.<name>"), the methods of an element that came after the first (`"element.<method>"`), what a
--- host tells the page (`"event.<type>"`, `"command.target"`), and the options of the library's
+-- host tells the page (`"event.<type>"`, `"command.target"`), the fields of an element's `motion`
+-- that came after the first (`"motion.<field>"`), and the options of the library's
 -- components (`"ui.<component>.<option>"`). A page written for a later kit asks `pencere.has(name)`
 -- before it uses what it asks for and shows a screen that says so where the host is too old: an older
 -- kit has no `pencere.has` at all, and that is as good as `false`.
@@ -930,6 +1148,14 @@ local HAS = {
 	-- What the library's components took after the first kit, as `ui.<component>.<option>`: the `reveal`
 	-- of a list and of a grid.
 	["ui.list.reveal"] = true, ["ui.grid.reveal"] = true,
+	-- What the motion of an element took after the first kit, as `element.<method>` and
+	-- `motion.<field>`: a spring that bounces, the numbers of how an element looks that follow a
+	-- change, the turn and the scale of a picture or a canvas, and what goes round and round. A field
+	-- an older kit does not know is left out of the motion, quietly: the page moves without it.
+	["element.transform"] = true, ["motion.bounce"] = true, ["motion.rounded"] = true,
+	["motion.border"] = true, ["motion.shadow"] = true, ["motion.padding"] = true,
+	["motion.text_size"] = true, ["motion.transform"] = true, ["motion.loop"] = true,
+	["motion.shift.rotate"] = true, ["motion.shift.scale"] = true,
 }
 local roles = {}
 for role in ROLES do

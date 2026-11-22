@@ -529,3 +529,42 @@ fn of_the_lines_of_a_call_that_fails_the_last_ones_are_said() {
     assert_eq!(said.first().map(|(_, text)| text.as_str()), Some("line 25"));
     assert_eq!(said.last().map(|(_, text)| text.as_str()), Some("line 40"));
 }
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn what_a_motion_asks_that_this_kit_does_not_know_is_left_out_and_said_once_for_each_name() {
+    use pencere_view::Motion;
+    let mut page = open(
+        r##"
+        return { render = function()
+            return pencere.div()
+                :child(pencere.div():id("a"):motion({
+                    ease = "zig", colour = true, color = true, spin = 0, bounce = 0.3,
+                }))
+                :child(pencere.div():id("b"):motion({
+                    ease = "zig", colour = true, loop = { seconds = 0 },
+                }))
+                :child(pencere.div():id("c"):transform({ rotate = 10, skew = 3 }))
+        end }
+        "##,
+    );
+    drain(&mut page);
+    drain(&mut page);
+    assert_eq!(page.seen.closed, None);
+    let said = lines(&page);
+    // One line for each name, however many times the page is drawn and however many elements say it:
+    // an ease and a field that are not known, a spin and a loop with no time, a bounce of what is not a
+    // spring, and an element that is turned and is no picture.
+    assert!(said.iter().all(|(level, _)| level == "warn"), "{said:?}");
+    assert_eq!(said.len(), 7, "{said:?}");
+    assert!(
+        said.iter().any(|(_, text)| text.contains("zig")),
+        "{said:?}"
+    );
+    // The rest of the motion goes on: what it knew of it moves, and the ease is the usual one.
+    let frame = page.seen.frame.clone().expect("a page");
+    let nodes = frame.root.fold();
+    assert_eq!(nodes[1].meta.motion, Some(Motion::new(0.2).color()));
+    assert_eq!(nodes[2].meta.motion, Some(Motion::new(0.2)));
+    assert_eq!(nodes[3].meta.motion, None);
+}

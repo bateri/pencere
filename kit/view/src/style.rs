@@ -256,6 +256,12 @@ pub struct Style {
     /// How much of the element shows with everything inside it, `0.0..=1.0`: each thing it draws
     /// is that much fainter. `None` is all of it.
     pub opacity: Option<f32>,
+    /// How far its picture or its canvas is turned, degrees clockwise about its middle (its box
+    /// and the boxes around do not move). Of no other element.
+    pub turn: f32,
+    /// How many times as large its picture or its canvas is drawn, about its middle (`None`: as
+    /// it is). Of no other element.
+    pub scale: Option<f32>,
     pub text: TextStyle,
     /// A line that does not fit ends in "…" and gives its room away first.
     pub truncate: bool,

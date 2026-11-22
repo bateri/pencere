@@ -10,7 +10,8 @@ use pencere_editor::UNDO_PAUSE;
 use pencere_sandbox::Fault;
 use pencere_view::edit::EditCommand;
 use pencere_view::{
-    Button, Carry, Cursor, Event, Id, Input, Key, MenuEntry, Mods, Paint, Point, Reply, Size, div,
+    Button, Carry, Cursor, Event, Id, Input, Key, MenuEntry, Mods, Paint, Point, Rect, Reply, Size,
+    div,
 };
 use serde_json::json;
 
@@ -1775,6 +1776,65 @@ return {
         "the spin was drawn on the way: {start:?} {turned:?}"
     );
     assert_eq!(page.idle()?, 0, "and it is done");
+    Ok(())
+}
+
+/// A loop goes by the host's clock and is no change to wait for; a spring that bounces is, and it
+/// has come to rest, at the width the page said, by the time `idle` returns.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_loop_goes_by_the_clock_and_idle_waits_for_a_spring_that_bounces_and_not_for_it()
+-> Result<(), Error> {
+    let script = r#"
+local wide = false
+return {
+    render = function()
+        return pencere.div():size_full():row():items_start()
+            :child(pencere.div():id("dot"):size(10, 10):bg("accent")
+                :motion({ loop = { seconds = 1, dx = 40, ease = "linear", opacity = 0.5 } }))
+            :child(pencere.div():id("bar"):h(10):w(wide and 200 or 100):bg("dim"):no_shrink()
+                :motion({ seconds = 0.4, ease = "spring", bounce = 0.5, size = true }))
+    end,
+    handle = function(event)
+        if event.type == "key" then wide = not wide end
+        return true
+    end,
+}
+"#;
+    let quads = |page: &Headless| -> Vec<Rect> {
+        page.list()
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Paint::Quad(quad) if quad.fill.is_some() => Some(quad.rect),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut page = Headless::script(script).open()?;
+    assert_eq!(page.idle()?, 0, "a loop alone is nothing to wait for");
+    let start = quads(&page);
+    page.advance(0.25)?;
+    let half = quads(&page);
+    assert!(
+        (half[0].x - start[0].x - 20.0).abs() < 1.5,
+        "a loop of a second, there and back, is half way at a quarter of it: {start:?} {half:?}"
+    );
+    assert_eq!(half[1].w, 100.0, "and the bar has not moved");
+    page.press("a")?;
+    // A loop asks for every frame: a second of them is more than the spring needs.
+    let mut widest = 0.0_f32;
+    for _ in 0..60 {
+        assert!(page.step()?);
+        widest = widest.max(quads(&page)[1].w);
+    }
+    assert!(
+        widest > 200.0,
+        "the spring went past where it was going: {widest}"
+    );
+    let rest = quads(&page);
+    assert_eq!(rest[1].w, 200.0, "and it came to rest at the width said");
+    assert_eq!(page.idle()?, 0);
     Ok(())
 }
 

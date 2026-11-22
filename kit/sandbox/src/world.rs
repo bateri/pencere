@@ -20,7 +20,7 @@ use pencere_view::wire::{
 };
 use pencere_view::{
     AccessibleRole, Align, Anchor, Blend, Border, BrowserAsk, BrowserOptions, BrowserRefusal,
-    BrowserWindows, Brush, Button, Cap, Carry, Color, Command, Cursor, Ease, Element, Event,
+    BrowserWindows, Brush, Button, Cap, Carry, Color, Command, Cursor, Cycle, Ease, Element, Event,
     Extent, Family, FileSource, Fill, GesturePhase, Gradient, Id, Input, Join, Key, KeyConvention,
     Keyboard, Laid, MOST_KEYS, Matrix, Menu, MenuEntry, Mix, Mods, Motion, PROFILE_CHARS, Panel,
     Path, Payload, Phase, Point, Rect, Reply, Rgba, Role, ScrollTo, Segment, Shadow, Shift,
@@ -1400,6 +1400,15 @@ fn style_out(
         shadow: style.shadow.as_ref().map(shadow_out),
         // Not a share of an element that is not one: all of it shows.
         opacity: Some(unit(style.opacity, 1.0)).filter(|opacity| *opacity < 1.0),
+        turn: if style.turn.is_finite() {
+            style.turn
+        } else {
+            0.0
+        },
+        scale: style
+            .scale
+            .filter(|scale| scale.is_finite())
+            .map(|scale| scale.max(0.0)),
         text: text_style_out(&style.text),
         truncate: style.truncate,
     })
@@ -1719,8 +1728,43 @@ fn shift_out(shift: wit::Shift) -> Shift {
         opacity: finite(shift.opacity).clamp(0.0, 1.0),
         dx: finite(shift.dx),
         dy: finite(shift.dy),
+        rotate: finite(shift.rotate),
+        // How many times as large: not a number, or less than nothing, is the size it is.
+        scale: if shift.scale.is_finite() {
+            shift.scale.max(0.0)
+        } else {
+            1.0
+        },
         seconds: seconds_out(shift.seconds),
     }
+}
+
+/// A cycle, or none where its seconds are not a time more than 0. Where it fades it takes at least
+/// [`Cycle::FASTEST_FADE`] for a turn, and its ease is one a cycle has.
+fn cycle_out(cycle: wit::Cycle) -> Option<Cycle> {
+    if !(cycle.seconds.is_finite() && cycle.seconds > 0.0) {
+        return None;
+    }
+    let finite = |value: f32| if value.is_finite() { value } else { 0.0 };
+    let base = Cycle::new(cycle.seconds)
+        .ease(match cycle.ease {
+            wit::Ease::Linear => Ease::Linear,
+            wit::Ease::Out => Ease::Out,
+            wit::Ease::InOut | wit::Ease::Spring => Ease::InOut,
+        })
+        .fade(if cycle.opacity.is_finite() {
+            cycle.opacity
+        } else {
+            1.0
+        })
+        .by(finite(cycle.dx), finite(cycle.dy))
+        .turned(finite(cycle.rotate))
+        .scaled(if cycle.scale.is_finite() {
+            cycle.scale.max(0.0)
+        } else {
+            1.0
+        });
+    Some(if cycle.alternate { base } else { base.once() })
 }
 
 fn motion_out(motion: wit::Motion) -> Motion {
@@ -1732,10 +1776,22 @@ fn motion_out(motion: wit::Motion) -> Motion {
             wit::Ease::InOut => Ease::InOut,
             wit::Ease::Spring => Ease::Spring,
         },
+        bounce: if motion.bounce.is_finite() {
+            motion.bounce.clamp(0.0, 0.9)
+        } else {
+            0.0
+        },
         color: motion.color,
         opacity: motion.opacity,
         size: motion.size,
         place: motion.place,
+        rounded: motion.rounded,
+        border: motion.border,
+        shadow: motion.shadow,
+        padding: motion.padding,
+        text_size: motion.text_size,
+        transform: motion.transform,
+        cycle: motion.cycle.and_then(cycle_out),
         enter: motion.enter.map(shift_out),
         exit: motion.exit.map(shift_out),
         // A turn of no time, of less, or of no number of seconds is no turning.
@@ -3294,6 +3350,8 @@ mod tests {
             },
             shadow: None,
             opacity: 1.0,
+            turn: 0.0,
+            scale: None,
             text: wit::TextStyle {
                 family: None,
                 size: None,

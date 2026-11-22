@@ -30,7 +30,7 @@ use crate::{
 
 /// The text a page is written in until a box says otherwise: the terminal's face at 12.5
 /// points, regular, in the foreground, at the start of its box.
-const DEFAULT_TEXT: TextStyle = TextStyle {
+pub(crate) const DEFAULT_TEXT: TextStyle = TextStyle {
     family: Some(Family::Terminal),
     size: Some(12.5),
     weight: Some(400),
@@ -141,6 +141,9 @@ pub(crate) struct Node {
     /// How far its picture or its canvas is turned, degrees clockwise about its middle: where it
     /// spins ([`crate::Motion::spin`]).
     pub turn: f32,
+    /// How many times as large its picture or its canvas is drawn, about its middle: where it is
+    /// scaled ([`crate::Style::scale`], [`crate::Motion::cycle`]).
+    pub scaled: f32,
     /// The room inside the box around what is in it, pixels: left, above, right, below.
     pub pad: [f32; 4],
     /// It is put where the page says (laid over the rest, or an overlay), not where the box it is
@@ -215,6 +218,9 @@ struct Pending {
     hidden: bool,
     /// Its own opacity, `0.0..=1.0`.
     opacity: f32,
+    /// How far its picture or canvas is turned and how large it is drawn, as the page says.
+    turn: f32,
+    scaled: f32,
     content: Content,
     fill: Option<Color>,
     gradient: Option<Gradient>,
@@ -486,7 +492,8 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             zoomed: entry.zoomed,
             overlay: entry.overlay,
             clips: entry.overflow != Overflow::Visible,
-            turn: 0.0,
+            turn: entry.turn,
+            scaled: entry.scaled,
             pad: [
                 laid.padding.left,
                 laid.padding.top,
@@ -870,6 +877,7 @@ fn empty(page: Rect) -> Node {
         overlay: false,
         clips: false,
         turn: 0.0,
+        scaled: 1.0,
         pad: [0.0; 4],
         placed: false,
     }
@@ -953,6 +961,15 @@ fn build(
             .opacity
             .filter(|opacity| opacity.is_finite())
             .map_or(1.0, |opacity| opacity.clamp(0.0, 1.0)),
+        turn: if style.turn.is_finite() {
+            style.turn
+        } else {
+            0.0
+        },
+        scaled: style
+            .scale
+            .filter(|scale| scale.is_finite())
+            .map_or(1.0, |scale| scale.max(0.0)),
         content: Content::None,
         fill: style.fill,
         gradient: style.gradient,

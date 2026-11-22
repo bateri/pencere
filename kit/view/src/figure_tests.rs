@@ -152,3 +152,32 @@ fn a_canvas_that_fades_hands_the_host_its_paths_with_the_effects_as_faint_as_it_
     assert_eq!(figure.rect, Rect::new(0.0, 0.0, 20.0, 20.0));
     assert_eq!(figure.paths[0], every_field().faded(0.5));
 }
+
+#[test]
+fn a_canvas_that_is_scaled_and_turned_has_its_room_grown_about_its_middle_and_its_paths_posed() {
+    // 40 points square at (10, 10), twice as large and a quarter turn clockwise: its room is 80 and
+    // starts at (-10, -10), and (10, 0) of its paths, which is (20, 0) of the grown room, is a
+    // quarter turn about the middle (40, 40) of it.
+    let root = div().child(
+        canvas([path().rect(0.0, 0.0, 10.0, 10.0)])
+            .size(40.0, 40.0)
+            .scaled(2.0)
+            .turned(90.0),
+    );
+    let list = layout(root, Size::new(100.0, 100.0), 1.0, &mut Fixed).paint(&mut Fixed);
+    let Some(Paint::Figure(figure)) = list.items.first() else {
+        panic!("a figure");
+    };
+    assert_eq!(figure.rect, Rect::new(-20.0, -20.0, 80.0, 80.0));
+    near(
+        figure.paths[0].transform.apply(Point::new(10.0, 0.0)),
+        (80.0, 20.0),
+    );
+    // Not turned and not scaled it is as it was, untouched.
+    let root = div().child(canvas([every_field()]).size(20.0, 20.0));
+    let list = layout(root, Size::new(100.0, 100.0), 1.0, &mut Fixed).paint(&mut Fixed);
+    let Some(Paint::Figure(figure)) = list.items.first() else {
+        panic!("a figure");
+    };
+    assert_eq!(figure.paths[0], every_field());
+}

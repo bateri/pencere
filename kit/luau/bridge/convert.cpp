@@ -631,6 +631,8 @@ void read_style(lua_State* L, int s, pencere_view_types_style_t& out, Arenas& ar
     }
     lua_pop(L, 1);
     out.opacity = number(L, s, "opacity", 1.0f);
+    out.turn = number(L, s, "turn", 0.0f);
+    out.scale = optional_number(L, s, "scale");
     get(L, s, "text");
     if (lua_type(L, -1) == LUA_TTABLE) {
         int text = lua_gettop(L);
@@ -677,13 +679,39 @@ pencere_view_types_option_shift_t optional_shift(lua_State* L, int t, const char
         out.val.dx = number(L, shift, "dx", 0.0f);
         out.val.dy = number(L, shift, "dy", 0.0f);
         out.val.seconds = number(L, shift, "seconds", 0.2f);
+        out.val.rotate = number(L, shift, "rotate", 0.0f);
+        out.val.scale = number(L, shift, "scale", 1.0f);
     }
     lua_pop(L, 1);
     return out;
 }
 
-// How an element moves: `{ seconds =, ease =, color =, opacity =, size =, place =, enter =,
-// exit = }` at `index`.
+// What an element does over and over: `{ seconds =, ease =, alternate =, opacity =, dx =, dy =,
+// rotate =, scale = }`, absent in `t[name]` when it is not a table.
+pencere_view_types_option_cycle_t optional_cycle(lua_State* L, int t, const char* name) {
+    static const char* const kCycleEases[] = {"linear", "out", "in-out"};
+    pencere_view_types_option_cycle_t out = {};
+    get(L, t, name);
+    if (lua_type(L, -1) == LUA_TTABLE) {
+        int cycle = lua_gettop(L);
+        out.is_some = true;
+        out.val.seconds = number(L, cycle, "seconds", 1.0f);
+        out.val.ease = (pencere_view_types_ease_t)word(L, cycle, "ease", kCycleEases, 3, PENCERE_VIEW_TYPES_EASE_IN_OUT);
+        view_option_bool_t alternate = optional_flag(L, cycle, "alternate");
+        out.val.alternate = alternate.is_some ? alternate.val : true;
+        out.val.opacity = number(L, cycle, "opacity", 1.0f);
+        out.val.dx = number(L, cycle, "dx", 0.0f);
+        out.val.dy = number(L, cycle, "dy", 0.0f);
+        out.val.rotate = number(L, cycle, "rotate", 0.0f);
+        out.val.scale = number(L, cycle, "scale", 1.0f);
+    }
+    lua_pop(L, 1);
+    return out;
+}
+
+// How an element moves: `{ seconds =, ease =, bounce =, color =, opacity =, size =, place =,
+// rounded =, border =, shadow =, padding =, text_size =, transform =, enter =, exit =, spin =,
+// loop = }` at `index`.
 pencere_view_types_motion_t motion_at(lua_State* L, int index) {
     static const char* const kEases[] = {"linear", "out", "in-out", "spring"};
     pencere_view_types_motion_t motion = {};
@@ -693,9 +721,17 @@ pencere_view_types_motion_t motion_at(lua_State* L, int index) {
     motion.opacity = flag(L, index, "opacity");
     motion.size = flag(L, index, "size");
     motion.place = flag(L, index, "place");
+    motion.bounce = number(L, index, "bounce", 0.0f);
+    motion.rounded = flag(L, index, "rounded");
+    motion.border = flag(L, index, "border");
+    motion.shadow = flag(L, index, "shadow");
+    motion.padding = flag(L, index, "padding");
+    motion.text_size = flag(L, index, "text_size");
+    motion.transform = flag(L, index, "transform");
     motion.enter = optional_shift(L, index, "enter");
     motion.exit = optional_shift(L, index, "exit");
     motion.spin = optional_number(L, index, "spin");
+    motion.cycle = optional_cycle(L, index, "loop");
     return motion;
 }
 

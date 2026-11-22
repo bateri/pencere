@@ -537,11 +537,25 @@ impl Path {
     /// is its own and then the turn, the points are as they were, and a shadow's offset turns with
     /// the picture.
     #[must_use]
-    pub(crate) fn turned(mut self, degrees: f32, center: Point) -> Self {
-        self.transform = self.transform.then(Matrix::turning(degrees, center));
+    pub(crate) fn turned(self, degrees: f32, center: Point) -> Self {
+        self.posed(degrees, 1.0, center)
+    }
+
+    /// The same path drawn `scale` times as large about the origin of the canvas and then turned
+    /// `degrees` clockwise about `center`: what a canvas that is scaled and turned does, with its box
+    /// grown to be the size it is drawn at. A shadow's offset goes by it as the shadow does.
+    #[must_use]
+    pub(crate) fn posed(mut self, degrees: f32, scale: f32, center: Point) -> Self {
+        let pose = Matrix {
+            a: scale,
+            d: scale,
+            ..Matrix::IDENTITY
+        }
+        .then(Matrix::turning(degrees, center));
+        self.transform = self.transform.then(pose);
         if let Some(shadow) = &mut self.shadow {
             let at = Matrix::turning(degrees, Point::new(0.0, 0.0))
-                .apply(Point::new(shadow.dx, shadow.dy));
+                .apply(Point::new(shadow.dx * scale, shadow.dy * scale));
             shadow.dx = at.x;
             shadow.dy = at.y;
         }

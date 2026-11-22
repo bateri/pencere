@@ -55,6 +55,7 @@ mod paint;
 mod rich;
 mod rows;
 mod scrolls;
+mod spring;
 mod style;
 mod system;
 mod text;
@@ -85,11 +86,12 @@ pub use layout::{
     Accessible, AccessibleRole, Action, BrowserRoom, Carrying, Detail, EditorRoom, Extent, Field,
     Laid, Queries, Spill, layout,
 };
-pub use motion::{Ease, Motion, Motions, Shift, Tip};
+pub use motion::{Cycle, Ease, Motion, Motions, Shift, Tip};
 pub use paint::{BrowserSlot, DrawList, EditorSlot, Figure, Paint, Picture, Quad, Run};
 pub use rich::{Span, span};
 pub use rows::{Built, List, Rows};
 pub use scrolls::{Bars, Phase, ScrollTo, Scrolls, Wheeled};
+pub use spring::spring_step;
 pub use style::{Anchor, Border, Gradient, Shadow, Side, Track, Zoom};
 pub use system::{
     Drawing, KeyConvention, TerminalCaret, TerminalLook, TerminalSelection, WallTime,

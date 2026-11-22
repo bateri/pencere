@@ -19,8 +19,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::layout::{Laid, Node, layout};
-use crate::style::{Length, Style};
+use crate::layout::{DEFAULT_TEXT, Laid, Node, layout, snap};
+use crate::spring::spring_step;
+use crate::style::{Border, Length, Shadow, Style};
 use crate::{Color, Element, Id, Measure, Mix, Rect, Size};
 
 /// How a change of an element moves.
@@ -30,6 +31,9 @@ pub struct Motion {
     pub seconds: f32,
     /// How the change goes over that time.
     pub ease: Ease,
+    /// With [`Ease::Spring`]: how much it bounces, `0.0..=0.9`. 0 comes to rest with no overshoot;
+    /// more swings past where it goes and back, the longer the more.
+    pub bounce: f32,
     /// The colours of its fill, its border, its shadow and its words follow a change.
     pub color: bool,
     /// Its opacity follows a change.
@@ -40,6 +44,20 @@ pub struct Motion {
     /// Moved among the others (a row above it went, the list was sorted again), it slides from
     /// where it was to where it is.
     pub place: bool,
+    /// Its corners' radii (all four) follow a change.
+    pub rounded: bool,
+    /// The thickness of its border, and the border's colour, follow a change. It takes room.
+    pub border: bool,
+    /// What its shadow is: how far it falls, how blurred, and its colour, follow a change.
+    pub shadow: bool,
+    /// Its padding (all four sides) follows a change. It takes room.
+    pub padding: bool,
+    /// The size of its words (and of those inside it that have no size of their own) follows a
+    /// change. It takes room.
+    pub text_size: bool,
+    /// The turn and the scale its picture or its canvas has ([`crate::Style::turn`],
+    /// [`crate::Style::scale`]) follow a change.
+    pub transform: bool,
     /// How it comes in when it appears on a page that was there before it.
     pub enter: Option<Shift>,
     /// How it goes when it is no longer on the page: the host keeps drawing it, as it was, while
@@ -47,8 +65,11 @@ pub struct Motion {
     pub exit: Option<Shift>,
     /// It turns round and round, clockwise, a turn in this many seconds, for as long as it is on
     /// the page (a spinner while something loads): its picture or its canvas turns about its
-    /// middle, its box and its place stay. It does not turn under Reduce Motion.
+    /// middle, its box and its place stay. It does not turn under Reduce Motion. It is the
+    /// [`Cycle`] that turns 360 degrees, linearly, one way.
     pub spin: Option<f32>,
+    /// It goes to a shift and back, over and over, for as long as it is on the page.
+    pub cycle: Option<Cycle>,
 }
 
 impl Motion {
@@ -58,19 +79,35 @@ impl Motion {
         Self {
             seconds,
             ease: Ease::Out,
+            bounce: 0.0,
             color: false,
             opacity: false,
             size: false,
             place: false,
+            rounded: false,
+            border: false,
+            shadow: false,
+            padding: false,
+            text_size: false,
+            transform: false,
             enter: None,
             exit: None,
             spin: None,
+            cycle: None,
         }
     }
 
     #[must_use]
     pub const fn ease(self, ease: Ease) -> Self {
         Self { ease, ..self }
+    }
+
+    /// How much a spring bounces, `0.0..=0.9` (a number outside is the nearest).
+    #[must_use]
+    pub const fn bounce(self, bounce: f32) -> Self {
+        let bounce = if bounce > 0.9 { 0.9 } else { bounce };
+        let bounce = if bounce > 0.0 { bounce } else { 0.0 };
+        Self { bounce, ..self }
     }
 
     #[must_use]
@@ -103,6 +140,54 @@ impl Motion {
     }
 
     #[must_use]
+    pub const fn rounded(self) -> Self {
+        Self {
+            rounded: true,
+            ..self
+        }
+    }
+
+    #[must_use]
+    pub const fn border(self) -> Self {
+        Self {
+            border: true,
+            ..self
+        }
+    }
+
+    #[must_use]
+    pub const fn shadow(self) -> Self {
+        Self {
+            shadow: true,
+            ..self
+        }
+    }
+
+    #[must_use]
+    pub const fn padding(self) -> Self {
+        Self {
+            padding: true,
+            ..self
+        }
+    }
+
+    #[must_use]
+    pub const fn text_size(self) -> Self {
+        Self {
+            text_size: true,
+            ..self
+        }
+    }
+
+    #[must_use]
+    pub const fn transform(self) -> Self {
+        Self {
+            transform: true,
+            ..self
+        }
+    }
+
+    #[must_use]
     pub const fn enter(self, from: Shift) -> Self {
         Self {
             enter: Some(from),
@@ -127,6 +212,15 @@ impl Motion {
             ..self
         }
     }
+
+    /// It goes to `cycle` and back, for as long as it is on the page ([`Motion::cycle`]).
+    #[must_use]
+    pub const fn cycle(self, cycle: Cycle) -> Self {
+        Self {
+            cycle: Some(cycle),
+            ..self
+        }
+    }
 }
 
 /// How a move goes over its time.
@@ -139,7 +233,9 @@ pub enum Ease {
     Out,
     /// Slow at both ends.
     InOut,
-    /// As a spring that does not bounce: quick, and long in coming to rest.
+    /// A spring: quick, and long in coming to rest. [`Ease::at`] is the one that does not bounce;
+    /// a move of a motion with a `bounce` swings past where it goes and back, and one sent
+    /// elsewhere in flight keeps its speed.
     Spring,
 }
 
@@ -182,12 +278,17 @@ fn bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
 }
 
 /// Where an element comes in from or goes to, as a difference from where it is: this opacity (of
-/// its own), moved this far (points), over this time.
+/// its own), moved this far (points), turned this many degrees and this many times as large (a
+/// picture and a canvas), over this time.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Shift {
     pub opacity: f32,
     pub dx: f32,
     pub dy: f32,
+    /// Degrees clockwise.
+    pub rotate: f32,
+    /// How many times as large (1: as it is).
+    pub scale: f32,
     /// Seconds.
     pub seconds: f32,
 }
@@ -200,6 +301,8 @@ impl Shift {
             opacity: 0.0,
             dx: 0.0,
             dy: 0.0,
+            rotate: 0.0,
+            scale: 1.0,
             seconds,
         }
     }
@@ -208,6 +311,158 @@ impl Shift {
     #[must_use]
     pub const fn by(self, dx: f32, dy: f32) -> Self {
         Self { dx, dy, ..self }
+    }
+
+    /// The same, turned `degrees` clockwise (a picture or a canvas).
+    #[must_use]
+    pub const fn turned(self, degrees: f32) -> Self {
+        Self {
+            rotate: degrees,
+            ..self
+        }
+    }
+
+    /// The same, `scale` times as large (a picture or a canvas).
+    #[must_use]
+    pub const fn scaled(self, scale: f32) -> Self {
+        Self { scale, ..self }
+    }
+}
+
+/// What an element does over and over, for as long as it is on the page: it goes from where it is
+/// to this shift and back (or, with [`Cycle::once`], from where it is to it, and again from the
+/// start), a time of `seconds` for the whole way. Its time is the host's clock alone: every cycle
+/// of the same seconds is at the same place of it at the same time. Not under Reduce Motion, and
+/// not while the element is hidden.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Cycle {
+    /// A turn of the cycle, seconds.
+    pub seconds: f32,
+    /// How the way goes: [`Ease::Linear`], [`Ease::Out`] or [`Ease::InOut`] (the others are
+    /// [`Ease::InOut`]).
+    pub ease: Ease,
+    /// There and back; not, it goes one way and starts again.
+    pub alternate: bool,
+    /// The shift it goes to. A cycle that fades (less than 1) takes at least
+    /// [`Cycle::FASTEST_FADE`] for a turn.
+    pub opacity: f32,
+    pub dx: f32,
+    pub dy: f32,
+    pub rotate: f32,
+    pub scale: f32,
+}
+
+impl Cycle {
+    /// The least a turn of a cycle that fades takes, seconds: nothing that loops blinks more than
+    /// three times a second, which is what a person may be harmed by, however deep it goes.
+    pub const FASTEST_FADE: f32 = 0.5;
+
+    /// A cycle of `seconds` that goes nowhere yet: add where.
+    #[must_use]
+    pub const fn new(seconds: f32) -> Self {
+        Self {
+            seconds,
+            ease: Ease::InOut,
+            alternate: true,
+            opacity: 1.0,
+            dx: 0.0,
+            dy: 0.0,
+            rotate: 0.0,
+            scale: 1.0,
+        }
+    }
+
+    /// The cycle a spin of `seconds` is: round, one way, at one pace.
+    #[must_use]
+    pub const fn spin(seconds: f32) -> Self {
+        Self {
+            ease: Ease::Linear,
+            alternate: false,
+            rotate: 360.0,
+            ..Self::new(seconds)
+        }
+    }
+
+    #[must_use]
+    pub const fn ease(self, ease: Ease) -> Self {
+        Self { ease, ..self }
+    }
+
+    /// Not there and back: one way, and again.
+    #[must_use]
+    pub const fn once(self) -> Self {
+        Self {
+            alternate: false,
+            ..self
+        }
+    }
+
+    /// As faint as `opacity` (`0.0..=1.0`, a number outside is the nearest). The cycle then takes
+    /// at least [`Cycle::FASTEST_FADE`] for a turn.
+    #[must_use]
+    pub const fn fade(self, opacity: f32) -> Self {
+        let opacity = if opacity.is_nan() || opacity > 1.0 {
+            1.0
+        } else if opacity < 0.0 {
+            0.0
+        } else {
+            opacity
+        };
+        let seconds = if opacity < 1.0 && self.seconds < Self::FASTEST_FADE {
+            Self::FASTEST_FADE
+        } else {
+            self.seconds
+        };
+        Self {
+            opacity,
+            seconds,
+            ..self
+        }
+    }
+
+    /// How long a turn takes: the seconds it was given, and where it fades not less than
+    /// [`Cycle::FASTEST_FADE`], however it was made.
+    fn turn(&self) -> f32 {
+        if self.opacity < 1.0 {
+            self.seconds.max(Self::FASTEST_FADE)
+        } else {
+            self.seconds
+        }
+    }
+
+    #[must_use]
+    pub const fn by(self, dx: f32, dy: f32) -> Self {
+        Self { dx, dy, ..self }
+    }
+
+    #[must_use]
+    pub const fn turned(self, degrees: f32) -> Self {
+        Self {
+            rotate: degrees,
+            ..self
+        }
+    }
+
+    #[must_use]
+    pub const fn scaled(self, scale: f32) -> Self {
+        Self { scale, ..self }
+    }
+
+    /// Where the cycle is at `now`, `0.0..=1.0` of the way from where the element is to its shift.
+    fn at(&self, now: f64) -> f32 {
+        let turns = now / f64::from(self.turn());
+        #[allow(clippy::cast_possible_truncation)]
+        let part = (turns - turns.floor()) as f32;
+        let along = if self.alternate {
+            1.0 - (2.0 * part - 1.0).abs()
+        } else {
+            part
+        };
+        let ease = match self.ease {
+            Ease::Linear | Ease::Out => self.ease,
+            _ => Ease::InOut,
+        };
+        ease.at(along)
     }
 }
 
@@ -219,104 +474,256 @@ pub struct Tip {
     pub keys: Option<String>,
 }
 
+/// Where each of the colours that follow a change is in [`Values::colors`].
+const FILL: usize = 0;
+const EDGE_COLOR: usize = 1;
+const SHADOW_COLOR: usize = 2;
+const WORDS: usize = 3;
+const COLORS: usize = 4;
+
+/// Where each of the numbers that follow a change is in [`Values::numbers`].
+const OPACITY: usize = 0;
+const WIDTH: usize = 1;
+const HEIGHT: usize = 2;
+/// The four radii, from the top left clockwise.
+const RADII: usize = 3;
+/// The thickness of the border.
+const EDGE: usize = 7;
+const SHADOW_X: usize = 8;
+const SHADOW_Y: usize = 9;
+const SHADOW_BLUR: usize = 10;
+/// The four sides, top, right, bottom, left.
+const PADDING: usize = 11;
+const TEXT: usize = 15;
+const ROTATE: usize = 16;
+const SCALE: usize = 17;
+const NUMBERS: usize = 18;
+
+/// What a move goes through, a place for each colour and then each number: its progress, and how
+/// fast it was going.
+const CHANNELS: usize = COLORS + NUMBERS;
+
+/// The numbers that take room: where they change, the page is laid out again.
+const ROOM: [usize; 8] = [
+    WIDTH,
+    HEIGHT,
+    EDGE,
+    PADDING,
+    PADDING + 1,
+    PADDING + 2,
+    PADDING + 3,
+    TEXT,
+];
+
 /// The properties of an element that follow a change, as the page said them last.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct Values {
-    fill: Option<Color>,
-    border: Option<Color>,
-    shadow: Option<Color>,
-    words: Option<Color>,
-    opacity: Option<f32>,
-    width: Option<f32>,
-    height: Option<f32>,
+    colors: [Option<Color>; COLORS],
+    numbers: [Option<f32>; NUMBERS],
 }
 
 impl Values {
-    fn of(style: &Style, motion: &Motion) -> Self {
+    /// What the page says of the properties `motion` follows. `outer` is the size of the words the
+    /// element inherits, points.
+    fn of(style: &Style, motion: &Motion, outer: f32) -> Self {
         let points = |length: Length| match length {
             Length::Px(points) => Some(points),
             _ => None,
         };
         let mut values = Values::default();
         if motion.color {
-            values.fill = style.fill;
-            values.border = style.border.map(|border| border.color);
-            values.shadow = style.shadow.map(|shadow| shadow.color);
-            values.words = style.text.color;
+            values.colors[FILL] = style.fill;
+            values.colors[WORDS] = style.text.color;
         }
+        if motion.color || motion.border {
+            values.colors[EDGE_COLOR] = style.border.map(|border| border.color);
+        }
+        if motion.color || motion.shadow {
+            values.colors[SHADOW_COLOR] = style.shadow.map(|shadow| shadow.color);
+        }
+        let numbers = &mut values.numbers;
         if motion.opacity {
-            values.opacity = Some(style.opacity.unwrap_or(1.0));
+            numbers[OPACITY] = Some(style.opacity.unwrap_or(1.0));
         }
         if motion.size {
-            values.width = points(style.width);
-            values.height = points(style.height);
+            numbers[WIDTH] = points(style.width);
+            numbers[HEIGHT] = points(style.height);
+        }
+        if motion.rounded {
+            put_four(numbers, RADII, style.radii);
+        }
+        if motion.border {
+            numbers[EDGE] = Some(style.border.map_or(0.0, |border| border.width));
+        }
+        if motion.shadow {
+            let shadow = style.shadow;
+            numbers[SHADOW_X] = Some(shadow.map_or(0.0, |shadow| shadow.dx));
+            numbers[SHADOW_Y] = Some(shadow.map_or(0.0, |shadow| shadow.dy));
+            numbers[SHADOW_BLUR] = Some(shadow.map_or(0.0, |shadow| shadow.blur));
+        }
+        if motion.padding {
+            put_four(numbers, PADDING, style.padding);
+        }
+        if motion.text_size {
+            numbers[TEXT] = Some(style.text.size.unwrap_or(outer));
+        }
+        if motion.transform {
+            numbers[ROTATE] = Some(style.turn);
+            numbers[SCALE] = Some(style.scale.unwrap_or(1.0));
         }
         values
     }
 
-    /// `self` on the way to `to`, `t` of the way.
-    fn toward(self, to: Self, t: f32) -> Self {
-        let number = |from: Option<f32>, to: Option<f32>| match (from, to) {
-            (Some(from), Some(to)) => Some(from + (to - from) * t),
-            // From or to a size that is not in points: no way between, it is the new one.
-            _ => to,
-        };
-        Values {
-            fill: blend(self.fill, to.fill, t),
-            border: blend(self.border, to.border, t),
-            shadow: blend(self.shadow, to.shadow, t),
-            words: blend(self.words, to.words, t),
-            opacity: number(self.opacity, to.opacity),
-            width: number(self.width, to.width),
-            height: number(self.height, to.height),
+    /// `self` on the way to `to`, each colour and number as far as `progress` says. A move that
+    /// goes past (a spring that bounces) is held to what a colour, an opacity and a size can be.
+    fn toward(self, to: Self, progress: &[f32; CHANNELS]) -> Self {
+        let mut values = Values::default();
+        let shares = progress.iter().copied();
+        for (((slot, from), to), t) in values
+            .colors
+            .iter_mut()
+            .zip(self.colors)
+            .zip(to.colors)
+            .zip(shares.clone())
+        {
+            *slot = blend(from, to, t.clamp(0.0, 1.0));
         }
+        for (at, (((slot, from), to), t)) in values
+            .numbers
+            .iter_mut()
+            .zip(self.numbers)
+            .zip(to.numbers)
+            .zip(shares.skip(COLORS))
+            .enumerate()
+        {
+            *slot = match (from, to) {
+                (Some(from), Some(to)) => Some(held(at, from + (to - from) * t)),
+                // From or to a size that is not in points: no way between, it is the new one.
+                _ => to,
+            };
+        }
+        values
     }
 
     /// Whether going from `self` to `to` takes room: the layout of the page changes on the way, not
     /// only how it is painted. (The colour of the words is laid out with them, where they inherit it.)
     fn takes_room(&self, to: &Self) -> bool {
-        self.words != to.words || self.width != to.width || self.height != to.height
+        self.colors[WORDS] != to.colors[WORDS]
+            || ROOM
+                .iter()
+                .any(|&at| self.numbers.get(at) != to.numbers.get(at))
     }
 
     /// Puts what takes room, and what is laid out with it, into `style`; what only paints is
     /// written on the boxes ([`Values::paint`]) after the layout.
     fn apply(self, style: &mut Style, motion: &Motion) {
         if motion.color {
-            style.text.color = self.words;
+            style.text.color = self.colors[WORDS];
         }
         if motion.opacity {
             // The opacity is multiplied into the boxes after the layout, and not twice.
             style.opacity = None;
         }
         if motion.size {
-            if let Some(width) = self.width {
+            if let Some(width) = self.numbers[WIDTH] {
                 style.width = Length::Px(width);
             }
-            if let Some(height) = self.height {
+            if let Some(height) = self.numbers[HEIGHT] {
                 style.height = Length::Px(height);
             }
         }
+        if motion.border {
+            // A border with no thickness is none; one that is going (the page's has none) has
+            // the colour it fades in.
+            style.border = match (self.numbers[EDGE], self.colors[EDGE_COLOR]) {
+                (Some(width), Some(color)) if width > 0.0 => Some(Border { width, color }),
+                _ => None,
+            };
+        }
+        if motion.padding {
+            for (side, points) in style
+                .padding
+                .iter_mut()
+                .zip(self.numbers.iter().skip(PADDING))
+            {
+                if let Some(points) = points {
+                    *side = *points;
+                }
+            }
+        }
+        if motion.text_size {
+            style.text.size = self.numbers[TEXT];
+        }
     }
 
-    /// Puts what only paints into the box laid out.
-    fn paint(self, node: &mut Node, motion: &Motion) {
+    /// Puts what only paints into the box laid out, `scale` pixels to a point.
+    fn paint(self, node: &mut Node, motion: &Motion, scale: f32) {
         if motion.color {
-            node.fill = self.fill;
-            if let (Some(border), Some(color)) = (&mut node.border, self.border) {
-                border.color = color;
+            node.fill = self.colors[FILL];
+        }
+        if let (true, Some(border), Some(color)) = (
+            motion.color || motion.border,
+            &mut node.border,
+            self.colors[EDGE_COLOR],
+        ) {
+            border.color = color;
+        }
+        if motion.shadow {
+            node.shadow = self.colors[SHADOW_COLOR].map(|color| {
+                let at = |place: usize| {
+                    snap(
+                        self.numbers.get(place).copied().flatten().unwrap_or(0.0),
+                        scale,
+                    )
+                };
+                Shadow {
+                    dx: at(SHADOW_X),
+                    dy: at(SHADOW_Y),
+                    blur: at(SHADOW_BLUR),
+                    color,
+                }
+            });
+        } else if let (true, Some(shadow), Some(color)) =
+            (motion.color, &mut node.shadow, self.colors[SHADOW_COLOR])
+        {
+            shadow.color = color;
+        }
+        if motion.rounded {
+            for (radius, number) in node.radii.iter_mut().zip(self.numbers.iter().skip(RADII)) {
+                *radius = snap(number.unwrap_or(0.0), scale);
             }
-            if let (Some(shadow), Some(color)) = (&mut node.shadow, self.shadow) {
-                shadow.color = color;
-            }
+        }
+        if motion.transform {
+            node.turn = self.numbers[ROTATE].unwrap_or(0.0);
+            node.scaled = self.numbers[SCALE].unwrap_or(1.0);
         }
     }
 
     /// How much of what it draws shows, of the element's own: what is multiplied into its boxes.
     fn shows(self, motion: &Motion) -> f32 {
-        match self.opacity.filter(|_| motion.opacity) {
+        match self.numbers[OPACITY].filter(|_| motion.opacity) {
             Some(opacity) if opacity.is_finite() => opacity.clamp(0.0, 1.0),
             _ => 1.0,
         }
+    }
+}
+
+/// Four numbers (the corners, the sides) put from `first` on.
+fn put_four(numbers: &mut [Option<f32>; NUMBERS], first: usize, values: [f32; 4]) {
+    if let Some(slots) = numbers.get_mut(first..first + 4) {
+        for (slot, value) in slots.iter_mut().zip(values) {
+            *slot = Some(value);
+        }
+    }
+}
+
+/// A number on the way, held to what it can be: an opacity is `0.0..=1.0`, a turn and how far a
+/// shadow falls are any, the rest is not less than nothing.
+fn held(number: usize, value: f32) -> f32 {
+    match number {
+        OPACITY => value.clamp(0.0, 1.0),
+        ROTATE | SHADOW_X | SHADOW_Y => value,
+        _ => value.max(0.0),
     }
 }
 
@@ -380,21 +787,84 @@ struct Leg {
     start: f64,
     seconds: f32,
     ease: Ease,
+    /// How much a spring bounces.
+    bounce: f32,
+    /// How fast each channel was going when the move began, as a share of its way, a second: where
+    /// a spring is sent elsewhere in flight, it keeps its speed.
+    rates: [f32; CHANNELS],
 }
 
 impl Leg {
-    /// How far it is at `now`, eased.
-    fn at(&self, now: f64) -> f32 {
+    fn new(start: f64, seconds: f32, ease: Ease, bounce: f32) -> Self {
+        Self {
+            start,
+            seconds,
+            ease,
+            bounce,
+            rates: [0.0; CHANNELS],
+        }
+    }
+
+    /// How damped the spring is: 1 comes to rest with no overshoot.
+    fn zeta(&self) -> f32 {
+        (1.0 - self.bounce).clamp(0.1, 1.0)
+    }
+
+    /// How long it lasts. A spring is let the longer for the bounce it has: it is at rest, to the
+    /// eye, by then, and put where it goes.
+    fn lasts(&self) -> f32 {
+        match self.ease {
+            Ease::Spring => self.seconds * (0.7 / self.zeta()).max(1.0),
+            _ => self.seconds,
+        }
+    }
+
+    /// How far channel `channel` is at `now`, eased: 0 to 1 (a spring that bounces goes past 1).
+    fn progress(&self, now: f64, channel: usize) -> f32 {
         if self.seconds <= 0.0 {
             return 1.0;
         }
         #[allow(clippy::cast_possible_truncation)]
-        let t = ((now - self.start) / f64::from(self.seconds)) as f32;
-        self.ease.at(t)
+        let elapsed = (now - self.start).max(0.0) as f32;
+        match self.ease {
+            Ease::Spring if elapsed >= self.lasts() => 1.0,
+            Ease::Spring => {
+                let rate = self.rates.get(channel).copied().unwrap_or(0.0);
+                let (error, _) = spring_step(-1.0, rate, 10.0 / self.seconds, self.zeta(), elapsed);
+                1.0 + error
+            }
+            ease => ease.at(elapsed / self.seconds),
+        }
+    }
+
+    /// How far it is at `now`, for what goes by no channel.
+    fn at(&self, now: f64) -> f32 {
+        self.progress(now, 0)
+    }
+
+    /// How fast channel `channel` goes at `now`, shares of its way a second.
+    fn speed(&self, now: f64, channel: usize) -> f32 {
+        if self.seconds <= 0.0 || self.done(now) {
+            return 0.0;
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let elapsed = (now - self.start).max(0.0) as f32;
+        match self.ease {
+            Ease::Spring => {
+                let rate = self.rates.get(channel).copied().unwrap_or(0.0);
+                spring_step(-1.0, rate, 10.0 / self.seconds, self.zeta(), elapsed).1
+            }
+            ease => {
+                let step = 1.0e-3 * self.seconds;
+                let before = (elapsed - step).max(0.0);
+                (ease.at((elapsed + step) / self.seconds) - ease.at(before / self.seconds))
+                    / (elapsed + step - before)
+            }
+        }
     }
 
     fn done(&self, now: f64) -> bool {
-        now >= self.start + f64::from(self.seconds.max(0.0))
+        now >= self.start + f64::from(self.lasts().max(0.0))
     }
 }
 
@@ -421,19 +891,82 @@ struct Track {
 impl Track {
     fn values(&self, now: f64) -> Values {
         match self.change {
-            Some(leg) => self.from.toward(self.target, leg.at(now)),
+            Some(leg) => {
+                let progress = if leg.ease == Ease::Spring {
+                    // Each goes at a speed of its own where it was sent elsewhere in flight.
+                    std::array::from_fn(|channel| leg.progress(now, channel))
+                } else {
+                    [leg.at(now); CHANNELS]
+                };
+                self.from.toward(self.target, &progress)
+            }
             None => self.target,
         }
     }
 
+    /// How fast each channel goes at `now`, as a share of the way from `here` to `to`, where it is
+    /// sent there from the move it is on: a spring keeps its speed through it, whichever way it
+    /// goes now.
+    fn carry(&self, now: f64, here: &Values, to: &Values) -> [f32; CHANNELS] {
+        let mut rates = [0.0; CHANNELS];
+        let Some(leg) = self.change else {
+            return rates;
+        };
+        for (channel, rate) in rates.iter_mut().enumerate().take(COLORS) {
+            *rate = leg.speed(now, channel);
+        }
+        let numbers = (self.from.numbers.into_iter())
+            .zip(self.target.numbers)
+            .zip(here.numbers)
+            .zip(to.numbers);
+        for (at, (((then, was), now_at), next)) in numbers.enumerate() {
+            let (Some(then), Some(was), Some(now_at), Some(next)) = (then, was, now_at, next)
+            else {
+                continue;
+            };
+            let units = (was - then) * leg.speed(now, COLORS + at);
+            let distance = next - now_at;
+            if distance.abs() > 0.01
+                && units.is_finite()
+                && let Some(rate) = rates.get_mut(COLORS + at)
+            {
+                *rate = units / distance;
+            }
+        }
+        rates
+    }
+
+    /// How far from its place it is drawn at `now`, pixels: each way has a channel of its own (0 and
+    /// 1) in the move, as a spring that was sent elsewhere in flight keeps the speed of each.
     fn offset(&self, now: f64) -> (f32, f32) {
         match self.slide {
-            Some(leg) => {
-                let left = 1.0 - leg.at(now);
-                (self.offset.0 * left, self.offset.1 * left)
-            }
+            Some(leg) => (
+                self.offset.0 * (1.0 - leg.progress(now, 0)),
+                self.offset.1 * (1.0 - leg.progress(now, 1)),
+            ),
             None => (0.0, 0.0),
         }
+    }
+
+    /// How fast that offset goes at `now`, pixels a second.
+    fn offset_speed(&self, now: f64) -> (f32, f32) {
+        match self.slide {
+            Some(leg) => (
+                -self.offset.0 * leg.speed(now, 0),
+                -self.offset.1 * leg.speed(now, 1),
+            ),
+            None => (0.0, 0.0),
+        }
+    }
+}
+
+/// The speed a move of a distance (from where it is drawn to its place) must start with, as a share
+/// of the distance a second, to go at `speed` (pixels a second) away from where it was.
+fn carried(speed: f32, distance: f32) -> f32 {
+    if distance.abs() > 0.01 && speed.is_finite() {
+        -speed / distance
+    } else {
+        0.0
     }
 }
 
@@ -502,20 +1035,23 @@ impl Motions {
         let mut pace = Pace::default();
         let mut seen = HashSet::new();
         let mut fresh = HashSet::new();
-        self.before(&mut root, now, still, &mut seen, &mut fresh, &mut pace);
+        let outer = DEFAULT_TEXT.size.unwrap_or(12.5);
+        self.before(
+            &mut root, now, still, &mut seen, &mut fresh, &mut pace, outer,
+        );
         let mut laid = layout(root, viewport, scale, measure);
         // What the frames that follow are drawn from, while something on the page can move.
         self.base = laid
             .nodes
             .iter()
             .any(|node| {
-                node.meta
-                    .motion
-                    .is_some_and(|motion| motion.spin.is_some() || node.meta.id.is_some())
+                node.meta.motion.is_some_and(|motion| {
+                    motion.spin.is_some() || motion.cycle.is_some() || node.meta.id.is_some()
+                })
             })
             .then(|| laid.clone());
         self.after(&mut laid, now, still, first, &seen, &fresh, &mut pace);
-        spin(&mut laid, now, reduce_motion, &mut pace);
+        cycles(&mut laid, now, reduce_motion, &mut pace);
         self.pace = pace;
         laid
     }
@@ -547,7 +1083,7 @@ impl Motions {
             &HashSet::new(),
             &mut pace,
         );
-        spin(&mut laid, now, reduce_motion, &mut pace);
+        cycles(&mut laid, now, reduce_motion, &mut pace);
         self.pace = pace;
         Some(laid)
     }
@@ -570,7 +1106,9 @@ impl Motions {
         self.pace.lays
     }
 
-    /// The properties that follow a change, put where they are on their way, in the tree.
+    /// The properties that follow a change, put where they are on their way, in the tree. `outer`
+    /// is the size of the words the element inherits, as the page says it.
+    #[allow(clippy::too_many_arguments)]
     fn before(
         &mut self,
         element: &mut Element,
@@ -579,9 +1117,11 @@ impl Motions {
         seen: &mut HashSet<Id>,
         fresh: &mut HashSet<Id>,
         pace: &mut Pace,
+        outer: f32,
     ) {
+        let said = element.style.text.size.unwrap_or(outer);
         if let (Some(id), Some(motion)) = (element.meta.id, element.meta.motion) {
-            let target = Values::of(&element.style, &motion);
+            let target = Values::of(&element.style, &motion, outer);
             seen.insert(id);
             let track = self.tracks.entry(id).or_insert_with(|| {
                 fresh.insert(id);
@@ -597,13 +1137,14 @@ impl Motions {
                 }
             });
             if track.target != target {
-                track.from = track.values(now);
+                let here = track.values(now);
+                let mut leg = Leg::new(now, motion.seconds, motion.ease, motion.bounce);
+                if motion.ease == Ease::Spring {
+                    leg.rates = track.carry(now, &here, &target);
+                }
+                track.from = here;
                 track.target = target;
-                track.change = Some(Leg {
-                    start: now,
-                    seconds: motion.seconds,
-                    ease: motion.ease,
-                });
+                track.change = Some(leg);
             }
             if still || track.change.is_some_and(|leg| leg.done(now)) {
                 track.change = None;
@@ -615,7 +1156,7 @@ impl Motions {
             track.values(now).apply(&mut element.style, &motion);
         }
         for child in &mut element.children {
-            self.before(child, now, still, seen, fresh, pace);
+            self.before(child, now, still, seen, fresh, pace, said);
         }
     }
 
@@ -679,22 +1220,21 @@ impl Motions {
                 if let Some(enter) = motion.enter.filter(|_| !quiet && !first) {
                     track.enter = Some((
                         enter,
-                        Leg {
-                            start: now,
-                            seconds: enter.seconds,
-                            ease: motion.ease,
-                        },
+                        Leg::new(now, enter.seconds, motion.ease, motion.bounce),
                     ));
                 }
             } else if track.place != place {
                 if motion.place && !quiet {
                     let (x, y) = track.offset(now);
+                    let (vx, vy) = track.offset_speed(now);
                     track.offset = (x + track.place.0 - place.0, y + track.place.1 - place.1);
-                    track.slide = Some(Leg {
-                        start: now,
-                        seconds: motion.seconds,
-                        ease: motion.ease,
-                    });
+                    let mut leg = Leg::new(now, motion.seconds, motion.ease, motion.bounce);
+                    if motion.ease == Ease::Spring {
+                        // Sent elsewhere in flight, a spring goes on at the speed it had.
+                        leg.rates[0] = carried(vx, track.offset.0);
+                        leg.rates[1] = carried(vy, track.offset.1);
+                    }
+                    track.slide = Some(leg);
                 }
                 track.place = place;
             }
@@ -705,12 +1245,14 @@ impl Motions {
                 track.enter = None;
             }
             let (mut dx, mut dy) = track.offset(now);
-            let mut opacity = 1.0;
+            let (mut opacity, mut turn, mut size) = (1.0, 0.0, 1.0);
             if let Some((enter, leg)) = track.enter {
                 let left = 1.0 - leg.at(now);
                 dx += enter.dx * scale * left;
                 dy += enter.dy * scale * left;
-                opacity = enter.opacity + (1.0 - enter.opacity) * (1.0 - left);
+                opacity = (enter.opacity + (1.0 - enter.opacity) * (1.0 - left)).clamp(0.0, 1.0);
+                turn = enter.rotate * left;
+                size = (1.0 + (enter.scale - 1.0) * left).max(0.0);
             }
             if track.slide.is_some() || track.enter.is_some() {
                 pace.finite = true;
@@ -722,7 +1264,9 @@ impl Motions {
                 break;
             };
             if let Some(node) = boxes.first_mut() {
-                values.paint(node, &motion);
+                values.paint(node, &motion, scale);
+                node.turn += turn;
+                node.scaled *= size;
             }
             shift(boxes, dx, dy, opacity * values.shows(&motion));
             track.look = match (motion.exit, holder) {
@@ -767,11 +1311,7 @@ impl Motions {
                 continue;
             }
             self.ghosts.push(Ghost {
-                leg: Leg {
-                    start: now,
-                    seconds: look.exit.seconds,
-                    ease: Ease::Out,
-                },
+                leg: Leg::new(now, look.exit.seconds, Ease::Out, 0.0),
                 look,
             });
         }
@@ -805,6 +1345,10 @@ impl Motions {
                 node.clip.x += origin.0;
                 node.clip.y += origin.1;
                 node.opacity *= opacity;
+                if at == 0 {
+                    node.turn += exit.rotate * t;
+                    node.scaled *= (1.0 + (exit.scale - 1.0) * t).max(0.0);
+                }
                 // Inside the ghost, the parents are the ghost's own; its first box is held by
                 // the box that held it.
                 node.parent = if at == 0 {
@@ -822,22 +1366,53 @@ impl Motions {
     }
 }
 
-/// What spins turns with the clock, whatever else moves, and never under Reduce Motion: a spinner
-/// asks for every frame while it is on the page.
-fn spin(laid: &mut Laid, now: f64, reduce_motion: bool, pace: &mut Pace) {
+/// What spins or cycles goes by the clock, whatever else moves, and never under Reduce Motion or
+/// while it is hidden: a spinner asks for every frame while it is on the page. A box that has both
+/// a spin and a cycle has what each does, and what the others do of its own (a turn it has, a
+/// slide, a coming in) goes with them: turns are added, the sizes and the opacities multiplied.
+fn cycles(laid: &mut Laid, now: f64, reduce_motion: bool, pace: &mut Pace) {
     if reduce_motion {
         return;
     }
-    for node in &mut laid.nodes {
-        let Some(seconds) = node.meta.motion.and_then(|motion| motion.spin) else {
+    let scale = laid.scale;
+    for index in 0..laid.nodes.len() {
+        let Some(node) = laid.nodes.get(index) else {
+            break;
+        };
+        let Some(motion) = node.meta.motion.filter(|_| !node.hidden) else {
             continue;
         };
-        if seconds > 0.0 && seconds.is_finite() && !node.hidden {
-            let turns = now / f64::from(seconds);
-            #[allow(clippy::cast_possible_truncation)]
-            let part = (turns - turns.floor()) as f32;
-            node.turn = part * 360.0;
-            pace.endless = true;
+        let (mut dx, mut dy, mut opacity, mut turn, mut size) = (0.0, 0.0, 1.0, 0.0, 1.0);
+        let mut any = false;
+        let spin = motion.spin.map(Cycle::spin);
+        for cycle in spin.into_iter().chain(motion.cycle) {
+            if !(cycle.seconds > 0.0 && cycle.seconds.is_finite()) {
+                continue;
+            }
+            let along = cycle.at(now);
+            dx += cycle.dx * scale * along;
+            dy += cycle.dy * scale * along;
+            let faint = if cycle.opacity.is_finite() {
+                cycle.opacity.clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+            opacity *= 1.0 + (faint - 1.0) * along;
+            turn += cycle.rotate * along;
+            size *= (1.0 + (cycle.scale - 1.0) * along).max(0.0);
+            any = true;
+        }
+        if !any {
+            continue;
+        }
+        pace.endless = true;
+        let end = subtree_end(&laid.nodes, index);
+        if let Some(boxes) = laid.nodes.get_mut(index..end) {
+            if let Some(node) = boxes.first_mut() {
+                node.turn += turn;
+                node.scaled *= size;
+            }
+            shift(boxes, dx, dy, opacity);
         }
     }
 }
