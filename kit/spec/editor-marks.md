@@ -200,6 +200,6 @@ where the text has as many lines; the page is told the pick (`menu`, the `index`
 ("Paste"), whatever the page wrote, and it pastes only into the editor that had the keyboard when the page
 asked for the menu, and only a line that is on: a page cannot send what is on the pasteboard to an editor
 the person is not in, nor give the pick another name. The line is on only in the menu a right press
-asked for (below, **A menu is shown by the same rule**).
+asked for ([Replies](replies.md), **A menu is shown by the same rule**).
 A page asks for a paste by a command, `{ command = "paste" }`, or binds a key to one,
 `keymap = { enter = "paste" }`, and is failed where it writes it, as for any word that is no command; the person's own key, `["cmd+v"] = "paste"`, as `layout.keymap` lists it, is no error and changes nothing.

@@ -4,17 +4,17 @@ An element is a plain table that a chain of builder methods fills. Lengths are p
 
 ## The builders
 
-| Constructor                      | Element                                                                                                              |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `pencere.div()`                  | A box: a column of its children until told otherwise.                                                                |
-| `pencere.text(string \| number)` | One line of text, in the font, size and colour of the boxes it is in; with `wrap`, as many lines as its box needs.   |
-| `pencere.spark(values, color)`   | A sparkline of numbers, newest last; `:peak(value)` is its largest.                                                  |
-| `pencere.image(path)`            | A picture: a file of the view's own bundle (protocol, Section 9.8); a page of it, for a PDF: `:page(n)`.             |
-| `pencere.rich(parts)`            | A text of many looks: its parts (`pencere.span(words)`, or a string) one after the other, as one paragraph.          |
-| `pencere.canvas(paths)`          | A box with paths drawn in it (`pencere.path()`), in its own points. It has no size of its own.                       |
-| `pencere.editor(id, options)`    | The room of an editor of text the host keeps, lays out and draws (below); `div():editor(id, options)` the same.      |
-| `pencere.browser(id, options)`   | The room of a browser the host keeps and draws (below); `div():browser(id, options)` the same. `if pencere.browser`. |
-| `pencere.spacer()`               | A box that takes the room left over.                                                                                 |
+| Constructor                      | Element                                                                                                                              |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `pencere.div()`                  | A box: a column of its children until told otherwise.                                                                                |
+| `pencere.text(string \| number)` | One line of text, in the font, size and colour of the boxes it is in; with `wrap`, as many lines as its box needs.                   |
+| `pencere.spark(values, color)`   | A sparkline of numbers, newest last; `:peak(value)` is its largest.                                                                  |
+| `pencere.image(path)`            | A picture: a file of the view's own bundle (protocol, Section 9.8); a page of it, for a PDF: `:page(n)`.                             |
+| `pencere.rich(parts)`            | A text of many looks: its parts (`pencere.span(words)`, or a string) one after the other, as one paragraph.                          |
+| `pencere.canvas(paths)`          | A box with paths drawn in it (`pencere.path()`), in its own points. It has no size of its own.                                       |
+| `pencere.editor(id, options)`    | The room of an editor of text the host keeps, lays out and draws ([The editor](editor.md)); `div():editor(id, options)` the same.    |
+| `pencere.browser(id, options)`   | The room of a browser the host keeps and draws ([Browser](browser.md)); `div():browser(id, options)` the same. `if pencere.browser`. |
+| `pencere.spacer()`               | A box that takes the room left over.                                                                                                 |
 
 The builders return the element:
 

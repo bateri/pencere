@@ -1,13 +1,13 @@
 # The Lua page API
 
 Version `0.1` of the kind `lua` ([the protocol](../../spec/draft/pencere.md), Sections 5.5 and 9.8).
-This document is normative for what the protocol leaves to the kit: with the prelude
+[The kit's document](../SPEC.md), of which this is a topic, is normative for what the protocol leaves to the kit: with the prelude
 [`luau/prelude`](../luau/prelude) for the page API of `lua` views. The key words are those of Section 2
-of the protocol. A statement here that the prelude contradicts is a mistake in this document.
+of the protocol. A statement in it that the prelude contradicts is a mistake in the document.
 
 The kit is what a view of the kind `lua` is written against. It does not draw: the view says what
 the page is, and the host lays it out, resolves its colours in the theme of the pane and draws it. A
-host that keeps the rules of this document and the sandbox floors shows the same page as any other.
+host that keeps the rules of the kit's document and the sandbox floors shows the same page as any other.
 
 A script is Luau. What it can use besides the language is the base functions, `string`, `table`,
 `math`, `utf8`, `print` and `warn` (which say a line to the program's log: [`print` and `warn`](program.md#print-and-warn)), `require`
@@ -26,7 +26,7 @@ metatables, `pencere.json.null`) are read only, as `pencere` itself is: assignin
 field, is an error of the script at its line, whatever the script is and whichever script ran before
 it. The tables a script makes with them are its own. Of an object the page API or a module of the
 library gives (an element, a timer, a syntax, a language, a document, the context of a component) only
-the fields and methods this document names are the contract: any other field it happens to hold is
+the fields and methods the kit's document names are the contract: any other field it happens to hold is
 not, and may change in every version.
 
 A call of the page API that is given what it refuses (the wrong kind of value, a name it has not, a

@@ -42,7 +42,7 @@ that a program cannot put a menu, and with it a line that pastes, under a person
 so is a menu asked for in the reply to the editor's account of what it did (`edit`, `selection`,
 `viewport`, `focus`), which the page is told and nobody asked, without a word to the page: it asks from
 the press or the key. **A Paste line is on only in the menu a context press opened**: a press of the right button (a Mac's ⌃
-with the main button too, where the drive tells it the page as the right button's, below), in an editor,
+with the main button too, where the drive tells it the page as the right button's, [Events](events.md#what-a-reply-may-ask)), in an editor,
 in a gutter or elsewhere. In a menu that a key (Shift F10, which is a command a key did), a press of
 the main button (the second click of a double click too), a release, a command of the host's list
 or the pick of another menu asked for, the line stays in its place, so that the page's count of its

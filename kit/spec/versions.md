@@ -1,8 +1,8 @@
 # Versions
 
-| Kind  | The version is                                                                                       | Source of truth               |
-| ----- | ---------------------------------------------------------------------------------------------------- | ----------------------------- |
-| `lua` | `0.1`: the page API whose `pencere.version` is the string `"0.1"`, in Luau `0.740` (`kit/luau/pins`) | `luau/prelude`, this document |
+| Kind  | The version is                                                                                       | Source of truth                                  |
+| ----- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `lua` | `0.1`: the page API whose `pencere.version` is the string `"0.1"`, in Luau `0.740` (`kit/luau/pins`) | `luau/prelude`, [the kit's document](../SPEC.md) |
 
 `lua` is the one kind of the kit (protocol, Section 5.4), and `0.1` the one version a host opens
 while the protocol is a draft. `lua` `0.x` is bound to the release of Luau that the kit pins: a
