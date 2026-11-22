@@ -122,7 +122,7 @@ impl Reading {
             words: item.words.clone(),
         };
         let mut before: Option<&Item> = None;
-        for (item, line) in self.items.iter().zip(&at.items) {
+        for (at_item, (item, line)) in self.items.iter().zip(&at.items).enumerate() {
             let control = controls(&item.role) || (item.pressable && !only_shows(&item.role));
             if control && item.words.trim().is_empty() {
                 found.push(of(Flaw::Nameless, *line, item));
@@ -136,7 +136,12 @@ impl Reading {
             if item.behind {
                 found.push(of(Flaw::Behind, *line, item));
             }
+            // A heading that names the dialog it is in, as the web's `aria-labelledby` has it, is read after the
+            // dialog by the same words: the heading just inside a group of that name is not a repeat.
+            let titles = item.parent.is_some_and(|parent| parent + 1 == at_item)
+                && item.role.starts_with("heading");
             if let Some(last) = before
+                && !titles
                 && !item.words.trim().is_empty()
                 && last.words.trim() == item.words.trim()
             {

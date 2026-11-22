@@ -3675,3 +3675,58 @@ end
     );
     Ok(())
 }
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_labelled_container_is_a_group_with_no_control_in_it_and_an_item_is_named_by_what_is_in_it()
+-> Result<(), Error> {
+    // As on the web: a dialog, a group or a list with a label is its name and what is written in it is read
+    // under it (apart from what the label says already, in the nearest group: the label of a dialog is not
+    // said of a group of its own in it); a heading that names it is read after it, as on the web; a row, a tab
+    // or an option with no control in it is named by its label or else by what is in it, and is a leaf; a
+    // labelled container is a group in a dialog that has no label as well.
+    let mut page = open(
+        r#"
+view = function(u)
+    local jobs = pencere.div():id("jobs"):role("group"):label("Background jobs"):col()
+        :child(pencere.text("Pull redis"))
+        :child(pencere.text("abc: Pull complete"))
+        :child(pencere.text("Background jobs"))
+    local note = pencere.div():id("note"):role("dialog"):label("Heads up"):col()
+        :child(pencere.text("Heads up"):role("heading", 2))
+        :child(pencere.text("The disk is nearly full."))
+        :child(pencere.div():id("inner"):role("group"):label("Details"):col()
+            :child(pencere.text("Heads up"))
+            :child(pencere.text("Free: 1 GB")))
+    local bare = pencere.div():id("bare"):role("dialog"):col()
+        :child(pencere.div():id("ok"):press("ok"):label("OK"):p(4):child(pencere.text("OK")))
+        :child(pencere.div():id("opts"):role("group"):label("Options"):col()
+            :child(pencere.text("Free: 2 GB")))
+    local branch = pencere.div():id("branch"):role("dialog"):label("Delete branch: feature-x"):col()
+        :child(pencere.div():id("which"):role("group"):label("Branch"):col()
+            :child(pencere.text("feature-x")))
+    local plain = pencere.div():id("plain"):role("group"):col()
+        :child(pencere.text("Unnamed"))
+        :child(pencere.text("group"))
+    local list = pencere.div():id("list"):role("listbox"):label("Commands"):col()
+        :child(pencere.div():id("one"):role("option"):child(pencere.text("Stop")))
+        :child(pencere.div():id("two"):role("option"):child(pencere.text("Start")))
+    local row = pencere.div():id("row"):role("row"):label("Row one"):col()
+        :child(pencere.text("cell a"))
+        :child(pencere.text("cell b"))
+    return pencere.div():col():gap(8):child(jobs):child(note):child(bare):child(branch):child(plain):child(list):child(row)
+end
+"#,
+    )?;
+    golden("group-labelled-no-control", &mut page);
+    assert_eq!(
+        page.audit()
+            .into_iter()
+            .filter(|finding| finding.flaw != Flaw::NoId)
+            .count(),
+        0,
+        "{}",
+        crate::audit::report(&page.audit())
+    );
+    Ok(())
+}

@@ -2110,7 +2110,8 @@ impl Laid {
     /// pressable to a screen reader, as behind a sheet or an `aria-modal`; a layer that is not modal
     /// and stands in front of it (a toast) is read too. A popover, a menu or a tip that a modal
     /// opens is in it, by where it was written. An element that has a role and holds controls is
-    /// a group: what is inside it is its children ([`Accessible::parent`]).
+    /// a group, and so is a dialog, a group, a list, a table, a tree or a row of tabs that has a label
+    /// whatever is in it: what is inside it is its children ([`Accessible::parent`]).
     pub fn accessible_behind(&self) -> (Vec<Accessible>, usize) {
         let s = self.scale;
         let points = |rect: Rect| Rect::new(rect.x / s, rect.y / s, rect.w / s, rect.h / s);
@@ -2122,10 +2123,10 @@ impl Laid {
         // The elements whose words are said for them (a button, a field, a labelled box), the
         // innermost last, and what each lets be said apart: nothing, where it carries no control
         // (the words inside it are its name), the controls, where it carries some and has no label
-        // (the words that are in none of them are its name), or all, where it carries some and has a
-        // label (its name is the label, and the words inside it are its dialog's, said in their place).
-        // With a label, the label's words too: a text inside that says no more than they do is not
-        // said again.
+        // (the words that are in none of them are its name), or all, where it is a group that has a
+        // label, with a control in it or not (its name is the label, and the words inside it are read
+        // under it). With a label, the label's words too: a text inside that says no more than they do
+        // is not said again.
         let mut said_by: Vec<(usize, Apart, Vec<Vec<String>>)> = Vec::new();
         for (index, node) in self.nodes.iter().enumerate() {
             while said_by
@@ -2141,7 +2142,10 @@ impl Laid {
                 && apart != Apart::All
                 && !self.in_zone_of(index, outer)
                 && !(apart == Apart::Controls
-                    && (on(&controls, index) || self.lifted_from(index, outer)))
+                    && (on(&controls, index)
+                        || self.lifted_from(index, outer)
+                        || (node.meta.label.is_some()
+                            && Self::role_of(node).is_some_and(holds_content))))
             {
                 // Said for the element around it: the words, but not the links in them, which are
                 // controls of their own.
@@ -2163,7 +2167,14 @@ impl Laid {
                         role,
                         AccessibleRole::Field(_) | AccessibleRole::Editor | AccessibleRole::Browser
                     );
-                let apart = match (carrier, node.meta.label.is_some()) {
+                // A role that holds a content (a dialog, a group, a list, a table, a tree, tabs) and has a
+                // label is a group whether or not a control is in it, as on the web: its name is the label,
+                // and what is written in it is read under it, apart from what the label says already. The
+                // roles of an item (a row, a cell, a tab, an option, a status) with no control in them are
+                // named by what is in them.
+                let labelled = node.meta.label.is_some();
+                let group = carrier || (holds_content(role) && labelled);
+                let apart = match (group, labelled) {
                     (false, _) => Apart::Nothing,
                     (true, false) => Apart::Controls,
                     (true, true) => Apart::All,
@@ -2253,13 +2264,14 @@ impl Laid {
                     parent: None,
                     detail,
                 });
-                // A role and controls inside make a group of it: its children are its own.
+                // A role and controls inside make a group of it, and so does a label on a dialog, a group, a
+                // list, a table, a tree or a row of tabs: its children are its own.
                 owners.resize(
                     items.len(),
                     (
                         index,
                         // A `none` that is read for its label is no group: it is as with no role.
-                        carrier
+                        group
                             && node
                                 .meta
                                 .role
@@ -2332,9 +2344,9 @@ impl Laid {
         (items, behind)
     }
 
-    /// Whether the words at `index` are said already by the label of the element around them, one
-    /// that carries controls and has a label: they are the label's words, or one part of it set off
-    /// by a comma, a colon or a semicolon (case, spacing and the marks between words aside). A label
+    /// Whether the words at `index` are said already by the label of the group they are in (the
+    /// nearest, one that has a label, with a control in it or not): they are the label's words, or one part of it
+    /// set off by a comma, a colon or a semicolon (case, spacing and the marks between words aside). A label
     /// says "name, sorted ascending" and the title in it is "Name"; a label "ACM-412, Add rate
     /// limiting to the public API" does not say a chip "api" in it, which is a word of a part.
     fn said_by_label(
@@ -2343,15 +2355,17 @@ impl Laid {
         index: usize,
         words: &str,
     ) -> bool {
+        let parts = word_parts(words);
+        if parts.is_empty() {
+            return false;
+        }
         let Some((outer, Apart::All, label)) = said_by.last() else {
             return false;
         };
         // What a zone or an overlay in it says is the page's own, whatever the label says.
-        if laid.in_zone_of(index, *outer) || laid.lifted_from(index, *outer) {
-            return false;
-        }
-        let parts = word_parts(words);
-        !parts.is_empty() && label.contains(&parts)
+        !laid.in_zone_of(index, *outer)
+            && !laid.lifted_from(index, *outer)
+            && label.contains(&parts)
     }
 
     /// What `node` is to a screen reader, where it is anything but words: a field, an editor, a
@@ -2423,7 +2437,8 @@ impl Laid {
     }
 
     /// The words of the lines of text inside the element at `outer` that are in none of the
-    /// controls inside it, of a zone or of an overlay (each is read apart), in order, a space between.
+    /// controls inside it, of a zone, of an overlay or of a labelled container (each is read apart), in
+    /// order, a space between.
     fn words_outside(&self, outer: usize, controls: &[bool]) -> String {
         let mut words: Vec<String> = Vec::new();
         let mut apart: Option<usize> = None;
@@ -2438,7 +2453,13 @@ impl Laid {
                 continue;
             }
             apart = None;
-            if index > outer && (on(controls, index) || node.meta.zone.is_some() || node.overlay) {
+            // A labelled container is a group of its own (read under the element, not in its name).
+            let group = Self::drawn(node)
+                && node.meta.label.is_some()
+                && Self::role_of(node).is_some_and(holds_content);
+            if index > outer
+                && (on(controls, index) || node.meta.zone.is_some() || node.overlay || group)
+            {
                 apart = Some(index);
                 continue;
             }
@@ -2771,6 +2792,22 @@ fn works_on(role: AccessibleRole) -> bool {
                 | AccessibleRole::Editor
                 | AccessibleRole::Browser
         )
+}
+
+/// The roles that hold a content, as a dialog, a group, a list, a table, a tree or a row of tabs does: with
+/// a label, such an element is a group whatever is in it.
+fn holds_content(role: AccessibleRole) -> bool {
+    matches!(
+        role,
+        AccessibleRole::Dialog
+            | AccessibleRole::AlertDialog
+            | AccessibleRole::Group
+            | AccessibleRole::List
+            | AccessibleRole::ListBox
+            | AccessibleRole::Table
+            | AccessibleRole::Tree
+            | AccessibleRole::TabList
+    )
 }
 
 /// What a label says by its parts: the words of the whole of it, and of each part set off by a comma,

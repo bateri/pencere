@@ -122,7 +122,8 @@ pub struct Item {
     /// A press on it does something, whatever it says it is ([`pencere_view::Accessible::pressable`]).
     pub pressable: bool,
     /// The item that holds this one, as an index of the reading's items: a dialog, a row, a tab that
-    /// carries controls is a group, and what is inside it is read under it.
+    /// carries controls is a group, and so is a labelled dialog, group, list, table or tree with none;
+    /// what is inside it is read under it.
     pub parent: Option<usize>,
     /// It is in the page behind a modal layer that is in front, which a reader that cannot take it
     /// out of the reading says so (a web page's script); the model's own reading never has it.

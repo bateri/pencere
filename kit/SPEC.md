@@ -379,7 +379,13 @@ A method or an option that has no name in `pencere.has` is a mistake of the kit:
 of an element and fails for one that is not in the first kit's list and not named.
 
 An element that has a role and holds controls is read as a **group**: its name, and what is inside it
-under it (a dialog, a row, a tab). An element that is the root of a **layer** drawn over the page says so
+under it (a dialog, a row, a tab). So is a `dialog`, `alertdialog`, `group`, `list`, `listbox`, `table`,
+`tree` or `tablist` that has a label whether or not a control is in it, as on the web: its name is the label and
+what is written in it is read under it, apart from what the label says already (a heading of a role of its own
+that repeats it, a dialog's title, is read, and is no repeat to the audit). A row, a cell, a column
+header, a tab, an option, a list or tree item, a status and an alert are named by their label, or else by what is
+in them, and have no children where no control is in them.
+An element that is the root of a **layer** drawn over the page says so
 with `layer(modal)`: with a modal layer in front, what is outside it is not read, nor pressable to a screen
 reader (as behind a sheet or an `aria-modal`), and what is inside it, a menu or a popover it opens from
 inside it included, is; a layer that is not modal (`layer(false)`: a popover, a toast) leaves the page.

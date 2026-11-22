@@ -91,6 +91,12 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
 
 ### Changed
 
+- **A labelled `dialog`, `alertdialog`, `group`, `list`, `listbox`, `table`, `tree` or `tablist` is a group with no
+  control in it too**: its name is the label and what is written in it is read under it (not what the label says
+  already), as on the web; before, the words in it were dropped. The roles of an item (`row`, `cell`,
+  `columnheader`, `tab`, `option`, `listitem`, `treeitem`, `status`, `alert`) with no control in them are read as
+  before, by their label or else by what is in them. A heading that repeats the label (a dialog's title) is read
+  after the dialog, as on the web, and the audit does not count it as said twice.
 - **`role("none")` yields to a label**: an element with `none` that also has a label is read by it, as with no role
   at all (a button where it answers the pointer, with the tip and commands it has); `none` is for the element
   that has nothing to say (a scrim that answers the pointer), and is not read, nor are its commands listed. `Laid::reached_where_shown` says whether a press where an element shows reaches it.
