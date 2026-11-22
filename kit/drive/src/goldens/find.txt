@@ -1,0 +1,30 @@
+== screen reader
+Button "Find"
+Switch "Toggle replace" [unchecked]
+Field(Line) "Find"
+Checkbox "Match case" [unchecked]
+Checkbox "Whole word" [unchecked]
+Checkbox "Regular expression" [unchecked]
+Text "No results"
+Button "Previous match"
+Button "Next match"
+Button "Close find"
+Editor ""
+== agent
+focus: field wmesmm
+rest: motion
+items:
+md27z1  button "Find"
+k8q2wv  switch "Toggle replace" [unchecked]
+2h60xy  checkbox "Match case" [unchecked]
+zgnpgn  checkbox "Whole word" [unchecked]
+fs7m62  checkbox "Regular expression" [unchecked]
+        text "No results"
+p4cgvg  button "Previous match"
+2vpb9m  button "Next match"
+6f7gm3  button "Close find"
+fields:
+wmesmm  field "Find" = "foo"
+editors:
+3bdz1t  editor "" lines 1-1 of 1, caret 1:1
+  1| 

@@ -1,0 +1,23 @@
+== screen reader
+Button "Open"
+Button "Close Save changes to a.lua?"
+Heading(2) "Save changes to a.lua?"
+Text "Your changes will be lost."
+Field(Line) "File name"
+Button "Don't Save"
+Button "Save"
+== agent
+focus: page
+rest: motion
+items:
+md27z1  button "Open"
+aa2j92  button "Close Save changes to a.lua?"
+        heading2 "Save changes to a.lua?"
+        text "Your changes will be lost."
+jgf45p  button "Don't Save"
+hcjzws  button "Save"
+fields:
+vdr9rr  field "File name" = "a.lua"
+commands:
+  "Save" [cmd+s] (disabled)
+  "Help" [f1]

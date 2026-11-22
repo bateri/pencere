@@ -1097,6 +1097,21 @@ impl UserData for Handle {
             out.set("commands", list)?;
             Ok(out)
         });
+        // What an agent reads of the page (`Headless::reading`), written as text: what a golden
+        // reading of a pen's page is set against.
+        methods.add_method("reading", |_, this, ()| {
+            this.act(|page| Ok(page.reading().text()))
+        });
+        // What is wrong with that reading (`Headless::audit`), a line for each flaw; empty where the
+        // page is read well.
+        methods.add_method("audit", |lua, this, ()| {
+            let found = this.act(|page| Ok(page.audit()))?;
+            let list = lua.create_table()?;
+            for (index, finding) in found.iter().enumerate() {
+                list.raw_set(index + 1, finding.to_string())?;
+            }
+            Ok(list)
+        });
         methods.add_method("snapshot", |lua, this, ()| {
             this.look(|page| snapshot(lua, page))?
         });

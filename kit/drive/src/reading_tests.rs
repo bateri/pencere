@@ -33,6 +33,7 @@ fn item(role: AccessibleRole, id: Option<Id>, words: &str) -> Item {
         rect: Rect::new(1.4, 2.0, 30.0, 10.0),
         words: words.to_owned(),
         state: State::default(),
+        pressable: false,
     })
 }
 
@@ -347,6 +348,7 @@ fn a_reading_is_written_for_a_person_and_for_a_program_from_the_same_parts() {
                 disabled: true,
                 ..State::default()
             },
+            pressable: false,
         })],
         fields: vec![FieldReading {
             id: Id::named("q"),

@@ -117,6 +117,8 @@ pub struct Item {
     pub state: State,
     /// Where it stands, in the host's points.
     pub rect: Rect,
+    /// A press on it does something, whatever it says it is ([`pencere_view::Accessible::pressable`]).
+    pub pressable: bool,
 }
 
 /// A text field the host puts over the page.
@@ -209,6 +211,15 @@ pub struct ReadingInput<'a> {
     pub field_focus: Option<Id>,
     /// The lines of the menu held for the agent, where one is.
     pub menu: Option<Vec<MenuLine>>,
+}
+
+/// A reading written, and the line each of its items, fields and editors begins at.
+#[derive(Default)]
+pub(crate) struct Written {
+    pub text: String,
+    pub items: Vec<usize>,
+    pub fields: Vec<usize>,
+    pub editors: Vec<usize>,
 }
 
 /// What a page is to an agent.
@@ -330,6 +341,7 @@ impl Item {
             words: item.words.clone(),
             state: item.state.clone(),
             rect: item.rect,
+            pressable: item.pressable,
         }
     }
 }
@@ -450,6 +462,13 @@ impl Reading {
 
     /// The reading written for a person or a model: one line to an element, its name first.
     pub fn text(&self) -> String {
+        self.written().text
+    }
+
+    /// [`Reading::text`], and the line each item, field and editor of it begins at (from 1), which
+    /// the audit tells a flaw by.
+    pub(crate) fn written(&self) -> Written {
+        let mut at = Written::default();
         let clashes = self.clashes();
         let name = |id: Option<Id>| match id {
             Some(id) => {
@@ -473,19 +492,24 @@ impl Reading {
         if !self.items.is_empty() {
             out.push_str("items:\n");
         }
+        let mut row = out.matches('\n').count();
         for item in &self.items {
-            out.push_str(&format!(
+            let line = format!(
                 "{} {} {}{}\n",
                 name(item.id),
                 clean(&item.role, WORDS_LIMIT),
                 quoted(&clean(&item.words, WORDS_LIMIT)),
                 state_words(&item.state)
-            ));
+            );
+            at.items.push(row + 1);
+            row += line.matches('\n').count();
+            out.push_str(&line);
         }
         if !self.fields.is_empty() {
             out.push_str("fields:\n");
         }
         for field in &self.fields {
+            at.fields.push(out.matches('\n').count() + 1);
             let kind = match field.kind {
                 FieldKind::Line => "field",
                 FieldKind::Lines => "field (lines)",
@@ -518,6 +542,7 @@ impl Reading {
             out.push_str("editors:\n");
         }
         for editor in &self.editors {
+            at.editors.push(out.matches('\n').count() + 1);
             self.write_editor(&mut out, editor, &name(Some(editor.id)));
         }
         if !self.scrolls.is_empty() {
@@ -566,7 +591,8 @@ impl Reading {
                 out.push('\n');
             }
         }
-        out
+        at.text = out;
+        at
     }
 
     fn write_editor(&self, out: &mut String, editor: &EditorReading, name: &str) {

@@ -1,0 +1,19 @@
+== screen reader
+Button "Behind"
+Button "Close Sheet"
+Text "Sheet"
+Button "Hint"
+Button "Menu"
+Button "Search"
+Button "Delete"
+== agent
+focus: page
+rest: motion
+items:
+vsvf5n  button "Behind"
+vmxnag  button "Close Sheet"
+        text "Sheet"
+m43dq7  button "Hint"
+f49gtz  button "Menu"
+vd6rxz  button "Search"
+hx5sx8  button "Delete"

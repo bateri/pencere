@@ -8,6 +8,13 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Added
 
+- **`Reading::audit` and `Headless::audit`** (`audit::{Finding, Flaw}`): what is wrong with a page's reading,
+  each flaw with the line of the reading's text it is on: a control with no name, the same words twice in
+  a row, a control with no id, an element that answers the pointer and says it only shows. A page's test
+  holds the page to an empty list; `pencere test` has it as `page:audit()`, and `page:reading()` for the
+  reading's text, which a pen pins as a golden.
+- **`Accessible::pressable`** (`pencere-view`) and **`reading::Item::pressable`**: whether an element
+  answers the pointer, whatever its role says it is.
 - **`Page::reading` and `reading::Reading`**: what an agent reads of a page: its elements by a six-letter
   name made of their `Id`, its fields, the lines its editors show and what is selected, the boxes that
   scroll, its commands, where the keyboard is (a field, an editor or a browser) and whether it is at

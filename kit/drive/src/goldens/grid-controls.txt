@@ -1,0 +1,42 @@
+== screen reader
+Button "id"
+Text "int"
+Slider "id column width" [value 60 pt]
+Button "name, sorted ascending"
+Slider "name column width" [value 100 pt]
+Button "qty"
+Slider "qty column width" [value 70 pt]
+MenuItem ""
+Button "id 1"
+Button "name 1"
+Button "qty 1"
+MenuItem "" [selected]
+Button "id 2"
+Button "name 2"
+Button "qty 2"
+MenuItem ""
+Button "id 3"
+Button "name 3"
+Button "qty 3"
+== agent
+focus: page
+items:
+pc0pnp  button "id"
+        text "int"
+yzcv03  slider "id column width" [value "60 pt"]
+b3aywj  button "name, sorted ascending"
+35tcvs  slider "name column width" [value "100 pt"]
+eh2fsg  button "qty"
+qksav0  slider "qty column width" [value "70 pt"]
+pa4p5n  menuitem ""
+966m9e  button "id 1"
+06s4e5  button "name 1"
+e49ay6  button "qty 1"
+mva8xy  menuitem "" [selected]
+2p40en  button "id 2"
+k8xpkw  button "name 2"
+6hk00s  button "qty 2"
+10drg4  menuitem ""
+qejmp3  button "id 3"
+j06dcs  button "name 3"
+nhnm9s  button "qty 3"

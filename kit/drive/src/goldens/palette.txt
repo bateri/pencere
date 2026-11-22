@@ -1,0 +1,26 @@
+== screen reader
+Button "Open"
+Button "Close Command palette"
+Field(Line) "Command palette"
+MenuItem "Save File" [selected]
+MenuItem "Save All Files"
+MenuItem "Close Tab"
+MenuItem "Find in Files"
+MenuItem "Turned Off"
+Text "Enter"
+Text "Run"
+== agent
+focus: page
+rest: motion
+items:
+md27z1  button "Open"
+edr02q  button "Close Command palette"
+66yh9f  menuitem "Save File" [selected]
+m2npn6  menuitem "Save All Files"
+f0hw1j  menuitem "Close Tab"
+axb365  menuitem "Find in Files"
+yfx0zk  menuitem "Turned Off"
+        text "Enter"
+        text "Run"
+fields:
+mz4yn1  field "Command palette"

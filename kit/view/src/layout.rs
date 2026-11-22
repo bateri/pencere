@@ -2069,6 +2069,7 @@ impl Laid {
                     rect: points(node.rect),
                     words,
                     state: node.meta.state.clone(),
+                    pressable: node.meta.pressable,
                 });
                 continue;
             }
@@ -2082,6 +2083,7 @@ impl Laid {
                     rect: points(node.rect),
                     words: line.text.clone(),
                     state: node.meta.state.clone(),
+                    pressable: false,
                 });
             }
             if let Content::Rich(rich) = &node.content {
@@ -2093,6 +2095,7 @@ impl Laid {
                         rect: points(node.rect),
                         words,
                         state: node.meta.state.clone(),
+                        pressable: false,
                     });
                 }
                 self.say_links(node, &mut items);
@@ -2237,6 +2240,7 @@ impl Laid {
                 rect: Rect::new(rect.x / s, rect.y / s, rect.w / s, rect.h / s),
                 words,
                 state: State::default(),
+                pressable: false,
             });
         }
     }
@@ -2608,6 +2612,8 @@ pub struct Accessible {
     pub words: String,
     /// Whether it is checked, chosen, open or of no use, and the value it shows.
     pub state: State,
+    /// Whether it answers the pointer: a press on it does something, whatever its role says it is.
+    pub pressable: bool,
 }
 
 /// A text field the host puts over the page ([`Laid::fields`]).

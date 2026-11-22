@@ -8,6 +8,10 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
+- **`pencere test` reads the page as an agent does**: `page:reading()` is the reading's text, to set
+  against a golden file, and `page:audit()` the flaws of it (a control with no name, the same words twice, a
+  control with no id, one that answers the pointer and says it only shows), empty where the page is
+  read well.
 - **`pencere test` knows a browser**: the role `browser`, `page:browsers()`, and for a browser's
   locator `get_by_id(name)` the `navigations()` the page asked for (a `go`, a `zoom`, or a command:
   `find`, `find_next`, `reload` with or without its cache, `devtools`, …), `say(state)` to tell the

@@ -1,0 +1,29 @@
+== screen reader
+Button "Behind"
+Button "Close Sheet"
+Text "Sheet"
+Button "Hint"
+Button "Menu"
+Button "Search"
+Button "Delete"
+Button "Close Delete it?"
+Heading(2) "Delete it?"
+Text "It cannot be undone."
+Button "Keep"
+Button "Delete"
+== agent
+focus: page
+rest: motion
+items:
+vsvf5n  button "Behind"
+vmxnag  button "Close Sheet"
+        text "Sheet"
+m43dq7  button "Hint"
+f49gtz  button "Menu"
+vd6rxz  button "Search"
+hx5sx8  button "Delete"
+a6m5ym  button "Close Delete it?"
+        heading2 "Delete it?"
+        text "It cannot be undone."
+fg7v9h  button "Keep"
+6nb179  button "Delete"

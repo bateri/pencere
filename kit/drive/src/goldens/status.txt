@@ -1,0 +1,12 @@
+== screen reader
+Button "main"
+Text "Saved"
+Button "Ln 12, Col 4"
+Text "Lua"
+== agent
+focus: page
+items:
+1hr0s6  button "main"
+        text "Saved"
+4wqkfj  button "Ln 12, Col 4"
+        text "Lua"

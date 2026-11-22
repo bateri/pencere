@@ -115,6 +115,7 @@ impl Outline {
                 rect,
                 words: words.clone(),
                 state: State::default(),
+                pressable: false,
             });
             self.tips.push(Tip { rect, words });
         }

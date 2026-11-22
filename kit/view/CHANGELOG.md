@@ -8,6 +8,8 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Added
 
+- **`Accessible::pressable`**: whether an element answers the pointer, whatever its role says it is (a
+  text that is pressed is a control read as words; the reading's audit finds it).
 - **`Laid::scroll_areas`**: the boxes that scroll and have a name, each with how far it is scrolled and
   the part of it that shows.
 - **A browser the host keeps** (`Element::browser`, `BrowserOptions`, `BrowserAsk`, `BrowserState`,

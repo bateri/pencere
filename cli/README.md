@@ -352,6 +352,12 @@ end)
 - **What the page prints** (`print`, `warn`) is `page:logged()`: the lines in order, each `{ level =, text = }`, as
   the page said them to its program, whichever program that is; they are not among `page:calls()`. A
   program of the app's own writes them to its log behind `view: `, which `page:log()` reads.
+- **How the page is read** is `page:reading()`, the text an agent reads of it (an element a line, its role,
+  words and state), which a test keeps in a file and sets the reading against, so that a change of what
+  is read shows as the change of that file; and `page:audit()`, a list of what is wrong with it (a
+  control with no name, the same words twice in a row, a control with no id, an element that answers
+  the pointer and says it only shows), a line each and empty where the page is read well:
+  `expect(page:audit()).to_equal({})`.
 - **Finding things** as a person does, not by the page's own names: `get_by_text`, `get_by_role`
   (button, field, editor, link, checkbox, heading …), `get_by_field`, and `get_by_id` for what the
   page names. A locator looks again when it is used, wants exactly one match, and says what is on the

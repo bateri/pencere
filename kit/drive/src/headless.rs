@@ -2519,6 +2519,13 @@ impl<P: Peer> Headless<P> {
         self.page.outline()
     }
 
+    /// What is wrong with the page's reading ([`Reading::audit`]): a control with no name, the same
+    /// words twice, a control with no id, one that answers the pointer and says it only shows. Empty
+    /// where the page is read well; what a page's test holds it to.
+    pub fn audit(&mut self) -> Vec<crate::audit::Finding> {
+        self.reading().audit()
+    }
+
     /// What an agent reads of the page as it stands, as the host of a terminal would give it: the
     /// elements by the names they are told by, the fields with what they hold, the editors'
     /// lines and selections, the boxes that scroll, the commands, where the keyboard is and

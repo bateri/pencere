@@ -1,0 +1,11 @@
+== screen reader
+Button "More"
+== agent
+focus: page
+items:
+wgaf3s  button "More"
+== menu
+Copy
+-
+Paste (off)
+Delete

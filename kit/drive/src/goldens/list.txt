@@ -1,0 +1,12 @@
+== screen reader
+MenuItem "Alpha"
+MenuItem "Beta" [selected] [collapsed]
+MenuItem "Gamma" [checked]
+Button "Open"
+== agent
+focus: page
+items:
+bdpt3h  menuitem "Alpha"
+esb1hg  menuitem "Beta" [selected, collapsed]
+n33em3  menuitem "Gamma" [checked]
+sr7zbz  button "Open"

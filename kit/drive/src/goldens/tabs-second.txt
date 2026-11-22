@@ -1,0 +1,11 @@
+== screen reader
+Tab "a.lua"
+Tab "b.lua" [selected]
+Tab "c.lua"
+== agent
+focus: page
+rest: motion
+items:
+fqrzfe  tab "a.lua"
+t6s0s0  tab "b.lua" [selected]
+3n36jr  tab "c.lua"
