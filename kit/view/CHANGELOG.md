@@ -92,33 +92,13 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
 - **`Picture::shown`**: what of the whole image is inside the picture's clip, as shares of it like
   `crop`. A host that rasterises a large SVG or page draws that part and not all of it
   (`pencere-sandbox`'s `Images::picture`).
-- **More of what a `Motion` follows, and a spring that bounces**: `Motion::rounded`, `border`, `shadow`,
-  `padding`, `text_size` and `transform` (the radii of its corners, the thickness and the colour of its
-  border, how far its shadow falls and how blurred it is, its padding, the size of its words and of the
-  words inside it that have none of their own, and the turn and the scale of a picture or a canvas
-  follow a change), `Motion::bounce` (a spring that swings past where it goes, and keeps its speed where
-  a change, or a slide among the others, is sent elsewhere in flight) and `spring_step`, the closed form of a damped spring that a
-  caret's glide and the springs of a motion both go by.
-- **A picture or a canvas turned and drawn larger**: `Element::turned`, `Element::scaled` (`Style::turn`,
-  `Style::scale`), about its middle: the box and the boxes around it do not change, and what is drawn
-  larger is cut only by what holds it. `Shift::turned` and `Shift::scaled` give an `enter` and an `exit`
-  the same.
-- **`Cycle` and `Motion::cycle`**: an element that goes to a shift and back (or one way, and again), over
-  and over, for as long as it is on the page, by the host's clock alone, with no id too and not under
-  Reduce Motion. A `spin` is the `Cycle` that turns a whole way at one pace (`Cycle::spin`).
-- **`Motion::auto_size`**: the width and the height a box is laid out at follow a change, whatever its
-  style gives them, for an answer that opens to its lines and closes. What is inside is laid out for the
-  size the box goes to and does not move; the box shows what fits while it is on its way, and what is
-  under it follows its edge.
+- **Springs that bounce, and more that can move.** `Motion::bounce` lets a spring swing past its target and settle, and a spring keeps its speed when its target changes on the way. A motion can now also follow corner radius, border, shadow, padding and text size.
+- **Turned, scaled and looping pictures.** `Element::turned` and `Element::scaled` turn and scale a picture or a canvas about its middle; `Motion::cycle` repeats a move for as long as the element is on the page, such as a pulse or a spinner.
+- **Boxes that open to their content.** `Motion::auto_size` moves a box to the size its content needs, for an answer that opens and closes.
 
 ### Changed
 
-- **A change that only paints is not laid out for**: while a colour, an opacity, a slide, a coming in or going
-  out or a spin is on its way, `Motions::lays` says no and `Motions::repaint(now, reduce_motion)` gives the page
-  `layout` would give for the same tree and time from the layout it has made, so the host lays the page out when
-  it changes and not at every frame of a hover. A width or a height in points, and the colour of words (which are
-  laid out with them), still take room at every frame. `Motions::ends` tells what comes to an end from what
-  spins for as long as it is on the page; `Motions::moving` is both, as it was.
+- **Fewer layouts while something moves.** A move that only paints, such as a colour, an opacity or a spin, no longer lays the page out at every frame.
 - **A labelled `dialog`, `alertdialog`, `group`, `list`, `listbox`, `table`, `tree` or `tablist` is a group with no
   control in it too**: its name is the label and what is written in it is read under it (not what the label says
   already), as on the web; before, the words in it were dropped. The roles of an item (`row`, `cell`,
@@ -152,11 +132,6 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
   not show no longer holds room of the pixels a view may have. Its box's fill is drawn as before.
 
 ### Fixed
-
-- **An element that goes is cut by the box that held it as that box is now**, not as it was where it
-  went from: a box that closes cuts what was in it as it shrinks.
-- **The size of words on its way is in half points**, as the sizes a page says are: a move of
-  `text_size` opened a font for each frame.
 
 - **A long list is built for the window it has, not for the page's.** `Built` keeps how tall the
   window was that its rows were built for, and `stale` is true where the window is less than three

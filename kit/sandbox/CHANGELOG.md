@@ -140,13 +140,7 @@ dy, blur, color)` (a glow with no offset), `pencere.linear` and `pencere.radial`
   `picture` and the texture crop `crop_of`; `Images::bitmap` is still the whole image at a size.
   Before, a page that was larger than the pixels a view may hold, or two of them, was drawn smaller
   than shown or waited for room.
-- **A `motion` follows more, and a page may ask of it what a later kit has**: `bounce` (with
-  `ease = "spring"`), `rounded`, `border`, `shadow`, `padding`, `text_size`, `transform` and `loop`
-  (`{ seconds, opacity, dx, dy, rotate, scale, ease, alternate }`), and `rotate` and `scale` of an
-  `enter` and an `exit`; `Element:transform({ rotate =, scale = })` turns a picture or a canvas and draws
-  it larger about its middle. Each has its name in `pencere.has` (`"element.transform"`, `"motion.bounce"`,
-  …). `auto_size` (`"motion.auto_size"`) makes a box follow the width and the height it is laid out at,
-  for a box that opens to its content and closes.
+- **More motion for pages.** `motion` takes `bounce`, `rounded`, `border`, `shadow`, `padding`, `text_size`, `loop` and `auto_size`, and `Element:transform({ rotate =, scale = })` turns and scales a picture or a canvas. Each one is listed in `pencere.has`.
 
 ### Changed
 
@@ -186,10 +180,7 @@ kind = "command", id =, target =, key = }`, where `key` is the row's if the elem
   for room at once**, not after `ImageLimits::idle` (a page scrolled to had to wait for the page
   scrolled away from); and a drawing may take the room of the pixels of the same page that stand in
   for it, when there is no other. A PNG or a JPEG is held as before.
-- **A field, a value or an ease of a `motion` that the kit does not know is left out and said once for each
-  name (`warn`), where it was an error**: the rest of the motion moves, so that a page written for a later
-  kit runs on this one. A value of the wrong kind (a word for a number) is still the page's mistake. A
-  `spin` of no seconds is warned and left out as well.
+- **An unknown motion field no longer stops a page.** The kit warns once and leaves it out, so a page written for a newer kit still runs.
 
 ### Fixed
 

@@ -125,18 +125,11 @@ index)` (and `Page::command_on`, `Page::reveal`, the host/test `page:command_on`
   in (`Laid::spills` of `pencere-view`), in the host's points, for a test that looks at a page at
   every size of its window. `pencere test` has it as `page:spills()`: a list of tables, each with
   `box`, `inside`, `left`, `above`, `right`, `below`, `words` and `around`.
-- **A page that loops draws a frame for each step of it, and `idle` does not wait for it**: what loops or
-  spins goes by the host's clock alone and never ends, so `Headless::idle` returns where only it moves, as
-  it does for a spin; a spring that bounces is waited for until it has come to rest.
 
 ### Changed
 
-- **A page whose move only paints is not laid out at every frame of it**: a hover that changes a fill, a border or
-  a shadow, an opacity, a slide, a coming in or going out and a spin draw from the layout the page has, and lay it
-  out when the page changes; a width in points does as before. What is drawn is the same.
-- **`Headless::idle` does not wait for a spin**: it goes on while something moves that comes to an end
-  (`Page::animating_to_rest`) and draws the frames of a spin on the way; before, a page with a spin in it made
-  it say it never stopped ([`Error::Restless`]).
+- **Fewer layouts while something moves.** A hover that changes a colour or an opacity, and a spin, are drawn from the layout the page already has.
+- **`Headless::idle` returns on a page that spins or loops.** Before, such a page made it fail as `Restless`.
 - A press over a field that something is drawn over (a popover, a card) reaches what covers it, as in
   a host, which does not show such a field; it went to the field.
 - A page the module makes again that is the page it was is not laid out again, and what an editor
@@ -160,8 +153,6 @@ index)` (and `Page::command_on`, `Page::reveal`, the host/test `page:command_on`
 
 ### Fixed
 
-- **A box that a loop moves does not make the outline change at each frame.** What a screen reader and the
-  host's fields are told is read where the page put the box, not where a loop has it for now.
 - **A picture shows the host's text fields.** `Headless::shot` drew a field's box empty, whatever
   was typed in it, and with no hint: it now draws what each field holds in the terminal's face at the
   kit's text size (a secret as dots), or its hint, quiet, where it holds nothing, what is selected in
