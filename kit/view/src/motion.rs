@@ -6,7 +6,9 @@
 //! when it appears and how it goes when it is gone. It says nothing of the frames in between: it
 //! builds the page as it is now, and [`Motions::layout`] lays it out as it is on the way, keeping
 //! by each element's [`Id`] where it was. A page in a sandbox is not asked again for every frame
-//! of a move; the host lays the same tree out again until [`Motions::moving`] says no.
+//! of a move; the host draws the same tree again until [`Motions::moving`] says no, and lays it out
+//! again only while what is on its way takes room ([`Motions::lays`]): a colour, an opacity, a turn
+//! or a slide is written on the boxes there are ([`Motions::repaint`]).
 //!
 //! **Each move stops**, and under Reduce Motion there is none: every change is a snap and nothing
 //! comes in or goes out over time (an accessibility setting never adds an animation). Nothing
@@ -270,20 +272,21 @@ impl Values {
         }
     }
 
-    /// Puts what is set here into `style`.
+    /// Whether going from `self` to `to` takes room: the layout of the page changes on the way, not
+    /// only how it is painted. (The colour of the words is laid out with them, where they inherit it.)
+    fn takes_room(&self, to: &Self) -> bool {
+        self.words != to.words || self.width != to.width || self.height != to.height
+    }
+
+    /// Puts what takes room, and what is laid out with it, into `style`; what only paints is
+    /// written on the boxes ([`Values::paint`]) after the layout.
     fn apply(self, style: &mut Style, motion: &Motion) {
         if motion.color {
-            style.fill = self.fill;
-            if let (Some(border), Some(color)) = (&mut style.border, self.border) {
-                border.color = color;
-            }
-            if let (Some(shadow), Some(color)) = (&mut style.shadow, self.shadow) {
-                shadow.color = color;
-            }
             style.text.color = self.words;
         }
         if motion.opacity {
-            style.opacity = self.opacity;
+            // The opacity is multiplied into the boxes after the layout, and not twice.
+            style.opacity = None;
         }
         if motion.size {
             if let Some(width) = self.width {
@@ -292,6 +295,27 @@ impl Values {
             if let Some(height) = self.height {
                 style.height = Length::Px(height);
             }
+        }
+    }
+
+    /// Puts what only paints into the box laid out.
+    fn paint(self, node: &mut Node, motion: &Motion) {
+        if motion.color {
+            node.fill = self.fill;
+            if let (Some(border), Some(color)) = (&mut node.border, self.border) {
+                border.color = color;
+            }
+            if let (Some(shadow), Some(color)) = (&mut node.shadow, self.shadow) {
+                shadow.color = color;
+            }
+        }
+    }
+
+    /// How much of what it draws shows, of the element's own: what is multiplied into its boxes.
+    fn shows(self, motion: &Motion) -> f32 {
+        match self.opacity.filter(|_| motion.opacity) {
+            Some(opacity) if opacity.is_finite() => opacity.clamp(0.0, 1.0),
+            _ => 1.0,
         }
     }
 }
@@ -439,13 +463,28 @@ pub struct Motions {
     scrolls: HashMap<Id, (f32, f32)>,
     /// The page size and scale of the last layout.
     last: Option<(Size, f32)>,
-    moving: bool,
+    /// What moved at the last frame.
+    pace: Pace,
+    /// The last page laid out, as the layout made it, before what moves was put on it: what
+    /// [`Motions::repaint`] draws the frames that follow from.
+    base: Option<Laid>,
+}
+
+/// What moves at a frame.
+#[derive(Clone, Copy, Debug, Default)]
+struct Pace {
+    /// Something moves that comes to an end: a change on its way, a slide, a coming in, a going out.
+    finite: bool,
+    /// Something moves for as long as it is on the page: what spins.
+    endless: bool,
+    /// What is on its way takes room, so that the next frame is laid out again.
+    lays: bool,
 }
 
 impl Motions {
     /// Lays `root` out as [`layout`] does, with each element that moves where it is on its way.
-    /// `now` is seconds on the host's clock. Afterwards [`Motions::moving`] says whether to lay
-    /// it out again at the next frame.
+    /// `now` is seconds on the host's clock. Afterwards [`Motions::moving`] says whether to draw
+    /// the page again at the next frame, and [`Motions::lays`] whether to lay it out again for it.
     pub fn layout(
         &mut self,
         mut root: Element,
@@ -460,36 +499,75 @@ impl Motions {
         let still = reduce_motion || self.last != Some((viewport, scale));
         let first = self.last.is_none();
         self.last = Some((viewport, scale));
-        let mut moving = false;
+        let mut pace = Pace::default();
         let mut seen = HashSet::new();
         let mut fresh = HashSet::new();
-        self.before(&mut root, now, still, &mut seen, &mut fresh, &mut moving);
+        self.before(&mut root, now, still, &mut seen, &mut fresh, &mut pace);
         let mut laid = layout(root, viewport, scale, measure);
-        self.after(&mut laid, now, still, first, &seen, &fresh, &mut moving);
-        // What spins turns with the clock, whatever else moves, and never under Reduce Motion: a
-        // spinner asks for every frame while it is on the page.
-        if !reduce_motion {
-            for node in &mut laid.nodes {
-                let Some(seconds) = node.meta.motion.and_then(|motion| motion.spin) else {
-                    continue;
-                };
-                if seconds > 0.0 && seconds.is_finite() && !node.hidden {
-                    let turns = now / f64::from(seconds);
-                    #[allow(clippy::cast_possible_truncation)]
-                    let part = (turns - turns.floor()) as f32;
-                    node.turn = part * 360.0;
-                    moving = true;
-                }
-            }
-        }
-        self.moving = moving;
+        // What the frames that follow are drawn from, while something on the page can move.
+        self.base = laid
+            .nodes
+            .iter()
+            .any(|node| {
+                node.meta
+                    .motion
+                    .is_some_and(|motion| motion.spin.is_some() || node.meta.id.is_some())
+            })
+            .then(|| laid.clone());
+        self.after(&mut laid, now, still, first, &seen, &fresh, &mut pace);
+        spin(&mut laid, now, reduce_motion, &mut pace);
+        self.pace = pace;
         laid
     }
 
-    /// Whether anything is on its way: the host lays the page out again at the next frame while
-    /// it is.
+    /// The page as [`Motions::layout`] last laid it out, drawn again at `now`: what is on its way
+    /// (a colour, an opacity, a slide, a coming in or going out, a turn) put on its boxes as it is
+    /// then. It is the page `layout` would give for the same tree and time, with no layout done: the
+    /// frames of what only paints. `None` where there is none to draw from (nothing on the page
+    /// moves, or what moves takes room: [`Motions::lays`]).
+    pub fn repaint(&mut self, now: f64, reduce_motion: bool) -> Option<Laid> {
+        if self.pace.lays {
+            return None;
+        }
+        let mut laid = self.base.clone()?;
+        let mut pace = Pace::default();
+        for track in self.tracks.values_mut() {
+            if reduce_motion || track.change.is_some_and(|leg| leg.done(now)) {
+                track.change = None;
+            }
+            pace.finite |= track.change.is_some();
+        }
+        let seen = self.tracks.keys().copied().collect();
+        self.after(
+            &mut laid,
+            now,
+            reduce_motion,
+            false,
+            &seen,
+            &HashSet::new(),
+            &mut pace,
+        );
+        spin(&mut laid, now, reduce_motion, &mut pace);
+        self.pace = pace;
+        Some(laid)
+    }
+
+    /// Whether anything is on its way: the host draws the page again at the next frame while it is.
     pub fn moving(&self) -> bool {
-        self.moving
+        self.pace.finite || self.pace.endless
+    }
+
+    /// Whether something is on its way that comes to an end (a change, a slide, a coming in or a
+    /// going out), and not only what moves for as long as it is on the page (a spin).
+    pub fn ends(&self) -> bool {
+        self.pace.finite
+    }
+
+    /// Whether what is on its way takes room (a width in points, the colour of words that are laid
+    /// out with them): the page is laid out again at the next frame. Where it is not, the page is
+    /// drawn again from the layout it has ([`Motions::repaint`]).
+    pub fn lays(&self) -> bool {
+        self.pace.lays
     }
 
     /// The properties that follow a change, put where they are on their way, in the tree.
@@ -500,7 +578,7 @@ impl Motions {
         still: bool,
         seen: &mut HashSet<Id>,
         fresh: &mut HashSet<Id>,
-        moving: &mut bool,
+        pace: &mut Pace,
     ) {
         if let (Some(id), Some(motion)) = (element.meta.id, element.meta.motion) {
             let target = Values::of(&element.style, &motion);
@@ -531,12 +609,13 @@ impl Motions {
                 track.change = None;
             }
             if track.change.is_some() {
-                *moving = true;
+                pace.finite = true;
+                pace.lays |= track.from.takes_room(&track.target);
             }
             track.values(now).apply(&mut element.style, &motion);
         }
         for child in &mut element.children {
-            self.before(child, now, still, seen, fresh, moving);
+            self.before(child, now, still, seen, fresh, pace);
         }
     }
 
@@ -550,7 +629,7 @@ impl Motions {
         first: bool,
         seen: &HashSet<Id>,
         fresh: &HashSet<Id>,
-        moving: &mut bool,
+        pace: &mut Pace,
     ) {
         let scale = laid.scale;
         // The boxes that scroll, and whether each has scrolled since the last frame: what
@@ -634,12 +713,18 @@ impl Motions {
                 opacity = enter.opacity + (1.0 - enter.opacity) * (1.0 - left);
             }
             if track.slide.is_some() || track.enter.is_some() {
-                *moving = true;
+                pace.finite = true;
             }
+            // What only paints is written on the boxes: the colours on this one, the opacity on it
+            // and what is inside it.
+            let values = track.values(now);
             let Some(boxes) = laid.nodes.get_mut(index..end) else {
                 break;
             };
-            shift(boxes, dx, dy, opacity);
+            if let Some(node) = boxes.first_mut() {
+                values.paint(node, &motion);
+            }
+            shift(boxes, dx, dy, opacity * values.shows(&motion));
             track.look = match (motion.exit, holder) {
                 (Some(exit), Some((_, holder))) => Some(Look {
                     nodes: boxes
@@ -731,9 +816,29 @@ impl Motions {
                 node.meta = crate::element::Meta::default();
                 laid.nodes.push(node);
             }
-            *moving = true;
+            pace.finite = true;
         }
         self.scrolls = scrolls;
+    }
+}
+
+/// What spins turns with the clock, whatever else moves, and never under Reduce Motion: a spinner
+/// asks for every frame while it is on the page.
+fn spin(laid: &mut Laid, now: f64, reduce_motion: bool, pace: &mut Pace) {
+    if reduce_motion {
+        return;
+    }
+    for node in &mut laid.nodes {
+        let Some(seconds) = node.meta.motion.and_then(|motion| motion.spin) else {
+            continue;
+        };
+        if seconds > 0.0 && seconds.is_finite() && !node.hidden {
+            let turns = now / f64::from(seconds);
+            #[allow(clippy::cast_possible_truncation)]
+            let part = (turns - turns.floor()) as f32;
+            node.turn = part * 360.0;
+            pace.endless = true;
+        }
     }
 }
 

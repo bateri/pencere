@@ -1914,7 +1914,9 @@ A host:
   page's words are the size of the terminal's and grow and shrink with them (`Laid::accessible` and the
   fields are in the page's points; the host places them);
 - moves the elements that say a `motion` between the frames of the page, lays the page out again
-  at each frame while one moves (`Motions`), and says an element's `tip` while the pointer rests
+  at each frame while one moves that takes room (a width or a height in points, the colour of words) and
+  draws the layout it has where what moves only paints (a fill, a border or a shadow colour, an opacity, a
+  slide, a coming in or going out, a spin; `Motions`), and says an element's `tip` while the pointer rests
   on it (`Laid::tips`);
 - tells its system's screen reader what the page is: each element as what it says it is (its `role`),
   the other pressable elements as buttons, the fields as fields, the links of a text as links, and the

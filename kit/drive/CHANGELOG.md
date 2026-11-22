@@ -125,6 +125,12 @@ index)` (and `Page::command_on`, `Page::reveal`, the host/test `page:command_on`
 
 ### Changed
 
+- **A page whose move only paints is not laid out at every frame of it**: a hover that changes a fill, a border or
+  a shadow, an opacity, a slide, a coming in or going out and a spin draw from the layout the page has, and lay it
+  out when the page changes; a width in points does as before. What is drawn is the same.
+- **`Headless::idle` does not wait for a spin**: it goes on while something moves that comes to an end
+  (`Page::animating_to_rest`) and draws the frames of a spin on the way; before, a page with a spin in it made
+  it say it never stopped ([`Error::Restless`]).
 - A press over a field that something is drawn over (a popover, a card) reaches what covers it, as in
   a host, which does not show such a field; it went to the field.
 - A page the module makes again that is the page it was is not laid out again, and what an editor

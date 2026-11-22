@@ -219,6 +219,125 @@ fn a_row_that_comes_fades_in_from_below() {
     );
 }
 
+/// A list of rows that move in every way that only paints: a colour and an opacity that follow a
+/// change, a slide, a coming in and a going out, a child inside a row that moves of its own, and a
+/// spinner beside it.
+fn painted_page(ids: &[u64], hot: bool) -> Element {
+    let look = |hot: bool| {
+        if hot {
+            Role::Accent.solid()
+        } else {
+            Role::Accent.alpha(0.0)
+        }
+    };
+    div()
+        .row()
+        .child(
+            div()
+                .id(LIST)
+                .col()
+                .w(100.0)
+                .h_full()
+                .children(ids.iter().map(|&n| {
+                    div()
+                        .id(row_id(n))
+                        .h(20.0)
+                        .no_shrink()
+                        .bg(look(hot))
+                        .opacity(if hot { 1.0 } else { 0.5 })
+                        .motion(
+                            Motion::new(0.2)
+                                .color()
+                                .opacity()
+                                .place()
+                                .enter(Shift::fade(0.2).by(0.0, 6.0))
+                                .exit(Shift::fade(0.1).by(4.0, 0.0)),
+                        )
+                        .child(
+                            div()
+                                .id(Id::new(200 + n))
+                                .size(10.0, 10.0)
+                                .bg(look(hot))
+                                .opacity(if hot { 0.8 } else { 1.0 })
+                                .motion(Motion::new(0.3).color().opacity()),
+                        )
+                })),
+        )
+        .child(
+            div()
+                .size(20.0, 20.0)
+                .bg(Role::Accent)
+                .motion(Motion::new(0.1).spin(0.5)),
+        )
+}
+
+#[test]
+fn what_only_paints_is_drawn_from_the_layout_there_is_as_a_layout_would_draw_it() {
+    let mut repainted = Motions::default();
+    let mut laid_again = Motions::default();
+    lay(&mut repainted, painted_page(&[1, 2, 3], false), 0.0);
+    lay(&mut laid_again, painted_page(&[1, 2, 3], false), 0.0);
+    // The first row goes, a fourth comes, and every row changes its colour and its opacity.
+    let first = lay(&mut repainted, painted_page(&[2, 3, 4], true), 1.0);
+    assert_eq!(
+        first,
+        lay(&mut laid_again, painted_page(&[2, 3, 4], true), 1.0)
+    );
+    let mut repaints = 0;
+    for frame in 1..40 {
+        let now = 1.0 + f64::from(frame) * FRAME;
+        let again = lay(&mut laid_again, painted_page(&[2, 3, 4], true), now);
+        assert!(!repainted.lays(), "nothing of it takes room");
+        let drawn = repainted
+            .repaint(now, false)
+            .expect("a page that moves is drawn from its layout");
+        repaints += 1;
+        assert_eq!(drawn, again, "frame {frame}");
+        match frame {
+            // The row that went is still drawn at the third frame, and gone at the twentieth.
+            2 => assert_eq!(drawn.len(), first.len(), "it is going"),
+            20 => assert!(drawn.len() < first.len(), "it is gone"),
+            _ => {}
+        }
+        if frame == 5 {
+            assert_ne!(drawn, first, "the frames differ");
+        }
+        assert_eq!(repainted.moving(), laid_again.moving(), "frame {frame}");
+        assert_eq!(repainted.ends(), laid_again.ends(), "frame {frame}");
+    }
+    assert_eq!(repaints, 39);
+    assert!(
+        repainted.moving() && !repainted.ends(),
+        "only the spin goes on, which has no end"
+    );
+}
+
+#[test]
+fn what_takes_room_is_laid_out_again_and_what_is_not_there_to_draw_from_is_not_repainted() {
+    let page = |wide: bool| {
+        div().row().child(
+            div()
+                .id(BOX)
+                .h(20.0)
+                .w(if wide { 150.0 } else { 100.0 })
+                .motion(Motion::new(0.2).size()),
+        )
+    };
+    let mut motions = Motions::default();
+    assert!(motions.repaint(0.0, false).is_none(), "no page yet");
+    lay(&mut motions, page(false), 0.0);
+    assert!(!motions.moving() && !motions.lays());
+    lay(&mut motions, page(true), 1.0);
+    assert!(motions.moving() && motions.ends() && motions.lays());
+    assert!(motions.repaint(1.05, false).is_none(), "it takes room");
+    settle(&mut motions, || page(true), 1.0);
+    assert!(!motions.moving() && !motions.lays());
+    // A page with nothing on it that moves keeps nothing to draw from.
+    let mut plain = Motions::default();
+    lay(&mut plain, div().child(div().h(10.0)), 0.0);
+    assert!(plain.repaint(0.1, false).is_none());
+}
+
 #[test]
 fn what_scrolling_brings_in_or_takes_out_does_not_move() {
     let ids: Vec<u64> = (1..=10).collect();

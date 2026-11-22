@@ -1724,6 +1724,60 @@ return {
     Ok(())
 }
 
+/// What never stops (a spin) does not keep `idle` from returning, and its frames are drawn on the way
+/// of what does: the page is waited for until the change that ends has ended.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn idle_waits_for_a_change_that_ends_and_not_for_a_spin_that_never_does() -> Result<(), Error> {
+    let script = r#"
+local on = false
+return {
+    render = function()
+        return pencere.div():size_full()
+            :child(
+                pencere.canvas({ pencere.path():move_to(10, 0):line_to(10, 5):stroke(1, "accent") })
+                    :size(20, 20):motion({ spin = 1 }))
+            :child(pencere.div():id("chip"):size(100, 40):bg(on and "accent" or "dim")
+                :motion({ seconds = 0.5, color = true }))
+    end,
+    handle = function(event)
+        if event.type == "key" then on = not on end
+        return true
+    end,
+}
+"#;
+    let top = |page: &Headless| {
+        page.list().items.iter().find_map(|item| match item {
+            Paint::Figure(figure) => match figure.paths[0].segments[0] {
+                pencere_view::Segment::Move(at) => Some(figure.paths[0].transform.apply(at)),
+                _ => None,
+            },
+            _ => None,
+        })
+    };
+    let mut page = Headless::script(script).open()?;
+    assert_eq!(page.idle()?, 0, "a spin alone is nothing to wait for");
+    let start = top(&page).expect("a figure");
+    page.press("a")?;
+    let begun = page.now();
+    let frames = page.idle()?;
+    assert!(
+        (25..=40).contains(&frames),
+        "{frames} frames for half a second"
+    );
+    assert!(
+        page.now() - begun >= 0.5,
+        "it waited until the change ended"
+    );
+    let turned = top(&page).expect("a figure");
+    assert!(
+        (turned.x - start.x).abs() > 0.5 || (turned.y - start.y).abs() > 0.5,
+        "the spin was drawn on the way: {start:?} {turned:?}"
+    );
+    assert_eq!(page.idle()?, 0, "and it is done");
+    Ok(())
+}
+
 // --- Files beside the bundle (specification §8.8 to §8.10) ------------------------------------
 
 /// A picture two pixels wide, for the pages that draw files beside their bundle.

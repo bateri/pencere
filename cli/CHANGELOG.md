@@ -24,6 +24,9 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Changed
 
+- **`page:idle()` in `pencere test` returns on a page that spins**: it moves the clock until nothing moves that
+  comes to an end, and draws the frames of the spin on the way; before, a page with a spin in it was
+  `Restless` and the test failed.
 - **`pencere dist --files` takes the program without a terminal too**: a directory may have
   `<name>-no-terminal-<version>-<target>` beside `<name>-<version>-<target>`; `SHA256SUMS` names both
   and `app.json` names the one without a terminal for a target that has it (the only file otherwise);

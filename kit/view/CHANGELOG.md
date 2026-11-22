@@ -91,6 +91,12 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
 
 ### Changed
 
+- **A change that only paints is not laid out for**: while a colour, an opacity, a slide, a coming in or going
+  out or a spin is on its way, `Motions::lays` says no and `Motions::repaint(now, reduce_motion)` gives the page
+  `layout` would give for the same tree and time from the layout it has made, so the host lays the page out when
+  it changes and not at every frame of a hover. A width or a height in points, and the colour of words (which are
+  laid out with them), still take room at every frame. `Motions::ends` tells what comes to an end from what
+  spins for as long as it is on the page; `Motions::moving` is both, as it was.
 - **A labelled `dialog`, `alertdialog`, `group`, `list`, `listbox`, `table`, `tree` or `tablist` is a group with no
   control in it too**: its name is the label and what is written in it is read under it (not what the label says
   already), as on the web; before, the words in it were dropped. The roles of an item (`row`, `cell`,
