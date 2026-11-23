@@ -5,6 +5,9 @@
 import Base from "./Base.astro";
 import Numbered from "../components/Numbered.astro";
 import DocsMenu from "../components/DocsMenu.astro";
+import ModuleList from "../components/ModuleList.astro";
+import SectionList, { type Section } from "../components/SectionList.astro";
+import SidePlace from "../components/SidePlace.astro";
 import { REPO } from "../lib/code.js";
 import { read } from "../lib/repo.js";
 import { regionsOf } from "../../scripts/regions.mjs";
@@ -30,11 +33,14 @@ interface Props {
     index?: boolean;
     code?: string;
     element?: string;
+    lift?: boolean;
+    of?: string;
+    components?: boolean;
   };
   headings: { depth: number; slug: string; text: string }[];
 }
 const { page, headings } = Astro.props;
-const { title, description, path, words: name, source, note = "", crumbs = [], whole, heading, sections: only, opening = true, shows = source, code, element } = page;
+const { title, description, path, words: name, source, note = "", crumbs = [], whole, heading, sections: only, opening = true, shows = source, code, element, lift = false, components = false } = page;
 // The parts of an example a page shows beside its rules: each under the heading of its name.
 const regions = code ? regionsOf(read(code), code).regions : undefined;
 // The picture and the code of the element a topic is where to read of: after what the page opens with.
@@ -46,7 +52,7 @@ const demo = kind?.demo ? kind : undefined;
 // than the sections of the protocol, which are the document's chapters), and they are the chapters again
 // where the topics are shown together (`/kit/spec/all`).
 const topic = /^kit\/spec\/[a-z0-9-]+\.md$/.test(source) && path !== "kit/spec/all";
-// A page of the documentation has its menu over the list of the sections.
+// A page of the documentation has its menu, with the list of the sections open under the page's own line.
 const docs = !page.alone;
 
 // A heading's number and its title, apart: "9. Messages and the bridge of a page", "9.2 The six messages".
@@ -55,69 +61,60 @@ const apart = (text: string) => {
   return { number: found ? found[1].replace("Appendix ", "") : "", title: found ? found[2] : text };
 };
 // The sections, each with the sections inside it.
-type Section = { slug: string; number: string; title: string; inside: Section[] };
 const sections: Section[] = [];
 let shown = true;
+// A page that is one section of the document has that section's heading for its title: what is inside
+// it is the page's sections, one level up.
+const up = lift ? 1 : 0;
 for (const entry of headings) {
   // Of a part of a document, the sections that are shown and what is inside them.
   if (entry.depth === 2) shown = !only || only.includes(entry.slug);
-  if (!shown || entry.depth < 2) continue;
+  if (!shown || entry.depth < 2 + up) continue;
+  const depth = entry.depth - up;
   const section = { slug: entry.slug, ...apart(entry.text), inside: [] };
-  if (entry.depth === 2) sections.push(section);
-  else if (entry.depth === 3) sections.at(-1)?.inside.push(section);
+  if (depth === 2) sections.push(section);
+  else if (depth === 3) sections.at(-1)?.inside.push(section);
   // A part of a section inside a section (the modules of the kit's library): no number, its name alone.
-  else if (entry.depth === 4) sections.at(-1)?.inside.at(-1)?.inside.push({ ...section, number: "", title: entry.text });
+  else if (depth === 4) sections.at(-1)?.inside.at(-1)?.inside.push({ ...section, number: "", title: entry.text });
 }
-// The document's own title (its first heading): a hit on it is a hit on the page.
-const top = headings.find((entry) => entry.depth === 1);
+// The page's own title (the document's first heading, or the section that is the page): a hit on it is a
+// hit on the page.
+const top = lift ? headings.find((entry) => entry.depth === 2 && only?.includes(entry.slug)) : headings.find((entry) => entry.depth === 1);
 const numbered = sections.some((section) => section.number);
 // A document of one section has nothing to list beside it.
 const listed = sections.length > 1;
 ---
-<Base title={title} description={description} path={path} index={page.index} apps={page.area === "apps"}>
-  <div class="wrap kit kit--spec">
+<Base title={title} description={description} path={path} index={page.index} apps={(page.area ?? page.of) === "apps"}>
+  <div class="wrap kit">
     <aside data-pagefind-ignore class:list={["side", "spec__side", { "spec__side--alone": !docs }]} aria-label={docs ? "Documentation, and the sections of this page" : "Sections"}>
-      {docs && <DocsMenu path={path} />}
-      {listed && <h2 class="spec__name">{docs ? "On this page" : name}</h2>}
-      <div class="side__scroll" hidden={!listed}>
-        <ol class:list={["spec__list", { "spec__list--plain": !numbered }]}>
-          <li class="spec__mark" aria-hidden="true"></li>
-          {
-            sections.map((section) => (
-              <li>
-                <a href={`#${section.slug}`}>{numbered && <span>{section.number}</span>}{section.title}</a>
-                {section.inside.length > 0 && (
-                  <div class="spec__inside">
-                    <ol>
-                      {
-                        section.inside.map((inner) => (
-                          <li>
-                            <a href={`#${inner.slug}`}>{numbered && <span>{inner.number}</span>}{inner.title}</a>
-                            {inner.inside.length > 0 && (
-                              <div class="spec__inside spec__inside--parts">
-                                <ol>
-                                  {inner.inside.map((part) => <li><a href={`#${part.slug}`}>{part.title}</a></li>)}
-                                </ol>
-                              </div>
-                            )}
-                          </li>
-                        ))
-                      }
-                    </ol>
-                  </div>
-                )}
-              </li>
-            ))
-          }
-        </ol>
-      </div>
+      {
+        docs ? (
+          <DocsMenu path={path}>
+            {
+              lift ? (
+                <ModuleList path={path}>{listed && <SectionList sections={sections} numbered={numbered} />}</ModuleList>
+              ) : (
+                listed && <SectionList sections={sections} numbered={numbered} />
+              )
+            }
+          </DocsMenu>
+        ) : (
+          listed && (
+            <>
+              <h2 class="spec__name">{name}</h2>
+              <SectionList sections={sections} numbered={numbered} />
+            </>
+          )
+        )
+      }
     </aside>
+    <SidePlace />
     <!-- Search names a page as the menu does (read from an attribute: a name may hold a comma), and
          says which heading is the document's own title. -->
     <article class:list={["doc", "spec", { "spec--titled": heading, "spec--topic": topic }]} data-pagefind-meta="title[data-title], top[data-top]" data-title={name} data-top={top?.slug ?? ""}>
       {crumbs.length > 0 && <p class="crumbs">{crumbs.map(([words, address], i) => <>{i > 0 && " / "}<a href={address}>{words}</a></>)}</p>}
       {heading && <h1>{heading}</h1>}
-      <Numbered source={source} path={path} keep={only} opening={opening} regions={regions} example={code} demo={demo}><slot /></Numbered>
+      <Numbered source={source} path={path} keep={only} opening={opening} lift={lift} components={components} regions={regions} example={code} demo={demo}><slot /></Numbered>
       {whole && <p class="spec__whole"><a href={whole[1]}>{whole[0]}</a></p>}
       <p class="spec__said" role="status" aria-live="polite"></p>
       <p class="spec__source" data-pagefind-ignore>
@@ -161,8 +158,8 @@ const listed = sections.length > 1;
   // are themselves moving while a section opens and another closes.
   const side = document.querySelector<HTMLElement>(".spec__side");
   const list = side?.querySelector<HTMLElement>(".spec__list");
-  // What scrolls is the list alone: the kit's menu over it stays where it is.
-  const scroller = side?.querySelector<HTMLElement>(".side__scroll");
+  // What scrolls is the side, the kit's menu and the list in it together.
+  const scroller = side;
   const mark = side?.querySelector<HTMLElement>(".spec__mark");
   const links = new Map<string, HTMLAnchorElement>();
   for (const link of list?.querySelectorAll<HTMLAnchorElement>("a[href^='#']") ?? []) links.set(decodeURIComponent(link.hash.slice(1)), link);

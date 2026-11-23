@@ -39,6 +39,13 @@
 //             element's: the elements with no page of the map have one made from the catalogue.
 //   own       a file of src/pages makes the page: it shows the document with what else the page has
 //   also      the other menus the page is in, each `{ area, group }`
+//   lift      the page is one section of the document, and the section is the page: its heading is the
+//             page's title (once, not as a title over a heading), and the headings inside it are one
+//             level up, and the page's sections in the side
+//   of        the area of a page that is in no menu of its own (it opens under the line of another
+//             page of the menu): what search puts before what
+//   components  the document lists the components where this page is, and the page leads to where they
+//             are shown instead of saying them again (the components' own pages)
 export const PAGES = [
   // --- For those who write apps ---------------------------------------------------------------
   {
@@ -275,15 +282,61 @@ export const PAGES = [
 
   {
     path: "kit/library",
-    words: "Library",
+    words: "Modules",
     area: "apps",
     group: "Library",
     source: "kit/spec/library.md",
     own: true,
+    // What the document says of the library, before its modules: each module has a page of its own.
+    sections: [],
     title: "The library: the pencere kit",
     description:
       "The modules of the pencere kit's library: components, syntax colouring, languages, fuzzy finding, keys, Markdown and the terminal's own look.",
   },
+  ...[
+    [
+      "syntax",
+      "How a page defines a language that colours an editor, as CodeMirror's StreamLanguage does.",
+    ],
+    [
+      "languages",
+      "The languages an editor reads: finding one, loading it and the looks of its tokens.",
+    ],
+    [
+      "fuzzy",
+      "Finding what a person types in texts, as a picker, a palette or a filter does: matching, scoring and marking.",
+    ],
+    [
+      "keys",
+      "Keys as a page writes them and as a person reads them: caps, labels, the symbols of each platform and key events.",
+    ],
+    [
+      "markdown",
+      "Reading Markdown into a tree, drawing it, and keeping a drawn document for a text that changes.",
+    ],
+    ["terminal", "Editors that look as the person's terminal draws its cursor and its selection."],
+    [
+      "ui",
+      "The components of a page, written on the page API alone: frames, popovers, menus, pickers, grids and trees.",
+      { components: true },
+    ],
+    [
+      "charts",
+      "Charts drawn on a canvas: the model, the painter and the sample under the pointer.",
+    ],
+  ].map(([name, description, more]) => ({
+    path: `kit/library/${name}`,
+    words: `@pencere/${name}`,
+    of: "apps",
+    source: "kit/spec/library.md",
+    sections: [`pencere${name}`],
+    opening: false,
+    lift: true,
+    crumbs: [["The library", "/kit/library"]],
+    title: `@pencere/${name}: the pencere kit's library`,
+    description,
+    ...more,
+  })),
   {
     path: "kit/components",
     words: "Components",
@@ -526,3 +579,8 @@ export const elementPath = (name) =>
 // (the others have a page of their own, made of the catalogue or of a section of the document).
 export const topicElements = () =>
   PAGES.filter((entry) => entry.element && !entry.own).map((entry) => entry.element);
+
+// The pages of the library's modules (each is a section of kit/spec/library.md that is the page), in the
+// map's order, which is the document's.
+export const libraryPages = () =>
+  PAGES.filter((entry) => entry.source === "kit/spec/library.md" && entry.lift);

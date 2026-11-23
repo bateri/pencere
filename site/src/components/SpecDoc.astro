@@ -1,7 +1,7 @@
 ---
 // A document of the repository inside a page of the site's own, in the document's type: what the
 // document says (the whole, or some of its sections), under the page's other things. A page may put
-// something of its own in the place of the document's table of the constructors (see Numbered).
+// something of its own in the place of the document's table of the constructors, or after its first paragraph (see Numbered).
 import Numbered from "./Numbered.astro";
 import { document } from "../lib/documents.js";
 
@@ -16,5 +16,5 @@ const { source, path, keep, opening = true, untitled = false } = Astro.props;
 const { Content } = await document(source);
 ---
 <div class="spec">
-  <Numbered source={source} path={path} keep={keep} opening={opening} untitled={untitled}><Content /><slot name="instead" slot="instead" /></Numbered>
+  <Numbered source={source} path={path} keep={keep} opening={opening} untitled={untitled}><Content /><slot name="instead" slot="instead" /><slot name="after" slot="after" /></Numbered>
 </div>

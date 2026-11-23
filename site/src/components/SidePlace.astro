@@ -1,0 +1,50 @@
+---
+// The side keeps the reader's place in it from page to page. A link of the side that is followed
+// leaves where it stood in the side; on the page it leads to, the side is scrolled so that the line of
+// that page stands there again, and the menu does not seem to move. Its line, not the side's scroll:
+// what the page before had open under its own line is shut on this one, and the lines above it move.
+// A page reached any other way has its line brought into sight. It runs as the side is read, before
+// the page is drawn, so the side is never seen elsewhere first. Where the browser keeps no storage
+// for the page, the line is brought into sight as on any other way in.
+---
+<script is:inline>
+  (() => {
+    const side = document.currentScript.previousElementSibling;
+    if (!side) return;
+    const KEY = "pencere.side";
+    const address = (href) => new URL(href, location.href).pathname.replace(/(\.html|\/)$/, "") || "/";
+    const row = () => matchMedia("(max-width: 860px)").matches;
+    let left = null;
+    try {
+      left = JSON.parse(sessionStorage.getItem(KEY) ?? "null");
+    } catch {}
+    // The page's own line, or the line of the page it is under; one that is not drawn (on a narrow screen
+    // what a page opens is left out) has no place to keep.
+    const drawn = (link) => link.getClientRects().length > 0;
+    const find = (kind) => [...side.querySelectorAll(`a[aria-current="${kind}"]`)].find(drawn);
+    const line = find("page") ?? find("true");
+    if (line) {
+      const box = line.getBoundingClientRect(), frame = side.getBoundingClientRect();
+      if (row()) {
+        const at = box.left - frame.left + side.scrollLeft;
+        if (left && left.to === address(location.href) && typeof left.x === "number") side.scrollLeft = at - left.x;
+        const now = line.getBoundingClientRect().left - frame.left;
+        if (now < 0 || now + box.width > frame.width) side.scrollLeft = at - 16;
+      } else {
+        const at = box.top - frame.top + side.scrollTop;
+        if (left && left.to === address(location.href) && typeof left.y === "number") side.scrollTop = at - left.y;
+        // Where it was left out of sight (the window is shorter now), or there was no place to keep.
+        const now = line.getBoundingClientRect().top - frame.top;
+        if (now < 0 || now + box.height > Math.min(frame.bottom, innerHeight) - frame.top) side.scrollTop = at - side.clientHeight / 3;
+      }
+    }
+    side.addEventListener("click", (event) => {
+      const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!link || address(link.href) === address(location.href)) return;
+      const box = link.getBoundingClientRect(), frame = side.getBoundingClientRect();
+      try {
+        sessionStorage.setItem(KEY, JSON.stringify({ to: address(link.href), x: box.left - frame.left, y: box.top - frame.top }));
+      } catch {}
+    });
+  })();
+</script>

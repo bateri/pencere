@@ -1,6 +1,8 @@
 ---
 import Base from "./Base.astro";
 import DocsMenu from "../components/DocsMenu.astro";
+import ModuleList from "../components/ModuleList.astro";
+import SidePlace from "../components/SidePlace.astro";
 import catalog from "../data/catalog.json";
 import { elementPath } from "../docs.js";
 
@@ -15,46 +17,42 @@ const groups = catalog.groups.map((group) => ({
   components: catalog.components.filter((component) => component.group === group),
 }));
 const current = (href: string) => (path === href ? "page" : undefined);
-// The components are listed under the menu on their own pages alone: on the kit's other pages their
+// The components open under Components on their own pages alone: on the kit's other pages their
 // twenty-four names would stand beside the kit's seven as if they were its parts too.
 const components = path === "kit/components" || path.startsWith("kit/components/");
-// The elements are too, under the same rule: each leads to where it is read of (the map's `element`).
+// The elements open under Elements, under the same rule: each leads to where it is read of (the map's `element`).
 const elements = path === "kit/elements" || path.startsWith("kit/elements/");
+// The library's modules open under Library on its overview (a module's own page is the document's: src/layouts/Doc.astro).
+const modules = path === "kit/library";
 ---
 <Base title={title} description={description} path={path} apps>
   <div class="wrap kit">
-    <aside data-pagefind-ignore class:list={["side", { "side--whole": components }]} aria-label="Documentation">
-      <DocsMenu path={path} />
-      {
-        components && (
-          <div class="side__groups">
-            {
-              groups.map(({ group, components }) => (
-                <>
-                  <h3>{group}</h3>
-                  <ul>
-                    {components.map((component) => (
-                      <li>
-                        <a
-                          href={`/kit/components/${component.name}`}
-                          class:list={{ host: component.host }}
-                          aria-current={current(`kit/components/${component.name}`)}
-                        >
-                          {component.name}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              ))
-            }
-          </div>
-        )
-      }
-      {
-        elements && (
-          <div class="side__groups">
-            <h3>Elements</h3>
+    <aside data-pagefind-ignore class="side" aria-label="Documentation">
+      <DocsMenu path={path}>
+        {
+          components &&
+            groups.map(({ group, components }) => (
+              <>
+                <h3>{group}</h3>
+                <ul>
+                  {components.map((component) => (
+                    <li>
+                      <a
+                        href={`/kit/components/${component.name}`}
+                        class:list={{ host: component.host }}
+                        aria-current={current(`kit/components/${component.name}`)}
+                      >
+                        {component.name}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ))
+        }
+        {modules && <ModuleList path={path} />}
+        {
+          elements && (
             <ul>
               {catalog.elements.map((element) => (
                 <li>
@@ -64,10 +62,11 @@ const elements = path === "kit/elements" || path.startsWith("kit/elements/");
                 </li>
               ))}
             </ul>
-          </div>
-        )
-      }
+          )
+        }
+      </DocsMenu>
     </aside>
+    <SidePlace />
     <article class="doc">
       <slot />
     </article>

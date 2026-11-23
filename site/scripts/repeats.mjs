@@ -1,11 +1,14 @@
 // After the site is built: a page that shows the elements says what each constructor is once. The
 // elements' overview has cards in the place of the table of the builders, and the document keeps the
 // table (it is shown as a table where the topics are on one page); a page that showed the two would
-// say each sentence twice. Run on the built pages by the build (package.json), and by the tests.
+// say each sentence twice. The library's pages are the same: its overview says what each module opens
+// with once, in its list, and a module's page says its own once, in the section that is the page.
+// Run on the built pages by the build (package.json), and by the tests.
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { topicElements } from "../src/docs.js";
+import { libraryPages, topicElements } from "../src/docs.js";
+import { library } from "../src/lib/project.js";
 
 // The words a page shows, with its tags taken out as the catalogue takes them out of a sentence, and
 // spaces made one. The Markdown of the document is set with curly quotes and the catalogue's sentence
@@ -43,6 +46,21 @@ export function problems(path, page, elements) {
   );
 }
 
+/** What is wrong with a page of the library: the sentence a module opens with, said more than once or not at all. */
+export function moduleProblems(path, page, modules) {
+  const counts = said(
+    page,
+    modules.map((module) => module.says),
+  );
+  return modules.flatMap((module, at) =>
+    counts[at] === 1
+      ? []
+      : [
+          `${path}: what ${module.name} opens with is said ${counts[at]} times, and once is how it is said there`,
+        ],
+  );
+}
+
 // The built site, from the command line.
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const site = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -64,11 +82,28 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (page === undefined) continue;
     wrong.push(...problems(`kit/elements/${element.name}`, page, [element]));
   }
+  // The overview of the library says the sentence of every module, and a module's page its own.
+  const { modules } = library();
+  const front = read("kit/library");
+  if (front) wrong.push(...moduleProblems("kit/library", front, modules));
+  for (const entry of libraryPages()) {
+    const page = read(entry.path);
+    if (page === undefined) continue;
+    wrong.push(
+      ...moduleProblems(
+        entry.path,
+        page,
+        modules.filter((module) => module.name === entry.words),
+      ),
+    );
+  }
   if (wrong.length > 0) {
     console.error(
       `The built pages repeat themselves:\n${wrong.map((line) => `  ${line}`).join("\n")}`,
     );
     process.exit(1);
   }
-  console.log(`repeats: the elements' pages say each constructor once`);
+  console.log(
+    `repeats: the elements' pages say each constructor once, and the library's what each module opens with`,
+  );
 }

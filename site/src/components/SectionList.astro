@@ -1,0 +1,41 @@
+---
+// The sections of a document, as the side lists them: each with the sections inside it, and those with
+// their parts. The page's script (src/layouts/Doc.astro) marks the one being read and opens it.
+export type Section = { slug: string; number: string; title: string; inside: Section[] };
+
+interface Props {
+  sections: Section[];
+  numbered: boolean;
+}
+const { sections, numbered } = Astro.props;
+---
+<ol class:list={["spec__list", { "spec__list--plain": !numbered }]}>
+  <li class="spec__mark" aria-hidden="true"></li>
+  {
+    sections.map((section) => (
+      <li>
+        <a href={`#${section.slug}`}>{numbered && <span>{section.number}</span>}{section.title}</a>
+        {section.inside.length > 0 && (
+          <div class="spec__inside">
+            <ol>
+              {
+                section.inside.map((inner) => (
+                  <li>
+                    <a href={`#${inner.slug}`}>{numbered && <span>{inner.number}</span>}{inner.title}</a>
+                    {inner.inside.length > 0 && (
+                      <div class="spec__inside spec__inside--parts">
+                        <ol>
+                          {inner.inside.map((part) => <li><a href={`#${part.slug}`}>{part.title}</a></li>)}
+                        </ol>
+                      </div>
+                    )}
+                  </li>
+                ))
+              }
+            </ol>
+          </div>
+        )}
+      </li>
+    ))
+  }
+</ol>

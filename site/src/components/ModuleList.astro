@@ -1,0 +1,21 @@
+---
+// The modules of the kit's library, as the side lists them under the line of Library: each leads to its
+// page, and the one the reader is on has what is in it (its sections, the slot) open under its own
+// line. The modules and their pages are the site's map (src/docs.js).
+import { libraryPages } from "../docs.js";
+
+interface Props {
+  path: string;
+}
+const { path } = Astro.props;
+---
+<ul>
+  {
+    libraryPages().map((module) => (
+      <li>
+        <a href={`/${module.path}`} aria-current={module.path === path ? "page" : undefined}>{module.words}</a>
+        {module.path === path && Astro.slots.has("default") && <slot />}
+      </li>
+    ))
+  }
+</ul>

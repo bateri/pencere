@@ -680,84 +680,55 @@ p {
 
 /* ───────── The kit's pages ───────── */
 
+/* The side's column is the same on every page of the documentation, so that the text does not move
+   when the reader goes from one page to the next: it is wide enough for the sections of a page set in
+   from their rail, under the line of the page they are in. */
 .kit {
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
-  gap: clamp(32px, 6vw, 88px);
+  grid-template-columns: 236px minmax(0, 1fr);
+  gap: clamp(32px, 5vw, 72px);
   padding-top: clamp(40px, 6vw, 80px);
   padding-bottom: 24px;
 }
 
-/* The side of a page: the kit's menu, which stays where it is, and under it what the page opens (the
-   components, a document's sections), which is the part that scrolls when it is longer than the window. */
+/* The side of a page: the kit's menu, and under the line of the page the reader is on what that page
+   opens (its sections, the components, the elements). It is one box that stays where it is, and that
+   scrolls as one when it is longer than the window: nothing in it scrolls on its own, and the reader's
+   place in it is kept from page to page (src/components/SidePlace.astro). */
 .side {
   position: sticky;
   top: 28px;
   align-self: start;
-  display: flex;
-  flex-direction: column;
   /* No taller than the window has room for when the page is at its top, where the side stands under
      the navigation (72) and the page's own space above it: its last line is then in the window too. */
   --side-max: calc(100vh - 72px - clamp(40px, 6vw, 80px) - 16px);
   max-height: var(--side-max);
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  /* Room on the left for the ground of the page's own line, which reaches out past the words. */
+  margin-left: -10px;
+  padding: 0 8px 24px 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll) transparent;
   font-size: 14.5px;
   line-height: 1.45;
 }
-.side > * {
-  flex: none;
-}
-/* The menu is as tall as it is until the side has no more room, and then it scrolls; the list under
-   it shares what is left with it, and is never shorter than a few lines (nor, in a window too short
-   for that, more than two fifths of the side). None of it is left to run out of the side. */
-.side > .side__docs {
-  flex: 0 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--scroll) transparent;
-}
-.side > .side__docs ~ .side__scroll {
-  min-height: min(7rem, calc(var(--side-max) * 0.4));
-}
-.side > :is(.side__groups, .side__scroll) {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  padding-bottom: 24px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--scroll) transparent;
-}
 /* It says that it scrolls: a thin bar that is always there, and its lines fading out at the edge
    there is more past (the layout's script says which: data-more). At an end nothing fades. */
-.side > :is(.side__docs, .side__groups, .side__scroll)::-webkit-scrollbar {
+.side::-webkit-scrollbar {
   width: 5px;
 }
-.side > :is(.side__docs, .side__groups, .side__scroll)::-webkit-scrollbar-thumb {
+.side::-webkit-scrollbar-thumb {
   border-radius: 3px;
   background: var(--scroll);
 }
-/* The components' pages: the list of all of them is the page's own way about, and it is longer
-   than a window. It is shown whole and goes with the page, so that nothing of it is behind a
-   scroll of its own. */
-.side--whole {
-  position: static;
-  display: block;
-  max-height: none;
-}
-.side--whole > :is(.side__docs, .side__groups) {
-  overflow: visible;
-  padding-bottom: 0;
-}
-.side--whole > [data-more] {
-  mask-image: none !important;
-}
-.side > [data-more="down"] {
+.side[data-more="down"] {
   mask-image: linear-gradient(var(--mask) calc(100% - 56px), transparent);
 }
-.side > [data-more="up"] {
+.side[data-more="up"] {
   mask-image: linear-gradient(transparent, var(--mask) 40px);
 }
-.side > [data-more="both"] {
+.side[data-more="both"] {
   mask-image: linear-gradient(
     transparent,
     var(--mask) 40px,
@@ -767,7 +738,7 @@ p {
 }
 /* Three sizes, so that what is a name and what is under it are told apart at a glance: a list's
    name is a small label, its links are the size of reading, and what is inside one of them (a
-   group's components) is smaller, in the code's face, and set in from a rail. */
+   page's sections, a group's components) is smaller, and set in from a rail. */
 .side h2 {
   font-size: 12.5px;
   font-weight: 560;
@@ -775,8 +746,7 @@ p {
   color: var(--ink);
   margin: 26px 0 8px;
 }
-.side > h2:first-child,
-.side__docs > h2:first-child {
+.side > h2:first-child {
   margin-top: 0;
 }
 .side ul {
@@ -793,31 +763,52 @@ p {
 .side a:hover {
   color: var(--ink);
 }
-.side a[aria-current="page"] {
+/* The page the reader is on: its line in the ink, heavier, on a ground of its own, the one line of
+   the menu that has one. A page the reader is inside of (Elements, on an element's page) is in the
+   ink and heavier, without the ground: the ground is on the element's line under it. */
+.side__menu > li > a {
+  margin: 1px -10px;
+  padding: 4px 10px;
+  border-radius: 7px;
+}
+.side__menu > li > a[aria-current] {
   color: var(--ink);
+  font-weight: 560;
 }
-/* What the page the reader is on opens, under the kit's menu: the components by their groups. A
-   group's name is smaller than the menu's heading, since the groups are inside one of its pages. */
-.side__groups {
-  margin-top: 22px;
-  padding-top: 6px;
-  border-top: 1px solid var(--rule);
+.side__menu > li > a[aria-current="page"] {
+  background: var(--wash);
 }
-.side h3 {
-  margin: 22px 0 8px;
+/* What the page opens, under its line: set in, on a rail. */
+.side__opens {
+  margin: 6px 0 12px 1px;
+}
+.side__opens h3 {
+  margin: 14px 0 6px;
   font-weight: 560;
   font-size: 12.5px;
   letter-spacing: 0.01em;
   color: var(--soft);
 }
-.side__groups ul {
-  padding-left: 14px;
-  border-left: 1px solid var(--rule);
+.side__opens h3:first-child {
+  margin-top: 4px;
 }
-.side__groups a {
+.side__opens ul {
+  padding-left: 14px;
+  border-left: 1px solid var(--line);
+}
+.side__opens ul > li > a {
   padding: 3.5px 0;
   font-family: var(--mono);
   font-size: 13px;
+}
+/* The element, the component or the module the reader is on: the page the reader is on, so on the same
+   ground as a page's line of the menu. (The mark on a rail is the section being read, in a document's list.) */
+.side__opens ul > li > a[aria-current="page"] {
+  margin-left: -8px;
+  padding-left: 8px;
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--wash);
 }
 .side .host {
   opacity: 0.7;
@@ -828,8 +819,8 @@ p {
     grid-template-columns: minmax(0, 1fr);
     padding-top: 24px;
   }
-  /* The menu is one row that goes sideways, whatever lists it is made of: it does not stand in
-     rows over the title. The lists' names are left out; the links are few enough to read without. */
+  /* The menu is one row that goes sideways: it does not stand in rows over the title. The lists'
+     names are left out, and so is what a page opens; the links are few enough to read without. */
   .side {
     position: static;
     display: flex;
@@ -839,33 +830,32 @@ p {
     margin: 0 calc(-1 * var(--gutter));
     padding: 0 var(--gutter);
     overflow-x: auto;
+    overflow-y: hidden;
     scrollbar-width: none;
   }
   .side::-webkit-scrollbar {
     display: none;
   }
-  .side__docs {
-    display: contents;
-  }
-  .side__docs > h2,
-  .side__groups {
-    display: none;
-  }
-  .side > [data-more] {
+  .side[data-more] {
     mask-image: none;
   }
-  .side__docs > ul,
-  .side__docs > ul > li {
+  .side > h2,
+  .side__opens {
+    display: none;
+  }
+  .side__menu,
+  .side__menu > li {
     display: contents;
   }
-  .side__docs > ul a {
+  .side__menu > li > a {
     flex: none;
+    margin: 0;
     border: 1px solid var(--rule);
     border-radius: 8px;
     padding: 4px 12px;
     white-space: nowrap;
   }
-  .side__docs > ul a[aria-current="page"] {
+  .side__menu > li > a[aria-current] {
     border-color: var(--rule-strong);
   }
 }

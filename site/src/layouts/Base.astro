@@ -45,16 +45,18 @@ const { title, description, path = "", index = true, apps = false } = Astro.prop
     </main>
     <SiteFoot />
     <script>
-      // The part of a page's side that scrolls says whether there is more of it above or below, so
-      // that its lines fade at that edge and at no other (styles/site.css, data-more).
-      for (const part of document.querySelectorAll<HTMLElement>(".side > .side__docs, .side > .side__groups, .side > .side__scroll")) {
+      // A page's side, which scrolls as one, says whether there is more of it above or below, so that
+      // its lines fade at that edge and at no other (styles/site.css, data-more).
+      for (const part of document.querySelectorAll<HTMLElement>(".side")) {
         const say = () => {
           const up = part.scrollTop > 2, down = part.scrollTop + part.clientHeight < part.scrollHeight - 2;
           part.dataset.more = up && down ? "both" : up ? "up" : down ? "down" : "none";
         };
         part.addEventListener("scroll", say, { passive: true });
-        new ResizeObserver(say).observe(part);
-        if (part.firstElementChild) new ResizeObserver(say).observe(part.firstElementChild);
+        // What is in it changes its height when a section opens under the line being read.
+        const watch = new ResizeObserver(say);
+        watch.observe(part);
+        for (const child of part.children) watch.observe(child);
         say();
       }
     </script>

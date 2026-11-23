@@ -234,6 +234,18 @@
 .spec li > p {
   margin-bottom: 8px;
 }
+/* The library's modules (src/pages/kit/library.astro) stand in the document after its first paragraph: they
+   are lines of their own, wider than the measure of its words, and not a list of the document's. */
+.spec > .modules {
+  max-width: 46rem;
+  margin: 28px 0 32px;
+  padding: 0;
+  font-size: 16px;
+}
+.spec .modules li {
+  margin: 0;
+  padding: 0;
+}
 
 /* Code: a frame of the wire is one long line, and scrolls in its block. */
 .spec pre {
@@ -341,13 +353,6 @@
    The list follows the page (the script of pages/spec.astro). The section being read comes up to
    the ink's colour; the sections inside it open under it, their height and their ink together; and
    a mark on the rail goes to the line that is being read. Nothing here appears at once. */
-/* The list is set in from its rail, so its column is that much wider than the kit's. */
-@media (min-width: 861px) {
-  .kit--spec {
-    grid-template-columns: 236px minmax(0, 1fr);
-    gap: clamp(32px, 5vw, 72px);
-  }
-}
 .spec__list,
 .spec__list ol {
   list-style: none;
@@ -455,20 +460,10 @@
   }
 }
 
-/* Under the kit's menu the list of sections has a heading of its own, set apart from the menu. */
-.side__docs + .spec__name {
-  margin-top: 22px;
-  padding-top: 22px;
-  border-top: 1px solid var(--rule);
-}
-/* On a narrow page a kit's menu is a row of chips and stays. The list of sections is left out:
-   nineteen sections would be a wall before the first word, and the document begins at once. A
-   document that is no page of the kit has nothing else beside it, and its whole side goes. */
+/* A document that is no page of the kit has its own name over its list. On a narrow page the list is
+   left out: nineteen sections would be a wall before the first word, and the document begins at
+   once. Such a document has nothing else beside it, and its whole side goes. */
 @media (max-width: 860px) {
-  .spec__side .spec__name,
-  .spec__side .side__scroll {
-    display: none;
-  }
   .spec__side--alone {
     display: none;
   }

@@ -1,21 +1,25 @@
 ---
-// The kit's library: its modules, each with the sentence the kit's own document opens its section
-// with, and a link to that section, between what the document says of the library and of each
-// module. The names and the sentences are read from kit/spec/library.md when the site is built
-// (src/lib/project.js); what a module has is said once, in the page API.
+// The kit's library: what the document says of it, and its modules, each with the sentence the kit's own
+// document opens its section with, and a link to the module's page. The names and the sentences are read
+// from kit/spec/library.md when the site is built (src/lib/project.js); what a module has is said once, on
+// its page, which is one section of the document (src/docs.js).
 import Kit from "../../layouts/Kit.astro";
 import SpecDoc from "../../components/SpecDoc.astro";
-import { getHeadings } from "../../../../kit/spec/library.md";
+import { libraryPages } from "../../docs.js";
 import { library } from "../../lib/project.js";
 import { REPO } from "../../lib/code.js";
 
 const { modules } = library();
-const headings = getHeadings();
+const pages = libraryPages();
+// Each module of the document has its page in the map, and each page of the map is a module of the document.
 const list = modules.map((module) => {
-  const heading = headings.find((entry) => entry.depth === 2 && entry.text.replace(/`/g, "").trim() === module.name);
-  if (!heading) throw new Error(`The page API has no section for ${module.name}.`);
-  return { ...module, id: heading.slug, href: `#${heading.slug}` };
+  const page = pages.find((entry) => entry.words === module.name);
+  if (!page) throw new Error(`The site's map (src/docs.js) has no page for ${module.name}.`);
+  return { ...module, href: `/${page.path}` };
 });
+for (const page of pages)
+  if (!modules.some((module) => module.name === page.words))
+    throw new Error(`${page.path}: the page API has no section for ${page.words}.`);
 ---
 <Kit
   title="The library: the pencere kit"
@@ -26,28 +30,29 @@ const list = modules.map((module) => {
     <h1>The library</h1>
   </header>
 
-  <SpecDoc source="kit/spec/library.md" path="kit/library" keep={[]} untitled />
+  <!-- What the document says of the library opens the page, the modules follow its first paragraph, and the rest
+       of what it says is after them. -->
+  <SpecDoc source="kit/spec/library.md" path="kit/library" keep={[]} untitled>
+    <Fragment slot="after">
+      <!-- The sentence of a module is said on its page, and search finds it there. -->
+      <ul class="modules" data-pagefind-ignore>
+        {
+          list.map((module) => (
+            <li>
+              <a class="modules__go" href={module.href}>
+                <b>{module.name}</b>
+                <span set:html={module.says} />
+              </a>
+            </li>
+          ))
+        }
+      </ul>
 
-  <ul class="modules">
-    {
-      list.map((module) => (
-        <li>
-          <a class="modules__go" href={module.href}>
-            <b>{module.name}</b>
-            <span set:html={module.says} />
-          </a>
-        </li>
-      ))
-    }
-  </ul>
-
-  <div class="prose" style="margin-top:32px">
-    <p>
-      Each line leads to the module's section below, where everything it has is said. What <code>@pencere/ui</code> draws
-      is shown, one by one, in <a href="/kit/components">the components</a>. An app that uses the others is
-      <a href={`${REPO}/tree/main/examples/editor-lua`}>the editor among the examples</a>.
-    </p>
-  </div>
-
-  <SpecDoc source="kit/spec/library.md" path="kit/library" keep={list.map((module) => module.id)} opening={false} />
+      <p class="modules__note">
+        Each line leads to the module's page, where everything it has is said. What <code>@pencere/ui</code> draws
+        is shown, one by one, in <a href="/kit/components">the components</a>. An app that uses the others is
+        <a href={`${REPO}/tree/main/examples/editor-lua`}>the editor among the examples</a>.
+      </p>
+    </Fragment>
+  </SpecDoc>
 </Kit>

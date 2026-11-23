@@ -35,13 +35,17 @@ interface Props {
   opening?: boolean;
   /** Leave out the document's own title (a page that has its own). */
   untitled?: boolean;
+  /** The one section shown is the page: its heading is the page's title, and the headings in it go one level up. */
+  lift?: boolean;
+  /** Lead to the components' pages where the document lists them, and do not say their names again. */
+  components?: boolean;
   /** The parts of an example to show, by the name of the heading each stands under, and the file they are of. */
   regions?: Map<string, string>;
   example?: string;
   /** An element of the kit, with its picture and its code, shown after the document's first paragraph. */
   demo?: ComponentProps<typeof ElementDemo>["element"];
 }
-const { source, path, keep, opening = true, untitled = false, regions, example, demo } = Astro.props;
+const { source, path, keep, opening = true, untitled = false, lift = false, components = false, regions, example, demo } = Astro.props;
 const at = posix.dirname(source) === "." ? "" : posix.dirname(source);
 const BLOB = `${REPO}/blob/main/`;
 // A link to a file of the repository goes to the page that shows it, and a link to a heading to
@@ -80,7 +84,8 @@ const part = () => {
   if (missing.length) throw new Error(`${source} has no section ${missing.join(", ")}.`);
   return (opening ? before : "") + kept.join("");
 };
-const shown = (keep ? part() : bare).replace(untitled ? /<h1[ >][\s\S]*?<\/h1>\s*/ : /(?!)/, "");
+const raised = (html: string) => (lift ? html.replace(/<(\/?)h([2-4])(?=[ >])/g, (_, close, level) => `<${close}h${Number(level) - 1}`) : html);
+const shown = raised((keep ? part() : bare).replace(untitled ? /<h1[ >][\s\S]*?<\/h1>\s*/ : /(?!)/, ""));
 const { html, end: notesAtEnd } = placeNotes(shown, notes);
 // The notes at the page's end are links too: a note that points to another file would otherwise keep
 // the path the document wrote it with, and be a 404 on the site.
@@ -108,7 +113,19 @@ const linked = relink(html)
 const TABLE = /<table>\s*<thead>\s*<tr>\s*<th[^>]*>Constructor<\/th>[\s\S]*?<\/table>/;
 const instead = ((Astro.slots.has("instead") && (await Astro.slots.render("instead"))) || "").trim();
 if (instead && !TABLE.test(linked)) throw new Error(`${path}: ${source} has no table of the constructors for the page to put its own in the place of.`);
-const numbered = instead ? linked.replace(TABLE, () => instead) : linked;
+// The line that names the components (what the document says after their names stays): the page's own
+// words lead to where each is shown, as the pages of the components have it.
+const NAMES = /<li><code[^>]*>button<\/code>, [\s\S]*?(?=<code[^>]*>ui\.commands\(list\)<\/code>)/;
+if (components && !NAMES.test(linked)) throw new Error(`${path}: ${source} has no list of the components for the page to lead from.`);
+const led = components
+  ? linked.replace(NAMES, () => '<li>What the module draws is shown, one by one, in <a href="/kit/components">the components</a>. ')
+  : linked;
+const swapped = instead ? led.replace(TABLE, () => instead) : led;
+// A page may put something of its own after the document's first paragraph (the slot `after`): the library's
+// modules, between what the document says it is and what else it says of it.
+const after = ((Astro.slots.has("after") && (await Astro.slots.render("after"))) || "").trim();
+if (after && !swapped.includes("</p>")) throw new Error(`${path}: ${source} has no paragraph for the page to put its own after.`);
+const numbered = after ? swapped.replace("</p>", () => `</p>\n${after}`) : swapped;
 // What a section says of its own ends at the next heading: the page is cut there, and the code of a
 // part of an example whose name is the heading's goes in the cut. A heading with a part that the page
 // has no heading for stops the build, so that none is left out unseen.
