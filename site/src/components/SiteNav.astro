@@ -28,7 +28,7 @@ const mark = (on: boolean) => (on ? "page" : undefined);
   </nav>
   <div class="hn__tools">
     <!-- Reserved: search comes later. It is drawn so that the menu is designed once; it does nothing yet. -->
-    <button class="hn__tool hn__search" type="button" aria-disabled="true" data-tip="Search is coming">
+    <button class="hn__tool hn__search" type="button" aria-disabled="true" aria-label="Search (coming soon)" data-tip="Search (coming soon)">
       <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5" /><path d="M13.2 13.2L17 17" /></svg>
       <span class="hn__search-label">Search</span>
       <kbd class="hn__search-key" aria-hidden="true">⌘K</kbd>

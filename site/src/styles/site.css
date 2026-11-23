@@ -698,7 +698,8 @@ p {
   flex-direction: column;
   /* No taller than the window has room for when the page is at its top, where the side stands under
      the navigation (72) and the page's own space above it: its last line is then in the window too. */
-  max-height: calc(100vh - 72px - clamp(40px, 6vw, 80px) - 16px);
+  --side-max: calc(100vh - 72px - clamp(40px, 6vw, 80px) - 16px);
+  max-height: var(--side-max);
   font-size: 14.5px;
   line-height: 1.45;
 }
@@ -706,7 +707,8 @@ p {
   flex: none;
 }
 /* The menu is as tall as it is until the side has no more room, and then it scrolls; the list under
-   it takes what is left, never less than a few lines. None of it is left to run out of the side. */
+   it shares what is left with it, and is never shorter than a few lines (nor, in a window too short
+   for that, more than two fifths of the side). None of it is left to run out of the side. */
 .side > .side__docs {
   flex: 0 1 auto;
   min-height: 0;
@@ -715,8 +717,7 @@ p {
   scrollbar-color: var(--scroll) transparent;
 }
 .side > .side__docs ~ .side__scroll {
-  flex: 1 1 0;
-  min-height: 7rem;
+  min-height: min(7rem, calc(var(--side-max) * 0.4));
 }
 .side > :is(.side__groups, .side__scroll) {
   flex: 1 1 auto;
@@ -774,6 +775,7 @@ p {
   color: var(--ink);
   margin: 26px 0 8px;
 }
+.side > h2:first-child,
 .side__docs > h2:first-child {
   margin-top: 0;
 }

@@ -20,9 +20,17 @@ const { for: target } = Astro.props;
     };
     // The pictures are in the page's theme until a button is pressed; they are again when the page's changes.
     const site = () => (document.documentElement.getAttribute("data-theme") ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
-    show(site());
+    let last = site();
+    show(last);
     for (const button of buttons) button.addEventListener("click", () => show(button.dataset.value ?? site()));
-    window.addEventListener("themechange", () => show(site()));
-    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => show(site()));
+    // The reader's choice stands until the site's theme itself changes: a system that changes its
+    // setting while the site's is chosen does not change it.
+    const follow = () => {
+      if (site() === last) return;
+      last = site();
+      show(last);
+    };
+    window.addEventListener("themechange", follow);
+    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", follow);
   }
 </script>

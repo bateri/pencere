@@ -19,41 +19,40 @@ html {
 }
 
 :root {
-  /* Every colour is written as a pair, light-dark(light, dark): the light theme is the dark one's
-     counterpart, role for role. Which of the two is read is the page's colour-scheme: the system's
-     until a person chooses (data-theme on <html>, set before the first paint by components/ThemeHead.astro). */
-  --ground: light-dark(#fbfbf9, #040404);
-  --ink: light-dark(#131312, #f3f3f1);
-  --soft: light-dark(#3f3f3c, #c4c4c0);
-  --muted: light-dark(#62625d, #9c9c98);
-  --line: light-dark(rgb(19 19 18 / 0.12), rgb(243 243 241 / 0.12));
-  --line-strong: light-dark(rgb(19 19 18 / 0.24), rgb(243 243 241 / 0.24));
+  /* The colours are the dark theme's, plain: what a browser that has no light-dark() (before Chrome 123,
+     Safari 17.5, Firefox 120) shows. Where it has, the pairs below are read instead. */
+  --ground: #040404;
+  --ink: #f3f3f1;
+  --soft: #c4c4c0;
+  --muted: #9c9c98;
+  --line: rgb(243 243 241 / 0.12);
+  --line-strong: rgb(243 243 241 / 0.24);
   /* The underline of a link in a sentence, and the bar of a scrolling part. */
-  --underline: light-dark(rgb(19 19 18 / 0.4), rgb(243 243 241 / 0.4));
-  --scroll: light-dark(rgb(19 19 18 / 0.28), rgb(243 243 241 / 0.26));
+  --underline: rgb(243 243 241 / 0.4);
+  --scroll: rgb(243 243 241 / 0.26);
   /* A faint wash: the ground of inline code, of a chosen tab, of a button on a sheet. */
-  --wash: light-dark(rgb(19 19 18 / 0.06), rgb(243 243 241 / 0.08));
-  --wash-tab: light-dark(rgb(19 19 18 / 0.07), rgb(243 243 241 / 0.1));
-  --wash-hover: light-dark(rgb(19 19 18 / 0.1), rgb(243 243 241 / 0.16));
-  --sheet: light-dark(#f2f2ef, #0d0d0c);
-  --warm: light-dark(#7a5a1a, #e2cfa8);
+  --wash: rgb(243 243 241 / 0.08);
+  --wash-tab: rgb(243 243 241 / 0.1);
+  --wash-hover: rgb(243 243 241 / 0.16);
+  --sheet: #0d0d0c;
+  --warm: #e2cfa8;
   /* The solid button: the ink as ground, the page's ground as its words; lifted a little on hover. */
   --button: var(--ink);
   --button-ink: var(--ground);
-  --button-hover: light-dark(#2e2e2c, #ffffff);
-  --shadow: light-dark(rgb(19 19 18 / 0.08), rgb(0 0 0 / 0.5));
+  --button-hover: #ffffff;
+  --shadow: rgb(0 0 0 / 0.5);
   /* A pane: a terminal's, in the colours of GitHub's light theme or its dark one. */
-  --pane: light-dark(#ffffff, #0d1117);
-  --pane-ink: light-dark(#24292f, #c9d1d9);
-  --pane-dim: light-dark(#57606a, #8b949e);
-  --pane-rule: light-dark(rgb(19 19 18 / 0.08), rgb(255 255 255 / 0.06));
-  --pane-prompt: light-dark(#1a7f37, #7ee787);
+  --pane: #0d1117;
+  --pane-ink: #c9d1d9;
+  --pane-dim: #8b949e;
+  --pane-rule: rgb(255 255 255 / 0.06);
+  --pane-prompt: #7ee787;
   --pane-line: var(--line);
-  --pane-shadow: light-dark(rgb(10 14 22 / 0.18), rgb(10 14 22 / 0.55));
+  --pane-shadow: rgb(10 14 22 / 0.55);
   /* What a mask is drawn with: only its alpha counts, so it is opaque. */
   --mask: #000;
   /* The empty tile of a card that has no picture yet. */
-  --tile: light-dark(#e9e9e5, #131312);
+  --tile: #131312;
   --font: "Instrument Sans Variable", ui-sans-serif, system-ui, sans-serif;
   --mono: "JetBrains Mono Variable", ui-monospace, monospace;
   /* The width of a paragraph: about seventy characters of the reading text. */
@@ -63,28 +62,72 @@ html {
      The home page's first scene alone runs edge to edge. */
   --side: max(var(--gutter), (100% - 1180px) / 2);
 
-  --code-foreground: light-dark(#2a2c31, #d8d9dd);
+  --code-foreground: #d8d9dd;
   --code-background: transparent;
   /* A comment is read as words are: it has the contrast of the muted words on the block's ground. */
-  --code-token-comment: light-dark(#656a73, #8d9199);
-  --code-token-string: light-dark(#3d6a2a, #a9c29a);
-  --code-token-string-expression: light-dark(#3d6a2a, #a9c29a);
-  --code-token-constant: light-dark(#1f6b6b, #8fbcbc);
-  --code-token-keyword: light-dark(#7a5a1a, #d9bd84);
-  --code-token-parameter: light-dark(#2a2c31, #d8d9dd);
-  --code-token-function: light-dark(#2d5a9a, #9db5d6);
-  --code-token-punctuation: light-dark(#666a70, #909093);
-  --code-token-link: light-dark(#2d5a9a, #9db5d6);
+  --code-token-comment: #8d9199;
+  --code-token-string: #a9c29a;
+  --code-token-string-expression: #a9c29a;
+  --code-token-constant: #8fbcbc;
+  --code-token-keyword: #d9bd84;
+  --code-token-parameter: #d8d9dd;
+  --code-token-function: #9db5d6;
+  --code-token-punctuation: #909093;
+  --code-token-link: #9db5d6;
 
   /* The kit's pictures: drawn in a terminal's GitHub colours, in a light terminal's and a dark one's.
-     The one that matches the theme is shown, on the ground it was drawn on. */
+     The one that matches the theme is shown, on the ground it was drawn on: the dark one here, the
+     light one where the pairs are read and the theme is light. */
   --shot-light: #ffffff;
   --shot-dark: #0d1117;
-  --shot-ground: var(--shot-light);
-  --show-light: block;
-  --show-dark: none;
+  --shot-ground: var(--shot-dark);
+  --show-light: none;
+  --show-dark: block;
 
   color-scheme: light dark;
+}
+/* Every colour is written as a pair, light-dark(light, dark): the light theme is the dark one's
+   counterpart, role for role. Which of the two is read is the page's colour-scheme: the system's
+   until a person chooses (data-theme on <html>, set before the first paint by components/ThemeHead.astro).
+   scripts/contrast.mjs reads these pairs, and holds the plain colours above to their dark halves. */
+@supports (color: light-dark(#000, #fff)) {
+  :root {
+    --ground: light-dark(#fbfbf9, #040404);
+    --ink: light-dark(#131312, #f3f3f1);
+    --soft: light-dark(#3f3f3c, #c4c4c0);
+    --muted: light-dark(#62625d, #9c9c98);
+    --line: light-dark(rgb(19 19 18 / 0.12), rgb(243 243 241 / 0.12));
+    --line-strong: light-dark(rgb(19 19 18 / 0.24), rgb(243 243 241 / 0.24));
+    --underline: light-dark(rgb(19 19 18 / 0.4), rgb(243 243 241 / 0.4));
+    --scroll: light-dark(rgb(19 19 18 / 0.28), rgb(243 243 241 / 0.26));
+    --wash: light-dark(rgb(19 19 18 / 0.06), rgb(243 243 241 / 0.08));
+    --wash-tab: light-dark(rgb(19 19 18 / 0.07), rgb(243 243 241 / 0.1));
+    --wash-hover: light-dark(rgb(19 19 18 / 0.1), rgb(243 243 241 / 0.16));
+    --sheet: light-dark(#f2f2ef, #0d0d0c);
+    --warm: light-dark(#7a5a1a, #e2cfa8);
+    --button-hover: light-dark(#2e2e2c, #ffffff);
+    --shadow: light-dark(rgb(19 19 18 / 0.08), rgb(0 0 0 / 0.5));
+    --pane: light-dark(#ffffff, #0d1117);
+    --pane-ink: light-dark(#24292f, #c9d1d9);
+    --pane-dim: light-dark(#57606a, #8b949e);
+    --pane-rule: light-dark(rgb(19 19 18 / 0.08), rgb(255 255 255 / 0.06));
+    --pane-prompt: light-dark(#1a7f37, #7ee787);
+    --pane-shadow: light-dark(rgb(10 14 22 / 0.18), rgb(10 14 22 / 0.55));
+    --tile: light-dark(#e9e9e5, #131312);
+    --shot-ground: var(--shot-light);
+    --show-light: block;
+    --show-dark: none;
+    --code-foreground: light-dark(#2a2c31, #d8d9dd);
+    --code-token-comment: light-dark(#656a73, #8d9199);
+    --code-token-string: light-dark(#3d6a2a, #a9c29a);
+    --code-token-string-expression: light-dark(#3d6a2a, #a9c29a);
+    --code-token-constant: light-dark(#1f6b6b, #8fbcbc);
+    --code-token-keyword: light-dark(#7a5a1a, #d9bd84);
+    --code-token-parameter: light-dark(#2a2c31, #d8d9dd);
+    --code-token-function: light-dark(#2d5a9a, #9db5d6);
+    --code-token-punctuation: light-dark(#666a70, #909093);
+    --code-token-link: light-dark(#2d5a9a, #9db5d6);
+  }
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -258,7 +301,9 @@ astro-dev-toolbar {
 }
 /* What a control does, said when it is pointed at or reached with the keyboard. */
 .hn__tool::after {
+  /* The control has its name already (aria-label): the tip is for the eye, and is not read again. */
   content: attr(data-tip);
+  content: attr(data-tip) / "";
   position: absolute;
   z-index: 5;
   top: calc(100% + 6px);
@@ -317,6 +362,10 @@ astro-dev-toolbar {
   html body .hn,
   html body.hero-scene .hn {
     gap: 16px;
+  }
+  /* The links are 12 apart here: their touch areas stop short of one another. */
+  .hn__links a::after {
+    inset: 0 -6px;
   }
   .hn__links {
     gap: 12px;

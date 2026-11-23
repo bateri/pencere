@@ -33,7 +33,7 @@ const ALLOWED = [
   ],
 ];
 const COLOUR =
-  /(?<![\w&/-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(/;
+  /(?<![\w&/-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(/i;
 
 const files = [];
 const walk = (dir) => {
@@ -49,9 +49,13 @@ const wrong = [];
 for (const path of files) {
   const file = relative(src, path).split("\\").join("/");
   if (WHOLE.has(file)) continue;
-  const text = readFileSync(path, "utf8").replace(/\/\*[\s\S]*?\*\//g, (c) =>
-    c.replace(/[^\n]/g, " "),
-  );
+  // What is not a colour that is used: comments (/* */ and <!-- --> over lines, // to a line's end),
+  // and a link's or an id's `#name`. Lines are kept, so that a finding says where it is.
+  const blank = (c) => c.replace(/[^\n]/g, " ");
+  const text = readFileSync(path, "utf8")
+    .replace(/\/\*[\s\S]*?\*\/|<!--[\s\S]*?-->/g, blank)
+    .replace(/(^|\s)\/\/.*$/gm, blank)
+    .replace(/\b(?:href|id|for|aria-[a-z]+)="[^"]*"/g, blank);
   text.split("\n").forEach((line, index) => {
     if (!COLOUR.test(line)) return;
     if (file === "styles/home.css" && /^\s*--term-[\w-]+:/.test(line)) return;
