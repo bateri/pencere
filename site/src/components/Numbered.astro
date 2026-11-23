@@ -85,7 +85,7 @@ const picture = (d: string, name: string) =>
   `<svg class="anchor__${name}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
 const CHAIN = "M6.9 9.1a2.9 2.9 0 0 0 4.1 0l2.2-2.2a2.9 2.9 0 0 0-4.1-4.1l-.9.9M9.1 6.9a2.9 2.9 0 0 0-4.1 0L2.8 9.1a2.9 2.9 0 0 0 4.1 4.1l.9-.9";
 const TICK = "M3.2 8.4l3.1 3.1 6.5-7";
-const numbered = html
+const linked = html
   .replace(
     /<(h[2-4])( id="[^"]*")?>(Appendix [A-Z]|\d+(?:\.\d+)*)(\.?)\s+/g,
     (_, tag, id = "", number, dot) => `<${tag}${id}><span class="num">${number}${dot ? `<span class="num__dot">${dot}</span>` : ""}</span> `,
@@ -98,6 +98,13 @@ const numbered = html
     (_, tag, id, inside) =>
       `<${tag} id="${id}">${inside}<a class="anchor" href="#${id}" aria-label="Copy a link to this section">${picture(CHAIN, "chain")}${picture(TICK, "tick")}</a></${tag}>`,
   );
+// A page may put something of its own in the place of the document's table of the constructors (the
+// slot `instead`): the elements' overview, whose cards say what that table says. The table stays in the
+// document, and where the document is shown whole it is a table still.
+const TABLE = /<table>\s*<thead>\s*<tr>\s*<th[^>]*>Constructor<\/th>[\s\S]*?<\/table>/;
+const instead = ((Astro.slots.has("instead") && (await Astro.slots.render("instead"))) || "").trim();
+if (instead && !TABLE.test(linked)) throw new Error(`${path}: ${source} has no table of the constructors for the page to put its own in the place of.`);
+const numbered = instead ? linked.replace(TABLE, () => instead) : linked;
 // What a section says of its own ends at the next heading: the page is cut there, and the code of a
 // part of an example whose name is the heading's goes in the cut. A heading with a part that the page
 // has no heading for is stopped by scripts/check.mjs, so that none is left out unseen.
