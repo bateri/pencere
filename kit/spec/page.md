@@ -50,7 +50,7 @@ Of an object the page API or a module of the library gives, only the fields and 
 
 ## When a call goes wrong
 
-A call of the page API that is given what it refuses fails the page. It refuses the wrong kind of value, a name it has not, and a box that cannot be what the call needs it to be.
+A call of the page API that is given what it refuses fails the page. It refuses, for example, the wrong kind of value, a name it has not, and a box that cannot be what the call needs it to be.
 
 The error is at the line of the script that made the call, `script.lua:12: …`. It is at the line of the module of the library when one made it, and not at a line of the prelude.
 

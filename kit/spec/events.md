@@ -146,7 +146,7 @@
   - when the pointer came to a word (or went from it) while exactly the modifiers of the press that is the page's (`gestures`: `"target"`) are held, at most once in `links.delay`;
   - for that press.
 
-  It is `source = "link"` where the word is on a look that is `held`, has an `id` and is drawn now.
+  It is `source = "link"` where the place under the pointer is on a look that is `held`, has an `id` and is drawn now.
 
 - `keymap_pending`:
   - `editor`;

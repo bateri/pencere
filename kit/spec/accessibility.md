@@ -22,7 +22,12 @@ A `heading`, an `image` or a `progress` that is not pressed is not one: they onl
 
 ### What is said of it
 
-Where it has a label, that is its name alone. The words inside it that are in none of its controls are said apart, in their place, as words, except those its label says already.[^files] A label says a text already where the text is the label's words, or one part of it set off by a comma, a colon or a semicolon. It is whole words only, and not between digits: "1,024" and "10:30" being whole.
+Where it has a label:
+
+- that is its name alone;
+- and the words inside it that are in none of its controls are said apart, in their place, as words, except those its label says already.[^files]
+
+A label says a text already where the text is the label's words, or one part of it set off by a comma, a colon or a semicolon. The match is of whole words only. A comma, a colon or a semicolon does not set a part off between digits: "1,024" and "10:30" being whole.
 
 What stands in an overlay inside it is the page's own, and is said apart whatever the label says.
 
@@ -133,7 +138,7 @@ A row, a cell, a column header, a tab, an option, a list or tree item, a status 
 
 An element that is the root of a **layer** drawn over the page says so with `layer(modal)`.
 
-- With a modal layer in front, what is outside it is not read, nor pressable to a screen reader (as behind a sheet or an `aria-modal`). What is inside it is read, a menu or a popover it opens from inside it included.
+- With a modal layer in front, what is outside it is not read, nor pressable to a screen reader (as behind a sheet or an `aria-modal`). What is inside it is read and pressable to a screen reader, a menu or a popover it opens from inside it included.
 - A layer that is not modal (`layer(false)`: a popover, a toast) leaves the page.
 
 `layer` stays a boolean for good. What more a layer comes to say (how it is given up, what it is for) comes as methods of their own, each with its own name in `pencere.has`. No value of `layer` is ever added.

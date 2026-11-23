@@ -62,7 +62,7 @@ Called with nothing, one turns it on. Otherwise it is what it is given: `false` 
 
 ## Text
 
-A text that does not fit runs past its box, or, with `truncate`, ends in "…".
+A text that does not fit its one line runs past its box, or, with `truncate`, ends in "…".
 
 ### Wrapping
 
@@ -144,7 +144,7 @@ A menu that drops from a button is `div():anchor("sort", "below", { gap = 4 }):c
 
 ## Rich text
 
-In a `pencere.rich`, a part (`pencere.span(words)`) says only what it changes of the element's look:
+In the one paragraph of a `pencere.rich`, a part (`pencere.span(words)`) says only what it changes of the element's look:
 
 - `color`, `weight` (`bold`), `italic`, `underline`, `strike` and `family`;
 - a ground behind its words alone (`bg`);

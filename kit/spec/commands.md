@@ -6,7 +6,7 @@ A **command** (`command(id, title, keys, enabled)`) is something the page can be
 
 ### The keys of a command
 
-The keys are written as a person writes them: modifiers (`cmd`, `ctrl`, `alt`, `shift`) and a key (one character, or the name of a key the page reads) joined by `+`. They are `"cmd+shift+k"`, `"ctrl+enter"`, `"f5"`, and `"cmd++"` for the key `+`.
+The keys are written as a person writes them: modifiers (`cmd`, `ctrl`, `alt`, `shift`) and a key (one character, or the name of a key the page reads) joined by `+`. For example `"cmd+shift+k"`, `"ctrl+enter"`, `"f5"`, and `"cmd++"` for the key `+`.
 
 `pencere.keys(words)` reads them. A modifier or a key by another name (`option`, `esc`, `pageup`, `return`) is an error, here and in `gestures`, `keymap`, `held` and `hold`.
 

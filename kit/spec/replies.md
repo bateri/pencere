@@ -71,7 +71,7 @@ The same is so of a menu asked for in the reply to the editor's account of what 
 
 A context press is a press of the right button (a Mac's ⌃ with the main button too, where the drive tells it the page as the right button's, [Events](events.md#what-a-reply-may-ask)), in an editor, in a gutter or elsewhere.
 
-In a menu that one of these asked for:
+In a menu that one of the following asked for:
 
 - a key (Shift F10, which is a command a key did);
 - a press of the main button (the second click of a double click too);
