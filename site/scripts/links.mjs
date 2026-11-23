@@ -10,6 +10,8 @@
 // 3. Nothing names the kit's document by a number of its old sections: the document had numbered
 //    sections once, and a reference that kept the number goes to no place now. A comment of code
 //    or a sentence of a document names the topic's file (or links it).
+// 4. A note of a topic (a Markdown footnote, `[^name]`) is said once and has its words, and no two topics
+//    give the same name to a note: the topics are shown on one page too (src/lib/notes.js).
 //
 // The functions are given the files (a map of path to text) and say what is wrong, so that a test
 // can give them a repository made up; scripts/check.mjs reads the real one.
@@ -180,6 +182,49 @@ export function numberProblems(files) {
       found.push(
         `${path}:${line}: names the kit's document by a number of its old sections ("${match[0].replace(/\s+/g, " ")}"): name the topic's file, kit/spec/..., or link it`,
       );
+    }
+  }
+  return found;
+}
+
+const NOTE_LINE = /^\[\^([^\]]+)\]:/;
+
+/** What is wrong with the notes of the topics: one that is said and has no words, words that nothing says, a note said twice, a name two topics use. `files` is a map of path to text. */
+export function noteProblems(files) {
+  const found = [];
+  const owner = new Map();
+  for (const [path, text] of files) {
+    if (!TOPIC.test(path)) continue;
+    const said = new Map();
+    const given = new Set();
+    let fenced = false;
+    for (const line of text.split("\n")) {
+      if (/^\s*```/.test(line)) fenced = !fenced;
+      if (fenced) continue;
+      const definition = line.match(NOTE_LINE);
+      if (definition) {
+        given.add(definition[1]);
+        continue;
+      }
+      for (const [, name] of line.replace(/`[^`]*`/g, "").matchAll(/\[\^([^\]]+)\]/g))
+        said.set(name, (said.get(name) ?? 0) + 1);
+    }
+    for (const [name, times] of said) {
+      if (!given.has(name))
+        found.push(
+          `${path}: the note [^${name}] is said and has no words (a line \`[^${name}]: ...\`)`,
+        );
+      if (times > 1)
+        found.push(`${path}: the note [^${name}] is said ${times} times: a note is said once`);
+    }
+    for (const name of given) {
+      if (!said.has(name))
+        found.push(`${path}: the words of the note [^${name}] are given and nothing says it`);
+      if (owner.has(name) && owner.get(name) !== path)
+        found.push(
+          `${path}: the note [^${name}] is also in ${owner.get(name)}: the topics are shown on one page, so each gives its notes names of its own`,
+        );
+      owner.set(name, path);
     }
   }
   return found;

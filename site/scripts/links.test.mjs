@@ -1,7 +1,14 @@
 // The rules of scripts/links.mjs, against small repositories made up here: a link into the kit's
 // topics (kit/spec) that goes nowhere is found, and so is a rule written in the index.
 import { describe, expect, it } from "vitest";
-import { indexProblems, linkProblems, numberProblems, slug, topicsOf } from "./links.mjs";
+import {
+  indexProblems,
+  linkProblems,
+  noteProblems,
+  numberProblems,
+  slug,
+  topicsOf,
+} from "./links.mjs";
 
 const files = (entries) => new Map(Object.entries(entries));
 
@@ -144,5 +151,41 @@ describe("the old numbers of the kit's document", () => {
     expect(
       found("The kit's library is in `kit/spec/library.md`.\nSection 5 is the protocol's.\n"),
     ).toEqual([]);
+  });
+});
+
+describe("the notes of the topics", () => {
+  const motion = "# Motion\n\nA motion.[^style]\n\n[^style]: A style sheet's `transition`.\n";
+  it("are fine when each is said once and has its words", () => {
+    expect(noteProblems(files({ "kit/spec/motion.md": motion }))).toEqual([]);
+  });
+  it("are found when one is said and has no words, or has words and is not said", () => {
+    const lost = noteProblems(files({ "kit/spec/motion.md": "# Motion\n\nA motion.[^style]\n" }));
+    expect(lost).toHaveLength(1);
+    expect(lost[0]).toContain("has no words");
+    const unsaid = noteProblems(
+      files({ "kit/spec/motion.md": "# Motion\n\nA motion.\n\n[^style]: Words.\n" }),
+    );
+    expect(unsaid).toHaveLength(1);
+    expect(unsaid[0]).toContain("nothing says it");
+  });
+  it("are found when one is said twice, or a name is in two topics", () => {
+    expect(
+      noteProblems(
+        files({ "kit/spec/motion.md": `${motion.replace("A motion.", "A motion.[^style]")}` }),
+      )[0],
+    ).toContain("2 times");
+    const two = noteProblems(
+      files({
+        "kit/spec/motion.md": motion,
+        "kit/spec/layout.md": motion.replace("Motion", "Layout"),
+      }),
+    );
+    expect(two).toHaveLength(1);
+    expect(two[0]).toContain("also in kit/spec/motion.md");
+  });
+  it("are not read in a block of code or in a span of it", () => {
+    const code = "# Motion\n\n```md\nA note[^x] is written so.\n```\n\nOr `[^y]`.\n";
+    expect(noteProblems(files({ "kit/spec/motion.md": code }))).toEqual([]);
   });
 });

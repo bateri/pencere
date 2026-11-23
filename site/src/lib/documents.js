@@ -21,10 +21,14 @@ const file = (source) => {
   return load;
 };
 
-// A document: what it shows and its headings ({ depth, slug, text }).
+// A document: what it shows and its headings ({ depth, slug, text }). The heading the builder gives a
+// document's notes ("Footnotes", for the screen reader) is no section of it.
 export async function document(source) {
   const module = await file(source)();
-  return { Content: module.Content, headings: module.getHeadings() };
+  return {
+    Content: module.Content,
+    headings: module.getHeadings().filter((heading) => heading.slug !== "footnote-label"),
+  };
 }
 
 // The topics of the kit's page API, in the order its index lists them: the files of the lines of

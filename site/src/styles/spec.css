@@ -473,3 +473,132 @@
     display: none;
   }
 }
+
+/* The code of an example under the heading of its name (src/components/Numbered.astro): a block of its
+   own between the section's words and the next heading. */
+.spec > .code {
+  margin: 14px 0 4px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  overflow: visible;
+}
+.spec .code__name {
+  padding: 0 0 2px;
+  border: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.spec .code pre {
+  margin: 0;
+  padding: 12px 16px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* A note (src/lib/notes.js) holds nothing a page or a host has to do: a comparison, an example. Where
+   the column has room it stands in the margin, beside the line it is said at; where it has not it is at
+   the end of the page, under a hairline. The two are one text, and one of them is shown. */
+.spec .note__mark {
+  margin-left: 1px;
+  font-size: 0.72em;
+  line-height: 0;
+}
+.spec .note__mark a,
+.spec .note__here {
+  color: var(--muted);
+  text-decoration: none;
+}
+.spec .note__mark a:hover {
+  color: var(--ink);
+}
+.spec .note__here {
+  display: none;
+}
+.spec .note {
+  display: none;
+}
+.spec .footnotes {
+  max-width: var(--measure);
+  margin-top: clamp(40px, 5vw, 64px);
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.spec .footnotes ol {
+  margin: 0;
+  padding-left: 1.4em;
+}
+.spec .footnotes li + li {
+  margin-top: 8px;
+}
+.spec .footnotes a {
+  color: inherit;
+}
+@media (min-width: 1240px) {
+  .spec {
+    --note: 200px;
+    --note-gap: 28px;
+  }
+  .spec .note {
+    display: block;
+    float: right;
+    clear: right;
+    width: var(--note);
+    margin: 0.35em calc(-1 * (var(--note) + var(--note-gap))) 0 0;
+    font-size: 13.5px;
+    line-height: 1.45;
+    color: var(--muted);
+  }
+  .spec .note__number {
+    margin-right: 4px;
+    font-family: var(--mono);
+    font-size: 0.85em;
+    color: var(--soft);
+  }
+  .spec .note__end,
+  .spec .footnotes {
+    display: none;
+  }
+  .spec .note__here {
+    display: inline;
+  }
+}
+
+/* A short name set as code (src/components/Numbered.astro) stays on one line. */
+.spec code.code--short {
+  white-space: nowrap;
+}
+
+/* A topic of the kit's page API (src/layouts/Doc.astro) has the page to itself: its sections are the
+   page's lower level, a size under the document's chapters, with less air between them and no rule over
+   each, and the sections inside them go one step down again. */
+.spec--topic h2 {
+  gap: 2px 14px;
+  margin: clamp(32px, 3.4vw, 44px) 0 10px;
+  padding-top: 0;
+  border-top: 0;
+  font-size: clamp(22px, 2.1vw, 27px);
+  line-height: 1.15;
+  letter-spacing: -0.028em;
+}
+.spec--topic h3 {
+  margin: clamp(22px, 2.2vw, 28px) 0 6px;
+  font-size: clamp(17px, 1.4vw, 19px);
+  line-height: 1.25;
+}
+.spec--topic h4 {
+  margin: 24px 0 8px;
+  font-size: 16px;
+}
+.spec--topic li {
+  margin: 4px 0;
+}
+.spec--topic :is(p, ul, ol) {
+  margin-bottom: 12px;
+}
+.spec--topic {
+  line-height: 1.55;
+}

@@ -9,6 +9,9 @@
 -- * a header whose padding and the size of its words follow a press;
 -- * a picture that turns (`transform`), and what goes round and round: a status dot that fades
 --   in and out (`loop`), an arrow that bobs, a spinner (`spin`).
+--
+-- The parts between `-- #region Name` and `-- #endregion` are what the page of kit/spec/motion.md
+-- shows beside its rules, each under the heading that has its name (site/scripts/regions.mjs).
 
 local b = pencere
 local ui = b.Ui.new()
@@ -63,6 +66,7 @@ local function springs()
 				:child(b.text(name):color(state.segment == index and "foreground" or "dim"))
 		)
 	end
+	-- #region A spring
 	local pill = b.div():row():h(6):child(
 		b.div():id("pill-gap"):h(6):w(pill_start(state.segment)):no_shrink()
 			:motion({ seconds = 0.45, ease = "spring", bounce = 0.35, size = true })
@@ -70,6 +74,7 @@ local function springs()
 		b.div():id("pill"):h(6):w(PILL[state.segment]):rounded(3):bg("accent"):no_shrink()
 			:motion({ seconds = 0.45, ease = "spring", bounce = 0.35, size = true })
 	)
+	-- #endregion
 	return section("A spring that bounces, and keeps its speed where it is sent elsewhere", row, pill)
 end
 
@@ -78,22 +83,25 @@ local function panel()
 	for index, name in ipairs(TABS) do
 		tabs:child(button("tab:" .. index, name, state.tab == index))
 	end
+	-- #region Size and place
 	local body = b.div():id("panel"):h(PANEL[state.tab]):px(12):py(8):col():gap(4):bg("raised1"):rounded(6):clip()
 		:motion({ seconds = 0.35, ease = "spring", bounce = 0.15, size = true })
+	-- #endregion
 	for _, line in ipairs(LINES[state.tab]) do
 		body:child(b.text(line):no_shrink())
 	end
 	return section("A panel that is as high as its tab", tabs, body)
 end
 
--- A body has no height of its own: it is as high as the lines in it, and it is moved to that over a
--- moment. The lines are laid out for the size it goes to; it shows what fits. A line that is no
--- longer on the page goes on being drawn, as it was, while the body closes.
 local function answers()
 	local list = b.div():col():w(260):gap(2)
 	for index, item in ipairs(ANSWERS) do
 		local open = state.answer == index
 		list:child(button("answer:" .. index, item[1], open))
+		-- #region A box that opens and closes
+		-- A body has no height of its own: it is as high as the lines in it, and it is moved to that over a
+		-- moment. The lines are laid out for the size it goes to; it shows what fits. A line that is no
+		-- longer on the page goes on being drawn, as it was, while the body closes.
 		local body = b.div():id("answer-body:" .. index):col():px(12):bg("raised1"):rounded(6)
 			:motion({ seconds = 0.3, ease = "spring", bounce = 0.1, auto_size = true })
 		if open then
@@ -106,6 +114,7 @@ local function answers()
 			end
 			body:child(b.div():h(6):no_shrink())
 		end
+		-- #endregion
 		list:child(body)
 	end
 	return section("A list that opens to what it holds", list)
@@ -115,12 +124,14 @@ local function card()
 	local over = ui.hover == "card"
 	return section(
 		"A card whose corners and shadow follow the pointer",
+		-- #region Corners, border and shadow
 		b.div():press("card"):w(220):h(54):px(14):items_center():row()
 			:bg(over and "raised3" or "raised2")
 			:rounded(over and 16 or 4)
 			:shadow(0, over and 10 or 1, over and 24 or 3, b.alpha("foreground", 0.3))
 			:motion({ seconds = 0.2, color = true, rounded = true, shadow = true })
 			:child(b.text(over and "Lifted" or "Resting"))
+		-- #endregion
 	)
 end
 
@@ -128,6 +139,7 @@ local function header()
 	local compact = state.compact
 	return section(
 		"A header whose padding and words follow a press",
+		-- #region Padding and text size
 		b.div():press("header"):row():items_center():gap(8)
 			:p(compact and 4 or 14)
 			:text_size(compact and 13 or 20)
@@ -135,6 +147,7 @@ local function header()
 			:motion({ seconds = 0.3, padding = true, text_size = true })
 			:child(b.text("Header"):weight(600))
 			:child(b.text(compact and "compact" or "roomy"):color("dim"))
+		-- #endregion
 	)
 end
 
@@ -143,9 +156,11 @@ local function turning()
 		"A picture that turns",
 		b.div():press("disclose"):row():items_center():gap(6)
 			:child(
+				-- #region A picture that turns
 				b.image("assets/arrow.svg"):id("arrow"):size(16, 16):tint("foreground")
 					:transform({ rotate = state.open and 90 or 0 })
 					:motion({ seconds = 0.4, ease = "spring", bounce = 0.3, transform = true })
+				-- #endregion
 			)
 			:child(b.text(state.open and "Hide the details" or "Show the details"))
 	)
@@ -155,6 +170,7 @@ local function going_round()
 	return section(
 		"What goes round and round",
 		b.div():row():items_center():gap(24)
+		-- #region What goes round and round
 			:child(
 				b.div():row():items_center():gap(6)
 					:child(
@@ -173,6 +189,7 @@ local function going_round()
 				b.image("assets/loader.svg"):id("spinner"):size(20, 20):tint("accent")
 					:motion({ spin = 1 })
 			)
+		-- #endregion
 	)
 end
 

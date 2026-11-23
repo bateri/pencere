@@ -6,6 +6,8 @@ import Base from "./Base.astro";
 import Numbered from "../components/Numbered.astro";
 import DocsMenu from "../components/DocsMenu.astro";
 import { REPO } from "../lib/code.js";
+import { read } from "../lib/repo.js";
+import { regionsOf } from "../../scripts/regions.mjs";
 
 interface Props {
   /** The page's line in the map. */
@@ -24,11 +26,18 @@ interface Props {
     whole?: [string, string];
     shows?: string;
     crumbs?: [string, string][];
+    code?: string;
   };
   headings: { depth: number; slug: string; text: string }[];
 }
 const { page, headings } = Astro.props;
-const { title, description, path, words: name, source, note = "", crumbs = [], whole, heading, sections: only, opening = true, shows = source } = page;
+const { title, description, path, words: name, source, note = "", crumbs = [], whole, heading, sections: only, opening = true, shows = source, code } = page;
+// The parts of an example a page shows beside its rules: each under the heading of its name.
+const regions = code ? regionsOf(read(code), code).regions : undefined;
+// A topic of the kit's page API has a page of its own: its sections are the page's lower level (smaller
+// than the sections of the protocol, which are the document's chapters), and they are the chapters again
+// where the topics are shown together (`/kit/spec/all`).
+const topic = /^kit\/spec\/[a-z0-9-]+\.md$/.test(source) && path !== "kit/spec/all";
 // A page of the documentation has its menu over the list of the sections.
 const docs = !page.alone;
 
@@ -93,10 +102,10 @@ const listed = sections.length > 1;
         </ol>
       </div>
     </aside>
-    <article class:list={["doc", "spec", { "spec--titled": heading }]}>
+    <article class:list={["doc", "spec", { "spec--titled": heading, "spec--topic": topic }]}>
       {crumbs.length > 0 && <p class="crumbs">{crumbs.map(([words, address], i) => <>{i > 0 && " / "}<a href={address}>{words}</a></>)}</p>}
       {heading && <h1>{heading}</h1>}
-      <Numbered source={source} path={path} keep={only} opening={opening}><slot /></Numbered>
+      <Numbered source={source} path={path} keep={only} opening={opening} regions={regions} example={code}><slot /></Numbered>
       {whole && <p class="spec__whole"><a href={whole[1]}>{whole[0]}</a></p>}
       <p class="spec__said" role="status" aria-live="polite"></p>
       <p class="spec__source">
