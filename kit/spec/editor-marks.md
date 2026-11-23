@@ -254,7 +254,7 @@ A name is the longest run of letters, digits and `_`: `${1}x`, not `$1x`. A plai
   - the main selection's text is, in the case written;
   - or, where the main selection is a caret, the word it is in is (the word `"select_next"` takes: a word by Unicode's rules, cut where a mark stands inside it), as a whole word.
 
-The search stays as it was.
+  The search stays as it was.
 
 A document the person cannot change (`read_only`) is not replaced in.
 

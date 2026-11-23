@@ -43,9 +43,7 @@ What the page says of its **language**, as a language configuration of VS Code d
 `comment` is how the language writes its comments: a line comment (`"--"`), or `{ line = "--", block = { "--[[", "]]" } }` with either part left out (the block a pair, or `{ open =, close = }`).
 
 - `"toggle_comment"` comments the lines of each range with the line comment, or uncomments them where every line with text on it is commented. A language with block comments alone puts the lines of each range in one, or takes them out.
-- `"toggle_block_comment"` puts each range in the block comment (a caret's range is its line's text, its indent left out), or takes it out where it is in one: the tokens just outside the range or at its ends, a space or a tab between them and the text taken with them. Where some ranges are in one and some are not, those that are not are put in one.
-
-No key does it: a page asks for it (`⌘/` toggles comments).
+- `"toggle_block_comment"` puts each range in the block comment (a caret's range is its line's text, its indent left out), or takes it out where it is in one: the tokens just outside the range or at its ends, a space or a tab between them and the text taken with them. Where some ranges are in one and some are not, those that are not are put in one. No key does it: a page asks for it (`⌘/` toggles comments).
 
 ### Indent
 

@@ -98,7 +98,7 @@ Both return a timer: `:cancel()` stops it (`true` where it was still waiting) an
 
 ### When a timer runs
 
-The kit asks for the wakes its timers want with the page's replies and frames. When the page is woken it runs those that are due, in the order of their times (and of their making). It does so before `handle` is told of the wake, which it is only where the page asked a `wake` itself.
+The kit asks for the wakes its timers want with the page's replies and frames. When the page is woken the kit runs the timers that are due, in the order of their times (and of their making). The kit does so before `handle` is told of the wake, which it is only where the page asked a `wake` itself.
 
 What `fn` returns is a reply, put together with the other timers' and the page's:
 
@@ -213,7 +213,11 @@ A pinch or a double tap no box that zooms took is the page's (`magnify`, `smart_
 
 ### What a page cannot say
 
-A box that zooms scrolls. An editor is not inside one nor one itself, and a long list (`:list`) is not on one: a page that says any of these is refused.
+A page that says what goes against any of these is refused:
+
+- a box that zooms scrolls;
+- an editor is not inside a box that zooms nor one itself;
+- and a long list (`:list`) is not on a box that zooms.
 
 ### Who says what
 
@@ -232,10 +236,11 @@ It changes them through the methods:
 - `point(layout, at)`: the pointer moved, or left with `at` nil;
 - `press` and `release`: a button went down and came up. `release` gives the element clicked;
 - `focus_on(id)`;
-- `focus_step(layout, back)`: to the next element that takes the keyboard, or the one before;
-- `key_path(layout)`: where a key goes, the focused element and the named ones around it.
+- `focus_step(layout, back)`: to the next element that takes the keyboard, or the one before.
 
 Each that takes the pointer says whether anything it keeps changed, so a page draws a frame only for what it sees.
+
+`key_path(layout)` is where a key goes, the focused element and the named ones around it.
 
 ### A drag
 
