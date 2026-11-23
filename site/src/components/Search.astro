@@ -1,0 +1,226 @@
+---
+// The site's search: a sheet that the Search control of the navigation opens (and ⌘K or Ctrl K, and
+// "/" when nothing is being typed into). The index is made after the site is built (pagefind, in
+// the build script) and is read here on first use; the sheet is a <dialog>, so that the page behind
+// it is inert, Esc closes it and the focus goes back to where it was. Its colours are the site's
+// tokens (styles/shell.css), its look is styles/search.css.
+import "../styles/search.css";
+---
+<dialog class="sr" id="search" aria-label="Search">
+  <div class="sr__bar">
+    <svg class="sr__icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5" /><path d="M13.2 13.2L17 17" /></svg>
+    <input
+      class="sr__input"
+      id="search-input"
+      type="text"
+      role="combobox"
+      aria-label="Search the documentation"
+      aria-expanded="false"
+      aria-controls="search-hits"
+      aria-autocomplete="list"
+      placeholder="Search the documentation"
+      autocomplete="off"
+      autocapitalize="off"
+      autocorrect="off"
+      spellcheck="false"
+      enterkeyhint="go"
+    />
+    <button class="sr__close" type="button" aria-label="Close search">
+      <kbd aria-hidden="true">esc</kbd>
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.5 5.5l9 9M14.5 5.5l-9 9" /></svg>
+    </button>
+  </div>
+  <div class="sr__body">
+    <div class="sr__hits" id="search-hits" role="listbox" aria-label="Results"></div>
+    <p class="sr__said" id="search-said" role="status"></p>
+  </div>
+  <p class="sr__keys" aria-hidden="true">
+    <span><kbd>↑</kbd><kbd>↓</kbd> to move</span>
+    <span><kbd>↵</kbd> to open</span>
+    <span><kbd>esc</kbd> to close</span>
+  </p>
+</dialog>
+<script>
+  const sheet = document.querySelector<HTMLDialogElement>("#search");
+  const input = document.querySelector<HTMLInputElement>("#search-input");
+  const hits = document.querySelector<HTMLElement>("#search-hits");
+  const said = document.querySelector<HTMLElement>("#search-said");
+  const opener = document.querySelector<HTMLButtonElement>(".hn__search");
+
+  if (sheet && input && hits && said) {
+    // How many pages are shown; each with the section of it that fits best.
+    const SHOWN = 8;
+    type Section = { title: string; url: string; excerpt: string };
+    type Page = { url: string; meta: { title?: string; top?: string }; excerpt: string; sub_results: Section[] };
+    type Pagefind = {
+      debouncedSearch: (query: string, options?: object, wait?: number) => Promise<{ results: { data: () => Promise<Page> }[] } | null>;
+    };
+
+    // The index is read the first time it is wanted (the control is pointed at, or the sheet opens).
+    // Where there is none (a page that is watched, not built) the sheet says so.
+    let index: Promise<Pagefind | null> | undefined;
+    const load = () => {
+      const from = "/pagefind/pagefind.js";
+      index ??= import(/* @vite-ignore */ from).then(
+        (found) => found as Pagefind,
+        () => null,
+      );
+      return index;
+    };
+
+    let active = -1;
+    let asked = 0;
+    const links = () => [...hits.querySelectorAll<HTMLAnchorElement>("a")];
+    const say = (words: string) => {
+      said.textContent = words;
+      said.hidden = !words;
+    };
+    const choose = (to: number, scroll = true) => {
+      const all = links();
+      if (!all.length) return;
+      active = (to + all.length) % all.length;
+      all.forEach((link, i) => {
+        const on = i === active;
+        link.setAttribute("aria-selected", String(on));
+        if (on && scroll) link.scrollIntoView({ block: "nearest" });
+      });
+      input.setAttribute("aria-activedescendant", all[active].id);
+    };
+    const clear = () => {
+      hits.replaceChildren();
+      active = -1;
+      input.removeAttribute("aria-activedescendant");
+      input.setAttribute("aria-expanded", "false");
+    };
+
+    // The words of an excerpt are Pagefind's text with <mark> around what matched: only text and
+    // those marks are taken from it.
+    const marked = (into: HTMLElement, html: string) => {
+      const from = document.createElement("template");
+      from.innerHTML = html;
+      for (const node of from.content.childNodes) {
+        if (node.nodeName === "MARK") {
+          const mark = document.createElement("mark");
+          mark.textContent = node.textContent;
+          into.append(mark);
+        } else into.append(document.createTextNode(node.textContent ?? ""));
+      }
+    };
+    // The site's pages are files (kit/elements.html) that its host serves without the extension.
+    const where = (url: string) => url.replace(/\.html(?=#|$)/, "").replace(/\/index(?=#|$)/, "/");
+    // A page's title is "Motion: the pencere kit"; the list says "Motion".
+    const name = (title = "") => title.replace(/:\s*the pencere kit$/i, "").replace(/:\s*pencere$/i, "");
+
+    const show = (pages: Page[], query: string) => {
+      clear();
+      pages.forEach((page, i) => {
+        const section = page.sub_results.find((s) => s.url.includes("#")) ?? page.sub_results[0];
+        const link = document.createElement("a");
+        link.id = `search-hit-${i}`;
+        link.setAttribute("role", "option");
+        link.setAttribute("aria-selected", "false");
+        link.tabIndex = -1;
+        link.href = where(section?.url ?? page.url);
+        const top = document.createElement("span");
+        top.className = "sr__title";
+        const title = name(page.meta.title);
+        top.append(title);
+        // A hit on the page's own title is a hit on the page: there is no section to name.
+        const heading = section?.url.endsWith(`#${page.meta.top}`) ? "" : section?.title?.trim();
+        if (heading && heading !== title && heading !== page.meta.title) {
+          const sep = document.createElement("span");
+          sep.className = "sr__sep";
+          sep.setAttribute("aria-hidden", "true");
+          sep.textContent = "›";
+          const part = document.createElement("span");
+          part.className = "sr__part";
+          part.textContent = heading;
+          // A screen reader hears the page, then its section.
+          top.append(sep, part);
+        }
+        const text = document.createElement("span");
+        text.className = "sr__text";
+        marked(text, section?.excerpt || page.excerpt);
+        link.append(top, text);
+        link.addEventListener("pointermove", () => {
+          if (active !== i) choose(i, false);
+        });
+        hits.append(link);
+      });
+      input.setAttribute("aria-expanded", String(pages.length > 0));
+      if (pages.length) choose(0, false);
+      say(pages.length ? `${pages.length === 1 ? "1 page" : `${pages.length} pages`} found` : `Nothing found for “${query}”`);
+    };
+
+    const run = async () => {
+      const query = input.value.trim();
+      const mine = ++asked;
+      if (!query) {
+        clear();
+        say("Type to search the documentation.");
+        return;
+      }
+      const found = await load();
+      if (mine !== asked) return;
+      if (!found) {
+        clear();
+        say("Search needs the built site: there is no index here.");
+        return;
+      }
+      const result = await found.debouncedSearch(query, {}, 100);
+      if (!result || mine !== asked) return;
+      const pages = await Promise.all(result.results.slice(0, SHOWN).map((one) => one.data()));
+      if (mine !== asked) return;
+      show(pages, query);
+    };
+
+    const open = () => {
+      if (sheet.open) return;
+      sheet.showModal();
+      input.select();
+      void load();
+      if (!input.value.trim()) say("Type to search the documentation.");
+    };
+    const close = () => sheet.close();
+
+    opener?.addEventListener("click", open);
+    opener?.addEventListener("pointerenter", () => void load(), { once: true });
+    opener?.addEventListener("focus", () => void load(), { once: true });
+    sheet.querySelector(".sr__close")?.addEventListener("click", close);
+    // A press on the dimmed page, outside the sheet, closes it.
+    sheet.addEventListener("pointerdown", (event) => {
+      if (event.target === sheet) close();
+    });
+    // A link of the list is followed as any link is; the sheet is put away first, so that a link to
+    // a place on this very page is not left under it.
+    hits.addEventListener("click", () => close());
+    input.addEventListener("input", () => void run());
+    input.addEventListener("keydown", (event) => {
+      if (event.isComposing) return;
+      if (event.key === "ArrowDown") choose(active + 1);
+      else if (event.key === "ArrowUp") choose(active - 1);
+      else if (event.key === "Enter") links()[active]?.click();
+      else return;
+      event.preventDefault();
+    });
+    sheet.addEventListener("close", () => {
+      asked++;
+    });
+
+    // The keys that open it: ⌘K and Ctrl K from anywhere, "/" where nothing takes the letter.
+    document.addEventListener("keydown", (event) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        if (sheet.open) close();
+        else open();
+        return;
+      }
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey || sheet.open) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return;
+      event.preventDefault();
+      open();
+    });
+  }
+</script>

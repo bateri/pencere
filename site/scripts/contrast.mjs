@@ -116,9 +116,9 @@ try {
 
   // [text token, ground tokens, minimum, what it is]; a translucent ground lies on the page's.
   const checks = [
-    ["ink", ["ground", "sheet", "wash"], 4.5, "headings, body"],
+    ["ink", ["ground", "sheet", "wash", "hit"], 4.5, "headings, body, what a search found"],
     ["soft", ["ground", "sheet", "wash"], 4.5, "lead text, secondary"],
-    ["muted", ["ground", "sheet", "wash"], 4.5, "captions, links of the menu, kbd"],
+    ["muted", ["ground", "sheet", "wash"], 4.5, "captions, links of the menu, kbd, search words"],
     ["warm", ["ground", "sheet"], 4.5, "warm accent as text"],
     ["code-foreground", ["ground", "sheet", "wash"], 4.5, "code"],
     ["code-token-comment", ["ground", "sheet", "wash"], 4.5, "code comment"],

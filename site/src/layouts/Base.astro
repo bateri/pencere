@@ -18,8 +18,10 @@ interface Props {
   title: string;
   description: string;
   path?: string;
+  /** Whether the search finds this page (the one that shows every topic again does not). */
+  index?: boolean;
 }
-const { title, description, path = "" } = Astro.props;
+const { title, description, path = "", index = true } = Astro.props;
 ---
 <!doctype html>
 <html lang="en">
@@ -35,7 +37,7 @@ const { title, description, path = "" } = Astro.props;
   <body class="inner">
     <a class="skip" href="#main">Skip to the content</a>
     <SiteNav path={path} column />
-    <main id="main">
+    <main id="main" data-pagefind-body={index ? "" : undefined}>
       <slot />
     </main>
     <SiteFoot />

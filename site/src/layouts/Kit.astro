@@ -20,7 +20,7 @@ const components = path === "kit/components" || path.startsWith("kit/components/
 ---
 <Base title={title} description={description} path={path}>
   <div class="wrap kit">
-    <aside class:list={["side", { "side--whole": components }]} aria-label="Documentation">
+    <aside data-pagefind-ignore class:list={["side", { "side--whole": components }]} aria-label="Documentation">
       <DocsMenu path={path} />
       {
         components && (

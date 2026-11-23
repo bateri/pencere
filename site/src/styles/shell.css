@@ -41,6 +41,9 @@ html {
   --button-ink: var(--ground);
   --button-hover: #ffffff;
   --shadow: rgb(0 0 0 / 0.5);
+  /* The page behind a sheet (the search), dimmed; and what a search found in a line of text. */
+  --scrim: rgb(0 0 0 / 0.6);
+  --hit: rgb(226 207 168 / 0.2);
   /* A pane: a terminal's, in the colours of GitHub's light theme or its dark one. */
   --pane: #0d1117;
   --pane-ink: #c9d1d9;
@@ -107,6 +110,8 @@ html {
     --warm: light-dark(#7a5a1a, #e2cfa8);
     --button-hover: light-dark(#2e2e2c, #ffffff);
     --shadow: light-dark(rgb(19 19 18 / 0.08), rgb(0 0 0 / 0.5));
+    --scrim: light-dark(rgb(19 19 18 / 0.34), rgb(0 0 0 / 0.6));
+    --hit: light-dark(rgb(122 90 26 / 0.18), rgb(226 207 168 / 0.2));
     --pane: light-dark(#ffffff, #0d1117);
     --pane-ink: light-dark(#24292f, #c9d1d9);
     --pane-dim: light-dark(#57606a, #8b949e);
@@ -269,9 +274,6 @@ astro-dev-toolbar {
   gap: 8px;
   padding: 0 8px 0 11px;
   border-color: var(--line);
-}
-.hn__search[aria-disabled="true"] {
-  cursor: default;
 }
 .hn__search-key {
   padding: 3px 5px 2px;
