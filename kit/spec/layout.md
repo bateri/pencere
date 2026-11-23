@@ -216,7 +216,7 @@ A pinch or a double tap no box that zooms took is the page's (`magnify`, `smart_
 A page that says what goes against any of these is refused:
 
 - a box that zooms scrolls;
-- an editor is not inside a box that zooms nor one itself;
+- an editor or a browser is not inside a box that zooms nor one itself;
 - and a long list (`:list`) is not on a box that zooms.
 
 ### Who says what

@@ -30,7 +30,7 @@ The builders return the element:
 | Children                                | `child`, `children`                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 - `scroll()` is a box whose content scrolls behind it, down and across. The host scrolls it, by its id ([Layout and scrolling](layout.md)).
-- `zoom(…)` is a box that scrolls and lets the person zoom what it holds. The host zooms it ([Layout and scrolling](layout.md)). A page's editor does not go inside one.
+- `zoom(…)` is a box that scrolls and lets the person zoom what it holds. The host zooms it ([Layout and scrolling](layout.md)). A page's editor or browser does not go inside one.
 - `opacity` is of the element with all inside it. Each thing it draws is that much fainter, its words too, past a host's floor of contrast.
 - `page(n)` is a whole number from 1: which page of a PDF the picture is.
   - A file that has no pages is its only page.
