@@ -643,6 +643,32 @@ fn tabs_choose_close_move_and_ask_for_a_menu() -> Result<(), Error> {
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_tab_that_carries_is_handed_to_the_systems_drag_when_it_leaves_the_view() -> Result<(), Error> {
+    use pencere_view::Point;
+    let mut page = open(
+        &TABS.replace(
+            r#"{ key = "a.lua", title = "a.lua", closable = true },"#,
+            r#"{ key = "a.lua", title = "a.lua", closable = true, carry = { text = "https://example.com/a", url = "https://example.com/a" } },"#,
+        ),
+    )?;
+    page.drag_out("tabs/tab/b.lua", Point::new(5000.0, 400.0))?;
+    assert!(
+        page.carries().is_empty(),
+        "a tab with no carry hands nothing out"
+    );
+    page.drag_out("tabs/tab/a.lua", Point::new(5000.0, 400.0))?;
+    let [carry] = page.carries() else {
+        panic!("one drag out of the view: {:?}", page.carries());
+    };
+    assert_eq!(
+        carry.carry,
+        pencere_view::Carry::text("https://example.com/a").url("https://example.com/a")
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn tabs_move_among_themselves_with_the_arrow_keys() -> Result<(), Error> {
     let mut page = open(TABS)?;
     page.press("tab")?;

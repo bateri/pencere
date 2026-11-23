@@ -706,6 +706,25 @@ describe("when the host ends the view", () => {
     expect(rig.terminal.calls).toEqual(["enter", "restore"]);
   });
 
+  it("pushes what the host hands the program to the view that subscribed, and says it takes it in its open", async () => {
+    const rig = new Rig();
+    const { served } = await shown(rig, { takes: ["url"] });
+    const open = rig.messages().find((message) => message.kind === "open");
+    expect(open?.payload).toContain('"takes":["url"]');
+    rig.say("msg", toWire({ subscribe: { id: 1, topic: "pencere.take" } }));
+    rig.say("take", '{"url":"http://localhost:3000/"}');
+    const pushed = await rig.next("msg");
+    expect(JSON.parse(pushed.payload)).toEqual({
+      push: { id: 1, value: { url: "http://localhost:3000/" } },
+    });
+    // What is not a thing the program said it takes, or is not one, is ignored.
+    rig.say("take", '{"folder":"/srv"}');
+    rig.say("take", '{"url":7}');
+    rig.say("closed", closed("user"), 2);
+    await served;
+    expect(rig.messages().filter((message) => message.kind === "msg")).toHaveLength(1);
+  });
+
   it("takes a failure after the view asked something as the view's end", async () => {
     const rig = new Rig();
     const { served } = await shown(rig, { calls: { list: () => ({}) } });

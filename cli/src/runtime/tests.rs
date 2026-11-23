@@ -334,6 +334,32 @@ fn serve_refuses_a_call_or_a_topic_named_in_the_protocols_namespace() {
 }
 
 #[test]
+fn serve_takes_the_kinds_of_thing_an_app_takes_while_it_runs_and_refuses_another() {
+    let (exit, printed) = run_files(&[
+        (
+            "app.lua",
+            r#"
+        local pencere = require("pencere")
+        local outcome = pencere.serve({ page = "page.lua", takes = { "url", "file", "folder" }, fallback = function() print("fell back") end })
+        local ok, why = pcall(pencere.serve, { page = "page.lua", takes = { "link" } })
+        print(ok, why)
+    "#,
+        ),
+        (
+            "page.lua",
+            "return { render = function() return pencere.div() end }",
+        ),
+    ]);
+    assert_eq!(exit, Exit::Done(0));
+    assert!(printed.contains("fell back"), "{printed}");
+    assert!(
+        printed.contains("takes: \"link\" is not one of"),
+        "{printed}"
+    );
+    assert!(!printed.contains("true"), "{printed}");
+}
+
+#[test]
 fn the_check_of_a_build_finds_a_script_that_does_not_compile() {
     let mut files = BTreeMap::new();
     files.insert("app.lua".to_owned(), b"print('fine')".to_vec());

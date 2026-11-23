@@ -139,6 +139,16 @@ Anything a handler returns is JSON: the result of a call is `Serialize`, an erro
 `ViewError` with a short `code` the view can act on and words for the person, and a handler that
 panics is an `internal` error of its call and nothing else.
 
+## What the terminal hands a running program
+
+A program that runs for a terminal may be handed something while it runs: an address the person
+opened, a file, a folder. `Options::takes(&[TakeKind::Url, TakeKind::File])` says which, and the view
+subscribes to the topic `pencere.take` (`TAKE_TOPIC`): the library pushes each `Take` to it at once,
+as `{ "url": … }`, `{ "file": …, "line": …, "column": … }` or `{ "folder": … }`, and keeps up to
+eight that came before the view subscribed for its first subscription. A program that takes nothing
+answers that subscription `not-found`, and a terminal hands over only the kinds the program named
+(specification §10.9). `Conversation::hand_over` plays the terminal in a test.
+
 ## What a page prints
 
 A page of the kit has no terminal of its own, and the one under it is yours, which you must not write to

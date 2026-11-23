@@ -192,6 +192,8 @@ pub enum Opens {
     File,
     /// A folder: `"folder"`.
     Folder,
+    /// An `http` or `https` address: `"url"`.
+    Url,
 }
 
 impl Opens {
@@ -201,6 +203,7 @@ impl Opens {
         match text {
             "file" => Some(Self::File),
             "folder" => Some(Self::Folder),
+            "url" => Some(Self::Url),
             _ => None,
         }
     }
@@ -211,6 +214,7 @@ impl Opens {
         match self {
             Self::File => "file",
             Self::Folder => "folder",
+            Self::Url => "url",
         }
     }
 }

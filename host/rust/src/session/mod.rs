@@ -33,6 +33,7 @@ mod native;
 mod page;
 mod probing;
 mod staging;
+mod taking;
 
 use std::mem;
 use std::sync::Arc;
@@ -55,6 +56,7 @@ use crate::message::{
     OpenBody, Reason, SUPPORTED_VERSIONS, TokenProbe, ViewOffer,
 };
 use crate::sandbox::{self, Access, AccessError, Consent, Grant};
+use crate::take::Kind;
 use crate::text;
 use crate::theme::Theme;
 use crate::token::{Entropy, Token};
@@ -349,6 +351,11 @@ pub struct ViewStart {
     /// own name must not carry a picture the program chose, which could pass for the terminal's
     /// own or for another application's.
     pub icons: Vec<Icon>,
+    /// What the program says it takes while it runs (`takes` of its `open`, §10.9), each kind
+    /// once, in the order it named them: what [`Session::hand_over`] may hand it. Empty when it says
+    /// nothing. The terminal may keep it beside the pane's program, to know which pane to hand
+    /// an address or a file to.
+    pub takes: Vec<Kind>,
     /// For a page: the JSON text of the first `context` message (specification §9.5), `{"context":
     /// {…}}`, which the terminal delivers to the page once the page has loaded. The crate cannot
     /// know when that is, so what changes the context between the start and then comes to the
@@ -604,6 +611,7 @@ struct Opening {
     program: Option<String>,
     title: Option<String>,
     icons: Vec<Icon>,
+    takes: Vec<Kind>,
     /// What a page asks to reach; `None` for the other kinds, and for a page that asks nothing.
     access: Option<Access>,
 }
@@ -621,6 +629,8 @@ struct Live {
     files: files::Files,
     /// The `probe` that is out, until it is answered or the view ends (§4.10).
     probe: Option<probing::Out>,
+    /// What the program said it takes while it runs (§10.9).
+    takes: Vec<Kind>,
 }
 
 /// What ended a view.
@@ -1176,6 +1186,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             self.refuse(message.id, "manifest");
             return;
         };
+        let takes = body.takes();
         // The kind of view and its version are the program's to say and nothing the host infers
         // from the files (§6.3); a payload that does not say, or has no bundle, is malformed.
         let (Some(view), Some(version), Some(raw)) =
@@ -1265,6 +1276,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             program: body.program.as_deref().and_then(text::label),
             title: body.title.as_deref().and_then(text::label),
             icons: icon::read(body.icons.as_deref()),
+            takes,
             access,
         }));
         if !waiting {
@@ -1351,6 +1363,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             program,
             title,
             icons,
+            takes,
             access,
             ..
         } = open;
@@ -1374,6 +1387,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             program,
             title,
             icons,
+            takes: takes.clone(),
             context: context.clone(),
         };
         self.phase = Phase::Live(Box::new(Live {
@@ -1384,6 +1398,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             links: Vec::new(),
             files,
             probe: None,
+            takes,
         }));
         self.actions.push(Action::StartView(Box::new(start)));
     }

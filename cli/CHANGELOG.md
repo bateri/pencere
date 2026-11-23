@@ -8,6 +8,8 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
+- **`dist --opens url`**: the release says it takes an address (`file`, `folder` and `url`, several with commas).
+- **`takes` of `serve`** (specification §10.9): what the app takes while it runs, `"url"`, `"file"` and `"folder"`; the view subscribes to the topic `pencere.take` and is pushed each thing the terminal hands the app. A page of the kit is told `link_dropped` when an address is dropped on it, and `pencere test` plays it with `drop_link`.
 - **`pencere test` knows the asks of a browser that empty its cache or a site's data and go on past a
   certificate** (`clear_cache`, `clear_site_data`, `proceed` in `locator:navigations()`), and `error.certificate`
   in the state a test says (`locator:say`).

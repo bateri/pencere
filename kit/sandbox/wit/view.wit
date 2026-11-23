@@ -1548,6 +1548,13 @@ interface types {
         paths: list<string>,
     }
 
+    /// An address the person dropped on the page, from another application or from the terminal:
+    /// where, and the address as text.
+    record link-dropped {
+        at: point,
+        url: string,
+    }
+
     /// Files dragged from outside the page are over it, at `at`: how many.
     record files-over {
         at: point,
@@ -1763,6 +1770,8 @@ interface types {
         files-over(files-over),
         /// They went from it without being dropped.
         files-left,
+        /// The person dropped an address on the page.
+        link-dropped(link-dropped),
         /// The person chose a place in the Save panel the page asked for, or turned it away (none).
         saving(option<saving>),
         /// The system drag of what an element carried out of the view is over: where the person

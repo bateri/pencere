@@ -125,6 +125,12 @@ pub use files::{
 };
 pub use handlers::{Answer, Call, Subscription, ViewError};
 pub use log::{LogLevel, RESERVED_PREFIX};
+pub use pencere_wire::take::{Kind as TakeKind, Take};
+
+/// The topic a view subscribes to, to be told of what the terminal hands its program to take
+/// (specification §10.9): a name of the protocol's own, served by the library for a program that
+/// [takes](Options::takes) anything.
+pub const TAKE_TOPIC: &str = "pencere.take";
 pub use screen::{Ready, Size, Tty, Waker, in_multiplexer};
 pub use terminal::Terminal;
 pub use view::{Access, Icon, IconTheme, Kind, Permission, View, WEB_VERSION};
@@ -152,6 +158,7 @@ pub struct Options {
     program: Option<String>,
     title: Option<String>,
     icons: Vec<Icon>,
+    takes: Vec<TakeKind>,
     calls: HashMap<String, Method>,
     topics: HashMap<String, TopicHandler>,
     log: Option<Arc<LogFn>>,
@@ -198,6 +205,7 @@ impl Options {
             program: None,
             title: None,
             icons: Vec::new(),
+            takes: Vec::new(),
             calls: HashMap::new(),
             topics: HashMap::new(),
             log: None,
@@ -250,6 +258,21 @@ impl Options {
     #[must_use]
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icons.push(icon);
+        self
+    }
+
+    /// What the program takes while it runs, besides what it is started with (§10.9): the kinds of
+    /// thing a terminal may hand it, an address, a file, a folder. The `open` says so, and the
+    /// program serves the topic `pencere.take` to its view: each [`Take`] the terminal hands it is
+    /// pushed to the view's subscriptions of it, at once. Without this a program takes nothing, and
+    /// the topic is `not-found`.
+    #[must_use]
+    pub fn takes(mut self, kinds: &[TakeKind]) -> Self {
+        for kind in kinds {
+            if !self.takes.contains(kind) {
+                self.takes.push(*kind);
+            }
+        }
         self
     }
 

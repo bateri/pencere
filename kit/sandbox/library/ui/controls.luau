@@ -215,7 +215,10 @@ controls.segments = core.component("segments", {
 local TAB_WIDTH = 200
 
 -- Tabs in a strip that scrolls across: `items` are `{ key, title, hint, icon, dirty, closable, tone,
--- tip }`, `active` the key of the one in front. The pointer chooses one as it goes down on it
+-- tip, carry }`, `active` the key of the one in front. A tab with a `carry` (the table of
+-- `Element:carry`: `{ text =, url = }` or `{ path = }`) is handed to the host's system drag when the
+-- pointer takes it out of the view, as any element that carries is (with `reorder` it is the page's
+-- own drag while the pointer is in the view). The pointer chooses one as it goes down on it
 -- (`select`), closes one with its cross or the middle button (`close`), asks for its menu with the
 -- right button (`context { key, at }`); with `reorder`, a tab dragged onto another is put in front of
 -- it (`move { key, before }`: `before` is the key of the tab it goes in front of, nil for the end).
@@ -264,6 +267,9 @@ controls.tabs = core.component("tabs", {
 			end
 			if props.reorder then
 				tab:draggable(part):drop_target(part)
+			end
+			if item.carry ~= nil then
+				tab:carry(item.carry)
 			end
 			if dragging and dragging.target == part then
 				tab:border(1, t.ring)

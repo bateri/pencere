@@ -609,6 +609,10 @@ fn event_in(event: Event) -> wit::Event {
             count: u32::try_from(count).unwrap_or(u32::MAX),
         }),
         Event::FilesLeft => wit::Event::FilesLeft,
+        Event::LinkDropped { at, url } => wit::Event::LinkDropped(wit::LinkDropped {
+            at: point_in(at),
+            url,
+        }),
         Event::Carried { id, done } => wit::Event::Carried(wit::Carried {
             id: id_out(id),
             done,
@@ -4956,6 +4960,13 @@ mod tests {
             wit::Event::FilesOver(wit::FilesOver { count: 2, .. })
         ));
         assert!(matches!(event_in(Event::FilesLeft), wit::Event::FilesLeft));
+        assert!(matches!(
+            event_in(Event::LinkDropped {
+                at,
+                url: "https://example.com/a".into(),
+            }),
+            wit::Event::LinkDropped(wit::LinkDropped { url, .. }) if url == "https://example.com/a"
+        ));
         assert!(matches!(
             event_in(Event::Saving(Some(pencere_view::Saving {
                 handle: "1".repeat(32),

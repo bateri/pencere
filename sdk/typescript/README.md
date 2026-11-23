@@ -117,6 +117,15 @@ The terminal's modes are set with `stty`, not with `process.stdin.setRawMode` or
 mode also turns off ISIG, and ⌃C would arrive as a byte instead of a SIGINT. A system with no `stty`,
 such as Windows, has no host as far as this library is concerned.
 
+## What the terminal hands a running program
+
+A program that runs for a terminal may be handed something while it runs: an address the person
+opened, a file, a folder. Say which in `takes` (`"url"`, `"file"`, `"folder"`) and the view
+subscribes to the topic `pencere.take`; each thing is pushed to it at once, `{ url }`,
+`{ file, line?, column? }` or `{ folder }`, and up to eight that came before the view subscribed are
+its first values. A program that takes nothing answers that subscription `not-found`. A terminal
+hands over only the kinds the program named (specification §10.9).
+
 ## Files
 
 For a `lua` view, `ViewControl` moves files between the person's

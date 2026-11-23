@@ -17,8 +17,9 @@
 --       The person did something. `event` is { type = "move" | "leave" | "press" | "release" |
 --       "extra_press" | "extra_release" | "wheel" | "magnify" | "smart_magnify" | "rotate" |
 --       "swipe" | "pressure" | "scrolled" | "key" | "key_up" | "mods" | "text" | "focus" | "menu" |
---       "command" | "files" | "files_over" | "files_left" | "carried" | "saving" | "terminal_look",
---       ... } in the page's points: move/press/release/wheel/files have x and y (press and
+--       "command" | "files" | "files_over" | "files_left" | "link_dropped" | "carried" | "saving" |
+--       "terminal_look",
+--       ... } in the page's points: move/press/release/wheel/files/link_dropped have x and y (press and
 --       release a button, "left", "right" or "middle"; press its `count`, 2 for the second of a
 --       double click; move, press, release, wheel, key, key_up and mods have mods = { shift =,
 --       control =, alt =, command = }; wheel dx and dy, the points the content would move left and
@@ -53,8 +54,9 @@
 --       the same files as the person, and `paths` the paths there are. The name is the person's
 --       and the type the host's guess: words, never a path. "files_over" (x, y and the `count` of
 --       files dragged over the page from outside it) and "files_left" (they went without being
---       dropped) are for showing where they would go. "saving": the person chose a place in the
---       Save panel the page asked for, its `handle` (passed on to the program, which writes the
+--       dropped) are for showing where they would go. "link_dropped": the person dropped an address
+--       on the page (x, y and its `url`, an http or https link); the page opens it or ignores it.
+--       "saving": the person chose a place in the Save panel the page asked for, its `handle` (passed on to the program, which writes the
 --       file by it) and the `name` given; neither when the person turned the panel away.
 --       A browser (`pencere.browser`) tells "browser", the `browser` and all of what it is, at each
 --       change: the `url` it is at and the `title` of its page, whether it is `loading`, whether there

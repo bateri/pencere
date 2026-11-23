@@ -33,6 +33,16 @@ takes its numbers from beyond those the kit gives out (the kit takes the next on
 and for each line of `print` and `warn`), as the protocol has it that no two requests of a page
 share one.
 
+## What the terminal hands the program
+
+A program that takes things while it runs (protocol, [Section 10.9](../../spec/draft/pencere.md#109-something-for-the-program-to-take): an address the person opened, a file, a folder) tells its page of each through a
+topic of the reserved names, `pencere.take`. The page subscribes with `pencere.subscribe("pencere.take", nil,
+function(take) ... end)`, and each thing is one value: `{ url = }`, `{ file =, line =, column = }` (the
+`line` and the `column` only when there are any) or `{ folder = }`. The page has it at once, as the
+program's library pushes it when it reads it, and what came before the page had subscribed is its first
+values (up to eight). A program that takes nothing answers `not-found`, which `on_error` is told. A page that does not subscribe cannot tell that
+the topic is there, and neither `pencere.version` nor the version of `lua` changes for it.
+
 ## `print` and `warn`
 
 `print(...)` and `warn(...)` are global functions of the page: the script has them, and so has every

@@ -51,4 +51,4 @@ mod text;
 pub mod theme;
 pub mod token;
 
-pub use pencere_wire::{base64, frame, json, message};
+pub use pencere_wire::{base64, frame, json, message, take};

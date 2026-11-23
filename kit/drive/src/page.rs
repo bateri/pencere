@@ -964,6 +964,14 @@ impl Page {
         });
     }
 
+    /// The person dropped an address on the page at `at`, in the host's points: the address as
+    /// text. The host has found it a link a page may open (`http` or `https`, as the `link` of a
+    /// reply is); a page is not told of any other.
+    pub fn link_dropped(&mut self, at: Point, url: String) {
+        let at = self.state.place.to_page(at);
+        self.state.event(Event::LinkDropped { at, url });
+    }
+
     /// The person gave the page `entries` at `at`, in the host's points, as `source` says: dropped
     /// there, pasted at the caret, chosen in the Open panel the page asked for (no entries: the
     /// person turned it away). Each with the handle the host made of it (specification §8.9): the

@@ -426,6 +426,20 @@ pub(super) fn prepare(
             serving = serving.icon(icon);
         }
     }
+    // What the app takes while it runs (specification §10.9): the view subscribes to
+    // `pencere.take` and is pushed each thing the terminal hands the app.
+    if let Some(list) = options.get::<Option<Table>>("takes")? {
+        let mut kinds = Vec::new();
+        for name in list.sequence_values::<String>() {
+            let name = name?;
+            kinds.push(pencere::TakeKind::from_name(&name).ok_or_else(|| {
+                super::fault(format!(
+                    "takes: {name:?} is not one of \"url\", \"file\" and \"folder\""
+                ))
+            })?);
+        }
+        serving = serving.takes(&kinds);
+    }
     let mut calls = HashMap::new();
     if let Some(table) = options.get::<Option<Table>>("calls")? {
         for pair in table.pairs::<String, Function>() {

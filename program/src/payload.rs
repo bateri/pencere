@@ -10,6 +10,7 @@ use serde_json::Value;
 
 use crate::bundle::Bundle;
 use crate::view::{Access, Icon, Kind, is_version};
+use pencere_wire::take::Kind as TakeKind;
 
 /// The versions of the wire this library speaks (specification §5.4).
 pub(crate) const VERSIONS: &[u32] = &[1];
@@ -95,6 +96,8 @@ struct Open<'a> {
     title: Option<&'a str>,
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     icons: &'a [Icon],
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    takes: Vec<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     access: Option<&'a Access>,
     bundle: ManifestBody<'a>,
@@ -108,6 +111,7 @@ pub(crate) struct OpenFields<'a> {
     pub(crate) program: Option<&'a str>,
     pub(crate) title: Option<&'a str>,
     pub(crate) icons: &'a [Icon],
+    pub(crate) takes: &'a [TakeKind],
     pub(crate) access: Option<&'a Access>,
 }
 
@@ -120,6 +124,7 @@ pub(crate) fn open(fields: &OpenFields<'_>, bundle: &Bundle) -> String {
         program: fields.program,
         title: fields.title,
         icons: fields.icons,
+        takes: fields.takes.iter().map(|kind| kind.name()).collect(),
         access: fields.access,
         bundle: ManifestBody {
             entry: bundle.entry(),
@@ -654,6 +659,7 @@ mod tests {
     use crate::bundle::File;
     use crate::view::{IconTheme, Permission};
     use pencere_wire::frame::{Direction, Event, StreamDecoder};
+    use pencere_wire::take::Take;
 
     /// The directory of the draft's fixtures, when this is the repository (a published crate does
     /// not carry them).
@@ -836,6 +842,7 @@ mod tests {
             program: Some("containers"),
             title: Some("Containers"),
             icons: &[],
+            takes: &[],
             access: Some(&access),
         };
         assert_eq!(open(&fields, &page()), payload_of("to-host/open-web.frame"));
@@ -853,6 +860,7 @@ mod tests {
             program: Some("demopen"),
             title: Some("Containers"),
             icons,
+            takes: &[],
             access: None,
         };
         assert_eq!(
@@ -870,6 +878,21 @@ mod tests {
         assert_eq!(
             open(&fields(Kind::Lua, &[icon]), &script()),
             payload_of("to-host/open-icons.frame")
+        );
+
+        let takes = OpenFields {
+            token: TOKEN,
+            kind: Kind::Lua,
+            version: "0.5",
+            program: Some("browserpen"),
+            title: Some("Browser"),
+            icons: &[],
+            takes: &[TakeKind::Url],
+            access: None,
+        };
+        assert_eq!(
+            open(&takes, &script()),
+            payload_of("to-host/open-takes.frame")
         );
     }
 
@@ -1079,6 +1102,8 @@ mod tests {
                         "closed" => assert!(closed(&payload).is_some(), "{label}"),
                         // What the host asks for to prove its own route (§4.10).
                         "probe" => assert!(probe(&payload).is_some(), "{label}"),
+                        // What the host hands a program that runs for it (§10.9).
+                        "take" => assert!(Take::parse(&payload).is_some(), "{label}"),
                         // The words of a page, as the host passes them on.
                         "msg" => {
                             assert!(crate::handlers::read_message(&payload).is_some(), "{label}")
@@ -1089,6 +1114,29 @@ mod tests {
             }
         }
         assert!(read > 80, "{read}");
+    }
+
+    #[test]
+    fn what_the_host_hands_a_program_is_read_as_the_fixtures_have_it() {
+        if fixtures().is_none() {
+            return;
+        }
+        assert_eq!(
+            Take::parse(&payload_of("to-program/take-url.frame")),
+            Some(Take::Url("http://localhost:3000/".into()))
+        );
+        assert_eq!(
+            Take::parse(&payload_of("to-program/take-file.frame")),
+            Some(Take::File {
+                path: "/home/alice/notes.txt".into(),
+                line: Some(12),
+                column: Some(3),
+            })
+        );
+        assert_eq!(
+            Take::parse(&payload_of("to-program/take-folder.frame")),
+            Some(Take::Folder("/home/alice/src".into()))
+        );
     }
 
     #[test]
