@@ -116,7 +116,10 @@ if (instead && !TABLE.test(linked)) throw new Error(`${path}: ${source} has no t
 // The line that names the components (what the document says after their names stays): the page's own
 // words lead to where each is shown, as the pages of the components have it.
 const NAMES = /<li><code[^>]*>button<\/code>, [\s\S]*?(?=<code[^>]*>ui\.commands\(list\)<\/code>)/;
-if (components && !NAMES.test(linked)) throw new Error(`${path}: ${source} has no list of the components for the page to lead from.`);
+// The names and what follows them are one item of a list: a match that runs past its end would take the
+// end of the list with it.
+if (components && !linked.match(NAMES)?.[0].match(/^(?:(?!<\/li>)[\s\S])*$/))
+  throw new Error(`${path}: ${source} has no item that lists the components for the page to lead from.`);
 const led = components
   ? linked.replace(NAMES, () => '<li>What the module draws is shown, one by one, in <a href="/kit/components">the components</a>. ')
   : linked;
@@ -125,6 +128,10 @@ const swapped = instead ? led.replace(TABLE, () => instead) : led;
 // modules, between what the document says it is and what else it says of it.
 const after = ((Astro.slots.has("after") && (await Astro.slots.render("after"))) || "").trim();
 if (after && !swapped.includes("</p>")) throw new Error(`${path}: ${source} has no paragraph for the page to put its own after.`);
+// The first paragraph is one of the document's own, not one in a quote, a list or a table, where the page's
+// would go in with it.
+if (after && /<(?:blockquote|li|td|th)[ >]/.test(swapped.slice(0, swapped.indexOf("</p>"))))
+  throw new Error(`${path}: the first paragraph of ${source} is in a quote, a list or a table, and the page's own would go in there.`);
 const numbered = after ? swapped.replace("</p>", () => `</p>\n${after}`) : swapped;
 // What a section says of its own ends at the next heading: the page is cut there, and the code of a
 // part of an example whose name is the heading's goes in the cut. A heading with a part that the page

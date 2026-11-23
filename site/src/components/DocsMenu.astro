@@ -8,13 +8,17 @@ import { PAGES, menu } from "../docs.js";
 
 interface Props {
   path: string;
+  /** The page's name, over what it opens where it is under no line of the menu. */
+  name?: string;
 }
-const { path } = Astro.props;
-// The page the reader is on, or the page it is under: a component's page is under Components. The
-// longest address wins, so that every page of the kit is not under the kit's overview.
-const here = PAGES.filter((page) => page.area && (path === page.path || path.startsWith(`${page.path}/`))).sort(
-  (a, b) => b.path.length - a.path.length,
-)[0];
+const { path, name } = Astro.props;
+// The page the reader is on, when it is in the menu; or the page it is under: a component's page is
+// under Components (`holds`, src/docs.js). A page that is neither (the index of the page API, and its
+// topics on one page) is under no line, and what it opens stands first, under its own name.
+const here =
+  PAGES.find((page) => page.area && page.path === path) ??
+  PAGES.find((page) => page.area && page.holds && path.startsWith(`${page.path}/`));
+const apart = !here;
 const groups = menu(here?.area ?? "apps");
 // The page itself is the page the reader is on; a page a reader is inside of (Elements, on an
 // element's page) is the line its own pages open under.
@@ -22,12 +26,20 @@ const mark = (page: (typeof PAGES)[number]) => (page !== here ? undefined : page
 const opens = Astro.slots.has("default") ? (await Astro.slots.render("default")).trim() : "";
 ---
 {
+  apart && opens && (
+    <>
+      {name && <h2>{name}</h2>}
+      <div class="side__opens" set:html={opens} />
+    </>
+  )
+}
+{
   groups.map((group) => (
     <>
       <h2>{group.name}</h2>
       <ul class="side__menu">
         {group.pages.map((page) => (
-          <li class:list={{ "is-open": page === here && opens }}>
+          <li>
             <a href={`/${page.path}`} aria-current={mark(page)}>{page.words}</a>
             {page === here && opens && <div class="side__opens" set:html={opens} />}
           </li>

@@ -8,6 +8,7 @@ import SpecDoc from "../../components/SpecDoc.astro";
 import { libraryPages } from "../../docs.js";
 import { library } from "../../lib/project.js";
 import { REPO } from "../../lib/code.js";
+import { document, router } from "../../lib/documents.js";
 
 const { modules } = library();
 const pages = libraryPages();
@@ -20,12 +21,25 @@ const list = modules.map((module) => {
 for (const page of pages)
   if (!modules.some((module) => module.name === page.words))
     throw new Error(`${page.path}: the page API has no section for ${page.words}.`);
+// The modules were sections of this page once: an address of one of their headings here (from a link
+// kept somewhere else) is taken to the heading on the module's page.
+const where = await router();
+const moved = Object.fromEntries(
+  (await document("kit/spec/library.md")).headings
+    .filter((heading) => heading.depth >= 2)
+    .map((heading) => [heading.slug, where("kit/spec/library.md", heading.slug)])
+    .filter(([, to]) => to && !to.startsWith("/kit/library#")),
+);
 ---
 <Kit
   title="The library: the pencere kit"
   description="The modules of the pencere kit's library: components, syntax colouring, languages, fuzzy finding, keys, Markdown and the terminal's own look."
   path="kit/library"
 >
+  <script is:inline define:vars={{ moved }}>
+    const to = moved[decodeURIComponent(location.hash.slice(1))];
+    if (to) location.replace(to);
+  </script>
   <header>
     <h1>The library</h1>
   </header>

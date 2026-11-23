@@ -14,9 +14,12 @@
     const KEY = "pencere.side";
     const address = (href) => new URL(href, location.href).pathname.replace(/(\.html|\/)$/, "") || "/";
     const row = () => matchMedia("(max-width: 860px)").matches;
+    // The place is kept for the page the link led to, once: a page reloaded, or reached again another
+    // way, has its line brought into sight.
     let left = null;
     try {
       left = JSON.parse(sessionStorage.getItem(KEY) ?? "null");
+      sessionStorage.removeItem(KEY);
     } catch {}
     // The page's own line, or the line of the page it is under; one that is not drawn (on a narrow screen
     // what a page opens is left out) has no place to keep.
@@ -39,6 +42,8 @@
       }
     }
     side.addEventListener("click", (event) => {
+      // A link opened in another tab or window leaves this page where it is.
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
       if (!link || address(link.href) === address(location.href)) return;
       const box = link.getBoundingClientRect(), frame = side.getBoundingClientRect();

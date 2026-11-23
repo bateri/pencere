@@ -44,6 +44,9 @@
 //             level up, and the page's sections in the side
 //   of        the area of a page that is in no menu of its own (it opens under the line of another
 //             page of the menu): what search puts before what
+//   holds     the pages whose addresses are under this page's (an element's, a component's, a
+//             module's) are in no menu, and open under its line; a page that is under none (the
+//             index of the page API) is under no line, though its address is under the kit's
 //   components  the document lists the components where this page is, and the page leads to where they
 //             are shown instead of saying them again (the components' own pages)
 export const PAGES = [
@@ -88,6 +91,7 @@ export const PAGES = [
     words: "Elements",
     area: "apps",
     group: "The page",
+    holds: true,
     source: "kit/spec/elements.md",
     own: true,
     sections: ["the-builders", "text-field", "tip", "overlay", "gradient"],
@@ -285,6 +289,7 @@ export const PAGES = [
     words: "Modules",
     area: "apps",
     group: "Library",
+    holds: true,
     source: "kit/spec/library.md",
     own: true,
     // What the document says of the library, before its modules: each module has a page of its own.
@@ -342,6 +347,7 @@ export const PAGES = [
     words: "Components",
     area: "apps",
     group: "Library",
+    holds: true,
     reads: ["kit/spec/library.md", "kit/sandbox/library/ui"],
   },
 

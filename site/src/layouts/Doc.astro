@@ -89,7 +89,7 @@ const listed = sections.length > 1;
     <aside data-pagefind-ignore class:list={["side", "spec__side", { "spec__side--alone": !docs }]} aria-label={docs ? "Documentation, and the sections of this page" : "Sections"}>
       {
         docs ? (
-          <DocsMenu path={path}>
+          <DocsMenu path={path} name={name}>
             {
               lift ? (
                 <ModuleList path={path}>{listed && <SectionList sections={sections} numbered={numbered} />}</ModuleList>
