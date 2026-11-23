@@ -354,209 +354,321 @@ An event of another type is not those keys.
 
 ## `@pencere/markdown`
 
-`@pencere/markdown` (with `local markdown = require("@pencere/markdown")`) reads Markdown and draws
-it. The dialect is CommonMark (0.31.2) with GitHub's extensions (GFM): tables, their columns aligned
-as the delimiter row says (`\|` a pipe in a cell); task lists; strikethrough (`~` or `~~`); and the
-links that need no brackets (`www.…`, `http://…`, `https://…`, `ftp://…`, an address of mail). HTML in
-the text, a block of it or a tag in a line, is kept as the text it is and drawn so, never run. A
-reference to a character is the character HTML names (every name of WHATWG's list, and numbers).
+`@pencere/markdown` (with `local markdown = require("@pencere/markdown")`) reads Markdown and draws it.
 
-`markdown.parse(text)` is the tree of the text, read at once:
-`{ type = "document", children = { block, ... } }`. Every block says the lines of the text it came
-from: `line` (from 1, [Counting](counting.md)) and `lines`. A block is a `heading` (`level`, `children`), a `paragraph`
-(`children`), a `quote` (`children`), a `list` (`ordered`, `start`, `tight`, `children`: its items),
-an `item` (`checked`: nil, or true or false for a task; `children`), `code` (`language`: the first word
-of its fence's info, or nil; `info`; `text`, its last line break left out), `html` (`text`), a `rule`
-or a `table` (`align`: a list of `"left"`, `"center"`, `"right"` or false; `head`: a list of cells;
-`rows`: a list of lists of cells; a cell is a list of inlines). An inline is `text` (`text`),
-`emphasis`, `strong` or `strike` (`children`), `code` (`text`), a `link` (`href`, `title`,
-`children`), an `image` (`src`, `title`, `alt`: its description as plain text), `html` (`text`), a
-`softbreak` or a `hardbreak`. An address is written as commonmark.js writes it: a byte an address may
-not hold, or one that is not printable ASCII, is `%XX`.
+### The dialect
 
-`markdown.render(document, options)` is the element of a document, a column of its blocks: a
-paragraph a text of many looks that wraps; a heading such a text, bold, in the size `headings` gives
-its level (`{ 22, 18, 16, 14.5, 13.5, 13 }`), with the role of a heading; a list a column of rows, a
-marker and the item's blocks (a task's marker a checkbox); a quote its blocks beside a bar; a table a
-grid with a column for each of its columns (at most 64); a block of code a box in the terminal's
-font; HTML a box of its text; a rule a line. Its `options` are each optional: `id`, the start of the
-names of its elements (`"markdown"`); `colors`, roles of the theme: `text` (its words; the box's
-where nil), `quiet` (`"dim"`), `link` (`"accent"`), `code` (`"raised2"`), `head` (`"raised1"`),
-`quote` and `rule` (`"border"`); `gap`, the points between blocks (12); `size`, the size of the text
-the page sets, for what it works out before the layout (13); `link`, `code`, `image` and
-`languages`, below; and `limit`, the most elements it makes (10 000), what is past it left out and
-an "…" in its place. An option it has no such name for, or one of the wrong kind, fails the page at
-the line of the page's call. Two draws on one page have different ids.
+The dialect is CommonMark (0.31.2) with GitHub's extensions (GFM):
 
-A link is a part of a text named `<id>/link/<n>`. Given the page's events, `markdown.handle(event)`
-answers a click on a link (the left button pressed and let go on it) with what `link(href)` returns:
-by default `{ link = href }` for an `http` or `https` address, nil for any other; it answers nil to
-every other event. `markdown.href(id)` is the address of the link of that name, for a page that finds
-what was clicked its own way. An image is its description, as words of the text, since a page reaches
-only the pictures of its bundle; where `image(src, alt, title)` is given, an image is the element it
-returns, and the text around it stands in a row that wraps. A block of code is the element
-`code(language, text)` returns; where that is not given, the block is coloured line by line by the
-language `languages` finds (`find(word)`, then `load(description)`, which returns `{ syntax = }`, as
-`@pencere/languages` does; by default that module, looked for when code is first drawn), a token in
-the look `syntax:look(name)` gives. A draw colours at most 20 000 bytes of code and draws the rest
-plain.
+- tables, their columns aligned as the delimiter row says (`\|` a pipe in a cell);
+- task lists;
+- strikethrough (`~` or `~~`);
+- and the links that need no brackets (`www.…`, `http://…`, `https://…`, `ftp://…`, an address of mail).
+
+HTML in the text, a block of it or a tag in a line, is kept as the text it is and drawn so, never run.
+
+A reference to a character is the character HTML names (every name of WHATWG's list, and numbers).
+
+### The tree of a text
+
+`markdown.parse(text)` is the tree of the text, read at once: `{ type = "document", children = { block, ... } }`.
+
+Every block says the lines of the text it came from: `line` (from 1, [Counting](counting.md)) and `lines`.
+
+A block is:
+
+- a `heading` (`level`, `children`);
+- a `paragraph` (`children`);
+- a `quote` (`children`);
+- a `list` (`ordered`, `start`, `tight`, `children`: its items);
+- an `item` (`checked`: nil, or true or false for a task; `children`);
+- `code` (`language`: the first word of its fence's info, or nil; `info`; `text`, its last line break left out);
+- `html` (`text`);
+- a `rule`;
+- or a `table` (`align`: a list of `"left"`, `"center"`, `"right"` or false; `head`: a list of cells; `rows`: a list of lists of cells; a cell is a list of inlines).
+
+An inline is:
+
+- `text` (`text`);
+- `emphasis`, `strong` or `strike` (`children`);
+- `code` (`text`);
+- a `link` (`href`, `title`, `children`);
+- an `image` (`src`, `title`, `alt`: its description as plain text);
+- `html` (`text`);
+- a `softbreak` or a `hardbreak`.
+
+An address is written as commonmark.js writes it: a byte an address may not hold, or one that is not printable ASCII, is `%XX`.
+
+### Drawing a document
+
+`markdown.render(document, options)` is the element of a document, a column of its blocks:
+
+- a paragraph is a text of many looks that wraps;
+- a heading is such a text, bold, in the size `headings` gives its level (`{ 22, 18, 16, 14.5, 13.5, 13 }`), with the role of a heading;
+- a list is a column of rows, a marker and the item's blocks (a task's marker a checkbox);
+- a quote is its blocks beside a bar;
+- a table is a grid with a column for each of its columns (at most 64);
+- a block of code is a box in the terminal's font;
+- HTML is a box of its text;
+- a rule is a line.
+
+The `options` of a draw are each optional:
+
+- `id`, the start of the names of its elements (`"markdown"`);
+- `colors`, roles of the theme:
+  - `text` (its words; the box's where nil);
+  - `quiet` (`"dim"`);
+  - `link` (`"accent"`);
+  - `code` (`"raised2"`);
+  - `head` (`"raised1"`);
+  - `quote` and `rule` (`"border"`);
+- `gap`, the points between blocks (12);
+- `size`, the size of the text the page sets, for what it works out before the layout (13);
+- `link`, `code`, `image` and `languages`, below;
+- and `limit`, the most elements it makes (10 000), what is past it left out and an "…" in its place.
+
+An option it has no such name for, or one of the wrong kind, fails the page at the line of the page's call.
+
+Two draws on one page have different ids.
+
+### Links, images and code
+
+A link is a part of a text named `<id>/link/<n>`.
+
+Given the page's events, `markdown.handle(event)` answers a click on a link (the left button pressed and let go on it) with what `link(href)` returns: by default `{ link = href }` for an `http` or `https` address, nil for any other. It answers nil to every other event.
+
+`markdown.href(id)` is the address of the link of that name, for a page that finds what was clicked its own way.
+
+An image is its description, as words of the text, since a page reaches only the pictures of its bundle. Where `image(src, alt, title)` is given, an image is the element it returns, and the text around it stands in a row that wraps.
+
+A block of code is the element `code(language, text)` returns. Where that is not given, the block is coloured line by line by the language `languages` finds:
+
+- `find(word)`, then `load(description)`, which returns `{ syntax = }`, as `@pencere/languages` does;
+- by default that module, looked for when code is first drawn.
+
+A token is coloured in the look that `syntax:look(name)` gives. A draw colours at most 20 000 bytes of code and draws the rest plain.
+
+### A document kept for a text that changes
 
 `markdown.document()` is a document kept for a text that changes.
 
-- `doc:set(text)` reads again what changed. It starts at the block before the first line that
-  changed, where that line may go on with that block (the line right after it, or, after blank lines,
-  a list or code indented; a table whose header was the last line of a paragraph is read with that
-  paragraph), and otherwise at the line after that block. It reads until, in the lines it did not
-  change, a block begins at a line where one began before; the blocks after that are the ones it had,
-  moved by the lines the change added or took. A change inside a fence, a list or a quote so reads
-  that block again, and no more; where a definition of a link changes, the blocks that looked up its
-  label have their inlines read again.
-- One call reads at most 20 000 bytes (a line and a block cost besides their bytes). The rest is read
-  by a timer of its own (`pencere.time.after(0, …)`), a call a frame, each asking for a frame, while
-  `doc:busy()`; `doc:work()` does a call's work at once. Until it is done, `doc:tree()` is the
-  document as far as it is read; `doc:reread()` is how many lines and blocks the last change was read
-  in, so far.
-- `doc:render(options)` is `markdown.render`'s element of it: a block that is as it was, drawn with
-  the same options, is the element it was. Code left plain for want of what a draw colours is
-  coloured in the draws after, and a frame is asked for each.
-- `doc:list(id, options)` is a box named `id` that scrolls and holds the blocks as a long list
-  (`box:list`, [Layout and scrolling](layout.md)), which the page sizes with the builders after it
-  (`doc:list("preview"):size_full()`). A block is a row named `<id>/block/<n>`, as tall as it is
-  likely to be until the layout says; `doc:settle()`, which the page's `settle` returns, reads how tall
-  the rows made came out, and is true where one changed. `doc:reveal(line)` scrolls the list to the
-  block that holds line `line` of the text, and again as the layout says where that block stands. A
-  document's id is `markdown<n>` unless the options say otherwise.
+- `doc:set(text)` reads again what changed.
+  - It starts at the block before the first line that changed, where that line may go on with that block (the line right after it, or, after blank lines, a list or code indented; a table whose header was the last line of a paragraph is read with that paragraph), and otherwise at the line after that block.
+  - It reads until, in the lines it did not change, a block begins at a line where one began before; the blocks after that are the ones it had, moved by the lines the change added or took.
+  - A change inside a fence, a list or a quote so reads that block again, and no more.
+  - Where a definition of a link changes, the blocks that looked up its label have their inlines read again.
+- One call reads at most 20 000 bytes (a line and a block cost besides their bytes).
+  - The rest is read by a timer of its own (`pencere.time.after(0, …)`), a call a frame, each asking for a frame, while `doc:busy()`.
+  - `doc:work()` does a call's work at once.
+  - Until it is done:
+    - `doc:tree()` is the document as far as it is read;
+    - `doc:reread()` is how many lines and blocks the last change was read in, so far.
+- `doc:render(options)` is `markdown.render`'s element of it:
+  - a block that is as it was, drawn with the same options, is the element it was;
+  - code left plain for want of what a draw colours is coloured in the draws after, and a frame is asked for each.
+- `doc:list(id, options)` is a box named `id` that scrolls and holds the blocks as a long list (`box:list`, [Layout and scrolling](layout.md)), which the page sizes with the builders after it (`doc:list("preview"):size_full()`).
+  - A block is a row named `<id>/block/<n>`, as tall as it is likely to be until the layout says.
+  - `doc:settle()`, which the page's `settle` returns, reads how tall the rows made came out, and is true where one changed.
+  - `doc:reveal(line)` scrolls the list to the block that holds line `line` of the text, and again as the layout says where that block stands.
+  - A document's id is `markdown<n>` unless the options say otherwise.
 
 ## `@pencere/terminal`
 
-Editors that look as the person's terminal draws its cursor and its selection
-(`local terminal = require("@pencere/terminal")`). The host says how it draws them
-(`pencere.terminal_look()`, [Layout and scrolling](layout.md)) and applies none of it; this is for a page that wants its
-editors to take it where the page says nothing.
+Editors that look as the person's terminal draws its cursor and its selection (`local terminal = require("@pencere/terminal")`).
 
-- `terminal.editor(options, look)` is a copy of `options` (an editor's options; none: `{}`) with each
-  field of `look` that the page did not write put in it, a field at a time: `caret` and `selection`
-  are merged, not replaced, so that a page that writes `caret = { shape = "bar" }` keeps its bar and
-  takes the rest of the terminal's. What the page wrote stays, `false` and `0` included. `look` is
-  `pencere.terminal_look()` where none is given (a page that shows the look itself, a settings view,
-  gives its own); a host that says nothing gives `options` back as they were. A table that is not
-  options or a look, or an `options.caret` that is not a table, is an error at the caller's line.
-- A page calls it from `render`, so that the options follow the setting: it asks again when the page
-  is told `terminal_look`. A page in Rust (`pencere_page`) asks `terminal_look()` and puts it in the
-  options with `TerminalLook::fill`: a field of the options at the editor's default is taken for one the page
-  said nothing of (a Rust page cannot tell a default it wrote from one it left, as a Lua page's table can).
+The host says how it draws them (`pencere.terminal_look()`, [Layout and scrolling](layout.md)) and applies none of it. This is for a page that wants its editors to take it where the page says nothing.
+
+- `terminal.editor(options, look)` is a copy of `options` (an editor's options; none: `{}`) with each field of `look` that the page did not write put in it, a field at a time.
+  - `caret` and `selection` are merged, not replaced, so that a page that writes `caret = { shape = "bar" }` keeps its bar and takes the rest of the terminal's.
+  - What the page wrote stays, `false` and `0` included.
+  - `look` is `pencere.terminal_look()` where none is given (a page that shows the look itself, a settings view, gives its own).
+  - A host that says nothing gives `options` back as they were.
+  - A table that is not options or a look, or an `options.caret` that is not a table, is an error at the caller's line.
+- A page calls it from `render`, so that the options follow the setting: it asks again when the page is told `terminal_look`.
+- A page in Rust (`pencere_page`) asks `terminal_look()` and puts it in the options with `TerminalLook::fill`.
+  - A field of the options at the editor's default is taken for one the page said nothing of (a Rust page cannot tell a default it wrote from one it left, as a Lua page's table can).
 
 ## `@pencere/ui`
 
-The components of a page (`local ui = require("@pencere/ui")`), written on the page API alone: a
-component is a method of a context that the page makes once (`local u = ui.new()`) and calls in
-`render` with a name and its props, and what the person does with it comes back from `handle` as
-**actions**. The context sees to what the hand did (`pencere.Ui`, the keyboard's place, the layers in
-front); the page keeps what it would miss if it were lost (`props.state`, a table the component changes in
-place, or, where none is given, one the context keeps by the name for as long as the component is drawn).
+The components of a page (`local ui = require("@pencere/ui")`), written on the page API alone.
 
-- `u:begin(size, now, reduce_motion)` and `u:finish(root)` (`root`, `animating`, `wake_at`: what `render`
-  returns) bracket a render; `u:settle()` is `settle`'s; `u:handle(event)` is the reply, the actions
-  (`{ from = name, kind = …, … }`) and whether a component took the event, and the page does the
-  rest of the event where none did.
-- Components are drawn in the theme's roles and a few sizes (`ui.new({ theme =, density = "regular" |
-"compact" })`), never in values; the host keeps their words readable. A component inside another
-  says its action to the one around it first, which may take it for its own; one it does not take is
-  the page's.
-- A `popover` stands by an element (`anchor = "name"`), by the caret of an editor
-  (`anchor = pencere.caret_of(editor)`) or by a range of its text (`anchor = pencere.range_of(editor,
-name)`), and says `{ kind = "dismiss" }` at what `dismiss` lists: `"escape"`, `"away"` (a press outside it
-  that is not on its anchor, a click into a field outside it among them) and, by an editor, `"edit"`, `"caret"` (the selection moved), `"scroll"` (the
-  lines in view changed) and `"leave"`; by an editor all of them, by an element the first two. `"leave"`
-  waits `hide_delay` (0.3 seconds): the card stays if the pointer came onto it or rested on another word
-  in that time (the page forwards the editor's `hover` events and its `wake` to `u:handle`, as it
-  forwards every event). `focus = true` writes the commands `up`, `down`, `page_up` and `page_down`
-  (while it is open) which scroll the card's body, and the keyboard stays in the editor. A card of a
-  range that is not in the room is not shown. `step` (40 points) and `page` (0.9 of the card) say how far
-  the keys of a card that has the focus scroll it, `max_height` (320 points) how tall it grows. A card
-  does not close of itself when the pointer was on it as `hide_delay` ended and goes off it later: it goes at
-  what else `dismiss` lists.
-- `u:editor_menu(id, { editor =, at =, read_only =, before =, after = })` is the menu of an editor, the same
-  in every editor of every page: the reply that asks the host for Cut, Copy, Paste, Select All, Toggle Line
-  Comment and Select All Occurrences, each with the keys the editor has for it now (`layout.keymap`, as the
-  page changed them), the page's own lines before and after (`before`, `after`, `"-"` for a rule). The page
-  opens it from the `press` of a right button in an editor written with `gestures = { ["right+press"] =
-"context" }` (`at` is the press's `x` and `y`), or, without `at`, under the caret for the keyboard
-  (`ui.EDITOR_MENU_COMMAND`, Shift F10, is the command of that). Copy, Cut and the rest are not greyed for an
-  empty selection, as the keys are not (Copy and Cut take the caret's line); `read_only` greys Cut, Paste and
-  Toggle Line Comment. Paste is the host's line (`paste = editor`): the page neither reads the pasteboard nor
-  asks the editor to paste, and the line is on only in the menu a right press opens: in the one Shift F10
-  asks for it is greyed. `u:editor_menu_pick(act)` is the reply that asks the editor for the line picked
-  (nil for the page's lines and Paste).
-- `button`, `icon_button`, `toggle`, `badge`, `kbd`, `rule`, `banner`; `input`, `segments`, `tabs`,
-  `picker`; `modal`, `dialog`, `toasts`, `menu` (the host's), `editor_menu`, `popover`; `list`, `palette`,
-  `completions`, `tree`, `grid`; `split`, `status`; `find_bar`. `ui.commands(list)` writes the page's commands once for the host, the
-  palette and the help, and holds them while a modal is in front.
-- `u:picker(id, { anchor =, items =, multi =, state =, label = })` is a card by the control that
-  opened it (`anchor`, an element's name) with a field that narrows its items and the items under it,
-  to choose one or, with `multi`, several, as a field of labels or the values of a filter does: the
-  host's menu closes at every pick, the picker stays. Its `items` are
-  `{ key, title, hint, icon, on, enabled }`, `on` what is chosen now, which the page holds. A row of
-  one is `pick { item }` (and the page stops drawing it), a row of several `toggle { item, on }` with
-  `on` what it is to become, each a click or enter; the keyboard stays in the field, enter selects what was typed, and escape or a press
-  outside it that is not on its anchor is `dismiss`. `search = false` leaves the field out (the space
-  bar chooses as enter does); `side`, `gap`, `align`, `width`, `rows`, `height`, `inset`, `hint` and
-  `empty` place, size and word it.
-- `u:menu(id, entries, { near =, at = })` is the reply that asks the host for a menu at an element
-  (below its left edge) or at a place (`at = { x =, y = }`): where `near` is not laid out it opens at
-  `at`, and where there is no `at` either there is no menu (nil); with neither given, it is an error. A
-  press of the right button on a tab, a row, a cell or a line of a tree is the action `{ kind = "context",
-… at = { x =, y = } }`, which the page answers with `u:menu`; what is picked in a menu comes back as
-  `{ kind = "menu", entry = key }`. `list` and `tree` take `key_map = { j = "down" }` for keys of their
-  own, and a list with `multi` says `mark { marked }`. A `split`'s edge and a `grid`'s column say
-  `resize { size, final }` (`{ column, width, final }`): `final = false` while it is dragged, `true` when
-  it is let go after it moved and at each step of the keys; a press that does not move it says nothing.
-  A `grid`'s row is read by the words of its cells (its number first, no column's title; "Row N, loading"
-  where none is read yet), and each cell apart from it in its column (`cell`, with the controls in it
-  under it), so that a screen reader goes from cell to cell; `row_label(row)` gives the words to
-  say it by where the page has better. A `grid`'s edge is a `slider` said "<title> column width", with its
-  width in points, and a `tree`'s arrow a button said "Expand <name>" or "Collapse <name>".
-- An `icon` that a component or one of its items takes is an element the page made, a path of the
-  page's own bundle (`"icons/save.svg"`: an SVG or a PNG, tinted in the colour the component draws it
-  in), or the name of one of the library's glyphs: `check`, `chevron_down`, `chevron_left`,
-  `chevron_right`, `chevron_up`, `close`, `dash`, `dot`, `info`, `plus`, `warning`.
-- An icon-only button and a field must say what they are in words (`label`), or the page fails at the
-  line that drew them. A layer takes the keyboard when it opens and gives it back when it closes.
+A component is a method of a context that the page makes once (`local u = ui.new()`) and calls in `render` with a name and its props, and what the person does with it comes back from `handle` as **actions**.
+
+- The context sees to what the hand did (`pencere.Ui`, the keyboard's place, the layers in front).
+- The page keeps what it would miss if it were lost (`props.state`, a table the component changes in place, or, where none is given, one the context keeps by the name for as long as the component is drawn).
+
+### A frame and its events
+
+- `u:begin(size, now, reduce_motion)` and `u:finish(root)` (`root`, `animating`, `wake_at`: what `render` returns) bracket a render.
+- `u:settle()` is `settle`'s.
+- `u:handle(event)` is the reply, the actions (`{ from = name, kind = …, … }`) and whether a component took the event, and the page does the rest of the event where none did.
+
+### Looks and nesting
+
+- Components are drawn in the theme's roles and a few sizes (`ui.new({ theme =, density = "regular" | "compact" })`), never in values; the host keeps their words readable.
+- A component inside another says its action to the one around it first, which may take it for its own; one it does not take is the page's.
+
+### A popover
+
+A `popover` stands by an element (`anchor = "name"`), by the caret of an editor (`anchor = pencere.caret_of(editor)`) or by a range of its text (`anchor = pencere.range_of(editor, name)`).
+
+The popover says `{ kind = "dismiss" }` at what `dismiss` lists:
+
+- `"escape"`;
+- `"away"` (a press outside it that is not on its anchor, a click into a field outside it among them);
+- and, by an editor, `"edit"`, `"caret"` (the selection moved), `"scroll"` (the lines in view changed) and `"leave"`.
+
+By an editor all of them are listed, by an element the first two.
+
+`"leave"` waits `hide_delay` (0.3 seconds): the card stays if the pointer came onto it or rested on another word in that time (the page forwards the editor's `hover` events and its `wake` to `u:handle`, as it forwards every event).
+
+`focus = true` writes the commands `up`, `down`, `page_up` and `page_down` (while it is open) which scroll the card's body. The keyboard stays in the editor.
+
+A card of a range that is not in the room is not shown.
+
+`step` (40 points) and `page` (0.9 of the card) say how far the keys of a card that has the focus scroll it. `max_height` (320 points) says how tall it grows.
+
+A card does not close of itself when the pointer was on it as `hide_delay` ended and goes off it later: it goes at what else `dismiss` lists.
+
+### The menu of an editor
+
+`u:editor_menu(id, { editor =, at =, read_only =, before =, after = })` is the menu of an editor, the same in every editor of every page: the reply that asks the host for:
+
+- Cut, Copy, Paste, Select All, Toggle Line Comment and Select All Occurrences, each with the keys the editor has for it now (`layout.keymap`, as the page changed them);
+- the page's own lines before and after (`before`, `after`, `"-"` for a rule).
+
+The page opens the menu:
+
+- from the `press` of a right button in an editor written with `gestures = { ["right+press"] = "context" }` (`at` is the press's `x` and `y`);
+- or, without `at`, under the caret for the keyboard (`ui.EDITOR_MENU_COMMAND`, Shift F10, is the command of that).
+
+Copy, Cut and the rest are not greyed for an empty selection, as the keys are not (Copy and Cut take the caret's line). `read_only` greys Cut, Paste and Toggle Line Comment.
+
+Paste is the host's line (`paste = editor`):
+
+- the page neither reads the pasteboard nor asks the editor to paste;
+- and the line is on only in the menu a right press opens: in the one Shift F10 asks for it is greyed.
+
+`u:editor_menu_pick(act)` is the reply that asks the editor for the line picked (nil for the page's lines and Paste).
+
+### The components
+
+- `button`, `icon_button`, `toggle`, `badge`, `kbd`, `rule`, `banner`; `input`, `segments`, `tabs`, `picker`; `modal`, `dialog`, `toasts`, `menu` (the host's), `editor_menu`, `popover`; `list`, `palette`, `completions`, `tree`, `grid`; `split`, `status`; `find_bar`. `ui.commands(list)` writes the page's commands once for the host, the palette and the help, and holds them while a modal is in front.
+
+### A picker
+
+`u:picker(id, { anchor =, items =, multi =, state =, label = })` is a card by the control that opened it (`anchor`, an element's name) with a field that narrows its items and the items under it. It is there to choose one or, with `multi`, several, as a field of labels or the values of a filter does. The host's menu closes at every pick; the picker stays.
+
+Its `items` are `{ key, title, hint, icon, on, enabled }`, `on` what is chosen now, which the page holds.
+
+A row of one is `pick { item }` (and the page stops drawing it), a row of several `toggle { item, on }` with `on` what it is to become, each a click or enter.
+
+The keyboard stays in the field, enter selects what was typed, and escape or a press outside it that is not on its anchor is `dismiss`.
+
+`search = false` leaves the field out (the space bar chooses as enter does). `side`, `gap`, `align`, `width`, `rows`, `height`, `inset`, `hint` and `empty` place, size and word the picker.
+
+### A menu from the page
+
+`u:menu(id, entries, { near =, at = })` is the reply that asks the host for a menu at an element (below its left edge) or at a place (`at = { x =, y = }`):
+
+- where `near` is not laid out it opens at `at`;
+- and where there is no `at` either there is no menu (nil);
+- with neither given, it is an error.
+
+A press of the right button on a tab, a row, a cell or a line of a tree is the action `{ kind = "context", … at = { x =, y = } }`, which the page answers with `u:menu`. What is picked in a menu comes back as `{ kind = "menu", entry = key }`.
+
+### Keys, marks and sizes
+
+`list` and `tree` take `key_map = { j = "down" }` for keys of their own. A list with `multi` says `mark { marked }`.
+
+A `split`'s edge and a `grid`'s column say `resize { size, final }` (`{ column, width, final }`):
+
+- `final = false` while it is dragged;
+- and `true` when it is let go after it moved and at each step of the keys.
+
+A press that does not move one of them says nothing.
+
+### A grid and a tree to a screen reader
+
+- A `grid`'s row is read by the words of its cells (its number first, no column's title; "Row N, loading" where none is read yet). Each cell is also read apart from the row, in its column (`cell`, with the controls in it under it), so that a screen reader goes from cell to cell.
+- `row_label(row)` gives the words to say the row by where the page has better.
+- A `grid`'s edge is a `slider` said "<title> column width", with its width in points.
+- A `tree`'s arrow is a button said "Expand <name>" or "Collapse <name>".
+
+### Icons and labels
+
+- An `icon` that a component or one of its items takes is an element the page made, a path of the page's own bundle (`"icons/save.svg"`: an SVG or a PNG, tinted in the colour the component draws it in), or the name of one of the library's glyphs: `check`, `chevron_down`, `chevron_left`, `chevron_right`, `chevron_up`, `close`, `dash`, `dot`, `info`, `plus`, `warning`.
+- An icon-only button and a field must say what they are in words (`label`), or the page fails at the line that drew them.
+- A layer takes the keyboard when it opens and gives it back when it closes.
 
 ## `@pencere/charts`
 
-Charts drawn on a canvas, made in two halves: what a chart is (its model) and how it is painted (a
-painter) (`local charts = require("@pencere/charts")`). The kit paints smooth lines and fills; a page,
-or a kit of its own, may give another painter and keep the chart's scale, model and pointer as they are.
+Charts drawn on a canvas, made in two halves: what a chart is (its model) and how it is painted (a painter) (`local charts = require("@pencere/charts")`). The kit paints smooth lines and fills; a page, or a kit of its own, may give another painter and keep the chart's scale, model and pointer as they are.
 
-- `charts.area(spec)` is a box `spec.w` by `spec.h` points (a chart has no size of its own) with a
-  canvas in it: a line for each of `spec.series` (`{ values =, role = }`, the values oldest first, the
-  newest at the right edge; a line shorter than `count` starts further right, and a series of fewer
-  than two values draws nothing) and the area under it, between 0 and `ceiling`. `count` is how many
-  samples the box is across (the longest series', where not given; 2 to 4000, the steps a path takes),
-  `ceiling` the top of the scale (the largest value shown where not given, and 1 where it, or every
-  value, is 0 or less), `rules` the
-  fractions of the height a quiet rule is drawn at (`{ 0.5 }`), `marker` the sample under the pointer,
-  counted back from the newest (none outside the samples), `painter` how the chart is drawn
-  (`charts.smooth`), and `label` what a screen reader says of it. A chart with an `id` keeps its
-  drawing while what it shows is the same: a pointer that moves paints the marker again and nothing
-  else, and a new sample draws it again. A drawing is kept for the frame it was drawn in and the one
-  after, a frame being seen to begin when a chart it drew is asked for again (two charts on a page
-  have two ids), and for 64 charts a frame at most: one the page stops drawing is let go once the page draws
-  its charts again, and the last a page drew are kept while it draws none.
-- `charts.model(spec)` is the model a painter is given, in the points of the box:
-  `{ w =, h =, rules = { y, … }, series = { { role =, points = { { x, y }, … } } }, marker = { x =, points = { { x, y, role }, … } } }`,
-  x rising, a pixel at the top and the foot left clear, a rule's `y` on the middle of a pixel, and no
-  `marker` where the chart has none.
-- A painter is `{ area = function(model) -> paths, marker = function(model) -> paths }`: `area` is
-  given the model with no marker, `marker` the model with one. `charts.painter(options)` makes the
-  kit's, each look an option: `line` (how wide a line is, 1.5 points), `fill` (how opaque the area
-  under a line is, in the line's colour, 0.2), `ink` (the colour of the rules and the marker,
-  `"foreground"`), `rule` (0.07) and `marker` (0.45), how opaque they are, and `dot` (the side of the
-  marker's dot on each line, 4 points). `charts.smooth` is `charts.painter()`. A page makes a painter
-  once, not in `render`: a chart's drawing is kept for the painter that drew it.
-- `charts.back_at({ w =, count = }, x)` is the sample under the point `x` of the box (0 at its left
-  edge), counted back from the newest as `marker` takes it, or nil outside the box. Where the pointer
-  is, is the page's to tell (its `move` events, [Events](events.md#what-a-page-is-told), and `pencere.layout.bounds`).
-- A page that may run where the kit has no such module asks for it with
-  `pcall(require, "@pencere/charts")`, which is false there.
+### An area chart
+
+`charts.area(spec)` is a box `spec.w` by `spec.h` points (a chart has no size of its own) with a canvas in it: a line for each of `spec.series`:
+
+- a series is `{ values =, role = }`, the values oldest first, the newest at the right edge;
+- a line shorter than `count` starts further right;
+- and a series of fewer than two values draws nothing.
+
+Each line has the area under it, between 0 and `ceiling`.
+
+The other fields:
+
+- `count` is how many samples the box is across (the longest series', where not given; 2 to 4000, the steps a path takes);
+- `ceiling` is the top of the scale (the largest value shown where not given, and 1 where it, or every value, is 0 or less);
+- `rules` are the fractions of the height a quiet rule is drawn at (`{ 0.5 }`);
+- `marker` is the sample under the pointer, counted back from the newest (none outside the samples);
+- `painter` is how the chart is drawn (`charts.smooth`);
+- and `label` is what a screen reader says of it.
+
+### A kept drawing
+
+A chart with an `id` keeps its drawing while what it shows is the same:
+
+- a pointer that moves paints the marker again and nothing else;
+- and a new sample draws it again.
+
+A drawing is kept:
+
+- for the frame it was drawn in and the one after, a frame being seen to begin when a chart it drew is asked for again (two charts on a page have two ids);
+- and for 64 charts a frame at most.
+
+One the page stops drawing is let go once the page draws its charts again, and the last a page drew are kept while it draws none.
+
+### The model
+
+`charts.model(spec)` is the model a painter is given, in the points of the box: `{ w =, h =, rules = { y, … }, series = { { role =, points = { { x, y }, … } } }, marker = { x =, points = { { x, y, role }, … } } }`:
+
+- x rising;
+- a pixel at the top and the foot left clear;
+- a rule's `y` on the middle of a pixel;
+- and no `marker` where the chart has none.
+
+### A painter
+
+A painter is `{ area = function(model) -> paths, marker = function(model) -> paths }`: `area` is given the model with no marker, `marker` the model with one.
+
+`charts.painter(options)` makes the kit's, each look an option:
+
+- `line` (how wide a line is, 1.5 points);
+- `fill` (how opaque the area under a line is, in the line's colour, 0.2);
+- `ink` (the colour of the rules and the marker, `"foreground"`);
+- `rule` (0.07) and `marker` (0.45), how opaque they are;
+- and `dot` (the side of the marker's dot on each line, 4 points).
+
+`charts.smooth` is `charts.painter()`.
+
+A page makes a painter once, not in `render`: a chart's drawing is kept for the painter that drew it.
+
+### The sample under the pointer
+
+`charts.back_at({ w =, count = }, x)` is the sample under the point `x` of the box (0 at its left edge), counted back from the newest as `marker` takes it, or nil outside the box.
+
+Where the pointer is, is the page's to tell (its `move` events, [Events](events.md#what-a-page-is-told), and `pencere.layout.bounds`).
+
+### Charts and older kits
+
+A page that may run where the kit has no such module asks for it with `pcall(require, "@pencere/charts")`, which is false there.
