@@ -61,7 +61,7 @@ A role the kit does not know is left out with a warning (`warn`), so that a page
 
 [^none]: A scrim that answers the pointer is one, and so is a card that takes the click.
 
-### The roles
+### The role names
 
 The roles are those of the web's accessibility vocabulary, by its names:
 
