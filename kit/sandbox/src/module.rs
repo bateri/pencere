@@ -293,8 +293,10 @@ impl Module {
     /// an event that does is told with [`Module::event`]. Returns at once.
     pub fn party(&self, events: Vec<Event>) {
         debug_assert!(
-            events.iter().all(|event| !matches!(event, Event::Input(_))),
-            "what the person did is told alone: {events:?}"
+            events
+                .iter()
+                .all(|event| !matches!(event, Event::Input(_) | Event::LinkDropped { .. })),
+            "what the person did, and an address dropped (which `event` sifts), is told alone: {events:?}"
         );
         if !events.is_empty() {
             self.post(Command::Party(events));

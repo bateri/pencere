@@ -101,9 +101,10 @@ struct Written<'a> {
     folder: Option<&'a str>,
 }
 
-/// A path as a `take` carries it: something, not too long, and no control character in it.
+/// A path as a `take` carries it: absolute (a program does not read it against a folder of its
+/// own), not too long, and no control character in it.
 fn path_ok(path: &str) -> bool {
-    !path.is_empty() && path.len() <= MAX_PATH && !path.chars().any(char::is_control)
+    path.starts_with('/') && path.len() <= MAX_PATH && !path.chars().any(char::is_control)
 }
 
 /// A position as a `take` carries it: a whole number from 1.
@@ -124,8 +125,8 @@ impl Take {
     }
 
     /// Whether it is something the wire carries: an address a view may ask to open
-    /// ([`link::is_openable`]), a path that is not empty, within [`MAX_PATH`] and without a
-    /// control character, and a column only where there is a line.
+    /// ([`link::is_openable`]), an absolute path within [`MAX_PATH`] and without a control
+    /// character, and a column only where there is a line.
     #[must_use]
     pub fn is_valid(&self) -> bool {
         match self {
@@ -308,6 +309,8 @@ mod tests {
             r#"{"file":"/a","line":1.5}"#,
             r#"{"file":"/a","line":4294967296}"#,
             r#"{"file":""}"#,
+            r#"{"file":"notes.txt"}"#,
+            r#"{"folder":"../src"}"#,
             r#"{"file":"/a\nb"}"#,
             r#"{"folder":"/a\u007f"}"#,
         ] {

@@ -36,7 +36,8 @@ export function takeKind(take: Take): TakeKind {
 function pathOk(path: unknown): path is string {
   return (
     typeof path === "string" &&
-    path.length > 0 &&
+    // Absolute: a program does not read it against a folder of its own.
+    path.startsWith("/") &&
     new TextEncoder().encode(path).length <= MAX_PATH &&
     // C0, DEL and C1.
     !/\p{Cc}/u.test(path)

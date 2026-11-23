@@ -1613,7 +1613,10 @@ impl Page {
 impl State {
     /// Tells the module what the person did, or what came of it: the one way an event goes to it.
     fn event(&mut self, event: Event) {
-        if let Some(told) = &mut self.told {
+        // A dropped address the module would not tell the page of is not in the log either.
+        let reaches = !matches!(&event, Event::LinkDropped { url, .. }
+            if !pencere_wire::link::is_openable(url));
+        if reaches && let Some(told) = &mut self.told {
             told.push(event.clone());
         }
         self.module.event(event);
