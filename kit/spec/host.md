@@ -137,12 +137,9 @@ A host tells its system's screen reader what the page is:
 
 ### Gradients and figures
 
-A host draws:
+A host draws a box's fill from one colour to another as a style sheet's `linear-gradient` of that angle draws it, over its plain fill and under its border.
 
-- a box's fill from one colour to another as a style sheet's `linear-gradient` of that angle draws it, over its plain fill and under its border;
-- and a canvas's paths as `pencere_sandbox`'s `draw_figure` draws them (the one rasteriser, so that a figure is the same on every host: their shadows, gradients, blends, dashes and transforms as well).
-
-Both are drawn in the colours of its theme, drawing again only what `figure_key` says it does not hold.
+A host draws a canvas's paths as `pencere_sandbox`'s `draw_figure` draws them (the one rasteriser, so that a figure is the same on every host: their shadows, gradients, blends, dashes and transforms as well), in the colours of its theme, drawing again only what `figure_key` says it does not hold.
 
 ### The list of commands
 

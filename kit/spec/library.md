@@ -441,12 +441,14 @@ Given the page's events, `markdown.handle(event)` answers a click on a link (the
 
 An image is its description, as words of the text, since a page reaches only the pictures of its bundle. Where `image(src, alt, title)` is given, an image is the element it returns, and the text around it stands in a row that wraps.
 
-A block of code is the element `code(language, text)` returns. Where that is not given, the block is coloured line by line by the language `languages` finds:
+A block of code is the element `code(language, text)` returns. Where that is not given, the block is coloured line by line:
 
-- `find(word)`, then `load(description)`, which returns `{ syntax = }`, as `@pencere/languages` does;
-- by default that module, looked for when code is first drawn.
+- by the language `languages` finds:
+  - `find(word)`, then `load(description)`, which returns `{ syntax = }`, as `@pencere/languages` does;
+  - by default that module, looked for when code is first drawn;
+- and a token in the look that `syntax:look(name)` gives.
 
-A token is coloured in the look that `syntax:look(name)` gives. A draw colours at most 20 000 bytes of code and draws the rest plain.
+A draw colours at most 20 000 bytes of code and draws the rest plain.
 
 ### A document kept for a text that changes
 
@@ -522,7 +524,7 @@ By an editor all of them are listed, by an element the first two.
 
 `"leave"` waits `hide_delay` (0.3 seconds): the card stays if the pointer came onto it or rested on another word in that time (the page forwards the editor's `hover` events and its `wake` to `u:handle`, as it forwards every event).
 
-`focus = true` writes the commands `up`, `down`, `page_up` and `page_down` (while it is open) which scroll the card's body. The keyboard stays in the editor.
+`focus = true` writes the commands `up`, `down`, `page_up` and `page_down` (while it is open) which scroll the card's body, and the keyboard stays in the editor.
 
 A card of a range that is not in the room is not shown.
 
