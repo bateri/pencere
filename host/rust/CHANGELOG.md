@@ -9,6 +9,8 @@ under this name) are recorded here. The format follows
 
 ### Added
 
+- **`apps::Opens::Url`**: an app says in `opens` that it takes an `http` or `https` address (specification `apps.md` 4.7).
+- **`Session::hand_over` and `Session::takes`** (specification §10.9): the host hands the program of the view that runs an address, a file or a folder as a `take`, only of a kind the program said it takes in its `open` (`takes`, also in `ViewStart::takes`). `take` is re-exported.
 - **A host can prove where its own route to the program's machine ends (specification §4.10)**:
   `Session::offer_probe`, `Session::probe` and the actions `ProbeConnect` and `ProbeFailed` ask the
   program for a listener on its loopback and say where to connect and what to read back.

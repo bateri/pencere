@@ -65,6 +65,8 @@ import type {
 } from "./messages.js";
 import { synchronousOutput } from "./output.js";
 import { ViewError, checkReserved, createRouter } from "./router.js";
+import { parseTake } from "./take.js";
+import type { TakeKind } from "./take.js";
 import type {
   CallContext,
   CallHandler,
@@ -127,6 +129,14 @@ export interface ServeOptions {
   title?: string;
   /** Icons for the program (§7.3). */
   icons?: readonly Icon[];
+  /**
+   * What the program takes while it runs, besides what it is started with (§10.9): the kinds of
+   * thing the terminal may hand it, `url`, `file` and `folder`. The `open` says so, and the view
+   * subscribes to the topic `pencere.take`: each thing the terminal hands the program is pushed to
+   * it at once, as an object with a `url`, a `file` (and a `line` and a `column`) or a `folder`.
+   * Without this a program takes nothing, and the topic is answered `not-found`.
+   */
+  takes?: readonly TakeKind[];
   /** The calls the view may make, by method. A method that is not here is answered `not-found`. */
   calls?: Readonly<Record<string, CallHandler>>;
   /** The subscriptions the view may make, by topic. A topic that is not here is answered `not-found`. */
@@ -603,6 +613,7 @@ class TerminalSession implements ViewTarget {
         ...(options.calls === undefined ? {} : { calls: options.calls }),
         ...(options.topics === undefined ? {} : { topics: options.topics }),
         ...(options.log === undefined ? {} : { log: options.log }),
+        ...(options.takes === undefined ? {} : { takes: options.takes }),
       },
       (payload) => this.#tell(payload),
     );
@@ -742,6 +753,7 @@ class TerminalSession implements ViewTarget {
         program: this.#options.program,
         title: this.#options.title,
         icons: this.#options.icons,
+        takes: this.#options.takes,
         access: spec.access,
         bundle: bundle.manifest,
       }),
@@ -782,6 +794,9 @@ class TerminalSession implements ViewTarget {
         return;
       case "closed":
         this.#onClosed(message);
+        return;
+      case "take":
+        if (this.#phase === "showing" && this.#live) this.#onTake(message);
         return;
       case "msg":
         this.#onMsg(message);
@@ -876,6 +891,15 @@ class TerminalSession implements ViewTarget {
   }
 
   // ---- what the view says (§9) ----------------------------------------------
+
+  /**
+   * A `take` of the terminal (§10.9): something to open, for a program that said it takes that kind
+   * of thing. One that is not as the specification says, or of a kind the program did not name, is ignored.
+   */
+  #onTake(message: Message): void {
+    const take = parseTake(message.payload);
+    if (take !== undefined) this.#router.take(take);
+  }
 
   #onMsg(message: Message): void {
     if (this.#phase !== "showing" || !this.#live) return;

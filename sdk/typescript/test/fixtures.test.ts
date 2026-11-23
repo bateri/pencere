@@ -43,6 +43,7 @@ import {
   unstagePayload,
 } from "../src/messages.js";
 import type { OpenFields, ViewOffer } from "../src/messages.js";
+import { parseTake } from "../src/take.js";
 import { fixture, manifest, payloadOf } from "./support.js";
 import type { DecodeEntry, SessionEntry } from "./support.js";
 
@@ -391,6 +392,10 @@ describe("every session of the manifest", () => {
               case "probe":
                 // What the host asks for to prove its own route (§4.10).
                 expect(parseProbe(payload), label).toBeDefined();
+                break;
+              case "take":
+                // What the host hands a program that runs for it (§10.9).
+                expect(parseTake(payload), label).toBeDefined();
                 break;
               case "staged":
                 expect(parseStaged(payload), label).toBeDefined();

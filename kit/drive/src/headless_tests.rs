@@ -1878,6 +1878,9 @@ const FILES_PAGE: &str = r##"
             elseif e.type == "files_left" then
                 told = "left"
                 return true
+            elseif e.type == "link_dropped" then
+                told = "link " .. e.url .. " " .. tostring(e.x > 0 and e.y > 0)
+                return true
             elseif e.type == "saving" then
                 told = "saving " .. tostring(e.name)
                 return true
@@ -1923,6 +1926,32 @@ fn a_file_the_person_gives_is_drawn_by_its_handle_and_an_attached_one_by_its_dig
     // Let go of: forgotten, and drawn no more.
     page.detach(&name)?;
     assert_eq!(pictures(&page), 1);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn an_address_dropped_on_the_page_reaches_it_with_where_it_fell() -> Result<(), Error> {
+    let mut page = Headless::script(FILES_PAGE).size(300.0, 200.0).open()?;
+    page.drop_link("drop", "https://example.com/a?b=c")?;
+    assert!(
+        page.says("link https://example.com/a?b=c true"),
+        "{:?}",
+        page.words()
+    );
+    // What a page may not open as a link is not told it: not a file, not a script, not a line with a
+    // space or a break in it.
+    for bad in [
+        "file:///etc/passwd",
+        "javascript:alert(1)",
+        "https://example.com/a b",
+        "https://example.com/\n",
+    ] {
+        page.drop_link("drop", bad)?;
+        assert!(!page.says("link file"), "{bad}");
+        assert!(!page.says("link javascript"), "{bad}");
+        assert!(page.says("link https://example.com/a?b=c true"), "{bad}");
+    }
     Ok(())
 }
 

@@ -48,12 +48,14 @@ struct Options {
     opens: Vec<Opens>,
 }
 
-/// The kinds of path `--opens` names: `file`, `folder` or both, separated by commas, each once.
+/// The kinds `--opens` names: `file`, `folder` and `url`, separated by commas, each once.
 fn opens_of(text: &str) -> Result<Vec<Opens>, String> {
     let mut kinds = Vec::new();
     for word in text.split(',') {
         let kind = Opens::parse(word).ok_or_else(|| {
-            format!("{word:?} is not what a program opens: file, folder, or both with a comma")
+            format!(
+                "{word:?} is not what a program opens: file, folder and url, separated by commas"
+            )
         })?;
         if !kinds.contains(&kind) {
             kinds.push(kind);
@@ -114,10 +116,12 @@ pub fn command(args: &[String]) -> ExitCode {
                 Ok(v) => describe_with = Some(PathBuf::from(v)),
                 Err(why) => return crate::usage(why),
             },
-            "--opens" => match value("file, folder or both").and_then(|v| opens_of(&v)) {
-                Ok(v) => opens = v,
-                Err(why) => return crate::usage(why),
-            },
+            "--opens" => {
+                match value("file, folder, url or several with commas").and_then(|v| opens_of(&v)) {
+                    Ok(v) => opens = v,
+                    Err(why) => return crate::usage(why),
+                }
+            }
             other if other.starts_with('-') => {
                 return crate::usage(format!("{other:?} is not an option of `dist`"));
             }

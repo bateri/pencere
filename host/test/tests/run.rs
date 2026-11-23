@@ -855,6 +855,44 @@ end)
 
 #[test]
 #[ignore = "heavy: opens pages, which compiles the interpreter"]
+fn a_test_drops_an_address_on_an_element_and_the_page_is_told_where_it_fell() {
+    let app = App::template("links");
+    app.write(
+        "src/view/page.lua",
+        r#"local heard = "nothing"
+return {
+	render = function()
+		return pencere.div():size_full():row()
+			:child(pencere.div():id("target"):size(100, 50))
+			:child(pencere.text(heard))
+	end,
+	handle = function(e)
+		if e.type == "link_dropped" then
+			heard = "link " .. e.url
+		end
+		return true
+	end,
+}
+"#,
+    );
+    app.write(
+        "test/page_test.lua",
+        r#"local test = require("pencere.test")
+local expect = test.expect
+
+test("an address dropped on an element is the page's link_dropped", function()
+	local page = test.open()
+	page:get_by_id("target"):drop_link("https://example.com/a?b=c")
+	expect(table.concat(page:words(), " ")):to_contain("link https://example.com/a?b=c")
+end)
+"#,
+    );
+    let (code, text) = tap(&app, &[]);
+    assert_eq!(code, 0, "{text}");
+}
+
+#[test]
+#[ignore = "heavy: opens pages, which compiles the interpreter"]
 fn a_test_drags_an_element_that_carries_out_of_the_view_and_ends_the_systems_drag() {
     let app = App::template("trackpad");
     app.write(

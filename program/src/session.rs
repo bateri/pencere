@@ -22,6 +22,7 @@ use pencere_wire::base64;
 use pencere_wire::bundle::Digest;
 use pencere_wire::frame::Message as Frame;
 
+use crate::Take;
 use crate::bundle::{Bundle, BundleError};
 use crate::control::{self, CloseResult, HandOffResult, OnReturn, ReopenResult, Request};
 use crate::exchange::{Exchange, Toward, WORK_ROOM, WRITE_ROOM};
@@ -828,6 +829,7 @@ impl Session<'_> {
                 "need" => self.on_need(message),
                 "closed" => self.on_closed(message),
                 "msg" => self.on_msg(message),
+                "take" => self.on_take(message),
                 "data" => self.files.on_data(message, &mut self.writer),
                 "wrote" => self.files.on_wrote(message),
                 "staged" => self.files.on_transfer(message, false, &mut self.writer),
@@ -988,6 +990,7 @@ impl Session<'_> {
                 program: options.program.as_deref(),
                 title: options.title.as_deref(),
                 icons: &options.icons,
+                takes: &options.takes,
                 access: spec.access.as_ref(),
             },
             &bundle,
@@ -1070,6 +1073,26 @@ impl Session<'_> {
     }
 
     // ---- what the view says (§9) ---------------------------------------------------
+
+    /// A `take` of the terminal (§10.9): something to open, for a program that said it takes that
+    /// kind of thing. One that is not as the specification says, of a kind the program did not
+    /// name, or that comes while no view is shown is ignored.
+    fn on_take(&mut self, message: &Frame) {
+        if !self.live {
+            return;
+        }
+        let Some(take) = Take::parse(&message.payload) else {
+            return;
+        };
+        if !self.options.takes.contains(&take.kind()) {
+            return;
+        }
+        let mut stream = Stream {
+            writer: &mut self.writer,
+            showing: matches!(self.phase, Phase::Showing),
+        };
+        self.exchange.on_take(&take, &mut stream);
+    }
 
     fn on_msg(&mut self, message: &Frame) {
         if !self.live {

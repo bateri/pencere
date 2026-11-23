@@ -258,6 +258,7 @@ the frame as written: `ESC _ pencere;`, kind, `;`, control, `;`, payload,
 | `closed`  | `to-program` | JSON `Closed`                                   | `re`: the open, dismiss or bye it answers, if any | 6.4, 10  |
 | `bye`     | `to-host`    | JSON `Bye`                                      | none (answered by a `closed`, 10.3)               | 10.3     |
 | `dismiss` | `to-host`    | JSON `Dismiss`                                  | none                                              | 10.8     |
+| `take`    | `to-program` | JSON `Take`                                     | none                                              | 10.9     |
 
 The JSON types are in Appendix A. A sender MUST NOT send a kind in a direction
 the table does not list. A receiver MUST ignore a message of a kind it does not
@@ -794,6 +795,8 @@ having switched to the alternate screen (Section 6.5). Its members, in this orde
   characters and bidirectional overrides before it draws them in its own interface
   (Sections 7.3 and 12.4);
 - `icons`: OPTIONAL, a list of icons for the program (Section 7.3);
+- `takes`: OPTIONAL, a list of the kinds of thing the program takes while it runs: `url`, `file` and `folder`
+  (Section 10.9);
 - `access`: OPTIONAL, for a `web` view: the origins and the browser capabilities the page asks to
   reach, which the person is asked about (Section 12.2). It is not read for a `lua` view,
   which reaches nothing that the host does not hand it;
@@ -1409,8 +1412,8 @@ SHOULD read any other code as the plain failure.
 
 A method or a topic whose name begins with `pencere.` is reserved for this specification and the
 kit. A program MUST NOT give a method or a topic of its own such a name, so that a name defined later
-cannot collide with one a program already serves. This version defines one, `pencere.log`, and a later
-version MAY define more.
+cannot collide with one a program already serves. This version defines a method, `pencere.log`, and a topic,
+`pencere.take` (Section 10.9), and a later version MAY define more.
 
 **`pencere.log`** is a `call` of the view that asks the program to write a line where it keeps what
 is for the person who writes the program and not for the person who uses it: its log. Its `params`
@@ -2155,6 +2158,58 @@ terminal again and asks for a view as above. Between the two the pane is idle, a
 and written there is the other program's, as for any program; to the host it is the end of one
 view and, later, the first open of another.
 
+### 10.9 Something for the program to take
+
+A program that runs for a terminal can be given something to open without being started again: an
+address the person opened in the terminal, a file, a folder. The program says that it takes such
+things, and which, in `takes` of its `open` (Section 6.3): a list of `url`, `file` and `folder`, the
+words of `opens` of an app ([apps](apps.md) Section 4.7). A value written twice counts once and a host
+ignores one it does not know. The program says it in each `open`, and a program that says nothing
+takes nothing.
+
+```frame fixtures/to-host/open-takes.frame
+<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"lua","version":"0.5","program":"browserpen","title":"Browser","takes":["url"],"bundle":{"entry":"view.lua","files":[{"path":"view.lua","sha256":"1232d8379de77e154ca533689af2e42629dd7574bda5a0a390799849f07607c3","size":10,"type":"text/x-lua"}]}}<ESC>\
+```
+
+A host that has something for the program of a view that runs, of a kind that program said it
+takes, writes a `take`. Its payload is an object with one of:
+
+- `url`: an address, as a link a view may ask to open is (Section 9.7);
+- `file`: the absolute path of a file, as the program's machine writes it, and, OPTIONAL, `line` and
+  `column`, whole numbers from 1 that name a place in it (a `column` only with a `line`);
+- `folder`: the absolute path of a folder.
+
+A path has at most 4096 bytes and no control character. A member of another name is ignored.
+
+```frame fixtures/to-program/take-url.frame
+<ESC>_pencere;take;id=3;{"url":"http://localhost:3000/"}<ESC>\
+```
+
+```frame fixtures/to-program/take-file.frame
+<ESC>_pencere;take;id=4;{"file":"/home/alice/notes.txt","line":12,"column":3}<ESC>\
+```
+
+```frame fixtures/to-program/take-folder.frame
+<ESC>_pencere;take;id=5;{"folder":"/home/alice/src"}<ESC>\
+```
+
+A host MUST NOT write a `take` while no view runs, of a kind the program of that view did not say it
+takes, or that is not as above; a program ignores a `take` that is any of those (Section 4.5). It is
+not answered: the host does not know what the program made of it, and the person sees that in the
+program's view. What a host does for something the person gives where no program takes it (it
+starts one, Section 4.7 of [apps](apps.md), or opens the address in the person's own browser) is its
+own.
+
+A view hears of it through the program, and at once. A program that said it takes anything serves a
+topic of the reserved names (Section 9.2), `pencere.take`: a view subscribes to it, and each `take`
+the program reads is pushed to every such subscription as its `value`, the object of the payload.
+A `take` that comes while no view has subscribed is kept, up to eight of them, and pushed to the first
+subscription: a page subscribes some moments after its program has read the `open` of its view, and
+what the person gave in them is not lost. A subscription of a view whose program said it takes
+nothing fails `not-found`, as one to any topic the program does not have. The libraries of this
+repository do this for a program; one that writes the protocol itself tells its view in the same way
+or in one of its own.
+
 ## 11. Terminal context
 
 ### 11.1 Host context
@@ -2591,8 +2646,18 @@ interface Open {
   program?: string; // what the program calls itself (Sections 6.3, 7.3)
   title?: string; // what the program calls the view
   icons?: Icon[]; // (Section 7.3)
+  takes?: ("url" | "file" | "folder")[]; // what the program takes while it runs; left out when none (Section 10.9)
   access?: Access; // "web" only (Section 12.2)
   bundle: Bundle; // the entry has the media type of the kind (Section 6.3)
+}
+
+interface Take {
+  // Exactly one of url, file and folder (Section 10.9).
+  url?: string; // an address a view may ask to open (Section 9.7)
+  file?: string; // the absolute path of a file, at most 4096 bytes
+  line?: number; // with file: a position in it, from 1
+  column?: number; // with line: from 1
+  folder?: string; // the absolute path of a folder, at most 4096 bytes
 }
 
 interface Icon {

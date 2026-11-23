@@ -5,11 +5,11 @@ use std::collections::BTreeSet;
 use std::process::{Command, ExitStatus};
 use std::time::{Duration, Instant};
 
-use pencere::{Conversation, Lent, Options, Said};
+use pencere::{Conversation, Lent, Options, Said, Take};
 use pencere_wire::json;
 use pencere_wire::messages::{MAX_BYTES, Message};
 
-use super::Peer;
+use super::{Error, Headless, Peer};
 
 /// The most a host takes of what the program said at once, bytes: what a terminal reads at once. A
 /// handler that says more waits for the next taking, as it waits for a terminal, and one that never
@@ -82,6 +82,14 @@ impl InProcess {
         }
     }
 
+    /// The terminal hands the program `take` (specification §10.9), as a host that has an address,
+    /// a file or a folder for it writes a `take`: the page that subscribed to `pencere.take` is
+    /// told at its next [`Peer::said`]. Whether the program heard it: not one of a kind it did not
+    /// say it takes ([`Options::takes`]), nor one that comes after the page's view is over.
+    pub fn hand_over(&mut self, take: &Take) -> bool {
+        self.over.is_none() && self.conversation.hand_over(take)
+    }
+
     /// The command the program lent the terminal to, until the test says how it ended
     /// ([`InProcess::give_back`]).
     pub fn lent(&self) -> Option<&Command> {
@@ -146,6 +154,21 @@ impl InProcess {
         self.owed.clear();
         self.fresh = true;
         self.over.get_or_insert(why);
+    }
+}
+
+impl Headless<InProcess> {
+    /// The terminal hands the program `take` (specification §10.9) and the page is settled: what the
+    /// program pushes to the page that subscribed to `pencere.take` has reached it. Whether the
+    /// program heard it ([`InProcess::hand_over`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::settle`].
+    pub fn hand_over(&mut self, take: &Take) -> Result<bool, Error> {
+        let heard = self.peer_mut().hand_over(take);
+        self.settle()?;
+        Ok(heard)
     }
 }
 
@@ -217,7 +240,7 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    use pencere::{Options, ReopenResult, ViewControl};
+    use pencere::{Options, ReopenResult, Take, TakeKind, ViewControl};
     use serde_json::{Value, json};
 
     use super::{InProcess, READ};
@@ -282,6 +305,25 @@ mod tests {
             "longer than a message as the wire has it"
         );
         assert!(!program.busy(), "the call was answered");
+    }
+
+    /// What the terminal hands the program is the page's at once, to the subscription it made.
+    #[test]
+    fn what_the_terminal_hands_the_program_reaches_the_page_that_subscribed() {
+        let mut program = InProcess::new(Options::new().takes(&[TakeKind::Url]));
+        program.opened();
+        program.heard(r#"{"subscribe":{"id":1,"topic":"pencere.take"}}"#);
+        assert!(program.hand_over(&Take::Url("http://localhost:3000/".into())));
+        let said = program.said();
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert_eq!(
+            serde_json::from_str::<Value>(&said[0]).expect("JSON"),
+            json!({ "push": { "id": 1, "value": { "url": "http://localhost:3000/" } } })
+        );
+        assert!(
+            !program.hand_over(&Take::Folder("/srv".into())),
+            "a kind it did not say it takes"
+        );
     }
 
     /// A page speaks to the view it was opened for and no other: the words of a page whose view the

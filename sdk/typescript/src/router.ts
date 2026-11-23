@@ -31,6 +31,8 @@ import {
   responsePayload,
 } from "./messages.js";
 import type { ViewRequest } from "./messages.js";
+import { TAKE_TOPIC, takeKind } from "./take.js";
+import type { Take, TakeKind } from "./take.js";
 
 /** An error a handler ends a call or a subscription with: the view gets `code`, and `message` if there is one (§9.2). */
 export class ViewError extends Error {
@@ -121,6 +123,11 @@ export interface RouterHandlers {
    * line is dropped; the view is answered either way.
    */
   log?: (line: LogLine) => void;
+  /**
+   * The kinds of thing the program takes while it runs (§10.9). With any, the router serves the
+   * topic {@link TAKE_TOPIC} to the view and pushes what {@link Router.take} is given to it.
+   */
+  takes?: readonly TakeKind[];
 }
 
 /**
@@ -137,9 +144,18 @@ export interface Router {
    * (§9.2). `true` when it was one of the three.
    */
   handle(message: string | object): boolean;
+  /**
+   * The terminal hands the program `take` (§10.9): pushed at once to each subscription of the view
+   * to {@link TAKE_TOPIC}, and kept, up to eight, for the first one when there is none. `false` when
+   * it is of a kind the program did not say it takes.
+   */
+  take(take: Take): boolean;
   /** The view is over: every call is cancelled, and every subscription is stopped and its cleanup run. */
   end(): void;
 }
+
+/** How many `take`s wait for the view's first subscription to {@link TAKE_TOPIC}. */
+const MOST_WAITING_TAKES = 8;
 
 /** A subscription of the view that runs. */
 interface Subscribed {
@@ -228,6 +244,11 @@ export function createRouter(handlers: RouterHandlers, send: Send): Router {
   checkReserved(handlers);
   const calls = new Map<number, AbortController>();
   const subs = new Map<number, Subscribed>();
+  /** The subscriptions of the view to {@link TAKE_TOPIC}, by the view's number for them. */
+  const takers = new Set<number>();
+  /** What was handed to the program that no subscription to {@link TAKE_TOPIC} has had yet. */
+  const waiting: Take[] = [];
+  const takes = new Set<TakeKind>(handlers.takes ?? []);
 
   /** Writes a message toward the view; `false` when it was not (the view is gone, or it is over a message's limit). */
   const tell = (payload: string): boolean => {
@@ -319,6 +340,12 @@ export function createRouter(handlers: RouterHandlers, send: Send): Router {
   const subscribe = (request: Extract<ViewRequest, { type: "subscribe" }>): void => {
     const { id, topic } = request;
     if (calls.has(id) || subs.has(id)) return;
+    if (topic === TAKE_TOPIC && takes.size > 0) {
+      subs.set(id, { controller: new AbortController(), cleanup: undefined });
+      takers.add(id);
+      for (const take of waiting.splice(0)) tell(pushPayload(id, take));
+      return;
+    }
     const handler = handlerOf(handlers.topics, topic);
     if (handler === undefined) {
       tell(failurePayload(id, "not-found", "there is nothing to subscribe to by that name"));
@@ -368,6 +395,7 @@ export function createRouter(handlers: RouterHandlers, send: Send): Router {
     const subscribed = subs.get(id);
     if (subscribed === undefined) return;
     subs.delete(id);
+    takers.delete(id);
     stopSubscribed(subscribed);
   };
 
@@ -389,11 +417,24 @@ export function createRouter(handlers: RouterHandlers, send: Send): Router {
       return true;
     },
 
+    take(take) {
+      if (!takes.has(takeKind(take))) return false;
+      if (takers.size === 0) {
+        if (waiting.length === MOST_WAITING_TAKES) waiting.shift();
+        waiting.push(take);
+        return true;
+      }
+      for (const id of takers) tell(pushPayload(id, take));
+      return true;
+    },
+
     end() {
       const pending = [...calls.values()];
       const subscribed = [...subs.values()];
       calls.clear();
       subs.clear();
+      takers.clear();
+      waiting.length = 0;
       for (const call of pending) call.abort();
       for (const one of subscribed) stopSubscribed(one);
     },

@@ -300,6 +300,11 @@ impl Feed {
         }
     }
 
+    /// The topic the view subscribed to.
+    pub(crate) fn topic(&self) -> &str {
+        &self.topic
+    }
+
     /// The subscription is over: the view cancelled it, or the view is.
     pub(crate) fn end(&self) {
         self.flag.raise();

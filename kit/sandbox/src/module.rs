@@ -273,7 +273,16 @@ impl Module {
     }
 
     /// Tells the module what the person did. Returns at once.
+    ///
+    /// An address dropped on the page ([`Event::LinkDropped`]) is told only if it is a link a page
+    /// may open, `http` or `https` as the `link` of a reply is ([`pencere_wire::link::is_openable`]):
+    /// any other is left, as the host is to leave it (the page is not told).
     pub fn event(&self, event: Event) {
+        if let Event::LinkDropped { url, .. } = &event
+            && !pencere_wire::link::is_openable(url)
+        {
+            return;
+        }
         self.post(Command::Event(event, None));
     }
 

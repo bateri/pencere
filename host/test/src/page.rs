@@ -867,6 +867,10 @@ impl UserData for Handle {
                 this.act(|page| page.drop_files(&name, paths))
             },
         );
+        // An address the person drops on the element named `name`.
+        methods.add_method("drop_link", |_, this, (name, url): (String, String)| {
+            this.act(|page| page.drop_link(&name, &url))
+        });
         // Files the person gives the page (specification §8.9): `{ { name =, data = }, ... }`
         // dropped on the element named `name` (`source` "drop", the default) or pasted
         // ("paste"). The handles the host made, in order.

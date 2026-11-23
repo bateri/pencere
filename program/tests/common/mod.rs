@@ -350,6 +350,8 @@ pub trait Side: Sized {
     fn start(options: impl FnOnce(Options) -> Options + Send + 'static) -> Self;
     /// The view says `message`, one of its three.
     fn send(&mut self, message: &Value);
+    /// The terminal hands the program `take` (specification §10.9).
+    fn take(&mut self, take: &pencere::Take);
     /// The next message of the six the program says, which has to come within `WITHIN`.
     fn said(&mut self) -> Value;
     /// Whether the program says nothing for `within`.
@@ -388,6 +390,10 @@ impl Side for OnATerminal {
 
     fn send(&mut self, message: &Value) {
         self.pane.send("msg", None, message);
+    }
+
+    fn take(&mut self, take: &pencere::Take) {
+        self.pane.send("take", None, &take.value());
     }
 
     fn said(&mut self) -> Value {
@@ -453,6 +459,10 @@ impl Side for InProcess {
 
     fn send(&mut self, message: &Value) {
         self.conversation.send(&message.to_string());
+    }
+
+    fn take(&mut self, take: &pencere::Take) {
+        self.conversation.hand_over(take);
     }
 
     fn said(&mut self) -> Value {

@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use pencere::{
     CloseResult, Conversation, Error, FileError, HandOffResult, Kind, LogLevel, Options,
-    ReopenResult, Said, View, ViewControl, ViewError,
+    ReopenResult, Said, Take, TakeKind, View, ViewControl, ViewError,
 };
 use serde_json::{Value, json};
 
@@ -238,6 +238,85 @@ fn a_topic_whose_handler_fails_ends_the_subscription_with_its_error<S: Side>() {
     );
     view.end();
 }
+
+// ---- what the terminal hands the program to take ----------------------------------------
+
+fn what_the_terminal_hands_the_program_is_pushed_to_the_view_that_listens_and_kept_for_the_first<
+    S: Side,
+>() {
+    let listed = json!({ "subscribe": { "id": 1, "topic": "pencere.take" } });
+    let mut view = S::start(|options| options.takes(&[TakeKind::Url, TakeKind::File]));
+    let page = Take::Url("http://localhost:3000/".into());
+    let notes = Take::File {
+        path: "/home/alice/notes.txt".into(),
+        line: Some(12),
+        column: Some(3),
+    };
+    // Before the view has listened it is kept, and the first subscription is told of it at once.
+    view.take(&page);
+    view.send(&listed);
+    assert_eq!(
+        view.said(),
+        json!({ "push": { "id": 1, "value": { "url": "http://localhost:3000/" } } })
+    );
+    // From then on each one is pushed, with what the terminal wrote of it, to every subscription.
+    view.send(&json!({ "subscribe": { "id": 2, "topic": "pencere.take" } }));
+    view.take(&notes);
+    let mut told = [view.said(), view.said()];
+    told.sort_by_key(|message| message["push"]["id"].as_u64());
+    let value = json!({ "file": "/home/alice/notes.txt", "line": 12, "column": 3 });
+    assert_eq!(
+        told,
+        [
+            json!({ "push": { "id": 1, "value": value } }),
+            json!({ "push": { "id": 2, "value": value } })
+        ]
+    );
+    // A kind the program did not say it takes is not told, and a subscription that is cancelled
+    // hears no more.
+    view.take(&Take::Folder("/home/alice".into()));
+    view.send(&json!({ "cancel": { "id": 1 } }));
+    view.take(&page);
+    assert_eq!(
+        view.said(),
+        json!({ "push": { "id": 2, "value": { "url": "http://localhost:3000/" } } })
+    );
+    assert!(view.says_nothing_for(Duration::from_millis(100)));
+    view.end();
+}
+
+fn only_the_last_eight_takes_wait_for_a_view_that_does_not_listen<S: Side>() {
+    let mut view = S::start(|options| options.takes(&[TakeKind::Folder]));
+    for n in 1..=10 {
+        view.take(&Take::Folder(format!("/srv/{n}")));
+    }
+    view.send(&json!({ "subscribe": { "id": 1, "topic": "pencere.take" } }));
+    for n in 3..=10 {
+        assert_eq!(
+            view.said(),
+            json!({ "push": { "id": 1, "value": { "folder": format!("/srv/{n}") } } })
+        );
+    }
+    assert!(view.says_nothing_for(Duration::from_millis(100)));
+    view.end();
+}
+
+fn a_program_that_takes_nothing_has_no_topic_for_it<S: Side>() {
+    let mut view = S::start(|options| options);
+    view.take(&Take::Url("http://localhost:3000/".into()));
+    view.send(&json!({ "subscribe": { "id": 1, "topic": "pencere.take" } }));
+    let message = view.said();
+    assert_eq!(message["response"]["id"], 1);
+    assert_eq!(message["response"]["error"]["code"], "not-found");
+    assert!(view.says_nothing_for(Duration::from_millis(100)));
+    view.end();
+}
+
+crate::both_ways!(
+    what_the_terminal_hands_the_program_is_pushed_to_the_view_that_listens_and_kept_for_the_first,
+    only_the_last_eight_takes_wait_for_a_view_that_does_not_listen,
+    a_program_that_takes_nothing_has_no_topic_for_it,
+);
 
 crate::both_ways!(
     a_call_is_answered_with_its_result_its_error_nothing_or_not_found,

@@ -2378,6 +2378,15 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
         case PENCERE_VIEW_TYPES_EVENT_FILES_LEFT:
             set_word(L, "type", "files_left");
             break;
+        case PENCERE_VIEW_TYPES_EVENT_LINK_DROPPED:
+            // { type = "link_dropped", x =, y =, url = "https://…" }
+            set_word(L, "type", "link_dropped");
+            set_number(L, "x", event.val.link_dropped.at.x);
+            set_number(L, "y", event.val.link_dropped.at.y);
+            lua_pushlstring(L, (const char*)event.val.link_dropped.url.ptr,
+                            event.val.link_dropped.url.len);
+            lua_setfield(L, -2, "url");
+            break;
         case PENCERE_VIEW_TYPES_EVENT_CARRIED:
             // { id =, done = }: the system drag of what the element named `id` carried is over.
             set_word(L, "type", "carried");

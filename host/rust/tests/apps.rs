@@ -644,6 +644,8 @@ fn a_file_without_opens_takes_neither_and_one_with_it_takes_what_it_lists() {
     assert_eq!(parsed(&value).unwrap().opens, [Opens::File, Opens::Folder]);
     value["opens"] = json!(["folder"]);
     assert_eq!(parsed(&value).unwrap().opens, [Opens::Folder]);
+    value["opens"] = json!(["url", "file"]);
+    assert_eq!(parsed(&value).unwrap().opens, [Opens::Url, Opens::File]);
     value["opens"] = json!([]);
     assert!(parsed(&value).unwrap().opens.is_empty());
 }

@@ -26,6 +26,7 @@ interface Props {
     whole?: [string, string];
     shows?: string;
     crumbs?: [string, string][];
+    index?: boolean;
     code?: string;
   };
   headings: { depth: number; slug: string; text: string }[];
@@ -60,13 +61,15 @@ for (const entry of headings) {
   // A part of a section inside a section (the modules of the kit's library): no number, its name alone.
   else if (entry.depth === 4) sections.at(-1)?.inside.at(-1)?.inside.push({ ...section, number: "", title: entry.text });
 }
+// The document's own title (its first heading): a hit on it is a hit on the page.
+const top = headings.find((entry) => entry.depth === 1);
 const numbered = sections.some((section) => section.number);
 // A document of one section has nothing to list beside it.
 const listed = sections.length > 1;
 ---
-<Base title={title} description={description} path={path}>
+<Base title={title} description={description} path={path} index={page.index} apps={page.area === "apps"}>
   <div class="wrap kit kit--spec">
-    <aside class:list={["side", "spec__side", { "spec__side--alone": !docs }]} aria-label={docs ? "Documentation, and the sections of this page" : "Sections"}>
+    <aside data-pagefind-ignore class:list={["side", "spec__side", { "spec__side--alone": !docs }]} aria-label={docs ? "Documentation, and the sections of this page" : "Sections"}>
       {docs && <DocsMenu path={path} />}
       {listed && <h2 class="spec__name">{docs ? "On this page" : name}</h2>}
       <div class="side__scroll" hidden={!listed}>
@@ -102,13 +105,15 @@ const listed = sections.length > 1;
         </ol>
       </div>
     </aside>
-    <article class:list={["doc", "spec", { "spec--titled": heading, "spec--topic": topic }]}>
+    <!-- Search names a page as the menu does (read from an attribute: a name may hold a comma), and
+         says which heading is the document's own title. -->
+    <article class:list={["doc", "spec", { "spec--titled": heading, "spec--topic": topic }]} data-pagefind-meta="title[data-title], top[data-top]" data-title={name} data-top={top?.slug ?? ""}>
       {crumbs.length > 0 && <p class="crumbs">{crumbs.map(([words, address], i) => <>{i > 0 && " / "}<a href={address}>{words}</a></>)}</p>}
       {heading && <h1>{heading}</h1>}
       <Numbered source={source} path={path} keep={only} opening={opening} regions={regions} example={code}><slot /></Numbered>
       {whole && <p class="spec__whole"><a href={whole[1]}>{whole[0]}</a></p>}
       <p class="spec__said" role="status" aria-live="polite"></p>
-      <p class="spec__source">
+      <p class="spec__source" data-pagefind-ignore>
         This page is {only ? "a part of " : ""}<a href={`${REPO}/blob/main/${shows}`}>{shows}</a> of the repository{note}.
       </p>
     </article>

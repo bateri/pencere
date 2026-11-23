@@ -18,9 +18,9 @@ const current = (href: string) => (path === href ? "page" : undefined);
 // twenty-four names would stand beside the kit's seven as if they were its parts too.
 const components = path === "kit/components" || path.startsWith("kit/components/");
 ---
-<Base title={title} description={description} path={path}>
+<Base title={title} description={description} path={path} apps>
   <div class="wrap kit">
-    <aside class:list={["side", { "side--whole": components }]} aria-label="Documentation">
+    <aside data-pagefind-ignore class:list={["side", { "side--whole": components }]} aria-label="Documentation">
       <DocsMenu path={path} />
       {
         components && (

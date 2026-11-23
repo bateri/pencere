@@ -2,6 +2,7 @@
 // The site's navigation, the same on every page. On the home page it lies over the scene; on the
 // others it stands in the page's column (`column`), and says which part of the site this is (`path`).
 import Mark from "./Mark.astro";
+import Search from "./Search.astro";
 import { REPO } from "../lib/code.js";
 
 interface Props {
@@ -27,12 +28,21 @@ const mark = (on: boolean) => (on ? "page" : undefined);
     <a class="hn__wide" href={REPO}>GitHub</a>
   </nav>
   <div class="hn__tools">
-    <!-- Reserved: search comes later. It is drawn so that the menu is designed once; it does nothing yet. -->
-    <button class="hn__tool hn__search" type="button" aria-disabled="true" aria-label="Search (coming soon)" data-tip="Search (coming soon)">
+    <button class="hn__tool hn__search" type="button" aria-label="Search" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /" data-tip="Search">
       <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5" /><path d="M13.2 13.2L17 17" /></svg>
       <span class="hn__search-label">Search</span>
       <kbd class="hn__search-key" aria-hidden="true">⌘K</kbd>
     </button>
+    <script is:inline>
+      // Where the key is not ⌘ it is Ctrl: said before the page is first painted, so that the
+      // control does not change as it is shown.
+      (function () {
+        var key = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? "⌘K" : "Ctrl K";
+        var search = document.querySelector(".hn__search");
+        search.querySelector(".hn__search-key").textContent = key;
+        search.setAttribute("data-tip", "Search (" + key + ")");
+      })();
+    </script>
     <button class="hn__tool hn__theme" type="button" aria-label="Light mode" data-tip="Light mode">
       <!-- The sun is shown in the dark theme (it switches to light), the moon in the light one. -->
       <svg class="hn__sun" viewBox="0 0 20 20" aria-hidden="true">
@@ -45,6 +55,7 @@ const mark = (on: boolean) => (on ? "page" : undefined);
     </button>
   </div>
 </header>
+<Search />
 <script>
   // The theme button. The site follows the system's setting until it is pressed; it then switches to
   // the other theme, and when that is the system's own the choice is forgotten (the event pencere:theme,

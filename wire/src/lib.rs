@@ -19,6 +19,8 @@
 //! * [`messages`]: the six messages of a program and its view, that a terminal only carries.
 //! * [`base64`]: the two forms of base64 the wire uses.
 //! * [`link`]: which links a view may ask its host to open, a page's or a kit view's.
+//! * [`take`]: what a host hands a program that is running for it to take: an address, a file, a
+//!   folder.
 //! * [`carry`]: what a view may hand to its host's system drag, which is the person's own act.
 //!
 //! The specification is `spec/draft/pencere.md`; its fixtures are the tests of this crate and
@@ -35,3 +37,4 @@ pub mod json;
 pub mod link;
 pub mod message;
 pub mod messages;
+pub mod take;
