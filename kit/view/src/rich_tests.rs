@@ -182,6 +182,74 @@ fn a_text_of_many_looks_in_a_row_gives_its_room_away_down_to_its_longest_word() 
 }
 
 #[test]
+fn a_text_of_many_looks_that_wraps_is_drawn_in_as_many_lines_as_its_box_was_made_for() {
+    // 5.05 px a character: "aaaaaaa bbbbbbbb" is 80.8 px, a little wider than the 80 it is
+    // given. 4.6 px a character: "aaaa bbbb" is 41.4 px, a little wider than half of 81.
+    let long = || {
+        rich([span("aaaaaaa "), span("bbbbbbbb").weight(700)])
+            .wrap()
+            .text_size(10.1)
+    };
+    let pages = [
+        ("its own width", div().child(long().w(80.0))),
+        ("the width of the box it is in", div().w(80.0).child(long())),
+        ("its padding", div().child(long().w(88.0).px(4.0))),
+        ("its padding in a box", div().w(88.0).child(long().px(4.0))),
+        (
+            "its border",
+            div().child(long().w(82.0).border(1.0, Role::Border)),
+        ),
+        (
+            "what a row leaves it",
+            div().row().items_start().w(80.0).child(long()),
+        ),
+        (
+            "a width of a fraction of a pixel",
+            div().w(81.0).child(
+                rich([span("aaaa "), span("bbbb")])
+                    .wrap()
+                    .text_size(9.2)
+                    .w_pct(50.0),
+            ),
+        ),
+    ];
+    for (case, page) in pages {
+        let laid = lay(page, 200.0, 200.0);
+        let height = laid.rects().nth(1).map(|r| r.h);
+        let list = laid.paint(&mut Fixed);
+        let drawn = runs(&list);
+        let mut tops: Vec<f32> = drawn.iter().map(|run| run.origin.y).collect();
+        tops.dedup();
+        let line = drawn.first().map_or(0.0, |run| run.font.size * 1.25);
+        #[allow(clippy::cast_precision_loss)]
+        let lines = (line * tops.len() as f32).round();
+        assert_eq!(height, Some(lines), "{case}: {} lines", tops.len());
+    }
+}
+
+#[test]
+fn a_text_of_many_looks_as_wide_as_its_words_is_drawn_in_one_line_at_any_size() {
+    // Its last word is of three parts, each in its own look: its box is as wide as the parts add
+    // up to, one after the other, and the word fits there whatever the size makes of the sums.
+    for step in 0..600_u16 {
+        let size = 7.0 + f32::from(step) * 0.0217;
+        let text = rich([
+            span("The old build "),
+            span("still runs").italic(),
+            span("."),
+            span("!").weight(700),
+        ])
+        .wrap()
+        .text_size(size);
+        let laid = lay(div().row().items_start().child(text), 2000.0, 200.0);
+        let list = laid.paint(&mut Fixed);
+        let mut tops: Vec<f32> = runs(&list).iter().map(|run| run.origin.y).collect();
+        tops.dedup();
+        assert_eq!(tops.len(), 1, "size {size}");
+    }
+}
+
+#[test]
 fn line_breaks_in_a_text_of_many_looks_start_new_lines() {
     let text = rich([span("a\n"), span("b").weight(700)]).text_size(8.0);
     let laid = lay(div().child(text), 200.0, 200.0);

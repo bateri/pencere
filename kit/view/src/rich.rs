@@ -7,6 +7,7 @@
 //! every part, so that the lines are one height and the words of a line stand on one line.
 
 use crate::layout::TextLine;
+use crate::text::FITS;
 use crate::{Color, Family, Font, Id, Measure};
 
 /// One part of a text of many looks: its words and what it changes of the element's look.
@@ -202,6 +203,7 @@ pub(crate) fn lay_lines(
     wrap: bool,
     measure: &mut dyn FnMut(&Font, &str) -> f32,
 ) -> Vec<RichLine> {
+    let budget = budget + FITS;
     let mut lines = vec![RichLine::default()];
     // Whether the last line began where the one before it wrapped (not at a line break).
     let mut wrapped = false;

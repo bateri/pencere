@@ -533,7 +533,7 @@ fn place_text(node: &Node, line: &TextLine, measure: &mut dyn Measure) -> Vec<Ru
     let box_width = node.rect.w;
     let lines: Vec<(String, f32)> = if line.wrap {
         let mut width = |run: &str| measure.measure(&line.font, run).width;
-        wrap_lines(&line.text, box_width + 1.0, &mut width)
+        wrap_lines(&line.text, node.wraps_at, &mut width)
             .into_iter()
             .map(|text| {
                 let width = width(&text);

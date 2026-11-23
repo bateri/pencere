@@ -142,6 +142,8 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
 
 ### Fixed
 
+- **A text that wraps draws as many lines as its box is tall for.** A line up to a pixel wider than
+  its box was drawn whole, in a box made a line taller; it now breaks there, in the box it already had.
 - **A long list is built for the window it has, not for the page's.** `Built` keeps how tall the
   window was that its rows were built for, and `stale` is true where the window is less than three
   quarters of that. A list is first built before its box is laid out, for a window as tall as the

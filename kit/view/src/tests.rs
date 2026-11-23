@@ -278,6 +278,43 @@ fn text_that_wraps_in_a_row_gives_room_down_to_its_longest_word() {
 }
 
 #[test]
+fn text_that_wraps_is_drawn_in_as_many_lines_as_its_box_was_made_for() {
+    // 5.05 px a character: "aaaaaaa bbbbbbbb" is 80.8 px, a little wider than the 80 it is
+    // given. 4.6 px a character: "aaaa bbbb" is 41.4 px, a little wider than half of 81.
+    let long = || text("aaaaaaa bbbbbbbb").wrap().text_size(10.1);
+    let pages = [
+        ("its own width", div().child(long().w(80.0))),
+        ("the width of the box it is in", div().w(80.0).child(long())),
+        ("its padding", div().child(long().w(88.0).px(4.0))),
+        ("its padding in a box", div().w(88.0).child(long().px(4.0))),
+        (
+            "its border",
+            div().child(long().w(82.0).border(1.0, Role::Border)),
+        ),
+        (
+            "what a row leaves it",
+            div().row().items_start().w(80.0).child(long()),
+        ),
+        (
+            "a width of a fraction of a pixel",
+            div()
+                .w(81.0)
+                .child(text("aaaa bbbb").wrap().text_size(9.2).w_pct(50.0)),
+        ),
+    ];
+    for (case, page) in pages {
+        let laid = layout(page, Size::new(200.0, 200.0), 1.0, &mut Fixed);
+        let height = laid.rects().nth(1).map(|r| r.h);
+        let list = laid.paint(&mut Fixed);
+        let lines = runs(&list);
+        let line = lines.first().map_or(0.0, |run| run.font.size * 1.25);
+        #[allow(clippy::cast_precision_loss)]
+        let drawn = (line * lines.len() as f32).round();
+        assert_eq!(height, Some(drawn), "{case}: {} lines", lines.len());
+    }
+}
+
+#[test]
 fn the_text_in_the_room_of_the_hosts_field_is_its_hint_and_the_page_does_not_draw_it() {
     let root = div().row().child(text("before")).child(
         div()

@@ -152,6 +152,10 @@ pub(crate) struct Node {
     /// It is put where the page says (laid over the rest, or an overlay), not where the box it is
     /// in has room for it.
     pub placed: bool,
+    /// How wide a line of its text may be, pixels: the room inside its box before the box was
+    /// rounded to whole pixels, which is what the text was measured in. Its lines are broken there
+    /// when it is drawn, so that it draws as many as its box was made tall for.
+    pub wraps_at: f32,
 }
 
 /// A page laid out: every element's box, in the order they are painted.
@@ -187,12 +191,17 @@ enum Leaf {
         font: Font,
         /// Its words go on in new lines where the box is too narrow for them.
         wrap: bool,
+        /// What the box keeps for its padding across, pixels: a width that is given is the box's,
+        /// and the words have what is left of it.
+        inset: f32,
     },
-    /// A text of many looks: its parts, the fonts they are in, and whether it wraps.
+    /// A text of many looks: its parts, the fonts they are in, whether it wraps, and what its box
+    /// keeps for its padding across.
     Rich {
         spans: Vec<Span>,
         looks: Vec<Look>,
         wrap: bool,
+        inset: f32,
     },
     /// An image, with its size in pixels where the host knew it, and what the box keeps for its
     /// padding and border across and down: a side that is given is the box's, and the picture
@@ -310,11 +319,13 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
                         text,
                         font,
                         wrap: true,
+                        inset,
                     }) => {
-                        // As wide as the box it is given, or as the room there is (none at all when
-                        // the layout asks how narrow it can be: the longest word), and as tall as the
-                        // lines it then takes.
-                        let budget = known.width.unwrap_or(match available.width {
+                        // As wide as the box it is given less its padding, or as the room there is
+                        // (none at all when the layout asks how narrow it can be: the longest word),
+                        // and as tall as the lines it then takes.
+                        let given = known.width.map(|side| (side - *inset).max(0.0));
+                        let budget = given.unwrap_or(match available.width {
                             AvailableSpace::Definite(room) => room,
                             AvailableSpace::MinContent => 0.0,
                             AvailableSpace::MaxContent => f32::INFINITY,
@@ -340,9 +351,15 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
                     Some(Leaf::Text { text, font, .. }) => *cache
                         .entry((*font, text.clone()))
                         .or_insert_with(|| measure.measure(font, text)),
-                    Some(Leaf::Rich { spans, looks, wrap }) => {
+                    Some(Leaf::Rich {
+                        spans,
+                        looks,
+                        wrap,
+                        inset,
+                    }) => {
                         let budget = if *wrap {
-                            known.width.unwrap_or(match available.width {
+                            let given = known.width.map(|side| (side - *inset).max(0.0));
+                            given.unwrap_or(match available.width {
                                 AvailableSpace::Definite(room) => room,
                                 AvailableSpace::MinContent => 0.0,
                                 AvailableSpace::MaxContent => f32::INFINITY,
@@ -505,6 +522,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
                 laid.padding.bottom,
             ],
             placed: entry.overlay || entry.absolute,
+            wraps_at: inner_width(tree.unrounded_layout(entry.id)),
         });
     }
     // `nodes`, `reach` and `inside` get one entry for every element: they are the same length.
@@ -567,7 +585,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
     }
     for node in &mut nodes {
         if let Content::Rich(rich) = &mut node.content {
-            lay_rich(rich, node.rect.w, measure);
+            lay_rich(rich, node.rect.w, node.wraps_at, measure);
         }
     }
     Laid {
@@ -653,10 +671,10 @@ fn rich_line_height(
         .fold(0.0, f32::max)
 }
 
-/// The lines of a text of many looks in a box `width` pixels wide: as many as its words take where
-/// it wraps, and where it does not, one for each of its line breaks, cut to fit with "…" where it
-/// may be.
-fn lay_rich(rich: &mut Rich, width: f32, measure: &mut dyn Measure) {
+/// The lines of a text of many looks in a box `width` pixels wide: as many as its words take in
+/// `wraps_at` ([`Node::wraps_at`]) where it wraps, and where it does not, one for each of its line
+/// breaks, cut to fit with "…" where it may be.
+fn lay_rich(rich: &mut Rich, width: f32, wraps_at: f32, measure: &mut dyn Measure) {
     let mut cache: HashMap<(Font, String), Metrics> = HashMap::new();
     let mut metrics = |font: &Font, run: &str| {
         *cache
@@ -665,7 +683,7 @@ fn lay_rich(rich: &mut Rich, width: f32, measure: &mut dyn Measure) {
     };
     rich.line_height = rich_line_height(&rich.spans, &rich.looks, &mut metrics);
     let budget = if rich.base.wrap {
-        width + 1.0
+        wraps_at
     } else {
         f32::INFINITY
     };
@@ -885,7 +903,22 @@ fn empty(page: Rect) -> Node {
         scaled: 1.0,
         pad: [0.0; 4],
         placed: false,
+        wraps_at: 0.0,
     }
+}
+
+/// The width inside a box Taffy laid out (less its padding and border), as Taffy gave it to the
+/// box's content to be measured in.
+fn inner_width(laid: &taffy::Layout) -> f32 {
+    laid.size.width
+        - ((laid.padding.left + laid.border.left) + (laid.padding.right + laid.border.right))
+}
+
+/// The padding of a text's box across, pixels, as Taffy has it ([`convert`]): the border of a box
+/// that is not an image takes no room.
+fn inset_across(style: &Style, scale: f32) -> f32 {
+    let [_, right, _, left] = style.padding;
+    snap(left, scale) + snap(right, scale)
 }
 
 /// How many elements `root` is, itself among them.
@@ -1001,6 +1034,7 @@ fn build(
                 text: content.clone(),
                 font,
                 wrap: style.wrap,
+                inset: inset_across(&style, scale),
             };
             if let Some(entry) = pending.get_mut(index) {
                 entry.content = Content::Text(TextLine {
@@ -1032,6 +1066,7 @@ fn build(
                 spans: spans.clone(),
                 looks: looks.clone(),
                 wrap: style.wrap,
+                inset: inset_across(&style, scale),
             };
             if let Some(entry) = pending.get_mut(index) {
                 entry.content = Content::Rich(Rich {

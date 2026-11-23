@@ -122,6 +122,11 @@ pub struct EditorMetrics {
     pub content: Size,
 }
 
+/// How much wider than its room a line may come out and still fit, pixels: what adding up the
+/// same widths in another order can make of the sum, so that a line measured to fit a box is
+/// drawn in one line there. Far less than can be seen.
+pub(crate) const FITS: f32 = 1.0 / 64.0;
+
 /// The lines `text` takes in `budget` pixels, broken where it has spaces (and at its line
 /// breaks): each line is as many words as fit, and a word longer than a line is broken where it
 /// must be. `width` is the width of a run of text set in one line. A budget of nothing gives
@@ -131,6 +136,7 @@ pub(crate) fn wrap_lines(
     budget: f32,
     width: &mut dyn FnMut(&str) -> f32,
 ) -> Vec<String> {
+    let budget = budget + FITS;
     let mut lines = Vec::new();
     for paragraph in text.split('\n') {
         let mut line = String::new();
