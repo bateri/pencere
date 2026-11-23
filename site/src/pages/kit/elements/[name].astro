@@ -18,7 +18,14 @@ export function getStaticPaths() {
 const { name } = Astro.props;
 const element = catalog.elements.find((entry) => entry.name === name)!;
 const section = PAGES.find((page) => page.element === name && page.own);
-const plain = element.doc.replace(/<[^>]+>/g, "");
+// The tags go first and the entities after them, so that a `&lt;b&gt;` the sentence says is the text
+// `<b>` and not a tag; the layout escapes the text once more, as an attribute.
+const plain = element.doc
+  .replace(/<[^>]+>/g, "")
+  .replace(/&lt;/g, "<")
+  .replace(/&gt;/g, ">")
+  .replace(/&quot;/g, '"')
+  .replace(/&amp;/g, "&");
 ---
 <Kit title={`pencere.${name}: the pencere kit`} description={plain} path={`kit/elements/${name}`}>
   <header>

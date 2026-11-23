@@ -188,4 +188,53 @@ describe("the notes of the topics", () => {
     const code = "# Motion\n\n```md\nA note[^x] is written so.\n```\n\nOr `[^y]`.\n";
     expect(noteProblems(files({ "kit/spec/motion.md": code }))).toEqual([]);
   });
+  it("are not read in a block of code fenced with tildes, either", () => {
+    const code = "# Motion\n\n~~~md\nA note[^x] is written so.\n```\n[^z]: Words.\n~~~\n\nAfter.\n";
+    expect(noteProblems(files({ "kit/spec/motion.md": code }))).toEqual([]);
+    // A fence is closed by its own mark: a tilde line does not end a block of backticks.
+    const mixed = "# Motion\n\n````md\n~~~\nA[^x]\n````\n\nAfter.\n";
+    expect(noteProblems(files({ "kit/spec/motion.md": mixed }))).toEqual([]);
+  });
+  it("are the same note in any case, as GitHub reads the labels", () => {
+    const mixed = "# Motion\n\nA motion.[^Style]\n\n[^style]: Words.\n";
+    expect(noteProblems(files({ "kit/spec/motion.md": mixed }))).toEqual([]);
+    const twice = "# Motion\n\nA.[^Style] B.[^style]\n\n[^STYLE]: Words.\n";
+    const found = noteProblems(files({ "kit/spec/motion.md": twice }));
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain("2 times");
+    const two = noteProblems(
+      files({
+        "kit/spec/motion.md": motion,
+        "kit/spec/layout.md": motion.replace("Motion", "Layout").replaceAll("style", "STYLE"),
+      }),
+    );
+    expect(two).toHaveLength(1);
+    expect(two[0]).toContain("also in kit/spec/motion.md");
+  });
+  it("are found when one holds a list, a block of code or more than one paragraph", () => {
+    const note = (words) => `# Motion\n\nA motion.[^style]\n\n${words}\n`;
+    const list = noteProblems(
+      files({ "kit/spec/motion.md": note("[^style]: Kinds:\n    - one\n    - two") }),
+    );
+    expect(list).toHaveLength(1);
+    expect(list[0]).toContain("holds a list");
+    expect(
+      noteProblems(files({ "kit/spec/motion.md": note("[^style]: - one\n    - two") })),
+    ).toHaveLength(1);
+    expect(
+      noteProblems(
+        files({ "kit/spec/motion.md": note("[^style]: Words.\n\n    A second paragraph.") }),
+      ),
+    ).toHaveLength(1);
+    expect(
+      noteProblems(
+        files({ "kit/spec/motion.md": note("[^style]: Words.\n\n    ```lua\n    x()\n    ```") }),
+      ),
+    ).toHaveLength(1);
+  });
+  it("are fine when a sentence wraps over lines, or the next paragraph is no part of the note", () => {
+    const wrapped =
+      "# Motion\n\nA motion.[^style]\n\n[^style]: Words that\n    wrap, and wrap\nagain.\n\nAfter, and a list:\n\n- one\n- two\n";
+    expect(noteProblems(files({ "kit/spec/motion.md": wrapped }))).toEqual([]);
+  });
 });

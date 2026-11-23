@@ -41,6 +41,20 @@ describe("the parts of a file", () => {
     ).toContain("two parts named");
     expect(regionsOf("-- #endregion\n").problems.join("\n")).toContain("none has started");
   });
+
+  it("are found when a mark has no name, on the line of the mark", () => {
+    const { regions, problems } = regionsOf(
+      "local x = 1\n-- #region\ncode\n-- #endregion\n",
+      "f.lua",
+    );
+    expect(problems).toEqual(["f.lua:2: a part has no name"]);
+    expect(regions.size).toBe(0);
+    expect(regionsOf("-- #region   \ncode\n-- #endregion\n", "f.lua").problems).toEqual([
+      "f.lua:1: a part has no name",
+    ]);
+    // A word that only starts with the mark's is no mark.
+    expect(regionsOf("-- #regional\n").problems).toEqual([]);
+  });
 });
 
 describe("the parts and the headings of the topic", () => {
@@ -63,6 +77,20 @@ describe("the parts and the headings of the topic", () => {
       "kit/spec/motion.md",
     );
     expect(found).toHaveLength(2);
+  });
+
+  it("agree when the heading and the part spell a quote or an ampersand differently", () => {
+    const code = "-- #region It's here & now\ncode\n-- #endregion\n";
+    const found = regionProblems("page.lua", code, "# T\n\n## It\u2019s here & now\n", "k.md");
+    expect(found).toEqual([]);
+    expect(regionProblems("page.lua", code, "# T\n\n## It's here & now\n", "k.md")).toEqual([]);
+  });
+
+  it("do not when two parts are one heading's slug", () => {
+    const code = "-- #region It's\na\n-- #endregion\n-- #region Its\nb\n-- #endregion\n";
+    const found = regionProblems("page.lua", code, "# T\n\n## Its\n", "k.md");
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain("one slug");
   });
 
   it("do not when the file has no part at all", () => {

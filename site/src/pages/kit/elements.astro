@@ -26,12 +26,14 @@ for (const page of PAGES.filter((entry) => entry.element)) {
   </header>
 
   <!-- The cards stand in the place of the table of the builders, which says the same of each constructor
-       (the table is in the document still: scripts/repeats.mjs sees that the page says it once). -->
+       (the table is in the document still: scripts/repeats.mjs sees that the page says it once). A card has
+       the element's name for its id, so that a link from outside to /kit/elements#canvas lands on it;
+       scripts/ids.mjs stops the build if a heading of the page ever takes the same id. -->
   <SpecDoc source="kit/spec/elements.md" path="kit/elements" keep={["the-builders", "text-field", "tip", "overlay", "gradient"]} opening={false}>
     <div slot="instead" id="cards" class="cards">
       {
         catalog.elements.map((element) => (
-          <a class:list={["card", { "card--wide": (element.demo?.width ?? 0) > 380 }]} href={`/${elementPath(element.name)}`}>
+          <a id={element.name} class:list={["card", { "card--wide": (element.demo?.width ?? 0) > 380 }]} href={`/${elementPath(element.name)}`}>
             {element.demo && <Shot name={`elements/${element.name}`} width={element.demo.width} height={element.demo.height} alt="" />}
             <b>pencere.{element.name}</b>
             <p set:html={element.doc} />

@@ -8,6 +8,7 @@
 import { readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { html } from "./words.mjs";
 
 const site = join(dirname(fileURLToPath(import.meta.url)), "..");
 const repo = join(site, "..");
@@ -256,18 +257,4 @@ function summary(words) {
       .trim()
       .replace(/[.:]$/, "") + ".",
   );
-}
-
-// Words with `code` in them, as HTML.
-function html(words) {
-  const escape = (text) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  // A link of the Markdown is its words, outside the code: what holds them is a card, a link already.
-  return words
-    .split(/(`[^`]+`)/)
-    .map((part) =>
-      part.startsWith("`")
-        ? `<code>${escape(part.slice(1, -1))}</code>`
-        : escape(part.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")),
-    )
-    .join("");
 }

@@ -29,8 +29,9 @@ export function takeNotes(html) {
 
 /**
  * The html of a part of the document with each note said after its number, and the section of the
- * notes the part says (an empty text where it says none). A note of several paragraphs is one, said in
- * a line: a note is a sentence or two.
+ * notes the part says (an empty text where it says none). A note is one paragraph, said in a line: a
+ * note with a list, a block of code or a second paragraph is cut short here, and scripts/links.mjs
+ * stops the build for one.
  */
 export function placeNotes(html, notes) {
   const used = new Set();

@@ -1,4 +1,4 @@
-// Three rules about the kit's page API, which is a file for each topic (kit/spec) and an index of
+// Four rules about the kit's page API, which is a file for each topic (kit/spec) and an index of
 // them (kit/SPEC.md):
 //
 // 1. Every link into a topic goes to a file that is there and to a heading that is in it: a Markdown
@@ -11,7 +11,9 @@
 //    sections once, and a reference that kept the number goes to no place now. A comment of code
 //    or a sentence of a document names the topic's file (or links it).
 // 4. A note of a topic (a Markdown footnote, `[^name]`) is said once and has its words, and no two topics
-//    give the same name to a note: the topics are shown on one page too (src/lib/notes.js).
+//    give the same name to a note: the topics are shown on one page too (src/lib/notes.js). A name is the
+//    same name in any case, and a note is a paragraph: it is said in a line, so a list, a block of code
+//    or a second paragraph in it would be cut short.
 //
 // The functions are given the files (a map of path to text) and say what is wrong, so that a test
 // can give them a repository made up; scripts/check.mjs reads the real one.
@@ -31,14 +33,32 @@ export const slug = (text) =>
     .replace(/[^\p{L}\p{N}\p{M}\s_-]/gu, "")
     .replace(/ /g, "-");
 
+/**
+ * For each line of a text of Markdown, whether it is in a fenced block of code or is a fence: a fence
+ * is three or more backticks or tildes, and is closed by the same mark at least as long.
+ */
+export function fencedLines(lines) {
+  let open = null;
+  return lines.map((line) => {
+    const fence = line.match(/^\s*(`{3,}|~{3,})/)?.[1];
+    if (open === null) {
+      if (fence === undefined) return false;
+      open = fence;
+    } else if (fence !== undefined && fence[0] === open[0] && fence.length >= open.length) {
+      open = null;
+    }
+    return true;
+  });
+}
+
 /** The headings of a text of Markdown, outside blocks of code: { depth, text, id } (a repeated one is numbered, as the builder numbers it). */
 export function headings(markdown) {
   const seen = new Map();
-  let fenced = false;
+  const lines = markdown.split("\n");
+  const fenced = fencedLines(lines);
   const found = [];
-  for (const line of markdown.split("\n")) {
-    if (/^\s*```/.test(line)) fenced = !fenced;
-    const match = !fenced && line.match(/^(#{1,6})\s+(.*?)\s*#*\s*$/);
+  for (const [at, line] of lines.entries()) {
+    const match = !fenced[at] && line.match(/^(#{1,6})\s+(.*?)\s*#*\s*$/);
     if (!match) continue;
     const base = slug(match[2]);
     const times = seen.get(base) ?? 0;
@@ -188,43 +208,79 @@ export function numberProblems(files) {
 }
 
 const NOTE_LINE = /^\[\^([^\]]+)\]:/;
+// What starts a block that is no sentence: a list, a quote, a block of code.
+const BLOCK = /^(?:[-*+]|\d+[.)])\s|^>|^(?:`{3,}|~{3,})/;
+const INDENTED = /^(?: {4}|\t)/;
 
-/** What is wrong with the notes of the topics: one that is said and has no words, words that nothing says, a note said twice, a name two topics use. `files` is a map of path to text. */
+/**
+ * Whether the note that is defined at `lines[at]` holds more than a paragraph. A note is said in a line
+ * beside the text (src/lib/notes.js), and a list or a block of code or a second paragraph in it would be
+ * cut short or run together.
+ */
+function noteHoldsBlocks(lines, at) {
+  if (BLOCK.test(lines[at].replace(NOTE_LINE, "").trim())) return true;
+  for (let next = at + 1; next < lines.length; next++) {
+    const line = lines[next];
+    if (NOTE_LINE.test(line)) return false;
+    if (line.trim() === "") {
+      // A blank line, and then the note goes on indented: a paragraph of its own, or a block.
+      const after = lines.slice(next + 1).find((rest) => rest.trim() !== "");
+      return after !== undefined && INDENTED.test(after);
+    }
+    if (BLOCK.test(line.trim())) return INDENTED.test(line);
+  }
+  return false;
+}
+
+/** What is wrong with the notes of the topics: one that is said and has no words, words that nothing says, a note said twice, a name two topics use, a note that is more than a paragraph. `files` is a map of path to text. */
 export function noteProblems(files) {
   const found = [];
   const owner = new Map();
   for (const [path, text] of files) {
     if (!TOPIC.test(path)) continue;
+    // A label is the same label in any case, as GitHub reads it.
     const said = new Map();
     const given = new Set();
-    let fenced = false;
-    for (const line of text.split("\n")) {
-      if (/^\s*```/.test(line)) fenced = !fenced;
-      if (fenced) continue;
+    const spelt = new Map();
+    const lines = text.split("\n");
+    const fenced = fencedLines(lines);
+    for (const [at, line] of lines.entries()) {
+      if (fenced[at]) continue;
       const definition = line.match(NOTE_LINE);
       if (definition) {
-        given.add(definition[1]);
+        const key = definition[1].toLowerCase();
+        given.add(key);
+        spelt.set(key, spelt.get(key) ?? definition[1]);
+        if (noteHoldsBlocks(lines, at))
+          found.push(
+            `${path}:${at + 1}: the note [^${definition[1]}] holds a list, a block of code or more than one paragraph, and a note is said in a line`,
+          );
         continue;
       }
-      for (const [, name] of line.replace(/`[^`]*`/g, "").matchAll(/\[\^([^\]]+)\]/g))
-        said.set(name, (said.get(name) ?? 0) + 1);
+      for (const [, name] of line.replace(/`[^`]*`/g, "").matchAll(/\[\^([^\]]+)\]/g)) {
+        const key = name.toLowerCase();
+        said.set(key, (said.get(key) ?? 0) + 1);
+        spelt.set(key, spelt.get(key) ?? name);
+      }
     }
-    for (const [name, times] of said) {
-      if (!given.has(name))
+    for (const [key, times] of said) {
+      const name = spelt.get(key);
+      if (!given.has(key))
         found.push(
           `${path}: the note [^${name}] is said and has no words (a line \`[^${name}]: ...\`)`,
         );
       if (times > 1)
         found.push(`${path}: the note [^${name}] is said ${times} times: a note is said once`);
     }
-    for (const name of given) {
-      if (!said.has(name))
+    for (const key of given) {
+      const name = spelt.get(key);
+      if (!said.has(key))
         found.push(`${path}: the words of the note [^${name}] are given and nothing says it`);
-      if (owner.has(name) && owner.get(name) !== path)
+      if (owner.has(key) && owner.get(key) !== path)
         found.push(
-          `${path}: the note [^${name}] is also in ${owner.get(name)}: the topics are shown on one page, so each gives its notes names of its own`,
+          `${path}: the note [^${name}] is also in ${owner.get(key)}: the topics are shown on one page, so each gives its notes names of its own`,
         );
-      owner.set(name, path);
+      owner.set(key, path);
     }
   }
   return found;
