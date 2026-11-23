@@ -462,9 +462,8 @@ A draw colours at most 20 000 bytes of code and draws the rest plain.
 - One call reads at most 20 000 bytes (a line and a block cost besides their bytes).
   - The rest is read by a timer of its own (`pencere.time.after(0, …)`), a call a frame, each asking for a frame, while `doc:busy()`.
   - `doc:work()` does a call's work at once.
-  - Until it is done:
-    - `doc:tree()` is the document as far as it is read;
-    - `doc:reread()` is how many lines and blocks the last change was read in, so far.
+  - Until it is done, `doc:tree()` is the document as far as it is read.
+  - `doc:reread()` is how many lines and blocks the last change was read in, so far.
 - `doc:render(options)` is `markdown.render`'s element of it:
   - a block that is as it was, drawn with the same options, is the element it was;
   - code left plain for want of what a draw colours is coloured in the draws after, and a frame is asked for each.

@@ -60,10 +60,10 @@ What a page asks is:
 - `"stop_finding"` takes the marks away.
 - `{ command = "devtools" }` opens the host's tools for looking into the page.
   - Their key is the host's: a page that shows a command for them shows the host's key and binds none.
-- `{ command = "clear_cache" }` empties what the browser keeps to load pages faster:
-  - the files of every site it has been to, since the engine keeps them together;
-  - and the service workers and cache storage of the site it is at.
-  - The command loads nothing again, so that what the person is signed in with and what a page saved stay.
+- `{ command = "clear_cache" }` empties what the browser keeps to load pages faster, so that what the person is signed in with and what a page saved stay.
+  - The command empties the files of every site the browser has been to, since the engine keeps them together.
+  - The command empties the service workers and cache storage of the site the browser is at.
+  - The command loads nothing again.
 - `{ command = "clear_site_data" }` deletes what the sites of the name the browser is at keep, at every port (cookies, local storage, databases, service workers), so that the person is signed out of it.
   - A page that offers the command asks the person first.
   - The host does not say whether a profile is shared with other computers, so the page says no more than that the person is signed out of the site.
