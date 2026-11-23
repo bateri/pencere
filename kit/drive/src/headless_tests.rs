@@ -1939,6 +1939,19 @@ fn an_address_dropped_on_the_page_reaches_it_with_where_it_fell() -> Result<(), 
         "{:?}",
         page.words()
     );
+    // What a page may not open as a link is not told it: not a file, not a script, not a line with a
+    // space or a break in it.
+    for bad in [
+        "file:///etc/passwd",
+        "javascript:alert(1)",
+        "https://example.com/a b",
+        "https://example.com/\n",
+    ] {
+        page.drop_link("drop", bad)?;
+        assert!(!page.says("link file"), "{bad}");
+        assert!(!page.says("link javascript"), "{bad}");
+        assert!(page.says("link https://example.com/a?b=c true"), "{bad}");
+    }
     Ok(())
 }
 

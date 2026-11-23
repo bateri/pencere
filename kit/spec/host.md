@@ -99,7 +99,7 @@ A host:
   button pressed on the page is held (it does not tell a `leave` then), so that a drag that leaves the
   page and comes back, or ends outside it, is followed to its end;
 - tells the page the middle button, the keys that go up after it was told they went down, the
-  modifiers when they alone change, and the files dropped on the page from outside it;
+  modifiers when they alone change, the files dropped on the page from outside it, and the addresses dropped on it (`link_dropped`: only an `http` or `https` link of printable ASCII without a space, at most 8192 bytes, as a link of a reply is held to; any other is left and the page is not told);
 - says the time of day as its system does, with the person's offset from UTC (the interface's
   `system.wall-clock`, `Program::wall_clock`: the sandbox's own default reads the system's clock and
   knows no time zone, so a host that knows the person's says it), and how its system makes and

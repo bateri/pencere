@@ -9,7 +9,7 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 ### Added
 
 - **`carry` of a tab** in `@pencere/ui`: an item of `tabs` may say what dragging the tab out of the view hands to the host's system drag (`carry = { text =, url = }`, as `Element:carry`), as the tab of a browser hands its address.
-- **The event `link-dropped`** of the interface `pencere:view`: the person dropped an address on the page. A change of the interface is a new build of the interpreter.
+- **The event `link-dropped`** of the interface `pencere:view`: the person dropped an address on the page. A change of the interface is a new build of the interpreter. `Module::event` leaves an address that is not an `http` or `https` link a page may open.
 - **`clear_cache`, `clear_site_data` and `proceed` asks of a browser**, and `certificate` in the error of a
   browser's state (the interface `browser-ask-kind` and `browser-error`); the interpreter is rebuilt with them.
 - **The library's components are read as what they are**: a modal, a dialog (`alertdialog` where an action is
