@@ -1,149 +1,199 @@
 # The kit's library
 
-`require("@pencere/<name>")` is a module of the **kit's library**: Luau that the kit writes on this
-page API alone ([the topics of the page API](../SPEC.md), and nothing of the interpreter's besides), at the kit's
-version, for what every page would otherwise write again. A host that runs the kit's interpreter
-MUST give a script the library of its own kit's version; the kit's sandbox does
-(`pencere_sandbox::library`). A page needs nothing else to use it, and MAY write its own instead.
+`require("@pencere/<name>")` is a module of the **kit's library**: Luau that the kit writes on this page API alone ([the topics of the page API](../SPEC.md), and nothing of the interpreter's besides), at the kit's version, for what every page would otherwise write again.
 
-- The alias is `@pencere`, in any letter case, as Luau's aliases are. A module of the library
-  requires another with `@pencere/`, `./` or `@self/`, as the scripts of a bundle require one
-  another, and reaches no script of the bundle: a path past the library's root is an error. A
-  script of the bundle reaches the library through the alias alone, as no path of a bundle has an
-  `@` in it.
-- A module made of several files has the others as its parts (`@pencere/languages/sql`): a script of
-  the bundle cannot require them (`@pencere/languages` is the module, and the only name it has), only
-  the library's own modules can, and what they are may change with any version of the kit.
-- A name the library has nothing at is an error, raised at the line of the `require`, that says so
-  (`the kit's library has no module "x"`). A module runs once in a page, as a script of the bundle
-  does. An error at a line of it says the module and the line (`@pencere/syntax:12: …`); an error it
-  raises for what its caller gave it says the caller's line.
-- The modules do not count toward the size of a script ([What a host does for a kit view](host.md): 4 MiB). The kit holds them to
-  1 MiB together.
-- The kit's parts are in four layers: the host, the prelude, the library and the app
-  ([`README.md`](../README.md), "Where a part of the kit goes"). What a layer uses is below it: a
-  module of the library is what an app could have written on the page API, and requires no script
-  of an app; the prelude requires no module of the library.
+A host that runs the kit's interpreter MUST give a script the library of its own kit's version; the kit's sandbox does (`pencere_sandbox::library`). A page needs nothing else to use it, and MAY write its own instead.
+
+- The alias is `@pencere`, in any letter case, as Luau's aliases are.
+- A module of the library requires another with `@pencere/`, `./` or `@self/`, as the scripts of a bundle require one another, and reaches no script of the bundle: a path past the library's root is an error.
+- A script of the bundle reaches the library through the alias alone, as no path of a bundle has an `@` in it.
+- A module made of several files has the others as its parts (`@pencere/languages/sql`).
+  - A script of the bundle cannot require them (`@pencere/languages` is the module, and the only name it has); only the library's own modules can.
+  - What they are may change with any version of the kit.
+- A name the library has nothing at is an error, raised at the line of the `require`, that says so (`the kit's library has no module "x"`).
+- A module runs once in a page, as a script of the bundle does.
+- An error at a line of a module says the module and the line (`@pencere/syntax:12: …`). An error a module raises for what its caller gave it says the caller's line.
+- The modules do not count toward the size of a script ([What a host does for a kit view](host.md): 4 MiB). The kit holds them to 1 MiB together.
+- The kit's parts are in four layers: the host, the prelude, the library and the app ([`README.md`](../README.md), "Where a part of the kit goes").
+  - What a layer uses is below it:
+    - a module of the library is what an app could have written on the page API, and requires no script of an app;
+    - the prelude requires no module of the library.
 
 ## `@pencere/syntax`
 
-A language that colours an editor is the page's, and `@pencere/syntax` makes one the way
-CodeMirror's `StreamLanguage` does. `Syntax.define { name =, start =, token =, copy =, equal =,
-blank =, styles = }` (with `local Syntax = require("@pencere/syntax")`) reads a line a token at a
-time: `token(stream, state)` takes at least a character from the stream and says the name of its
-style, or nil, and the state carries what a line leaves open to the next (`start()` is the state
-before the first line; `copy` and `equal` copy and compare two, by default tables all the way down;
-`blank(state)` is told of a line with nothing on it). `styles` gives a name a look, a decoration's
-(`color`, `background`, `weight`, `italic`, `underline`, `strike`): a name may be several apart
-(`"keyword strong"`, the later's look over the earlier's), a dotted one falls back to what is before
-its last dot (`"string.special"` to `"string"`), and one no style says is not coloured. The stream is
-the line, its `\r` left out (`string`), and where it is (`pos`, and `start` where the token began,
-bytes from 1): `sol()`, `eol()`, `peek()` and `next()` (a character is a whole UTF-8 sequence),
-`eat(match)` and `eat_while(match)` (a character is itself, a longer string a Lua pattern the
-character matches, a function says yes or no), `eat_space()`, `skip_to_end()`, `skip_to(text)`,
-`backup(count)` (characters), `column()` and `indentation()` (a tab to its next stop),
-`match(pattern, consume, case_insensitive)` (a Lua pattern read where the stream is: the text matched
-or its captures, taken unless `consume` is false) and `current()`. A `token` that takes nothing fails
-the page, as any error of the language's does, in words that say the language's name and the line
-(`sql: line 12: …`). `language:tokens(text, state, tab_width)` is a line's tokens, `{ from =, to =,
-name = }` in bytes from 1 with the end not in the range ([Counting](counting.md)), so that
-`string.sub(text, from, to - 1)` is the token, for a text that is not in an editor (`state` the
-state before it, `start()`'s where nil; `tab_width` what a tab is to the stream's columns, 4), and `language:look(name)` the look its styles give a token's
-name (a copy; nil for none), found as the syntax finds it.
+A language that colours an editor is the page's, and `@pencere/syntax` makes one the way CodeMirror's `StreamLanguage` does.
 
-`Syntax.new(language, id, { layer =, step =, margin =, tab_width = })` colours the editor `id` with
-it. It keeps the state before every 32nd line of the document (a checkpoint) and before each line of
-the window it colours, and no other, so that what it holds grows with a document 32 lines at a time;
-a line whose state it does not keep is read from the checkpoint before it. It is given every event
-of the page (`syntax:handle(event)`): an `edit` makes it read again from the first line the change
-touched (from the checkpoint before it, where that line's state is not kept) until a line whose
-state is kept ends in the state it ended in before, a `viewport` says what to colour, and for those
-two it does a call's work at once; any other event (the pointer moving, a key) costs it nothing, what is
-left being its timer's. It colours the lines in view and `margin` lines on each side (as many as
-are in view) in the layer `layer` (`"syntax"`), a line again only where it or the
-state before it changed, and takes away what it coloured out of them. One call reads at most `step`
-bytes (20 000), the lines to colour first, and a line to its first 10 000 characters (the state
-after it is the state there), and it holds at most 10 000 decorations for the page, half of what a
-reply may hand the editors (a line that would take it past that waits for the next call). Where the
-lines in view are further on than a call reads to, they are coloured from the state the language
-starts in, and the calls after read on to them and colour again what that got wrong. What it asks
-of the editor goes in the page's reply (`syntax:reply(reply)`, its asks before the page's own; or
-`syntax:asks()`). While there is more to do (`syntax:busy()`) it goes on by itself, a call a frame:
-a timer of its own (`pencere.time.after(0, …)`) wakes the page, does the next call and hands what it
-found to the editor with the wake's reply, so that a large document is coloured to its end with no
-event of the person's (`syntax:work()` does a call at once, for a page that wants one).
-`syntax:close()` ends it for a page that colours the editor another way from then on (the language of
-the file changed): its timer is cut, `handle`, `work`, `reply` and `asks` do nothing after it, and it
-returns the list for the reply's `editor[id]` that takes away what it coloured (one ask that empties
-the layer; an empty list where it had coloured nothing, and from a second `close`). That list goes
-out in a reply before the colours of the syntax that takes its place, which has not seen the viewport
-the editor told and is given it (`syntax:handle(event)` with the last `viewport` event) before it
-colours anything.
+### Defining a language
+
+`Syntax.define { name =, start =, token =, copy =, equal =, blank =, styles = }` (with `local Syntax = require("@pencere/syntax")`) reads a line a token at a time:
+
+- `token(stream, state)` takes at least a character from the stream and says the name of its style, or nil.
+- The state carries what a line leaves open to the next:
+  - `start()` is the state before the first line;
+  - `copy` and `equal` copy and compare two states, by default tables all the way down;
+  - `blank(state)` is told of a line with nothing on it.
+
+### The styles of a language
+
+`styles` gives a name a look, a decoration's (`color`, `background`, `weight`, `italic`, `underline`, `strike`):
+
+- a name may be several apart (`"keyword strong"`, the later's look over the earlier's);
+- a dotted one falls back to what is before its last dot (`"string.special"` to `"string"`);
+- and one no style says is not coloured.
+
+### The stream
+
+The stream is the line, its `\r` left out (`string`), and where it is (`pos`, and `start` where the token began, bytes from 1). It has:
+
+- `sol()`, `eol()`, `peek()` and `next()` (a character is a whole UTF-8 sequence);
+- `eat(match)` and `eat_while(match)` (a character is itself, a longer string a Lua pattern the character matches, a function says yes or no);
+- `eat_space()`, `skip_to_end()`, `skip_to(text)`;
+- `backup(count)` (characters);
+- `column()` and `indentation()` (a tab to its next stop);
+- `match(pattern, consume, case_insensitive)` (a Lua pattern read where the stream is: the text matched or its captures, taken unless `consume` is false);
+- and `current()`.
+
+A `token` that takes nothing fails the page, as any error of the language's does, in words that say the language's name and the line (`sql: line 12: …`).
+
+### The tokens of a text
+
+- `language:tokens(text, state, tab_width)` is a line's tokens, `{ from =, to =, name = }` in bytes from 1 with the end not in the range ([Counting](counting.md)), so that `string.sub(text, from, to - 1)` is the token, for a text that is not in an editor.
+  - `state` is the state before the text, `start()`'s where nil.
+  - `tab_width` is what a tab is to the stream's columns, 4.
+- `language:look(name)` is the look its styles give a token's name (a copy; nil for none), found as the syntax finds it.
+
+### Colouring an editor
+
+`Syntax.new(language, id, { layer =, step =, margin =, tab_width = })` colours the editor `id` with the language.
+
+A syntax keeps the state before every 32nd line of the document (a checkpoint) and before each line of the window it colours, and no other, so that what it holds grows with a document 32 lines at a time. A line whose state it does not keep is read from the checkpoint before it.
+
+The syntax is given every event of the page (`syntax:handle(event)`):
+
+- an `edit` makes it read again from the first line the change touched (from the checkpoint before it, where that line's state is not kept) until a line whose state is kept ends in the state it ended in before;
+- a `viewport` says what to colour;
+- for those two it does a call's work at once;
+- any other event (the pointer moving, a key) costs it nothing, what is left being its timer's.
+
+The syntax colours the lines in view and `margin` lines on each side (as many as are in view) in the layer `layer` (`"syntax"`), a line again only where it or the state before it changed, and takes away what it coloured out of them.
+
+### What a call reads
+
+- One call reads at most `step` bytes (20 000), the lines to colour first, and a line to its first 10 000 characters (the state after it is the state there).
+- The syntax holds at most 10 000 decorations for the page, half of what a reply may hand the editors (a line that would take it past that waits for the next call).
+
+Where the lines in view are further on than a call reads to:
+
+- they are coloured from the state the language starts in;
+- and the calls after read on to them and colour again what that got wrong.
+
+### What it asks of the editor
+
+What a syntax asks of the editor goes in the page's reply (`syntax:reply(reply)`, its asks before the page's own; or `syntax:asks()`).
+
+While there is more to do (`syntax:busy()`) the syntax goes on by itself, a call a frame:
+
+- a timer of its own (`pencere.time.after(0, …)`) wakes the page;
+- the syntax does the next call;
+- and hands what it found to the editor with the wake's reply, so that a large document is coloured to its end with no event of the person's.
+
+`syntax:work()` does a call at once, for a page that wants one.
+
+### Ending a syntax
+
+`syntax:close()` ends the syntax for a page that colours the editor another way from then on (the language of the file changed):
+
+- its timer is cut;
+- `handle`, `work`, `reply` and `asks` do nothing after the close;
+- and it returns the list for the reply's `editor[id]` that takes away what it coloured (one ask that empties the layer; an empty list where it had coloured nothing, and from a second `close`).
+
+That list goes out in a reply before the colours of the syntax that takes its place. That syntax has not seen the viewport the editor told, and is given it (`syntax:handle(event)` with the last `viewport` event) before it colours anything.
 
 ## `@pencere/languages`
 
-The languages an editor reads are the page's, and `@pencere/languages` (with
-`local languages = require("@pencere/languages")`) knows the kit's as CodeMirror's
-`@codemirror/language-data` does: a **description** of each says what it is called and how a file in
-it is told, and costs nothing to keep; the **language** is built from one only when a page loads it.
-A description is a frozen table: `name`; `aliases`, its other names; `extensions`, what a file's name
-ends in after its last dot; `filenames`, whole names of files in it (`"Makefile"`, `".bashrc"`);
-`patterns`, Lua patterns a file's whole name in lower case is in it by (`"^dockerfile[%.%-]"`);
-`interpreters`, the programs a `#!` first line runs a script in it with, without their version
-(`"python"`); and `first_line`, a Lua pattern the first line of a file in it matches (`"^%s*<%?xml"`), or
-nil. Names, aliases, extensions and file names are matched in any letter case.
+The languages an editor reads are the page's, and `@pencere/languages` (with `local languages = require("@pencere/languages")`) knows the kit's as CodeMirror's `@codemirror/language-data` does.
 
-The kit's languages are C, C#, C++, CSS, Diff, Dockerfile, Go, HTML, INI, Java, JavaScript, JSON, JSX,
-Kotlin, Less, Lua, Makefile, Markdown, PHP, PostgreSQL, Python, Ruby, Rust, SCSS, Shell, SQL, SQLite,
-Swift, TOML, TSX, TypeScript, XML and YAML. None is plain text: that is the page's word for a file in
-none of them.
+A **description** of each says what it is called and how a file in it is told, and costs nothing to keep. The **language** is built from one only when a page loads it.
+
+### A description
+
+A description is a frozen table:
+
+- `name`;
+- `aliases`, its other names;
+- `extensions`, what a file's name ends in after its last dot;
+- `filenames`, whole names of files in it (`"Makefile"`, `".bashrc"`);
+- `patterns`, Lua patterns a file's whole name in lower case is in it by (`"^dockerfile[%.%-]"`);
+- `interpreters`, the programs a `#!` first line runs a script in it with, without their version (`"python"`);
+- and `first_line`, a Lua pattern the first line of a file in it matches (`"^%s*<%?xml"`), or nil.
+
+Names, aliases, extensions and file names are matched in any letter case.
+
+### The kit's languages
+
+The kit's languages are C, C#, C++, CSS, Diff, Dockerfile, Go, HTML, INI, Java, JavaScript, JSON, JSX, Kotlin, Less, Lua, Makefile, Markdown, PHP, PostgreSQL, Python, Ruby, Rust, SCSS, Shell, SQL, SQLite, Swift, TOML, TSX, TypeScript, XML and YAML. None is plain text: that is the page's word for a file in none of them.
+
+### Finding a language
 
 - `languages.list()` is every description, sorted by name in any case, a new list each call.
-- `languages.find(name)` is the description whose name or one of whose aliases is `name`, in any
-  case, or nil.
-- `languages.detect(path, first_line)` is the description of the file at `path` (its whole name,
-  after the last `/` or `\`; nil for a document with no name) whose first line is `first_line` (or
-  nil), by its whole name (`filenames`), then `patterns`, then its extension, then its first line:
-  the program of a `#!` line (the one `env` is given, past its options and settings; `python3.12` is
-  `python`), then `first_line`. It is nil where none of them says a language.
-- `languages.load(which)` is the language `which` says (a name or an alias in any case, or a
-  description), built the first time it is asked for and the same table after; nil for a name the
-  module does not know. `languages.loaded(which)` is the language where it has been built, nil
-  otherwise: for a page that would not build one in a call that is short of time.
-- An argument that is neither a name nor one of the module's descriptions is an error at the
-  caller's line.
+- `languages.find(name)` is the description whose name or one of whose aliases is `name`, in any case, or nil.
+- `languages.detect(path, first_line)` is the description of the file at `path` (its whole name, after the last `/` or `\`; nil for a document with no name) whose first line is `first_line` (or nil), by:
+  - its whole name (`filenames`);
+  - then `patterns`;
+  - then its extension;
+  - then its first line: the program of a `#!` line (the one `env` is given, past its options and settings; `python3.12` is `python`), then `first_line`.
+  - The result is nil where none of them says a language.
+- `languages.load(which)` is the language `which` says (a name or an alias in any case, or a description), built the first time it is asked for and the same table after; nil for a name the module does not know.
+- `languages.loaded(which)` is the language where it has been built, nil otherwise: for a page that would not build one in a call that is short of time.
+- An argument that is neither a name nor one of the module's descriptions is an error at the caller's line.
 
-A language is a frozen `{ name =, description =, syntax =, config = }`. `syntax` is a language of
-`@pencere/syntax`: `Syntax.new(language.syntax, id)` colours an editor with it, and
-`language.syntax:tokens(line, state)` a text that is not in one. `config` is what an editor is told
-of the language, in the editor's own options ([The editor](editor.md#an-editor-and-its-language)): `comment`, `indent` (in Rust's syntax),
-`folds` (`"indent"`), `pairs`, and `hard_tabs` and `tab_width` only where the language or its one
-formatter fixes how it indents (Go and the Makefile, tabs; Rust and Python, four spaces; YAML, two
-spaces and no tabs). A page gives `config` to an editor as it is (`pencere.editor(id,
-language.config)`), its own options in a copy (`table.clone(language.config)`); a page that gives the
-editor another `tab_width` gives `Syntax.new` the same.
+### A language
 
-Requiring the module builds no language: it reads its descriptions alone, and the module of readers a
-language is built with is required when it is first loaded. A language that holds another loads the other by
-name, through the module, when it first meets it: HTML its scripts and styles by the tag's `lang` or
-`type` (`lang="ts"`, `type="module"`, `type="text/css"`), a script read to the tag that closes it, on
-its own line too; Markdown the code in a fence, by the first word of the fence's info. A held language
-the module does not know is read as text. A reader takes at least a character a token and does work
-in proportion to the line, and where nothing is open at a line's end it leaves the empty state `{}`,
-which the lines after it share.
+A language is a frozen `{ name =, description =, syntax =, config = }`:
 
-SQL is three descriptions that share one reader. `PostgreSQL` and `SQLite` each read the characters
-the two databases read apart as its own does: `[` (a subscript or `ARRAY[…]` in PostgreSQL, a quoted
-name in SQLite), `?` (an operator of `jsonb` in PostgreSQL, a parameter in SQLite) and `@name`,
-`$name` (parameters of SQLite). `SQL`, for a file that does not say its database, reads the forms of
-both: a `[` right after a name or a bracket is a subscript and any other opens a name; `?|` and `?&`
-are operators and any other `?` is a parameter. Each of the three reads `--` and `/* */` comments
-(nested in PostgreSQL), strings in `'` over lines (`''` a quote in one), `E'…'` and `X'…'`,
-`$tag$…$tag$` (PostgreSQL's and SQL's), quoted names in `"` and in `` ` `` (SQLite's and SQL's),
-`$1` and `:name` parameters and `::` casts. `#` is no comment: PostgreSQL's `#>` is an operator.
+- `syntax` is a language of `@pencere/syntax`: `Syntax.new(language.syntax, id)` colours an editor with it, and `language.syntax:tokens(line, state)` a text that is not in one.
+- `config` is what an editor is told of the language, in the editor's own options ([The editor](editor.md#an-editor-and-its-language)):
+  - `comment`, `indent` (in Rust's syntax), `folds` (`"indent"`), `pairs`;
+  - and `hard_tabs` and `tab_width` only where the language or its one formatter fixes how it indents (Go and the Makefile, tabs; Rust and Python, four spaces; YAML, two spaces and no tabs).
 
-`languages.styles` is the one table of looks every language names its tokens from (a look is what
-`Syntax.define`'s styles say one is), frozen, in the theme's roles:
+A page gives `config` to an editor as it is (`pencere.editor(id, language.config)`), its own options in a copy (`table.clone(language.config)`). A page that gives the editor another `tab_width` gives `Syntax.new` the same.
+
+### Loading a language
+
+Requiring the module builds no language: it reads its descriptions alone, and the module of readers a language is built with is required when it is first loaded.
+
+A language that holds another loads the other by name, through the module, when it first meets it:
+
+- HTML loads its scripts and styles by the tag's `lang` or `type` (`lang="ts"`, `type="module"`, `type="text/css"`), a script being read to the tag that closes it, on its own line too;
+- Markdown loads the code in a fence, by the first word of the fence's info.
+
+A held language the module does not know is read as text.
+
+A reader takes at least a character a token and does work in proportion to the line. Where nothing is open at a line's end, a reader leaves the empty state `{}`, which the lines after it share.
+
+### SQL
+
+SQL is three descriptions that share one reader.
+
+- `PostgreSQL` and `SQLite` each read the characters the two databases read apart as its own does:
+  - `[` (a subscript or `ARRAY[…]` in PostgreSQL, a quoted name in SQLite);
+  - `?` (an operator of `jsonb` in PostgreSQL, a parameter in SQLite);
+  - and `@name`, `$name` (parameters of SQLite).
+- `SQL`, for a file that does not say its database, reads the forms of both:
+  - a `[` right after a name or a bracket is a subscript and any other opens a name;
+  - `?|` and `?&` are operators and any other `?` is a parameter.
+- Each of the three reads:
+  - `--` and `/* */` comments (nested in PostgreSQL);
+  - strings in `'` over lines (`''` a quote in one);
+  - `E'…'` and `X'…'`;
+  - `$tag$…$tag$` (PostgreSQL's and SQL's);
+  - quoted names in `"` and in `` ` `` (SQLite's and SQL's);
+  - `$1` and `:name` parameters and `::` casts.
+- `#` is no comment: PostgreSQL's `#>` is an operator.
+
+### The looks of the tokens
+
+`languages.styles` is the one table of looks every language names its tokens from (a look is what `Syntax.define`'s styles say one is), frozen, in the theme's roles:
 
 | Tokens                                                       | Look                             |
 | ------------------------------------------------------------ | -------------------------------- |
@@ -160,99 +210,147 @@ are operators and any other `?` is a parameter. Each of the three reads `--` and
 | `function`, `property`, `string.special`, `escape`, `regexp` | mixed from two roles             |
 | `emphasis`, `strong`, `strike`                               | the face's alone                 |
 
-`languages.look(name)` is the look a token named `name` has by `styles`, as `language:look` finds it
-([The kit's library](library.md#penceresyntax), `@pencere/syntax`), or nil: for a page that colours code that is not in an editor.
+`languages.look(name)` is the look a token named `name` has by `styles`, as `language:look` finds it ([The kit's library](library.md#penceresyntax), `@pencere/syntax`), or nil. It is for a page that colours code that is not in an editor.
 
 ## `@pencere/fuzzy`
 
-What a person types, found in texts the way a picker, a palette or a filter finds it
-(`local fuzzy = require("@pencere/fuzzy")`). A pattern is in a text where each of its characters is
-there, in order, with anything between them; a space in the pattern is not looked for. Of the ways
-it is there, the one that scores best is taken, as fzf's second algorithm scores it: a character
-scores more at the start of the text and of a word (after a space, after one of `/ \ : , ; |`, after
-any other character that is not a letter or a digit, a capital after a small letter, a digit after
-what is not one), a run more than the same characters apart, a gap costs, and a first character late
-in the text costs a point for each character before it, at most five.
+What a person types, found in texts the way a picker, a palette or a filter finds it (`local fuzzy = require("@pencere/fuzzy")`).
 
-- `fuzzy.match(pattern, text, options)` is the score and the places of the pattern's characters
-  (bytes from 1, in order, the byte each character starts at, as in [Counting](counting.md); a text that is not
-  UTF-8 a byte a character; a text matched in its first 64 KiB), or nil where it is not there; an empty pattern is in every text, with a score
-  of 0 and no places. `options.case` is `"smart"` (the default: a capital is told from its small
-  letter only where the pattern has a capital), `"ignore"` or `"respect"`; a letter is lowered by
-  Unicode's simple mapping for ASCII, Latin-1, Latin Extended-A, the letters in pairs of Latin
-  Extended-B and Latin Extended Additional, Greek, Cyrillic, Armenian and the full-width Latin
-  letters, and any other is compared as it is. With `options.path` the text is a path: a `/` and a
-  `\` are one character, a pattern with a `/` in it is matched against the whole path, and any other,
-  where it is in the path's last part (the name; a separator at the end left out), scores above any
-  match that is not. `options.highlight` says which places: `"best"` (the default), those that gave
-  the score, or `"first"`, where the pattern is first all there, from as late a first character as
-  that allows; the score is the same. A match whose table of scores would pass 32 768 places is
-  scored along the places `"first"` gives.
-- `fuzzy.filter(pattern, items, options)` is the items the pattern is in,
-  `{ { item =, index =, score =, positions = }, ... }`, a higher score first and of two the same the
-  earlier item; with an empty pattern every item in order. Its options are `match`'s and `text` (an
-  item's text where the items are not strings: a function of the item, or the name of its field; a
-  number is its digits) and `limit` (how many to keep at most: the best, kept as they are found). It
-  does all at once.
-- `fuzzy.search(pattern, items, options)` (the same options) goes through the items a list holds
-  when it is made a step at a time. `search:step(budget)` goes through at least one item, until what
-  it compared (bytes of text and places of the tables of scores) comes to `budget` (60 000 unless
-  said, some milliseconds), and says whether it is over; `search:results()` is the best so far, in
-  order (a list without a `limit` is sorted again as it grows: a long one is searched with a limit);
-  `search:progress()` how many items it went through and of how many; `search:done()` whether it goes
-  no further (it went through every item or was cancelled); `search:cancel()` stops it, keeping what
-  it found. `search:run(on_progress)` does a step at once and returns what `on_progress(search)`
-  returns for it (a reply, for the page to answer with), then goes on by itself, a step a frame: a
-  timer of its own (`pencere.time.after(0, …)`) wakes the page, does a step and tells `on_progress`,
-  whose reply is the wake's, until it is done or cancelled. `search:narrow(pattern)` is a search for
-  `pattern` in its place, with its items and options, and cancels it: where every text the new
-  pattern is in, the old one's is in as well (its characters in the new pattern's in order, told
-  apart in case no less), it goes only through what the old one found and the items it had not gone
-  through. An error a list's item gives (no text) is the caller's, at its line; in a step `run` goes
-  on with, the page's.
-- `fuzzy.spans(text, positions, look, from, to)` is the text as parts of a text of many looks
-  (`pencere.rich`): the characters at the places in `look`, what a `pencere.span` says (`color`,
-  `weight`, `italic`, `underline`, `strike`, `family`, `bg`, `link`;
-  `{ color = "accent", weight = 700 }` where none is given), the rest in the element's own look.
-  The places are bytes from 1, as `fuzzy.match` gives them; `from` and `to` (a range `[from, to)` of
-  bytes, `1` and `#text + 1` where left out) take a part of the text, the places counted in the
-  whole; places outside it are passed over, and one inside a character of a text in UTF-8, as an end
-  of the part is, an error at the caller's line. It makes at most 1 024 parts, the rest plain in the
-  last.
+### What matches
+
+A pattern is in a text where each of its characters is there, in order, with anything between them. A space in the pattern is not looked for.
+
+### How a match scores
+
+Of the ways a pattern is in a text, the one that scores best is taken, as fzf's second algorithm scores it:
+
+- a character scores more at the start of the text and of a word (after a space, after one of `/ \ : , ; |`, after any other character that is not a letter or a digit, a capital after a small letter, a digit after what is not one);
+- a run scores more than the same characters apart;
+- a gap costs;
+- and a first character late in the text costs a point for each character before it, at most five.
+
+### Matching one text
+
+`fuzzy.match(pattern, text, options)` is the score and the places of the pattern's characters, or nil where it is not there.
+
+- The places are bytes from 1, in order, the byte each character starts at, as in [Counting](counting.md); in a text that is not UTF-8 they are a byte a character.
+- A text is matched in its first 64 KiB.
+- An empty pattern is in every text, with a score of 0 and no places.
+- `options.case` is `"smart"` (the default: a capital is told from its small letter only where the pattern has a capital), `"ignore"` or `"respect"`.
+  - A letter is lowered by Unicode's simple mapping for ASCII, Latin-1, Latin Extended-A, the letters in pairs of Latin Extended-B and Latin Extended Additional, Greek, Cyrillic, Armenian and the full-width Latin letters, and any other is compared as it is.
+- With `options.path` the text is a path:
+  - a `/` and a `\` are one character;
+  - a pattern with a `/` in it is matched against the whole path;
+  - and any other pattern, where it is in the path's last part (the name; a separator at the end left out), scores above any match that is not.
+- `options.highlight` says which places (the score is the same):
+  - `"best"` (the default), those that gave the score;
+  - or `"first"`, where the pattern is first all there, from as late a first character as that allows.
+- A match whose table of scores would pass 32 768 places is scored along the places `"first"` gives.
+
+### Filtering a list
+
+`fuzzy.filter(pattern, items, options)` is the items the pattern is in, `{ { item =, index =, score =, positions = }, ... }`:
+
+- a higher score first, and of two the same the earlier item;
+- with an empty pattern every item in order.
+
+Its options are those of `match` and two of its own:
+
+- `text` (an item's text where the items are not strings: a function of the item, or the name of its field; a number is its digits);
+- and `limit` (how many to keep at most: the best, kept as they are found).
+
+The call does all at once.
+
+### Searching a step at a time
+
+`fuzzy.search(pattern, items, options)` (the same options) goes through the items a list holds when it is made a step at a time:
+
+- `search:step(budget)` goes through at least one item, until what it compared (bytes of text and places of the tables of scores) comes to `budget` (60 000 unless said, some milliseconds), and says whether it is over;
+- `search:results()` is the best so far, in order (a list without a `limit` is sorted again as it grows: a long one is searched with a limit);
+- `search:progress()` is how many items it went through and of how many;
+- `search:done()` is whether it goes no further (it went through every item or was cancelled);
+- `search:cancel()` stops it, keeping what it found;
+- `search:run(on_progress)` does a step at once and returns what `on_progress(search)` returns for it (a reply, for the page to answer with). It then goes on by itself, a step a frame: a timer of its own (`pencere.time.after(0, …)`) wakes the page, does a step and tells `on_progress`, whose reply is the wake's, until it is done or cancelled;
+- `search:narrow(pattern)` is a search for `pattern` in its place, with its items and options, and cancels it:
+  - where every text the new pattern is in, the old one's is in as well (its characters in the new pattern's in order, told apart in case no less), it goes only through what the old one found and the items it had not gone through.
+
+An error a list's item gives (no text) is the caller's, at its line; in a step `run` goes on with, the page's.
+
+### Marking the places
+
+`fuzzy.spans(text, positions, look, from, to)` is the text as parts of a text of many looks (`pencere.rich`):
+
+- the characters at the places in `look`, what a `pencere.span` says (`color`, `weight`, `italic`, `underline`, `strike`, `family`, `bg`, `link`; `{ color = "accent", weight = 700 }` where none is given);
+- the rest in the element's own look.
+
+The places are bytes from 1, as `fuzzy.match` gives them.
+
+`from` and `to` (a range `[from, to)` of bytes, `1` and `#text + 1` where left out) take a part of the text, the places counted in the whole:
+
+- places outside the part are passed over;
+- and one inside a character of a text in UTF-8, as an end of the part is, is an error at the caller's line.
+
+The call makes at most 1 024 parts, the rest plain in the last.
 
 ## `@pencere/keys`
 
-Keys as a page writes them (`"cmd+shift+k"`, [Commands and dragging](commands.md)), as a person reads them
-(`local keys = require("@pencere/keys")`).
+Keys as a page writes them (`"cmd+shift+k"`, [Commands and dragging](commands.md)), as a person reads them (`local keys = require("@pencere/keys")`).
 
-- `keys.parse(words)` is `pencere.keys(words)` with the key checked and named as a key event names
-  it (`"page_up"`, `"delete"`, `"enter"`, `"escape"`, `" "`, `"f1"` to `"f20"`, or one character, a letter
-  in its small form: `"CMD+Shift+K"` is the key `"k"`), or nil and why for words that are not keys.
-- `keys.caps(words, options)` is a cap for each key (`{ "⇧", "⌘", "K" }`), and
-  `keys.label(words, options)` the label: on a Mac the caps with nothing between (`"⇧⌘K"`), elsewhere
-  joined by `+` (`"Ctrl+Shift+K"`). `words` are words or what `keys.parse` made; words that are not
-  keys are an error at the caller's line. A Mac writes the modifiers in the order ⌃ ⌥ ⇧ ⌘ and the
-  arrows `↑ ↓ ← →`; the other keys that are not characters it writes as words, as any other platform
-  does (`Enter`, `Esc`, `Tab`, `Backspace`, `Delete`, `Space`, `Home`, `End`, `PageUp`, `PageDown`),
-  unless the page asks for their glyphs (`options.symbols`, below): `⇞ ⇟` (page up, down), `↖ ↘`
-  (home, end), `↩` (enter), `⎋` (escape), `⇥` (tab), `⌫` (backspace), `⌦` (delete), `␣` (space). Any
-  other platform writes `Ctrl`, `Alt`, `Shift`, `Super` (`Win` on Windows) in that order and `Up`,
-  `Down`, `Left`, `Right`, `PageUp`, `PageDown`, `Home`, `End`, `Enter`, `Esc`, `Tab`, `Backspace`,
-  `Delete`, `Space`. Both write a function key `F5` and a letter as a capital (ASCII,
-  Latin-1, Latin Extended-A, Greek and Cyrillic; another character as it is). `cmd` is the command
-  key, matched as it is and never as control: elsewhere than on a Mac it is the system's logo key,
-  `Super` (`Win` on Windows). `mod+…` is the host's main modifier ([Commands and dragging](commands.md)): `⌘` on a Mac, `Ctrl`
-  elsewhere.
-- `options.symbols` is whether a Mac writes the glyphs of the keys above (false where it is not given,
-  unless `keys.set_symbols(true)` said so for the page; `keys.symbols()` says which).
-- `options.platform` is `"mac"`, `"windows"`, `"linux"` or `"other"` (a platform a page does not name:
-  written as Linux is); where it is not given it is `keys.platform()`, which `keys.set_platform(name)`
-  sets for the page and which is the host's keyboard convention, `pencere.keyboard()` ([Commands and dragging](commands.md)),
-  or `"mac"` where the page API says none. Windows writes the command key `Win`, Linux and `"other"`
-  `Super`.
-- `keys.matches(event, words)` is whether a key event (`key` or `key_up`, or a table with no `type`)
-  is those keys: the same modifiers, no more and no fewer, and the same key, a character in either
-  case, as the host matches a command's keys; an event of another type is not.
+### Reading keys
+
+`keys.parse(words)` is `pencere.keys(words)` with the key checked and named as a key event names it (`"page_up"`, `"delete"`, `"enter"`, `"escape"`, `" "`, `"f1"` to `"f20"`, or one character, a letter in its small form: `"CMD+Shift+K"` is the key `"k"`), or nil and why for words that are not keys.
+
+### Caps and labels
+
+- `keys.caps(words, options)` is a cap for each key (`{ "⇧", "⌘", "K" }`).
+- `keys.label(words, options)` is the label: on a Mac the caps with nothing between (`"⇧⌘K"`), elsewhere joined by `+` (`"Ctrl+Shift+K"`).
+
+`words` are words or what `keys.parse` made; words that are not keys are an error at the caller's line.
+
+### On a Mac
+
+A Mac writes the modifiers in the order ⌃ ⌥ ⇧ ⌘ and the arrows `↑ ↓ ← →`.
+
+A Mac writes the other keys that are not characters as words, as any other platform does (`Enter`, `Esc`, `Tab`, `Backspace`, `Delete`, `Space`, `Home`, `End`, `PageUp`, `PageDown`), unless the page asks for their glyphs (`options.symbols`, below):
+
+- `⇞ ⇟` (page up, down);
+- `↖ ↘` (home, end);
+- `↩` (enter);
+- `⎋` (escape);
+- `⇥` (tab);
+- `⌫` (backspace);
+- `⌦` (delete);
+- `␣` (space).
+
+### On any other platform
+
+Any other platform writes `Ctrl`, `Alt`, `Shift`, `Super` (`Win` on Windows) in that order and `Up`, `Down`, `Left`, `Right`, `PageUp`, `PageDown`, `Home`, `End`, `Enter`, `Esc`, `Tab`, `Backspace`, `Delete`, `Space`.
+
+### Function keys and letters
+
+A Mac and any other platform both write a function key `F5` and a letter as a capital (ASCII, Latin-1, Latin Extended-A, Greek and Cyrillic; another character as it is).
+
+### The command key and the main modifier
+
+`cmd` is the command key, matched as it is and never as control: elsewhere than on a Mac it is the system's logo key, `Super` (`Win` on Windows).
+
+`mod+…` is the host's main modifier ([Commands and dragging](commands.md)): `⌘` on a Mac, `Ctrl` elsewhere.
+
+### The symbols and the platform
+
+- `options.symbols` is whether a Mac writes the glyphs of the keys above (false where it is not given, unless `keys.set_symbols(true)` said so for the page; `keys.symbols()` says which).
+- `options.platform` is `"mac"`, `"windows"`, `"linux"` or `"other"` (a platform a page does not name: written as Linux is).
+  - Where it is not given it is `keys.platform()`, which `keys.set_platform(name)` sets for the page and which is the host's keyboard convention, `pencere.keyboard()` ([Commands and dragging](commands.md)), or `"mac"` where the page API says none.
+  - Windows writes the command key `Win`, Linux and `"other"` `Super`.
+
+### Matching a key event
+
+`keys.matches(event, words)` is whether a key event (`key` or `key_up`, or a table with no `type`) is those keys:
+
+- the same modifiers, no more and no fewer;
+- and the same key, a character in either case, as the host matches a command's keys.
+
+An event of another type is not those keys.
 
 ## `@pencere/markdown`
 
