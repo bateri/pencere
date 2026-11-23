@@ -185,7 +185,7 @@ pub struct Previous {
     pub manifest: String,
 }
 
-/// A kind of path a program takes when it is started with one (specification Section 4.7).
+/// A kind of thing a program takes when it is started with one (specification Section 4.7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Opens {
     /// A file: `"file"`.
@@ -237,7 +237,7 @@ pub struct Manifest {
     pub files: BTreeMap<String, File>,
     /// The earlier releases a reader may fall back to.
     pub previous: Vec<Previous>,
-    /// The kinds of path the program takes when it is started with one, each once, in the order
+    /// The kinds of thing the program takes when it is started with one, each once, in the order
     /// the file lists them; empty when the file has no `opens`, and a value this version does not
     /// know is not in it.
     pub opens: Vec<Opens>,

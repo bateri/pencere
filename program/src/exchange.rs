@@ -134,9 +134,10 @@ impl Exchange {
         let value = take.value();
         let mut heard = false;
         for (id, feed) in &self.subscriptions {
-            if feed.topic() == TAKE_TOPIC {
+            if feed.topic() == TAKE_TOPIC
+                && Self::tell(toward, &payload_of(&Message::push(*id, value.clone())))
+            {
                 heard = true;
-                Self::tell(toward, &payload_of(&Message::push(*id, value.clone())));
             }
         }
         if !heard {

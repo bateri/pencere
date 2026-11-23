@@ -64,6 +64,8 @@ describe("what the host hands a program that runs for it", () => {
       '{"file":"/a","line":1.5}',
       '{"file":"/a","line":4294967296}',
       '{"file":""}',
+      '{"file":"notes.txt"}',
+      '{"folder":"../src"}',
       '{"file":"/a\\nb"}',
       '{"folder":"/a\\u007f"}',
       `{"file":"/${"a".repeat(4096)}"}`,

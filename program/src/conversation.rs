@@ -415,11 +415,12 @@ impl Conversation {
 
     /// The terminal hands the program `take` (specification §10.9), as it would write a `take`:
     /// pushed to the view's subscriptions of [`TAKE_TOPIC`](crate::TAKE_TOPIC). Whether the program
-    /// heard it: one of a kind it did not say it takes ([`Options::takes`]), and one that comes while
-    /// there is no view (it was closed, or the terminal is lent), is left.
+    /// heard it: one of a kind it did not say it takes ([`Options::takes`]), one the wire would not
+    /// carry ([`Take::is_valid`]), and one that comes while there is no view (it was closed, or the
+    /// terminal is lent), is left.
     pub fn hand_over(&mut self, take: &Take) -> bool {
         self.settle_lent();
-        if !self.up() || !self.options.takes.contains(&take.kind()) {
+        if !self.up() || !take.is_valid() || !self.options.takes.contains(&take.kind()) {
             return false;
         }
         let mut queue = Queue {

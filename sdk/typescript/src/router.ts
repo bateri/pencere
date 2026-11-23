@@ -419,12 +419,13 @@ export function createRouter(handlers: RouterHandlers, send: Send): Router {
 
     take(take) {
       if (!takes.has(takeKind(take))) return false;
-      if (takers.size === 0) {
+      // Heard where it was written; where it was not, it waits for the next subscription.
+      let heard = false;
+      for (const id of takers) heard = tell(pushPayload(id, take)) || heard;
+      if (!heard) {
         if (waiting.length === MOST_WAITING_TAKES) waiting.shift();
         waiting.push(take);
-        return true;
       }
-      for (const id of takers) tell(pushPayload(id, take));
       return true;
     },
 
