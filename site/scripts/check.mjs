@@ -19,7 +19,13 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PAGES, APART, HOME } from "../src/docs.js";
-import { indexProblems, linkProblems, noteProblems, numberProblems } from "./links.mjs";
+import {
+  indexProblems,
+  linkProblems,
+  noteProblems,
+  numberProblems,
+  tagProblems,
+} from "./links.mjs";
 import { regionProblems } from "./regions.mjs";
 
 const site = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -128,6 +134,7 @@ if (tracked) {
   wrong.push(...linkProblems(text));
   wrong.push(...numberProblems(text));
   wrong.push(...noteProblems(text));
+  wrong.push(...tagProblems(text));
   wrong.push(
     ...indexProblems(
       text.get("kit/SPEC.md") ?? "",

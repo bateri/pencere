@@ -5,6 +5,7 @@ import {
   indexProblems,
   linkProblems,
   noteProblems,
+  tagProblems,
   numberProblems,
   slug,
   topicsOf,
@@ -236,5 +237,19 @@ describe("the notes of the topics", () => {
     const wrapped =
       "# Motion\n\nA motion.[^style]\n\n[^style]: Words that\n    wrap, and wrap\nagain.\n\nAfter, and a list:\n\n- one\n- two\n";
     expect(noteProblems(files({ "kit/spec/motion.md": wrapped }))).toEqual([]);
+  });
+});
+
+describe("tagProblems", () => {
+  it("finds a tag written in a topic's words", () => {
+    const text = 'A slider said "<title> column width".\n';
+    expect(tagProblems(files({ "kit/spec/library.md": text }))).toEqual([
+      "kit/spec/library.md:1: <title> is written as HTML, and a page would take it as a tag: set it as code",
+    ]);
+  });
+  it("lets a tag be in code, a block of code or an address", () => {
+    const text =
+      'Said "`<title>` column width", ``a `<b>` c``, and <https://pencere.dev>.\n\n```html\n<title>x</title>\n```\n';
+    expect(tagProblems(files({ "kit/spec/library.md": text }))).toEqual([]);
   });
 });

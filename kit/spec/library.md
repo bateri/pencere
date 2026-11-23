@@ -593,8 +593,8 @@ A press that does not move one of them says nothing.
 
 - A `grid`'s row is read by the words of its cells (its number first, no column's title; "Row N, loading" where none is read yet). Each cell is also read apart from the row, in its column (`cell`, with the controls in it under it), so that a screen reader goes from cell to cell.
 - `row_label(row)` gives the words to say the row by where the page has better.
-- A `grid`'s edge is a `slider` said "<title> column width", with its width in points.
-- A `tree`'s arrow is a button said "Expand <name>" or "Collapse <name>".
+- A `grid`'s edge is a `slider` said "`<title>` column width", with its width in points.
+- A `tree`'s arrow is a button said "Expand `<name>`" or "Collapse `<name>`".
 
 ### Icons and labels
 

@@ -233,6 +233,29 @@ function noteHoldsBlocks(lines, at) {
 }
 
 /** What is wrong with the notes of the topics: one that is said and has no words, words that nothing says, a note said twice, a name two topics use, a note that is more than a paragraph. `files` is a map of path to text. */
+/**
+ * A tag of HTML written in the words of a topic, out of code (`"<title> column width"`): a page shows
+ * it as HTML, and a browser takes `<title>` as the page's own title, swallowing all that follows it. A
+ * name in angle brackets is set as code (`` `<title>` ``). An address in them (`<https://…>`) is a link.
+ */
+export function tagProblems(files) {
+  const found = [];
+  for (const [path, text] of files) {
+    if (!TOPIC.test(path) && !/^spec\/draft\/[^/]+\.md$/.test(path)) continue;
+    const lines = text.split("\n");
+    const fenced = fencedLines(lines);
+    for (const [at, line] of lines.entries()) {
+      if (fenced[at]) continue;
+      const words = line.replace(/(`+)[\s\S]*?\1/g, "");
+      for (const [tag] of words.matchAll(/<\/?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?>/g))
+        found.push(
+          `${path}:${at + 1}: ${tag} is written as HTML, and a page would take it as a tag: set it as code`,
+        );
+    }
+  }
+  return found;
+}
+
 export function noteProblems(files) {
   const found = [];
   const owner = new Map();
