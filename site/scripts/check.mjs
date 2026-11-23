@@ -10,13 +10,17 @@
 // 3. The kit's page API, a file for each topic: every link into one goes to a file and a heading
 //    that are there, the index of them holds no rule, and nothing names the document by a number of
 //    its old sections (scripts/links.mjs).
+// 4. A topic that shows the code of an example (`code` in src/docs.js) shows what the example marks
+//    as its parts, each under the heading of its name: the file is there, a part has a heading, and
+//    its marks are in order (scripts/regions.mjs).
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PAGES, APART, HOME } from "../src/docs.js";
-import { indexProblems, linkProblems, numberProblems } from "./links.mjs";
+import { indexProblems, linkProblems, noteProblems, numberProblems } from "./links.mjs";
+import { regionProblems } from "./regions.mjs";
 
 const site = join(dirname(fileURLToPath(import.meta.url)), "..");
 const repo = join(site, "..");
@@ -123,12 +127,34 @@ if (tracked) {
   );
   wrong.push(...linkProblems(text));
   wrong.push(...numberProblems(text));
+  wrong.push(...noteProblems(text));
   wrong.push(
     ...indexProblems(
       text.get("kit/SPEC.md") ?? "",
       tracked.filter((file) => /^kit\/spec\/[a-z0-9-]+\.md$/.test(file)),
     ),
   );
+}
+
+// --- 4. The code of an example beside a topic -------------------------------------------------
+
+if (tracked) {
+  for (const page of PAGES.filter((entry) => entry.code)) {
+    if (!tracked.includes(page.code) || !existsSync(join(repo, page.code))) {
+      wrong.push(
+        `${page.path}: src/docs.js shows the code of ${page.code}, and the repository has no such file`,
+      );
+      continue;
+    }
+    wrong.push(
+      ...regionProblems(
+        page.code,
+        readFileSync(join(repo, page.code), "utf8"),
+        readFileSync(join(repo, page.source), "utf8"),
+        page.source,
+      ),
+    );
+  }
 }
 
 if (wrong.length > 0) {

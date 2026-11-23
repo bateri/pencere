@@ -30,6 +30,8 @@
 //   alone     the page stands outside the menus, with the list of its own sections beside it
 //   note      what else is said of the file at the page's end
 //   whole     a link, `[words, address]`, to the same text on one page, after the document
+//   code      a file of an example whose marked parts (`-- #region Name`) the page shows, each under
+//             the heading of its name (scripts/regions.mjs)
 //   own       a file of src/pages makes the page: it shows the document with what else the page has
 //   also      the other menus the page is in, each `{ area, group }`
 export const PAGES = [
@@ -169,6 +171,7 @@ export const PAGES = [
     area: "apps",
     group: "Behaviour",
     source: "kit/spec/motion.md",
+    code: "examples/motion-lua/src/view/page.lua",
     title: "Motion: the pencere kit",
     description: "How a change of an element moves instead of jumping.",
   },

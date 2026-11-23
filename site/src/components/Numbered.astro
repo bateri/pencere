@@ -11,9 +11,15 @@
 //
 // A link to another file of the repository goes where that file is: to its page of the site when it
 // has one (src/docs.js), and to the repository otherwise.
+//
+// A footnote is a note of the page (src/lib/notes.js). A heading that has a part of an example of its
+// name (`regions`, scripts/regions.mjs) is followed, after what its section says of its own and before
+// the next heading, by that code.
 import { posix } from "node:path";
 import { REPO } from "../lib/code.js";
 import { router } from "../lib/documents.js";
+import { placeNotes, takeNotes } from "../lib/notes.js";
+import CodeBlock from "./CodeBlock.astro";
 
 interface Props {
   /** The document's file in the repository ("cli/README.md"), and the address of the page it is shown on. */
@@ -25,8 +31,11 @@ interface Props {
   opening?: boolean;
   /** Leave out the document's own title (a page that has its own). */
   untitled?: boolean;
+  /** The parts of an example to show, by the name of the heading each stands under, and the file they are of. */
+  regions?: Map<string, string>;
+  example?: string;
 }
-const { source, path, keep, opening = true, untitled = false } = Astro.props;
+const { source, path, keep, opening = true, untitled = false, regions, example } = Astro.props;
 const at = posix.dirname(source) === "." ? "" : posix.dirname(source);
 const BLOB = `${REPO}/blob/main/`;
 // A link to a file of the repository goes to the page that shows it, and a link to a heading to
@@ -35,7 +44,8 @@ const BLOB = `${REPO}/blob/main/`;
 const page = await router();
 const here = `/${path}`;
 const where = (href: string) => {
-  if (href.startsWith("mailto:")) return href;
+  // A note's number and its link back (src/lib/notes.js) go to the note on the page, whichever page it is.
+  if (href.startsWith("mailto:") || href.startsWith("#user-content-fn")) return href;
   let file: string;
   if (href.startsWith("#")) file = source + href;
   else if (href.startsWith(BLOB)) file = href.slice(BLOB.length);
@@ -51,9 +61,9 @@ const where = (href: string) => {
 // A page may be a part of a document: some of its sections, in the document's order. A section
 // that is asked for and is not in the document stops the build, so that a page cannot go on
 // showing less than it says when the document's headings change.
-const whole = await Astro.slots.render("default");
+const { html: bare, notes } = takeNotes(await Astro.slots.render("default"));
 const part = () => {
-  const [before, ...sections] = whole.split(/(?=<h2[ >])/);
+  const [before, ...sections] = bare.split(/(?=<h2[ >])/);
   const found = new Set<string>();
   const kept = sections.filter((section) => {
     const id = section.match(/^<h2 id="([^"]*)"/)?.[1] ?? "";
@@ -64,7 +74,8 @@ const part = () => {
   if (missing.length) throw new Error(`${source} has no section ${missing.join(", ")}.`);
   return (opening ? before : "") + kept.join("");
 };
-const html = (keep ? part() : whole).replace(untitled ? /<h1[ >][\s\S]*?<\/h1>\s*/ : /(?!)/, "");
+const shown = (keep ? part() : bare).replace(untitled ? /<h1[ >][\s\S]*?<\/h1>\s*/ : /(?!)/, "");
+const { html, end } = placeNotes(shown, notes);
 const picture = (d: string, name: string) =>
   `<svg class="anchor__${name}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
 const CHAIN = "M6.9 9.1a2.9 2.9 0 0 0 4.1 0l2.2-2.2a2.9 2.9 0 0 0-4.1-4.1l-.9.9M9.1 6.9a2.9 2.9 0 0 0-4.1 0L2.8 9.1a2.9 2.9 0 0 0 4.1 4.1l.9-.9";
@@ -74,11 +85,32 @@ const numbered = html
     /<(h[2-4])( id="[^"]*")?>(Appendix [A-Z]|\d+(?:\.\d+)*)(\.?)\s+/g,
     (_, tag, id = "", number, dot) => `<${tag}${id}><span class="num">${number}${dot ? `<span class="num__dot">${dot}</span>` : ""}</span> `,
   )
+  // A short name set as code is not broken over two lines (the styles of spec.css); a long one is.
+  .replace(/<code>([^<]{1,32})<\/code>/g, '<code class="code--short">$1</code>')
   .replace(/<a href="([^"]*)"/g, (_, href) => `<a href="${where(href)}"`)
   .replace(
     /<(h[2-4]) id="([^"]*)">([\s\S]*?)<\/\1>/g,
     (_, tag, id, inside) =>
       `<${tag} id="${id}">${inside}<a class="anchor" href="#${id}" aria-label="Copy a link to this section">${picture(CHAIN, "chain")}${picture(TICK, "tick")}</a></${tag}>`,
   );
+// What a section says of its own ends at the next heading: the page is cut there, and the code of a
+// part of an example whose name is the heading's goes in the cut. A heading with a part that the page
+// has no heading for is stopped by scripts/check.mjs, so that none is left out unseen.
+const title = (chunk: string) =>
+  chunk
+    .match(/^<h[2-4] id="[^"]*">([\s\S]*?)<a class="anchor"/)?.[1]
+    .replace(/<[^>]*>/g, "")
+    .trim();
+const used = new Set<string>();
+const chunks = numbered.split(/(?=<h[2-4][ >])/).map((chunk) => {
+  const name = regions && title(chunk);
+  if (name && regions!.has(name)) used.add(name);
+  return { chunk, code: name ? regions!.get(name) : undefined };
+});
+// The file is named over the first of the page's codes only: it is the same file under each heading.
+const firstCode = chunks.findIndex(({ code }) => code !== undefined);
+const left = [...(regions?.keys() ?? [])].filter((name) => !used.has(name));
+if (left.length && !keep) throw new Error(`${path}: ${example} has parts that no heading of the page names: ${left.join(", ")}.`);
 ---
-<Fragment set:html={numbered} />
+{chunks.map(({ chunk, code }, index) => <><Fragment set:html={chunk} />{code !== undefined && <CodeBlock code={code} name={index === firstCode ? example : undefined} />}</>)}
+<Fragment set:html={end} />
