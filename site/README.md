@@ -14,7 +14,8 @@ npm run build      # dist/, after the site and the repository are checked agains
 
 The search is [Pagefind](https://pagefind.app): `npm run build` makes its index from `dist/`
 (`dist/pagefind/`), so the search finds nothing in `npm run dev`, which has no index. A page is
-left out of it with `index={false}` on its layout; `/kit/spec/all` is, since every hit would show twice.
+left out of it with `index={false}` on its layout: `/kit/spec/all` is, since every hit would show twice,
+and so are the 404 page and the home page (it has no `data-pagefind-body`).
 
 A push to `main` builds and deploys it (Cloudflare's own build, with this directory as its root;
 `wrangler.jsonc`), and the `site` workflow builds it on every push and pull request.

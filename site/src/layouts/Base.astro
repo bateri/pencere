@@ -20,8 +20,10 @@ interface Props {
   path?: string;
   /** Whether the search finds this page (the one that shows every topic again does not). */
   index?: boolean;
+  /** A page for those who write an app: search puts these before the pages for those who write a terminal. */
+  apps?: boolean;
 }
-const { title, description, path = "", index = true } = Astro.props;
+const { title, description, path = "", index = true, apps = false } = Astro.props;
 ---
 <!doctype html>
 <html lang="en">
@@ -37,7 +39,8 @@ const { title, description, path = "", index = true } = Astro.props;
   <body class="inner">
     <a class="skip" href="#main">Skip to the content</a>
     <SiteNav path={path} column />
-    <main id="main" data-pagefind-body={index ? "" : undefined}>
+    <!-- The weight is a score's, which adds up slowly: it takes 4 to turn a close one. -->
+    <main id="main" data-pagefind-body={index ? "" : undefined} data-pagefind-weight={apps ? "4" : undefined}>
       <slot />
     </main>
     <SiteFoot />

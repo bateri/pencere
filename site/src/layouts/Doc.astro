@@ -58,7 +58,7 @@ const numbered = sections.some((section) => section.number);
 // A document of one section has nothing to list beside it.
 const listed = sections.length > 1;
 ---
-<Base title={title} description={description} path={path} index={page.index}>
+<Base title={title} description={description} path={path} index={page.index} apps={page.area === "apps"}>
   <div class="wrap kit kit--spec">
     <aside data-pagefind-ignore class:list={["side", "spec__side", { "spec__side--alone": !docs }]} aria-label={docs ? "Documentation, and the sections of this page" : "Sections"}>
       {docs && <DocsMenu path={path} />}
@@ -96,11 +96,11 @@ const listed = sections.length > 1;
         </ol>
       </div>
     </aside>
-    <!-- Search names a page as the menu does, and puts the pages for those who write an app before those for who write a terminal (its scores add up slowly: it takes a weight of 4 to turn a close one). -->
-    <article class:list={["doc", "spec", { "spec--titled": heading }]} data-pagefind-meta={`title:${name}`} data-pagefind-weight={page.area === "apps" ? "4" : undefined}>
+    <!-- Search names a page as the menu does (read from an attribute: a name may hold a comma), and
+         says which heading is the document's own title. -->
+    <article class:list={["doc", "spec", { "spec--titled": heading }]} data-pagefind-meta="title[data-title], top[data-top]" data-title={name} data-top={top?.slug ?? ""}>
       {crumbs.length > 0 && <p class="crumbs">{crumbs.map(([words, address], i) => <>{i > 0 && " / "}<a href={address}>{words}</a></>)}</p>}
       {heading && <h1>{heading}</h1>}
-      <span hidden data-pagefind-meta="top[data-top]" data-top={top?.slug ?? ""}></span>
       <Numbered source={source} path={path} keep={only} opening={opening}><slot /></Numbered>
       {whole && <p class="spec__whole"><a href={whole[1]}>{whole[0]}</a></p>}
       <p class="spec__said" role="status" aria-live="polite"></p>

@@ -50,20 +50,25 @@ import "../styles/search.css";
   if (sheet && input && hits && said) {
     // How many pages are shown; each with the section of it that fits best.
     const SHOWN = 8;
-    type Section = { title: string; url: string; excerpt: string };
+    type Section = { title: string; url: string; excerpt: string; locations: number[] };
     type Page = { url: string; meta: { title?: string; top?: string }; excerpt: string; sub_results: Section[] };
     type Pagefind = {
       debouncedSearch: (query: string, options?: object, wait?: number) => Promise<{ results: { data: () => Promise<Page> }[] } | null>;
     };
 
     // The index is read the first time it is wanted (the control is pointed at, or the sheet opens).
-    // Where there is none (a page that is watched, not built) the sheet says so.
+    // A failed read is not kept: the next search reads it again, so one lost request is not the
+    // answer until the page is loaded anew. Where there is none (a page that is watched, not built)
+    // the sheet says so.
     let index: Promise<Pagefind | null> | undefined;
     const load = () => {
       const from = "/pagefind/pagefind.js";
       index ??= import(/* @vite-ignore */ from).then(
         (found) => found as Pagefind,
-        () => null,
+        () => {
+          index = undefined;
+          return null;
+        },
       );
       return index;
     };
@@ -111,10 +116,13 @@ import "../styles/search.css";
     // A page's title is "Motion: the pencere kit"; the list says "Motion".
     const name = (title = "") => title.replace(/:\s*the pencere kit$/i, "").replace(/:\s*pencere$/i, "");
 
-    const show = (pages: Page[], query: string) => {
+    const show = (pages: Page[], query: string, total: number) => {
       clear();
       pages.forEach((page, i) => {
-        const section = page.sub_results.find((s) => s.url.includes("#")) ?? page.sub_results[0];
+        // The section that says the most of what was asked (the most places it matched), and of those
+        // one that has an address of its own: Pagefind lists a page's sections in the page's order.
+        const sections = [...page.sub_results].sort((a, b) => b.locations.length - a.locations.length);
+        const section = sections.find((s) => s.url.includes("#")) ?? sections[0];
         const link = document.createElement("a");
         link.id = `search-hit-${i}`;
         link.setAttribute("role", "option");
@@ -149,7 +157,15 @@ import "../styles/search.css";
       });
       input.setAttribute("aria-expanded", String(pages.length > 0));
       if (pages.length) choose(0, false);
-      say(pages.length ? `${pages.length === 1 ? "1 page" : `${pages.length} pages`} found` : `Nothing found for “${query}”`);
+      say(
+        !pages.length
+          ? `Nothing found for “${query}”`
+          : total > pages.length
+            ? `${pages.length} of ${total} pages found`
+            : pages.length === 1
+              ? "1 page found"
+              : `${pages.length} pages found`,
+      );
     };
 
     const run = async () => {
@@ -164,14 +180,20 @@ import "../styles/search.css";
       if (mine !== asked) return;
       if (!found) {
         clear();
-        say("Search needs the built site: there is no index here.");
+        say("The search index did not load. It is made when the site is built, so a watched site has none; otherwise try again.");
         return;
       }
-      const result = await found.debouncedSearch(query, {}, 100);
-      if (!result || mine !== asked) return;
-      const pages = await Promise.all(result.results.slice(0, SHOWN).map((one) => one.data()));
-      if (mine !== asked) return;
-      show(pages, query);
+      try {
+        const result = await found.debouncedSearch(query, {}, 100);
+        if (!result || mine !== asked) return;
+        const pages = await Promise.all(result.results.slice(0, SHOWN).map((one) => one.data()));
+        if (mine !== asked) return;
+        show(pages, query, result.results.length);
+      } catch {
+        if (mine !== asked) return;
+        clear();
+        say("The search failed. Try again.");
+      }
     };
 
     const open = () => {
@@ -179,7 +201,8 @@ import "../styles/search.css";
       sheet.showModal();
       input.select();
       void load();
-      if (!input.value.trim()) say("Type to search the documentation.");
+      // What was asked before is asked again: a closing leaves no list, and the index may have changed.
+      void run();
     };
     const close = () => sheet.close();
 
@@ -187,24 +210,41 @@ import "../styles/search.css";
     opener?.addEventListener("pointerenter", () => void load(), { once: true });
     opener?.addEventListener("focus", () => void load(), { once: true });
     sheet.querySelector(".sr__close")?.addEventListener("click", close);
-    // A press on the dimmed page, outside the sheet, closes it.
+    // A press and its release both on the dimmed page, outside the sheet, close it: closing at the
+    // press would let the release (a touch's tap) fall on what lay behind.
+    let pressed = false;
     sheet.addEventListener("pointerdown", (event) => {
-      if (event.target === sheet) close();
+      pressed = event.target === sheet;
+    });
+    sheet.addEventListener("click", (event) => {
+      if (pressed && event.target === sheet) close();
+      pressed = false;
     });
     // A link of the list is followed as any link is; the sheet is put away first, so that a link to
-    // a place on this very page is not left under it.
-    hits.addEventListener("click", () => close());
+    // a place on this very page is not left under it. A link that is opened in another tab (⌘, Ctrl
+    // or Shift held) leaves the sheet where it is.
+    hits.addEventListener("click", (event) => {
+      if (!(event.metaKey || event.ctrlKey || event.shiftKey)) close();
+    });
     input.addEventListener("input", () => void run());
     input.addEventListener("keydown", (event) => {
       if (event.isComposing) return;
       if (event.key === "ArrowDown") choose(active + 1);
       else if (event.key === "ArrowUp") choose(active - 1);
-      else if (event.key === "Enter") links()[active]?.click();
+      else if (event.key === "Enter") {
+        const link = links()[active];
+        if (!link) return;
+        // With ⌘, Ctrl or Shift the link opens in another tab, as it would by a click, and the sheet stays.
+        if (event.metaKey || event.ctrlKey || event.shiftKey) window.open(link.href, "_blank", "noopener");
+        else link.click();
+      }
       else return;
       event.preventDefault();
     });
+    // A closing drops a search that is half done, and the list: opened again, the sheet asks again.
     sheet.addEventListener("close", () => {
       asked++;
+      clear();
     });
 
     // The keys that open it: ⌘K and Ctrl K from anywhere, "/" where nothing takes the letter.

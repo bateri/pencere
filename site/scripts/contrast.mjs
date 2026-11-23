@@ -116,9 +116,19 @@ try {
 
   // [text token, ground tokens, minimum, what it is]; a translucent ground lies on the page's.
   const checks = [
-    ["ink", ["ground", "sheet", "wash", "hit"], 4.5, "headings, body, what a search found"],
-    ["soft", ["ground", "sheet", "wash"], 4.5, "lead text, secondary"],
-    ["muted", ["ground", "sheet", "wash"], 4.5, "captions, links of the menu, kbd, search words"],
+    [
+      "ink",
+      ["ground", "sheet", "wash", "hit@sheet", "wash-tab@sheet", "hit@wash-tab@sheet"],
+      4.5,
+      "headings, body, what a search found (on the sheet, and in the row that is chosen)",
+    ],
+    ["soft", ["ground", "sheet", "wash", "wash-tab@sheet"], 4.5, "lead text, secondary"],
+    [
+      "muted",
+      ["ground", "sheet", "wash", "wash@sheet", "wash-tab@sheet"],
+      4.5,
+      "captions, links of the menu, kbd, search words",
+    ],
     ["warm", ["ground", "sheet"], 4.5, "warm accent as text"],
     ["code-foreground", ["ground", "sheet", "wash"], 4.5, "code"],
     ["code-token-comment", ["ground", "sheet", "wash"], 4.5, "code comment"],
@@ -152,7 +162,11 @@ try {
     const page = token("ground", theme).rgb;
     for (const [fg, grounds, min, what] of checks) {
       for (const g of grounds) {
-        const base = over(token(g, theme), page);
+        // A ground may be several, "top@under@...": each is laid over the next, and the last over the page.
+        const base = g
+          .split("@")
+          .reverse()
+          .reduce((under, name) => over(token(name, theme), under), page);
         const r = ratio(over(token(fg, theme), base), base);
         const ok = r >= min;
         if (!ok) bad++;
