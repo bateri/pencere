@@ -246,7 +246,7 @@
   line-height: 1.6;
   overflow-x: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgb(243 243 241 / 0.2) transparent;
+  scrollbar-color: var(--scroll) transparent;
 }
 .spec pre code {
   padding: 0;
@@ -265,7 +265,7 @@
   font-size: 15px;
   line-height: 1.5;
   scrollbar-width: thin;
-  scrollbar-color: rgb(243 243 241 / 0.2) transparent;
+  scrollbar-color: var(--scroll) transparent;
 }
 .spec th,
 .spec td {
@@ -456,7 +456,7 @@
 }
 
 /* Under the kit's menu the list of sections has a heading of its own, set apart from the menu. */
-.side > ul + .spec__name {
+.side__docs + .spec__name {
   margin-top: 22px;
   padding-top: 22px;
   border-top: 1px solid var(--rule);

@@ -1,6 +1,6 @@
 ---
 // Shows the pictures of the part `for` names in a dark terminal's colours or a light one's: the kit
-// draws a page in the theme of the terminal it is in. It starts dark, as the site is.
+// draws a page in the theme of the terminal it is in. It starts in the site's theme, and goes back to it when the site's theme changes.
 interface Props {
   for: string;
 }
@@ -18,7 +18,19 @@ const { for: target } = Astro.props;
       target?.setAttribute("data-shots", value);
       for (const button of buttons) button.setAttribute("aria-pressed", String(button.dataset.value === value));
     };
-    show("dark");
-    for (const button of buttons) button.addEventListener("click", () => show(button.dataset.value ?? "dark"));
+    // The pictures are in the page's theme until a button is pressed; they are again when the page's changes.
+    const site = () => (document.documentElement.getAttribute("data-theme") ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+    let last = site();
+    show(last);
+    for (const button of buttons) button.addEventListener("click", () => show(button.dataset.value ?? site()));
+    // The reader's choice stands until the site's theme itself changes: a system that changes its
+    // setting while the site's is chosen does not change it.
+    const follow = () => {
+      if (site() === last) return;
+      last = site();
+      show(last);
+    };
+    window.addEventListener("themechange", follow);
+    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", follow);
   }
 </script>
