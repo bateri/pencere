@@ -13,7 +13,7 @@
     "colours": "node scripts/colours.mjs",
     "contrast": "node scripts/contrast.mjs",
     "dev": "node scripts/catalog.mjs && node scripts/check.mjs && astro dev",
-    "build": "node scripts/catalog.mjs && node scripts/check.mjs && node scripts/colours.mjs && node scripts/contrast.mjs && astro build && node scripts/repeats.mjs && pagefind --site dist",
+    "build": "node scripts/catalog.mjs && node scripts/check.mjs && node scripts/colours.mjs && node scripts/contrast.mjs && astro build && node scripts/repeats.mjs && node scripts/ids.mjs && pagefind --site dist",
     "preview": "astro preview"
   },
   "dependencies": {
