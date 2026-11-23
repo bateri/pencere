@@ -32,6 +32,11 @@
 //   whole     a link, `[words, address]`, to the same text on one page, after the document
 //   code      a file of an example whose marked parts (`-- #region Name`) the page shows, each under
 //             the heading of its name (scripts/regions.mjs)
+//   element   the element of the kit this page is where to read of (a name of the constructors' table
+//             of kit/spec/elements.md): the card of the elements' overview leads here, and the page
+//             shows the element's picture and code (a topic's page, by src/layouts/Doc.astro; an
+//             element's own, by src/pages/kit/elements/[name].astro). A page with none is not an
+//             element's: the elements with no page of the map have one made from the catalogue.
 //   own       a file of src/pages makes the page: it shows the document with what else the page has
 //   also      the other menus the page is in, each `{ area, group }`
 export const PAGES = [
@@ -78,11 +83,31 @@ export const PAGES = [
     group: "The page",
     source: "kit/spec/elements.md",
     own: true,
-    sections: ["the-builders"],
+    sections: ["the-builders", "text-field", "tip", "overlay", "gradient"],
     opening: false,
     title: "Elements: the pencere kit",
     description:
       "The elements a page of the pencere kit is made of: boxes, text, pictures, paths, sparklines and the editor of text.",
+  },
+  // Two elements say more than a row of the table: their pages show the section that says it. They
+  // stand in no menu (the reader is under Elements, which lists them).
+  {
+    path: "kit/elements/text",
+    words: "text",
+    source: "kit/spec/elements.md",
+    own: true,
+    sections: ["text"],
+    opening: false,
+    element: "text",
+  },
+  {
+    path: "kit/elements/rich",
+    words: "rich",
+    source: "kit/spec/elements.md",
+    own: true,
+    sections: ["rich-text"],
+    opening: false,
+    element: "rich",
   },
   {
     path: "kit/spec/canvas",
@@ -90,6 +115,7 @@ export const PAGES = [
     area: "apps",
     group: "The page",
     source: "kit/spec/canvas.md",
+    element: "canvas",
     title: "Canvas: the pencere kit",
     description: "Paths drawn in a box of a page: strokes, fills, gradients, shadows and dashes.",
   },
@@ -193,6 +219,7 @@ export const PAGES = [
     group: "Editor and browser",
     source: "kit/spec/editor.md",
     sections: ["an-editor-and-its-language", "what-is-not-seen-the-document-and-its-places"],
+    element: "editor",
     title: "The editor: the pencere kit",
     description:
       "The editor of text a page puts in a room: its document, its language and what is not seen.",
@@ -240,6 +267,7 @@ export const PAGES = [
     area: "apps",
     group: "Editor and browser",
     source: "kit/spec/browser.md",
+    element: "browser",
     title: "Browser: the pencere kit",
     description:
       "The browser a page puts in a room of its own: its options, what a page asks of it and what it tells.",
@@ -488,3 +516,13 @@ export const page = (path) => {
   if (!found) throw new Error(`The site's map (src/docs.js) has no page ${path}.`);
   return found;
 };
+
+// Where an element is read of: the page of the map that names it (`element`), and for one the map
+// has no page for, the page made of the catalogue (src/pages/kit/elements/[name].astro).
+export const elementPath = (name) =>
+  PAGES.find((entry) => entry.element === name)?.path ?? `kit/elements/${name}`;
+
+// The elements that are read of on the page of a topic of the page API, which shows their picture
+// (the others have a page of their own, made of the catalogue or of a section of the document).
+export const topicElements = () =>
+  PAGES.filter((entry) => entry.element && !entry.own).map((entry) => entry.element);

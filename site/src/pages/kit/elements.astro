@@ -1,13 +1,21 @@
 ---
 import Kit from "../../layouts/Kit.astro";
-import CodeBlock from "../../components/CodeBlock.astro";
 import Shot from "../../components/Shot.astro";
 import SpecDoc from "../../components/SpecDoc.astro";
+import { PAGES, elementPath, topicElements } from "../../docs.js";
 import catalog from "../../data/catalog.json";
 import { elements } from "../../lib/project.js";
 
 // What an element is, as the page API says it (src/lib/project.js).
 const { says } = elements();
+
+// A card leads to where its element is read of (src/docs.js). A topic's page is the one that shows the
+// element's picture, so its card has none.
+const topics = new Set(topicElements());
+for (const page of PAGES.filter((entry) => entry.element)) {
+  if (!catalog.elements.some((element) => element.name === page.element))
+    throw new Error(`${page.path}: src/docs.js names the element ${page.element}, and the catalogue has none.`);
+}
 ---
 <Kit
   title="Elements: the pencere kit"
@@ -19,28 +27,24 @@ const { says } = elements();
     <p class="lead" set:html={says} />
   </header>
 
-  <div id="elements">
+  <!-- What a card says is said again on the element's page and in the table below. -->
+  <div id="cards" class="cards" data-pagefind-ignore>
     {
       catalog.elements.map((element) => (
-        <section class="element" id={element.name}>
-          <h2><code>{element.constructor}</code></h2>
+        <a class:list={["card", { "card--wide": !topics.has(element.name) && (element.demo?.width ?? 0) > 380 }]} href={`/${elementPath(element.name)}`}>
+          {
+            topics.has(element.name) ? (
+              <div class="shot shot--host">Its picture is on the page of its topic.</div>
+            ) : (
+              <Shot name={`elements/${element.name}`} width={element.demo?.width ?? 0} height={element.demo?.height ?? 0} alt="" />
+            )
+          }
+          <b>pencere.{element.name}</b>
           <p set:html={element.doc} />
-          {element.demo && (
-            <div class="element__pair">
-              <Shot name={`elements/${element.name}`} width={element.demo.width} height={element.demo.height} alt={`What ${element.constructor} draws`} />
-              <CodeBlock code={element.demo.code} />
-            </div>
-          )}
-          {element.more.map((extra) => (
-            <div class="element__pair">
-              <Shot name={extra.name} width={extra.width} height={extra.height} alt={`More of what ${element.constructor} draws`} />
-              <CodeBlock code={extra.code} />
-            </div>
-          ))}
-        </section>
+        </a>
       ))
     }
   </div>
 
-  <SpecDoc source="kit/spec/elements.md" path="kit/elements" keep={["the-builders"]} opening={false} />
+  <SpecDoc source="kit/spec/elements.md" path="kit/elements" keep={["the-builders", "text-field", "tip", "overlay", "gradient"]} opening={false} />
 </Kit>

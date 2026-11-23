@@ -8,6 +8,7 @@ import DocsMenu from "../components/DocsMenu.astro";
 import { REPO } from "../lib/code.js";
 import { read } from "../lib/repo.js";
 import { regionsOf } from "../../scripts/regions.mjs";
+import catalog from "../data/catalog.json";
 
 interface Props {
   /** The page's line in the map. */
@@ -28,13 +29,19 @@ interface Props {
     crumbs?: [string, string][];
     index?: boolean;
     code?: string;
+    element?: string;
   };
   headings: { depth: number; slug: string; text: string }[];
 }
 const { page, headings } = Astro.props;
-const { title, description, path, words: name, source, note = "", crumbs = [], whole, heading, sections: only, opening = true, shows = source, code } = page;
+const { title, description, path, words: name, source, note = "", crumbs = [], whole, heading, sections: only, opening = true, shows = source, code, element } = page;
 // The parts of an example a page shows beside its rules: each under the heading of its name.
 const regions = code ? regionsOf(read(code), code).regions : undefined;
+// The picture and the code of the element a topic is where to read of: after what the page opens with.
+// A browser, which the host draws in a room of its own, has no picture.
+const kind = element ? catalog.elements.find((entry) => entry.name === element) : undefined;
+if (element && !kind) throw new Error(`${path}: src/docs.js names the element ${element}, and the catalogue has none.`);
+const demo = kind?.demo ? kind : undefined;
 // A topic of the kit's page API has a page of its own: its sections are the page's lower level (smaller
 // than the sections of the protocol, which are the document's chapters), and they are the chapters again
 // where the topics are shown together (`/kit/spec/all`).
@@ -110,7 +117,7 @@ const listed = sections.length > 1;
     <article class:list={["doc", "spec", { "spec--titled": heading, "spec--topic": topic }]} data-pagefind-meta="title[data-title], top[data-top]" data-title={name} data-top={top?.slug ?? ""}>
       {crumbs.length > 0 && <p class="crumbs">{crumbs.map(([words, address], i) => <>{i > 0 && " / "}<a href={address}>{words}</a></>)}</p>}
       {heading && <h1>{heading}</h1>}
-      <Numbered source={source} path={path} keep={only} opening={opening} regions={regions} example={code}><slot /></Numbered>
+      <Numbered source={source} path={path} keep={only} opening={opening} regions={regions} example={code} demo={demo}><slot /></Numbered>
       {whole && <p class="spec__whole"><a href={whole[1]}>{whole[0]}</a></p>}
       <p class="spec__said" role="status" aria-live="polite"></p>
       <p class="spec__source" data-pagefind-ignore>

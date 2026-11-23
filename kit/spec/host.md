@@ -19,7 +19,7 @@ A host:
   its hint while it is empty, and tells the page what the person types into it, where the person
   clicks into one, and takes the texts a reply fills them with and what it selects in them; and,
   while one has the keyboard, gives the page the keys it has no use for there, as the kit's rule
-  says with the field's text and selection (`FieldState::takes`, [Elements](elements.md#the-builders)); it takes what a
+  says with the field's text and selection (`FieldState::takes`, [Elements](elements.md#text-field)); it takes what a
   reply asks of a field (its text, its selection, the keyboard) only of a field it has put over the
   page, and holds what a reply asks of one it has not until the next frame that lays the page out
   has been laid and its fields put over the page, then takes it in the order it was asked

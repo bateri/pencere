@@ -1,0 +1,34 @@
+---
+// What an element of the kit looks like and the page that draws it: the picture of its page script
+// (demos/elements/) and, beside it, the code, then the further pictures of the same element. The
+// catalogue (scripts/catalog.mjs) has them; a page of the map that is where an element is read of
+// (`element` in src/docs.js) shows them where the element is described.
+import CodeBlock from "./CodeBlock.astro";
+import Shot from "./Shot.astro";
+
+interface Props {
+  element: {
+    constructor: string;
+    demo?: { width: number; height: number; code: string };
+    more: { name: string; width: number; height: number; code: string }[];
+    name: string;
+  };
+}
+const { element } = Astro.props;
+---
+{
+  element.demo && (
+    <div class="element__pair">
+      <Shot name={`elements/${element.name}`} width={element.demo.width} height={element.demo.height} alt={`What ${element.constructor} draws`} />
+      <CodeBlock code={element.demo.code} />
+    </div>
+  )
+}
+{
+  element.more.map((extra) => (
+    <div class="element__pair">
+      <Shot name={extra.name} width={extra.width} height={extra.height} alt={`More of what ${element.constructor} draws`} />
+      <CodeBlock code={extra.code} />
+    </div>
+  ))
+}

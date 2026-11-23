@@ -53,11 +53,15 @@ and `strike(false)` take back what the element would inherit. `hidden(false)`, `
 `:row():hidden(false)` is a row, `:hidden():row()` is hidden, `:weight(300):bold(false)` is 300. `checked` and `expanded` called at all say that the element is a
 thing that is on or off, open or shut; not called, that it is not.
 
+## Text
+
 A text is one line: what does not fit runs past its box, or, with `truncate`, ends in "…". `wrap` on
 a text puts its words in new lines where its box is too narrow for them (and at its line breaks),
 and its box is as tall as the lines; in a row it gives its room away down to its longest word. A
 text inside a `text_field` element is what the host's field says while it is empty
 (`div():text_field("filter"):child(text("Filter images"))`): the host draws it, the page does not.
+
+## Text field
 
 A **text field** is a field of the host's own, put over the room of the element that says it is one,
 and named by that element's id (`text_field(id)`, or the element's own id): a page has as many as it
@@ -89,9 +93,13 @@ list, enter chooses, ⌘K opens a palette, and ⌫ in the empty filter of a path
 host asks the rule with its field's state (`pencere_view::FieldState::takes`); one whose system
 gives its fields chords besides these (a Mac's ⌃A and ⌃E) may keep those too.
 
+## Tip
+
 A **tip** is what the host says of an element while the pointer rests on it, with the keys that do
 the same where there are some (`tip("Containers", "1")`): a tooltip of the host's own. Its keys are
 never a name.
+
+## Overlay
 
 An **overlay** (`overlay()`) is taken out of the flow and out of every box that holds it: it is placed
 by its `inset` against the page (`inset(0, 0, 0, 0)` is the whole page, the ground of a dialog), drawn
@@ -106,6 +114,8 @@ is moved as far as it takes to stay on the page. Where no element of that name i
 stands where its `inset` puts it. A menu that drops from a button is
 `div():anchor("sort", "below", { gap = 4 }):child(...)`.
 
+## Rich text
+
 A **text of many looks** (`pencere.rich`) is one paragraph made of parts. A part
 (`pencere.span(words)`) says only what it changes of the element's look: `color`, `weight` (`bold`),
 `italic`, `underline`, `strike`, `family`, a ground behind its words alone (`bg`), and `link(id)`,
@@ -114,6 +124,8 @@ and underlines it unless it says not (`underline(false)`). The size is the eleme
 on from line to line as the words of one text do, and a word made of two parts with nothing between
 them (`**bold**,`) is not broken between them; where it does not, it is one line for each line break,
 cut with "…" where it may be (`truncate`).
+
+## Gradient
 
 A **fill from one colour to another** (`bg_gradient(angle, from, to)`) runs along a line at `angle`
 degrees as a style sheet's `linear-gradient` does (`180` from the top down, `90` from the left to the

@@ -1,13 +1,16 @@
 // The pages of the site, for a search engine: the home page, the pages of the site's map
-// (src/docs.js) and a page for each component of the catalogue. Nothing is listed here.
-import { PAGES } from "../docs.js";
+// (src/docs.js) and a page for each element and each component of the catalogue. Nothing is listed here.
+import { PAGES, elementPath } from "../docs.js";
 import catalog from "../data/catalog.json";
 
 export const GET = ({ site }) => {
   const paths = [
-    "",
-    ...PAGES.map((page) => page.path),
-    ...catalog.components.map((component) => `kit/components/${component.name}`),
+    ...new Set([
+      "",
+      ...PAGES.map((page) => page.path),
+      ...catalog.elements.map((element) => elementPath(element.name)),
+      ...catalog.components.map((component) => `kit/components/${component.name}`),
+    ]),
   ];
   const urls = paths
     .map((path) => `  <url><loc>${new URL(`/${path}`, site).href}</loc></url>`)

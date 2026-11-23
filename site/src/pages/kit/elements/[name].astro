@@ -1,0 +1,34 @@
+---
+// The page of an element that has none in the map for a topic: its row of the constructors' table,
+// its picture and its code, and where the document says more of it (a section: `text`, `rich`), that.
+// The elements of a topic (the canvas, the editor, the browser) are on the topic's page.
+import Kit from "../../../layouts/Kit.astro";
+import ElementDemo from "../../../components/ElementDemo.astro";
+import SpecDoc from "../../../components/SpecDoc.astro";
+import { PAGES, topicElements } from "../../../docs.js";
+import catalog from "../../../data/catalog.json";
+
+export function getStaticPaths() {
+  const topic = new Set(topicElements());
+  return catalog.elements
+    .filter((element) => !topic.has(element.name))
+    .map((element) => ({ params: { name: element.name }, props: { name: element.name } }));
+}
+
+const { name } = Astro.props;
+const element = catalog.elements.find((entry) => entry.name === name)!;
+const section = PAGES.find((page) => page.element === name && page.own);
+const plain = element.doc.replace(/<[^>]+>/g, "");
+---
+<Kit title={`pencere.${name}: the pencere kit`} description={plain} path={`kit/elements/${name}`}>
+  <header>
+    <p class="crumbs"><a href="/kit/elements">Elements</a></p>
+    <h1><code>pencere.{name}</code></h1>
+    <p class="lead" set:html={element.doc} data-pagefind-ignore />
+    <p class="signature"><code>{element.constructor}</code></p>
+  </header>
+
+  <ElementDemo element={element} />
+
+  {section && <SpecDoc source={section.source} path={section.path} keep={section.sections} opening={false} />}
+</Kit>

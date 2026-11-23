@@ -14,12 +14,15 @@
 //
 // A footnote is a note of the page (src/lib/notes.js). A heading that has a part of an example of its
 // name (`regions`, scripts/regions.mjs) is followed, after what its section says of its own and before
-// the next heading, by that code.
+// the next heading, by that code. The picture and the code of an element (`demo`) a topic is where to
+// read of follow what the document opens with: its first paragraph.
 import { posix } from "node:path";
+import type { ComponentProps } from "astro/types";
 import { REPO } from "../lib/code.js";
 import { router } from "../lib/documents.js";
 import { placeNotes, takeNotes } from "../lib/notes.js";
 import CodeBlock from "./CodeBlock.astro";
+import ElementDemo from "./ElementDemo.astro";
 
 interface Props {
   /** The document's file in the repository ("cli/README.md"), and the address of the page it is shown on. */
@@ -34,8 +37,10 @@ interface Props {
   /** The parts of an example to show, by the name of the heading each stands under, and the file they are of. */
   regions?: Map<string, string>;
   example?: string;
+  /** An element of the kit, with its picture and its code, shown after the document's first paragraph. */
+  demo?: ComponentProps<typeof ElementDemo>["element"];
 }
-const { source, path, keep, opening = true, untitled = false, regions, example } = Astro.props;
+const { source, path, keep, opening = true, untitled = false, regions, example, demo } = Astro.props;
 const at = posix.dirname(source) === "." ? "" : posix.dirname(source);
 const BLOB = `${REPO}/blob/main/`;
 // A link to a file of the repository goes to the page that shows it, and a link to a heading to
@@ -109,8 +114,13 @@ const chunks = numbered.split(/(?=<h[2-4][ >])/).map((chunk) => {
 });
 // The file is named over the first of the page's codes only: it is the same file under each heading.
 const firstCode = chunks.findIndex(({ code }) => code !== undefined);
+// Where the element is shown: in what the page opens with (before its first section), after its first
+// paragraph; where that has none, before the first section.
+const first = chunks[0]?.chunk ?? "";
+if (demo && /^<h[2-4][ >]/.test(first)) throw new Error(`${path}: the page opens with a section, and there is no place for the picture of the element.`);
+const cut = demo ? (first.includes("</p>") ? first.indexOf("</p>") + 4 : first.length) : 0;
 const left = [...(regions?.keys() ?? [])].filter((name) => !used.has(name));
 if (left.length && !keep) throw new Error(`${path}: ${example} has parts that no heading of the page names: ${left.join(", ")}.`);
 ---
-{chunks.map(({ chunk, code }, index) => <><Fragment set:html={chunk} />{code !== undefined && <CodeBlock code={code} name={index === firstCode ? example : undefined} />}</>)}
+{chunks.map(({ chunk, code }, index) => <>{index === 0 && demo ? <><Fragment set:html={chunk.slice(0, cut)} /><ElementDemo element={demo} /><Fragment set:html={chunk.slice(cut)} /></> : <Fragment set:html={chunk} />}{code !== undefined && <CodeBlock code={code} name={index === firstCode ? example : undefined} />}</>)}
 <Fragment set:html={end} />

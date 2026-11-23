@@ -260,6 +260,14 @@ function summary(words) {
 
 // Words with `code` in them, as HTML.
 function html(words) {
-  const escaped = words.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return escaped.replace(/`([^`]+)`/g, "<code>$1</code>");
+  const escape = (text) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // A link of the Markdown is its words, outside the code: what holds them is a card, a link already.
+  return words
+    .split(/(`[^`]+`)/)
+    .map((part) =>
+      part.startsWith("`")
+        ? `<code>${escape(part.slice(1, -1))}</code>`
+        : escape(part.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")),
+    )
+    .join("");
 }

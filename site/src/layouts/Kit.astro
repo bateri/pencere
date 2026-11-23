@@ -2,6 +2,7 @@
 import Base from "./Base.astro";
 import DocsMenu from "../components/DocsMenu.astro";
 import catalog from "../data/catalog.json";
+import { elementPath } from "../docs.js";
 
 interface Props {
   title: string;
@@ -17,6 +18,8 @@ const current = (href: string) => (path === href ? "page" : undefined);
 // The components are listed under the menu on their own pages alone: on the kit's other pages their
 // twenty-four names would stand beside the kit's seven as if they were its parts too.
 const components = path === "kit/components" || path.startsWith("kit/components/");
+// The elements are too, under the same rule: each leads to where it is read of (the map's `element`).
+const elements = path === "kit/elements" || path.startsWith("kit/elements/");
 ---
 <Base title={title} description={description} path={path} apps>
   <div class="wrap kit">
@@ -45,6 +48,22 @@ const components = path === "kit/components" || path.startsWith("kit/components/
                 </>
               ))
             }
+          </div>
+        )
+      }
+      {
+        elements && (
+          <div class="side__groups">
+            <h3>Elements</h3>
+            <ul>
+              {catalog.elements.map((element) => (
+                <li>
+                  <a href={`/${elementPath(element.name)}`} aria-current={current(elementPath(element.name))}>
+                    {element.name}
+                  </a>
+                </li>
+              ))}
+            </ul>
           </div>
         )
       }

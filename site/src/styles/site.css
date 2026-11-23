@@ -916,6 +916,17 @@ p {
   color: var(--ink);
 }
 
+/* The signature of an element, under what it is: its constructor as the table of the builders has it. */
+.signature {
+  margin: 14px 0 0;
+  color: var(--ink-2);
+  font-size: 15px;
+}
+.signature code {
+  background: none;
+  padding: 0;
+}
+
 .stage {
   display: grid;
   gap: 10px;
@@ -1042,32 +1053,11 @@ p {
   padding: 20px;
 }
 
-/* The elements: each with its picture and its code side by side. */
-.element {
-  padding: 40px 0;
-  border-top: 1px solid var(--rule);
-  display: grid;
-  gap: 16px;
-}
-.element:first-of-type {
-  border-top: 0;
-  padding-top: 8px;
-}
-.element h2 {
-  margin: 0;
-  font-size: 1.3rem;
-}
-.element h2 code {
-  background: none;
-  padding: 0;
-}
-.element > p {
-  color: var(--ink-2);
-  max-width: var(--measure);
-}
+/* An element's picture over its code, on its own page and on the page of its topic. */
 .element__pair {
   display: grid;
   gap: 12px;
+  margin: 28px 0;
 }
 .element__pair .shot {
   padding: clamp(12px, 3vw, 24px);
