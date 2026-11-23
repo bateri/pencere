@@ -8,6 +8,7 @@ All notable changes to the `pencere-wire` crate are recorded here. The format fo
 
 ### Added
 
+- **What a host hands a running program to take (specification §10.9)**: `take`, with `Take` (an address, a file with the line and column to show, a folder), `Kind` and the limits, written as the `take` message and read back checked; `OpenBody::takes` reads `takes` of an `open`.
 - **`messages::numbered`**: the name of a message's one member and its `id`, read without what the
   member holds, for one that carries the messages and does not read them.
 - **The proof of a host's own route (specification §4.10)**: `probe` and `Probed`, the payloads of the

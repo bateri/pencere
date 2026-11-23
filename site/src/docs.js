@@ -301,6 +301,7 @@ export const PAGES = [
     sections: [
       "views",
       "calls-and-topics",
+      "what-the-terminal-hands-a-running-program",
       "files",
       "runtimes",
       "the-router",

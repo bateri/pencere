@@ -74,6 +74,21 @@ describe("what the program writes", () => {
     );
   });
 
+  it("is the open of a program that takes an address while it runs: takes after the names", () => {
+    const open: OpenFields = {
+      token: TOKEN,
+      view: "lua",
+      version: "0.5",
+      program: "browserpen",
+      title: "Browser",
+      takes: ["url"],
+      bundle: luaBundle().manifest,
+    };
+    expect(openPayload(open)).toBe(payloadOf("to-host/open-takes.frame"));
+    // A program that takes nothing says nothing of it.
+    expect(openPayload({ ...open, takes: [] })).not.toContain("takes");
+  });
+
   it("is the open with an icon: the icon's members in the order of Appendix A", () => {
     const src =
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==";

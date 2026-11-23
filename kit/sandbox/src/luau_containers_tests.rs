@@ -523,6 +523,7 @@ impl Pair {
             | Event::Files { .. }
             | Event::FilesOver { .. }
             | Event::FilesLeft
+            | Event::LinkDropped { .. }
             | Event::Carried { .. }
             | Event::Saving(_)
             | Event::Pointer { .. }

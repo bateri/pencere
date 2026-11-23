@@ -555,6 +555,10 @@ pub struct OpenBody {
     /// `icon` module does) and whatever is wrong with them is no reason to refuse the view.
     #[serde(default)]
     pub icons: Option<Box<RawValue>>,
+    /// What the program says it takes while it runs, as the program wrote it (specification
+    /// §10.9): [`OpenBody::takes`] reads it.
+    #[serde(default)]
+    pub takes: Option<Box<RawValue>>,
     /// What a page asks to reach, as the program wrote it: read only for a `web` view
     /// (specification §6.3).
     #[serde(default)]
@@ -562,6 +566,28 @@ pub struct OpenBody {
     /// The manifest of the view's files, before it is checked.
     #[serde(default)]
     pub bundle: Option<RawBundle>,
+}
+
+/// The longest `takes` that is read: a list of the three names is some thirty bytes, and one
+/// that is much longer is the program's mistake.
+const MOST_TAKES_TEXT: usize = 256;
+
+impl OpenBody {
+    /// The kinds of thing the program says it takes while it runs (§10.9), each once, in the
+    /// order it named them. What is not a list, a name this version does not know and a list too
+    /// long to be one are left out, so that the program is only a program that takes less.
+    #[must_use]
+    pub fn takes(&self) -> Vec<crate::take::Kind> {
+        let Some(raw) = self.takes.as_deref().map(RawValue::get) else {
+            return Vec::new();
+        };
+        if raw.len() > MOST_TAKES_TEXT {
+            return Vec::new();
+        }
+        serde_json::from_str(raw)
+            .map(|value| crate::take::Kind::of_list(&value))
+            .unwrap_or_default()
+    }
 }
 
 /// A bundle manifest as it arrives, before it is checked.

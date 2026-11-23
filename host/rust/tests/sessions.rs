@@ -17,6 +17,7 @@ use pencere_host::sandbox::{Consent, Grant};
 use pencere_host::session::{
     Action, FetchError, FileError, FileGrant, Observed, Session, Size, StageError, State,
 };
+use pencere_host::take::Take;
 use pencere_host::token::Entropy;
 use serde_json::Value;
 
@@ -171,6 +172,23 @@ fn happen<S: Store, E: Entropy>(
         "probe" => {
             let _ = host.probe(event["ttl"].as_u64().unwrap() as u8);
         }
+        // The terminal hands the program what the person gave for it (§10.9): an address, a file
+        // (its `path`, and a `line` and a `column`), or a folder.
+        "take" => {
+            let place = |name: &str| event[name].as_u64().map(|n| u32::try_from(n).unwrap());
+            let take = if let Some(url) = event["url"].as_str() {
+                Take::Url(url.to_owned())
+            } else if let Some(path) = event["path"].as_str() {
+                Take::File {
+                    path: path.to_owned(),
+                    line: place("line"),
+                    column: place("column"),
+                }
+            } else {
+                Take::Folder(event["folder"].as_str().unwrap().to_owned())
+            };
+            let _ = host.hand_over(&take);
+        }
         // What the terminal did for a transfer through the host's folder, by the id of the
         // program's `stage` or `fetch`: the pipe exists, and how the file went.
         "pipe-ready" => host.pipe_ready(event["transfer"].as_u64().unwrap() as u32),
@@ -318,7 +336,7 @@ fn run(session: &Value, how: impl Fn(usize) -> Feed) {
 fn every_session_gives_the_bytes_the_fixtures_name() {
     let manifest = common::manifest();
     let sessions = manifest["session"].as_array().unwrap();
-    assert_eq!(sessions.len(), 44);
+    assert_eq!(sessions.len(), 45);
     for session in sessions {
         run(session, |_| Feed::Whole);
         run(session, |_| Feed::OneByOne);

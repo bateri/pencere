@@ -71,7 +71,7 @@ this document can add one; a writer MUST NOT depend on a reader reading it.
 | `key`      | the author's public key (5.1)                                                       |
 | `files`    | an object from a target name to the executable file for it (4.4)                    |
 | `previous` | earlier releases a reader may fall back to (4.6), at most 32 entries, possibly none |
-| `opens`    | the kinds of path the program takes when it is started with one (4.7), OPTIONAL     |
+| `opens`    | the kinds of thing the program takes when it is started with one (4.7), OPTIONAL    |
 
 ### 4.1 Name
 
@@ -144,13 +144,16 @@ ones dropped. A reader MUST NOT rely on the order.
 
 ### 4.7 Opens
 
-`opens` is a list of strings, each `file` or `folder`: the kinds of path the program takes when it is
-started with one. A terminal that starts the program for a path gives it, after any arguments of its
-own, the absolute path as the last argument, and before it `+LINE` (a plus sign and a decimal line
-number) when it means a line of a file. A terminal does not know which programs have a use for the
-line, so a program that lists `file` MUST accept `+LINE` before the path, and MAY ignore it.
-`file` is the path of a file, `folder` the path of a directory. A
-release with no `opens`, or an empty one, takes neither. A value written twice counts once, and a
+`opens` is a list of strings, each `file`, `folder` or `url`: the kinds of thing the program takes
+when it is started with one. A terminal that starts the program for a path gives it, after any
+arguments of its own, the absolute path as the last argument, and before it `+LINE` (a plus sign and
+a decimal line number) when it means a line of a file. A terminal does not know which programs have a
+use for the line, so a program that lists `file` MUST accept `+LINE` before the path, and MAY ignore
+it. `file` is the path of a file, `folder` the path of a directory, and `url` an `http` or `https`
+address (the same a view may ask to open, `pencere.md` Section 9.7), which a terminal gives as the
+last argument as it gives a path. A program that is already running is handed the same things
+through a `take` (`pencere.md` Section 10.9), for the kinds it said it takes in its `open`. A
+release with no `opens`, or an empty one, takes none of them. A value written twice counts once, and a
 reader ignores a value it does not know, so that a later version of this document can add one.
 
 `opens` says what the author wrote and is signed like every other member. It is not a permission: the

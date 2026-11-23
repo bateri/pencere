@@ -10,8 +10,8 @@
 //! view, in the order the view sent it, and its answer comes back the same way when the program
 //! gives it (at once, where it answers before it returns). Nothing here knows of a terminal.
 
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::sync::Arc;
 
@@ -25,6 +25,7 @@ use crate::handlers::{
     run_topic,
 };
 use crate::log;
+use crate::{TAKE_TOPIC, Take};
 
 /// How many messages a handler can have waiting for the owner before it has to wait.
 pub(crate) const WORK_ROOM: usize = 256;
@@ -32,6 +33,10 @@ pub(crate) const WORK_ROOM: usize = 256;
 /// How many bytes of messages toward the view may wait before the owner takes no more from the
 /// handlers: what keeps a handler that pushes faster than the view is read from filling the memory.
 pub(crate) const WRITE_ROOM: usize = 1 << 20;
+
+/// How many `take`s wait for the view's first subscription to `pencere.take` (§10.9): what a person
+/// gives a program in the moments before its page has loaded.
+const MOST_WAITING_TAKES: usize = 8;
 
 /// How many calls of the view run at once. A view that asks for more is told `busy`.
 const MAX_CALLS: usize = 64;
@@ -62,6 +67,9 @@ pub(crate) struct Exchange {
     view: u64,
     calls: HashMap<u64, Outstanding>,
     subscriptions: HashMap<u64, Arc<Feed>>,
+    /// What the terminal handed the program (§10.9) that no subscription to `pencere.take` has
+    /// taken yet, oldest first.
+    waiting_takes: VecDeque<Value>,
     /// The lanes that have had calls, by name: they last as long as the exchange.
     lanes: HashMap<Arc<str>, Lane>,
 }
@@ -74,6 +82,7 @@ impl Exchange {
             view: 1,
             calls: HashMap::new(),
             subscriptions: HashMap::new(),
+            waiting_takes: VecDeque::new(),
             lanes: HashMap::new(),
         }
     }
@@ -114,6 +123,34 @@ impl Exchange {
         }
         for (_, feed) in self.subscriptions.drain() {
             feed.end();
+        }
+        self.waiting_takes.clear();
+    }
+
+    /// The terminal handed the program `take`, a kind of thing the program said it takes (§10.9):
+    /// it is pushed at once to each subscription of the view to `pencere.take`, and kept, within
+    /// [`MOST_WAITING_TAKES`], for the first one when there is none.
+    pub(crate) fn on_take(&mut self, take: &Take, toward: &mut dyn Toward) {
+        let value = take.value();
+        let mut heard = false;
+        for (id, feed) in &self.subscriptions {
+            if feed.topic() == TAKE_TOPIC {
+                heard = true;
+                Self::tell(toward, &payload_of(&Message::push(*id, value.clone())));
+            }
+        }
+        if !heard {
+            if self.waiting_takes.len() == MOST_WAITING_TAKES {
+                self.waiting_takes.pop_front();
+            }
+            self.waiting_takes.push_back(value);
+        }
+    }
+
+    /// The view subscribed to `pencere.take` (§10.9): what waited for it is pushed now.
+    fn on_take_subscribed(&mut self, id: u64, toward: &mut dyn Toward) {
+        while let Some(value) = self.waiting_takes.pop_front() {
+            Self::tell(toward, &payload_of(&Message::push(id, value)));
         }
     }
 
@@ -253,7 +290,18 @@ impl Exchange {
         if self.calls.contains_key(&id) || self.subscriptions.contains_key(&id) {
             return;
         }
-        // The protocol defines no topic of the reserved names (§9.2) yet, and the program may give none.
+        // A program may give no topic of the reserved names (§9.2); the protocol defines one,
+        // `pencere.take` (§10.9), which the library serves for a program that takes anything.
+        if topic == TAKE_TOPIC && !options.takes.is_empty() {
+            let ask = Ask {
+                view: self.view,
+                id,
+            };
+            self.subscriptions
+                .insert(id, Arc::new(Feed::new(ask, topic, self.outbox.clone())));
+            self.on_take_subscribed(id, toward);
+            return;
+        }
         let entry = if topic.starts_with(log::RESERVED_PREFIX) {
             None
         } else {

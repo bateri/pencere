@@ -572,6 +572,15 @@ function Locator:drop_files(paths)
 	return self.page.raw:drop_files(item.id, paths)
 end
 
+-- An address the person drops on this element (`link_dropped` event of the page).
+function Locator:drop_link(url)
+	local item = the_one(self, "drop_link")
+	if item.role ~= "id" then
+		fail("drop_link: the thing an address is dropped on is found by its id (get_by_id)")
+	end
+	return self.page.raw:drop_link(item.id, url)
+end
+
 -- Files the person gives the page on this element: `{ { name =, data = }, ... }`, dropped (the
 -- default) or pasted (`{ source = "paste" }`). The handles the host made, in order.
 function Locator:give_files(files, options)
@@ -713,7 +722,7 @@ for _, name in ipairs({
 	"closed", "diagnostics", "ended", "sent", "received", "push", "answer", "fail", "lent",
 	"give_back", "log", "fill", "scroll_to", "wheel", "drop_files", "click_gutter", "hover_gutter",
 	"gutter_cell", "zone", "anchor_rect", "dwell", "hold", "release", "click_holding",
-	"give_files", "drag_files_over", "drag_files_away", "panel", "choose_files", "choose_place",
+	"give_files", "drop_link", "drag_files_over", "drag_files_away", "panel", "choose_files", "choose_place",
 	"attach", "carries", "finish_carry",
 }) do
 	Page[name] = function(self, ...)

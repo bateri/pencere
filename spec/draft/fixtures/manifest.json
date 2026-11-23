@@ -85,6 +85,22 @@
       "errors": []
     },
     {
+      "file": "to-host/open-takes.frame",
+      "direction": "to-host",
+      "note": "open of a program that takes an address while it runs: the same as an open for a view that is a Lua script, and takes, the kinds of thing the program takes while it runs",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "open",
+          "id": 2,
+          "control": {},
+          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"view\":\"lua\",\"version\":\"0.5\",\"program\":\"browserpen\",\"title\":\"Browser\",\"takes\":[\"url\"],\"bundle\":{\"entry\":\"view.lua\",\"files\":[{\"path\":\"view.lua\",\"sha256\":\"1232d8379de77e154ca533689af2e42629dd7574bda5a0a390799849f07607c3\",\"size\":10,\"type\":\"text/x-lua\"}]}}"
+        }
+      ],
+      "errors": []
+    },
+    {
       "file": "to-host/open-lua-modules.frame",
       "direction": "to-host",
       "note": "open for a view that is a Lua script of three files: an entry and two it may require, in directories of the bundle, each of type text/x-lua",
@@ -1461,6 +1477,54 @@
           "id": 3,
           "control": {},
           "payload": "{\"token\":\"3f9c2a7be1d84056a9c4e7b1d2f80a65\",\"ttl\":10}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/take-url.frame",
+      "direction": "to-program",
+      "note": "take: the host hands a program that runs for it an address to open",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "take",
+          "id": 3,
+          "control": {},
+          "payload": "{\"url\":\"http://localhost:3000/\"}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/take-file.frame",
+      "direction": "to-program",
+      "note": "take: the host hands the program a file, and the line and the column to show",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "take",
+          "id": 4,
+          "control": {},
+          "payload": "{\"file\":\"/home/alice/notes.txt\",\"line\":12,\"column\":3}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/take-folder.frame",
+      "direction": "to-program",
+      "note": "take: the host hands the program a folder",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "take",
+          "id": 5,
+          "control": {},
+          "payload": "{\"folder\":\"/home/alice/src\"}"
         }
       ],
       "errors": []
@@ -4318,6 +4382,94 @@
         },
         {
           "in": "session/probe-not-offered/07-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        }
+      ]
+    },
+    {
+      "name": "take",
+      "note": "a program says in its open which kinds of thing it takes while it runs, and the host hands it what the person gives for it as a take, with an id of its own and no answer expected: an address and a file go, a folder does not (the program did not say it takes folders), an address the host does not open does not (it is no link), and none goes once the view is over; a name of a kind this version does not know in takes is no matter",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "LuBX5P5O_bQ8vrFCtYrTXQ"
+        ],
+        "store": ["ef637abb8c8f9fe8f2156cb68d0243c868cb75775ea98f8c43de85fcf3fc9c24"],
+        "views": [
+          {
+            "kind": "lua",
+            "versions": ["0.1"]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "in": "session/take/01-in.frame"
+        },
+        {
+          "out": "session/take/02-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/take/03-in.frame"
+        },
+        {
+          "out": "session/take/04-out.frame",
+          "acted": ["start-view"]
+        },
+        {
+          "event": "take",
+          "url": "http://localhost:3000/"
+        },
+        {
+          "out": "session/take/06-out.frame",
+          "acted": []
+        },
+        {
+          "event": "take",
+          "path": "/home/alice/notes.txt",
+          "line": 12,
+          "column": 3
+        },
+        {
+          "out": "session/take/08-out.frame",
+          "acted": []
+        },
+        {
+          "event": "take",
+          "folder": "/home/alice/src"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "event": "take",
+          "url": "ftp://example.com/a"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "event": "close-view"
+        },
+        {
+          "out": "session/take/14-out.frame",
+          "acted": ["destroy-view"]
+        },
+        {
+          "event": "take",
+          "url": "http://localhost:3000/"
         },
         {
           "out": null,

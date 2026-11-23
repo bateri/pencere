@@ -306,6 +306,13 @@ pub enum Event {
     },
     /// The files dragged over the page went from it without being dropped.
     FilesLeft,
+    /// The person dropped an address on the page at `at`, from another application or from the
+    /// terminal: the address as text, which the host has found to be one a page may open (an `http`
+    /// or `https` link, as a reply's `link` is).
+    LinkDropped {
+        at: Point,
+        url: String,
+    },
     /// The person chose a place in the Save panel the page asked for ([`Panel::Save`]), or turned
     /// it away (`None`).
     Saving(Option<Saving>),

@@ -2112,6 +2112,17 @@ impl<P: Peer> Headless<P> {
         self.settle()
     }
 
+    /// An address is dropped on the middle of the element named `name`: the link, as text.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::click`].
+    pub fn drop_link(&mut self, name: &str, url: &str) -> Result<(), Error> {
+        let at = self.reach(name)?;
+        self.page.link_dropped(at, url.to_owned());
+        self.settle()
+    }
+
     /// The program attached `bytes` to the page (specification §8.8): the name the page draws them
     /// by, `sha256:` and their digest. The page is not told; its program says the name.
     pub fn attach(&mut self, bytes: &[u8]) -> String {

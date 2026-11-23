@@ -8,6 +8,7 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Added
 
+- **`Options::takes`** (specification §10.9): what the program takes while it runs, an address, a file, a folder. The `open` says so, and the view subscribes to the topic `pencere.take` (`TAKE_TOPIC`): each `Take` the terminal hands the program is pushed to it at once, and up to eight that came before it subscribed are its first values. `Conversation::hand_over` plays the terminal in a test.
 - **A program answers the proof of a terminal's own route (specification §4.10).** Asked with a
   `probe`, it opens a listener on `127.0.0.1` that gives the terminal's token to one connection.
 - **`Options::screen` may draw the view as pictures.** A screen that returns an error of the kind

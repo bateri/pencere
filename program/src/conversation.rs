@@ -38,7 +38,7 @@ use crate::control::{self, Bound, OnReturn, Request};
 use crate::exchange::{Exchange, Toward, WORK_ROOM, WRITE_ROOM};
 use crate::files::{FileError, name_of};
 use crate::handlers::{Outbox, Work};
-use crate::{CloseResult, HandOffResult, Options, ReopenResult, View};
+use crate::{CloseResult, HandOffResult, Options, ReopenResult, Take, View};
 
 /// What the program says to the view in a [`Conversation`], in the order it says it.
 #[derive(Debug)]
@@ -411,6 +411,24 @@ impl Conversation {
             up: true,
         };
         self.exchange.on_message(&self.options, message, &mut queue)
+    }
+
+    /// The terminal hands the program `take` (specification §10.9), as it would write a `take`:
+    /// pushed to the view's subscriptions of [`TAKE_TOPIC`](crate::TAKE_TOPIC). Whether the program
+    /// heard it: one of a kind it did not say it takes ([`Options::takes`]), and one that comes while
+    /// there is no view (it was closed, or the terminal is lent), is left.
+    pub fn hand_over(&mut self, take: &Take) -> bool {
+        self.settle_lent();
+        if !self.up() || !self.options.takes.contains(&take.kind()) {
+            return false;
+        }
+        let mut queue = Queue {
+            said: &mut self.said,
+            waiting: &mut self.waiting,
+            up: true,
+        };
+        self.exchange.on_take(take, &mut queue);
+        true
     }
 
     /// What the program says next, if it has said something; does not wait.

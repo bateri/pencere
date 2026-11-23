@@ -14,6 +14,7 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Added
 
+- **`Event::LinkDropped { at, url }`**: the person dropped an address on the page, from another application or from the terminal.
 - **A browser can empty its cache, a site's data, and go on past a certificate**: `BrowserAsk::ClearCache`,
   `ClearSiteData` and `Proceed`, and `BrowserError::certificate` (why the browser did not trust the site's
   certificate, when that failed the load).

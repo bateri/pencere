@@ -97,6 +97,8 @@ export interface OpenFields {
   program?: string | undefined;
   title?: string | undefined;
   icons?: readonly Icon[] | undefined;
+  /** What the program takes while it runs (§10.9); left out when none. */
+  takes?: readonly string[] | undefined;
   /** For a `web` view only. */
   access?: Access | undefined;
   bundle: BundleManifest;
@@ -130,6 +132,7 @@ export function openPayload(open: OpenFields): string {
   if (open.program !== undefined) body.program = open.program;
   if (open.title !== undefined) body.title = open.title;
   if (open.icons !== undefined) body.icons = open.icons.map(icon);
+  if (open.takes !== undefined && open.takes.length > 0) body.takes = open.takes;
   if (open.access !== undefined) body.access = access(open.access);
   body.bundle = {
     entry: open.bundle.entry,

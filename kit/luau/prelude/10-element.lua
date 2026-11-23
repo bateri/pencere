@@ -1164,6 +1164,7 @@ local HAS = {
 	["element.level"] = true, ["element.position"] = true, ["element.table_size"] = true,
 	["element.cell_at"] = true, ["element.sorted"] = true, ["element.role_description"] = true,
 	["event.reveal"] = true, ["event.command"] = true, ["command.target"] = true,
+	["event.link_dropped"] = true,
 	-- What the library's components took after the first kit, as `ui.<component>.<option>`: the `reveal`
 	-- of a list and of a grid.
 	["ui.list.reveal"] = true, ["ui.grid.reveal"] = true,

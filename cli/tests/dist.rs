@@ -663,6 +663,18 @@ fn what_a_release_opens_is_written_when_it_is_said_and_otherwise_the_file_is_as_
         [apps::Opens::Folder, apps::Opens::File]
     );
 
+    // An address is a kind of its own, and read back as one.
+    let mut url = args.clone();
+    url.extend(["--opens", "url,file"].map(str::to_owned));
+    let (code, _, why) = run_dist(&home, &url, &key);
+    assert_eq!(code, 0, "{why}");
+    let text = fs::read_to_string(release.join("app.json")).expect("an app.json");
+    assert!(text.contains("\"opens\": [\"url\",\"file\"]"), "{text}");
+    assert_eq!(
+        written(&release).opens,
+        [apps::Opens::Url, apps::Opens::File]
+    );
+
     // Said again without the flag, the file is the first one, byte for byte.
     let (code, _, why) = run_dist(&home, &args, &key);
     assert_eq!(code, 0, "{why}");
@@ -674,13 +686,13 @@ fn what_a_release_opens_is_written_when_it_is_said_and_otherwise_the_file_is_as_
 }
 
 #[test]
-fn a_kind_that_is_not_one_of_the_two_is_not_taken_for_opens() {
+fn a_kind_that_is_not_one_of_the_three_is_not_taken_for_opens() {
     let home = directory("opens-bad");
     let key = home.join("signing.key");
     write_key(&key, 0);
     let release = files(&home, "0.6.0");
     let hello = program(&home, "demopen-hello", LUA_03);
-    for bad in ["link", "file,", "", "File"] {
+    for bad in ["link", "file,", "", "File", "URL"] {
         let mut args = release_args(&release, &hello, "0.6.0", "none");
         args.extend(["--opens", bad].map(str::to_owned));
         let (code, _, why) = run_dist(&home, &args, &key);

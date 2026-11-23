@@ -2569,6 +2569,8 @@ fn a_script_drags_and_is_told_commands_keys_that_go_up_modifiers_and_dropped_fil
                     said = "mods alt " .. tostring(event.mods.alt)
                 elseif event.type == "files" then
                     said = "files " .. #event.paths .. " " .. event.paths[1] .. " at " .. event.x
+                elseif event.type == "link_dropped" then
+                    said = "link " .. event.url .. " at " .. event.x .. " " .. event.y
                 end
                 return true
             end,
@@ -2676,6 +2678,16 @@ fn a_script_drags_and_is_told_commands_keys_that_go_up_modifiers_and_dropped_fil
             &mut page
         ),
         "files 2 /tmp/a.png at 7"
+    );
+    assert_eq!(
+        told(
+            Event::LinkDropped {
+                at: Point::new(9.0, 4.0),
+                url: "https://example.com/a?b=c".into()
+            },
+            &mut page
+        ),
+        "link https://example.com/a?b=c at 9 4"
     );
 }
 
