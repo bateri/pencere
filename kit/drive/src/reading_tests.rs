@@ -1411,7 +1411,10 @@ return {{
             .. " bounce=" .. tostring(pencere.has("motion.bounce"))
             .. " transform=" .. tostring(pencere.has("element.transform"))
             .. " autosize=" .. tostring(pencere.has("motion.auto_size"))
-            .. " nomotion=" .. tostring(pencere.has("motion.nope"))))
+            .. " nomotion=" .. tostring(pencere.has("motion.nope"))
+            .. " haptic=" .. tostring(pencere.has("haptic"))
+            .. " tick=" .. tostring(pencere.has("haptic.tick"))
+            .. " nohaptic=" .. tostring(pencere.has("haptic.nope"))))
     end,
 }}
 "#
@@ -1421,7 +1424,7 @@ return {{
     let text = page.reading().text();
     assert!(
         text.contains(
-            "unnamed= roles=29 dialog=true target=true command=true listreveal=true nope=false loop=true bounce=true transform=true autosize=true nomotion=false"
+            "unnamed= roles=29 dialog=true target=true command=true listreveal=true nope=false loop=true bounce=true transform=true autosize=true nomotion=false haptic=true tick=true nohaptic=false"
         ),
         "{text}"
     );

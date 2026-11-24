@@ -8,6 +8,7 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
+- **`page:haptics()` in `pencere test`**: what the page asked the trackpad to do, in order: the events of each pattern, or `false` where it ended one.
 - **`pencere test` can look inside a page**: `page:inspect()` gives every element, named or not, with
   its place in the tree, box, style and what a screen reader says of it, and what the frames cost;
   `page:inspect_text()` gives the same as text an agent can read, `page:inspect_at(x, y)` the element

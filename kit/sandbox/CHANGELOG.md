@@ -8,6 +8,7 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **`haptic` in a reply** of the interface `pencere:view` (`haptic-ask`): a ready pattern by name (as strong as `intensity` says), a pattern of the page's own, or its end. A name the kit has no pattern for is a diagnostic and the rest of the reply goes through; a wrong shape, a number out of its range or a pattern past 256 events or 60 seconds is the script's error. The interpreter is rebuilt with it.
 - **`carry` of a tab** in `@pencere/ui`: an item of `tabs` may say what dragging the tab out of the view hands to the host's system drag (`carry = { text =, url = }`, as `Element:carry`), as the tab of a browser hands its address.
 - **The event `link-dropped`** of the interface `pencere:view`: the person dropped an address on the page. A change of the interface is a new build of the interpreter. `Module::event` leaves an address that is not an `http` or `https` link a page may open.
 - **`clear_cache`, `clear_site_data` and `proceed` asks of a browser**, and `certificate` in the error of a

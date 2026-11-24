@@ -1181,7 +1181,15 @@ local HAS = {
 	["motion.text_size"] = true, ["motion.transform"] = true, ["motion.loop"] = true,
 	["motion.auto_size"] = true,
 	["motion.shift.rotate"] = true, ["motion.shift.scale"] = true,
+	-- The vibration of the trackpad: the reply's `haptic`, and each ready pattern as `haptic.<name>`
+	-- (below).
+	["haptic"] = true,
 }
+-- The names of the ready patterns of the vibration, which the kit has in `pencere_view::haptic::NAMES`
+-- (a test of the drive holds the two lists to each other).
+for name in string.gmatch("tick tap thud snap bump double success warning error rise fall rumble heartbeat", "%S+") do
+	HAS["haptic." .. name] = true
+end
 local roles = {}
 for role in ROLES do
 	HAS["role." .. role] = true

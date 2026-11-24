@@ -51,6 +51,7 @@ mod fades;
 mod field;
 mod figure;
 mod geometry;
+pub mod haptic;
 mod id;
 mod input;
 mod inspect;
@@ -120,6 +121,8 @@ mod commands_tests;
 mod editor_tests;
 #[cfg(test)]
 mod figure_tests;
+#[cfg(test)]
+mod haptic_tests;
 #[cfg(test)]
 mod image_tests;
 #[cfg(test)]

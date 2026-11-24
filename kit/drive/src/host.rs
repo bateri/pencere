@@ -10,6 +10,7 @@
 //! the drive holds it and gives it with the frame ([`crate::Painted::held`]).
 
 use pencere_sandbox::{Answer, Fault};
+use pencere_view::haptic::Haptic;
 use pencere_view::{BrowserAsk, Carry, Cursor, Fill, Id, Keyboard, Menu, Panel, Point, Rect};
 
 /// What a page had besides its replies, since the host last looked ([`crate::Page::drain`]).
@@ -138,6 +139,15 @@ pub trait Host {
     /// when it wants it and is not told what came of it. It is not the person's act: any reply says
     /// it, a wake's and a program's message's included.
     fn text_size(&mut self, _points: i32) {}
+    /// The vibration of the trackpad the page asks for: a pattern to play in place of the one the view
+    /// plays, or the end of it ([`Haptic`]). The patterns are the kit's to give (a name is the kit's
+    /// to resolve), so that every host is given the same one; the rules are the host's
+    /// (`kit/spec/host.md`): it plays only while a finger is on the glass of a device that vibrates
+    /// and the view is the one the person works in, cuts it when the finger lifts, holds the strength
+    /// to what the device gives and maps the sharpness to what it feels. The page is not told what
+    /// came of it. It is not the person's act: any reply says it, a wake's and a program's message's
+    /// included.
+    fn haptic(&mut self, _haptic: Haptic) {}
     /// Text for the pasteboard, and whether the person's own word asked for it (`by_person`): a
     /// reply to a press or its release, a pick in a menu or a command, and of the keys only the
     /// system's copy and cut ([`pencere_view::copy_key`]); the copy or cut an editor makes of what
@@ -190,7 +200,7 @@ pub trait Host {
 impl Drained {
     /// Hands what the page said to `host`, in the order a host does it: what was said to the program
     /// first; then each reply in turn — its wish to close, its redraw, the pointer's shape (a reply
-    /// to the pointer only), the fields' texts, the keyboard, the size of its text, the pasteboard, the link, the panel,
+    /// to the pointer only), the fields' texts, the keyboard, the size of its text, the vibration, the pasteboard, the link, the panel,
     /// and the menu last; then the drag out of the view the person began; then the images' diagnostics; then the end, after which nothing; and last the frame or
     /// the clock it wants. A reply's texts and keyboard that name a field the page has not laid out
     /// yet are not among them: the drive held them ([`crate::Page::drain`]) for the frame that lays
@@ -226,6 +236,9 @@ impl Drained {
             }
             if let Some(points) = reply.text_size {
                 host.text_size(points);
+            }
+            if let Some(haptic) = reply.haptic {
+                host.haptic(haptic);
             }
             if let Some(text) = reply.copy {
                 host.copy(text, person);
@@ -296,6 +309,12 @@ mod tests {
         fn text_size(&mut self, points: i32) {
             self.0.push(format!("text_size {points}"));
         }
+        fn haptic(&mut self, haptic: Haptic) {
+            self.0.push(match haptic {
+                Haptic::Play(pattern) => format!("haptic {} events", pattern.events().len()),
+                Haptic::Stop => "haptic stop".into(),
+            });
+        }
         fn copy(&mut self, text: String, by_person: bool) {
             self.0.push(format!("copy {text} {by_person}"));
         }
@@ -339,6 +358,7 @@ mod tests {
             fill: vec![(Id::named("f"), Fill::text("text"))],
             copy: Some("copied".into()),
             text_size: Some(-2),
+            haptic: pencere_view::haptic::preset("double").map(Haptic::Play),
             cursor: Cursor::Text,
             link: Some("https://example.com".into()),
             panel: Some(Panel::Pick { multiple: true }),
@@ -391,6 +411,7 @@ mod tests {
                 "fill f text",
                 "keyboard Page",
                 "text_size -2",
+                "haptic 2 events",
                 "copy copied true",
                 "link https://example.com",
                 "panel Pick { multiple: true }",

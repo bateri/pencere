@@ -1828,6 +1828,8 @@ impl State {
                     self.menu_pastes.remove(0);
                 }
             }
+            // What the kit has to say to the page's author about a reply goes with the image's.
+            self.diagnostics.append(&mut answer.reply.diagnostics);
             answer.reply = to_host(answer.reply, place);
             self.replies.push(answer);
         }

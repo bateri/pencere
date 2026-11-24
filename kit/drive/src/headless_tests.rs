@@ -1033,6 +1033,64 @@ return {
     Ok(())
 }
 
+/// What the page asks of the trackpad is kept, every ask and in order, by the host with no screen
+/// (it has no finger and no device to judge them by): a name's pattern, the page's own, the end of
+/// what plays, and a name the kit has not told as a diagnostic with the rest of the reply going on.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_page_asks_the_trackpad_to_vibrate_and_the_host_with_no_screen_keeps_every_ask_in_order()
+-> Result<(), Error> {
+    use pencere_view::haptic::{self, Event as Tap, Haptic, Pattern};
+    let mut page = Headless::script(
+        r#"
+local seen = 0
+return {
+    render = function() return pencere.div():child(pencere.text("felt " .. seen)) end,
+    handle = function(event)
+        if event.type ~= "key" then return end
+        seen = seen + 1
+        if event.key == "a" then
+            return { haptic = "tick" }
+        elseif event.key == "b" then
+            return { redraw = true, haptic = { events = { { at = 0.1, intensity = 0.5 }, { seconds = 0.2 } } } }
+        elseif event.key == "c" then
+            return { haptic = false }
+        elseif event.key == "d" then
+            return { redraw = true, haptic = "nope" }
+        end
+    end,
+}
+"#,
+    )
+    .open()?;
+    assert_eq!(page.haptics(), []);
+    page.press("a")?;
+    page.press("b")?;
+    page.press("c")?;
+    let own = Pattern::new([
+        Tap::held(0.0, 0.2, (1.0, 1.0), (0.5, 0.5)),
+        Tap::tap(0.1, 0.5, 0.5),
+    ])
+    .expect("a pattern");
+    assert_eq!(
+        page.haptics(),
+        [
+            Haptic::Play(haptic::preset("tick").expect("a name")),
+            Haptic::Play(own),
+            Haptic::Stop,
+        ]
+    );
+    assert!(page.diagnostics().is_empty());
+    // A name the kit has not: nothing is asked of the trackpad, the page's author is told, and the
+    // page is drawn again for the rest of the reply.
+    page.press("d")?;
+    assert_eq!(page.haptics().len(), 3);
+    assert_eq!(page.diagnostics().len(), 1, "{:?}", page.diagnostics());
+    assert!(page.diagnostics()[0].contains("\"nope\""));
+    assert!(page.reading().text().contains("felt 4"));
+    Ok(())
+}
+
 /// A page whose boxes say what they carry out of the view, and that counts what the pointer did to
 /// it: one that only carries, one that is no carrier, and one the page also drags.
 const CARRIERS: &str = r#"

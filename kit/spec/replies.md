@@ -115,6 +115,10 @@ A `text_size` that is not a whole number is an error of the script. It is not th
 
 [^size]: A code editor made larger by a person who reads small print is one: the size is kept in its settings and said when it opens.
 
+## Vibration
+
+A reply's `haptic` asks the trackpad to vibrate, as `text_size` asks for a size: in any reply, and the page is not told what came of it. What it says and what the host does are in [Haptics](haptics.md).
+
 ## Replies put together
 
 A page made of parts that answer apart (its timers, a module of the library, its own `handle`) answers with one reply. `pencere.merge(first, second, …)` is that reply: the replies (each nil, `true`, `false` or a table) put together in the order given, and none of them changed.
@@ -124,7 +128,7 @@ It asks everything they ask:
 - the asks of an editor or a browser, of each in the order of the replies;
 - the texts of `fill`, by name, the later's where two name one field;
 - a frame where any wants one (`true`, `redraw`), and the page closed where any asks;
-- of what says one thing (`keyboard`, `copy`, `cursor`, `menu`, `link`, `text_size`), the last that says it;
+- of what says one thing (`keyboard`, `copy`, `cursor`, `menu`, `link`, `text_size`, `haptic`), the last that says it (`haptic = false` is one);
 - the earliest `wake`.
 
 Of replies none of which is a table, it is `true` where any is `true`, nil where every one is nil, and `false` otherwise.

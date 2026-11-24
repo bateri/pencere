@@ -968,6 +968,59 @@ end)
 
 #[test]
 #[ignore = "heavy: opens pages, which compiles the interpreter"]
+fn a_test_reads_what_the_page_asked_the_trackpad_to_do() {
+    let app = App::template("haptics");
+    app.write(
+        "src/view/page.lua",
+        r#"return {
+	render = function()
+		return pencere.div():size_full():child(pencere.text("press a key"))
+	end,
+	handle = function(e)
+		if e.type == "key" and e.key == "a" then
+			return { haptic = "snap" }
+		elseif e.type == "key" and e.key == "b" then
+			return { haptic = { events = { { at = 0.1, seconds = 0.2, intensity = 0.3, intensity_end = 0.9 } } } }
+		elseif e.type == "key" and e.key == "c" then
+			return { haptic = false }
+		end
+	end,
+}
+"#,
+    );
+    app.write(
+        "test/page_test.lua",
+        r#"local test = require("pencere.test")
+local expect = test.expect
+
+test("a test reads the vibrations the page asked for, in order", function()
+	local page = test.open()
+	expect(#page:haptics()):to_equal(0)
+	page:press("a")
+	page:press("b")
+	page:press("c")
+	local asked = page:haptics()
+	expect(#asked):to_equal(3)
+	-- A ready pattern is the pattern the kit gives it, one event of a tap's kind.
+	expect(asked[1][1].seconds):to_equal(0)
+	expect(asked[1][1].intensity):to_equal(1)
+	expect(asked[1][1].sharpness):to_equal(1)
+	-- A pattern of the page's own, with what it did not say as the default.
+	expect(#asked[2]):to_equal(1)
+	expect(asked[2][1].at):to_be_close_to(0.1, 3)
+	expect(asked[2][1].intensity_end):to_be_close_to(0.9, 3)
+	expect(asked[2][1].sharpness_end):to_equal(0.5)
+	-- The end of what was playing.
+	expect(asked[3]):to_equal(false)
+end)
+"#,
+    );
+    let (code, text) = tap(&app, &[]);
+    assert_eq!(code, 0, "{text}");
+}
+
+#[test]
+#[ignore = "heavy: opens pages, which compiles the interpreter"]
 fn a_test_drags_an_element_that_carries_out_of_the_view_and_ends_the_systems_drag() {
     let app = App::template("trackpad");
     app.write(

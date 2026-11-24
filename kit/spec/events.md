@@ -281,6 +281,10 @@ Every reply to an input of the pointer says it. One that says none, `nil` too, i
 - `wake`: in how many seconds to wake the page ([Replies](replies.md)).
 - `text_size`: how many points larger than the host's own text the view is drawn ([Replies](replies.md)).
 
+### Haptic
+
+`haptic`: `"tick"`, `{ name =, intensity = }`, `{ events = { … } }` or `false`: the trackpad's vibration, or the end of the one playing ([Haptics](haptics.md)).
+
 ### What the page asks of its browsers
 
 `browser = { [name] = ask, or { ask, ... } }` is what the page asks of its browsers.

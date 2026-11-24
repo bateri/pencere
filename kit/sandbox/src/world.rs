@@ -14,6 +14,7 @@ use pencere_view::edit::{
     RulerLane, RulerMark, SelectionLook, TargetKind, TargetSource, Tint, Underline, Whitespace,
     Widget, WidgetGroup, WidgetPart, WidgetShow, WidgetSide, Zone, ZoneSide, limits,
 };
+use pencere_view::haptic::{self, Haptic, Pattern};
 use pencere_view::wire::{
     self, Direction, Display, FieldKind, Fit, Image, Items, Justify, Kind, Length, Meta, Node,
     Overflow, Spark, Style, TextStyle,
@@ -2118,6 +2119,12 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
             Ok((Id::new(said.field), fill))
         })
         .collect::<Result<Vec<_>, Fault>>()?;
+    let mut diagnostics = Vec::new();
+    let haptic = reply
+        .haptic
+        .map(|ask| haptic_out(ask, &mut diagnostics))
+        .transpose()?
+        .flatten();
     Ok(Reply {
         redraw: reply.redraw,
         close: reply.close,
@@ -2139,6 +2146,8 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
         wake: wake_out(reply.wake, "a reply")?,
         // A number of points more than the host's text: the host holds it within what it draws.
         text_size: reply.text_size,
+        haptic,
+        diagnostics,
         panel: reply
             .panel
             .map(|panel| -> Result<Panel, Fault> {
@@ -2164,6 +2173,44 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
             wit::Cursor::Grabbing => Cursor::Grabbing,
             wit::Cursor::Crosshair => Cursor::Crosshair,
         },
+    })
+}
+
+/// What a page asks of the vibration of its view, as the host is given it: the kit's own pattern
+/// for a name (as strong as the page said), the pattern of the page's own, or the end of what
+/// plays. A name the kit has no pattern for is the page author's to be told, in `diagnostics`, and
+/// the reply goes on without it; a pattern with nothing in it plays nothing, which is to end what
+/// plays.
+fn haptic_out(ask: wit::HapticAsk, diagnostics: &mut Vec<String>) -> Result<Option<Haptic>, Fault> {
+    Ok(match ask {
+        wit::HapticAsk::Stop => Some(Haptic::Stop),
+        wit::HapticAsk::Named(named) => match haptic::preset(&named.name) {
+            Some(pattern) => Some(Haptic::Play(pattern.scaled(named.intensity))),
+            None => {
+                diagnostics.push(format!(
+                    "haptic {:?} is not a pattern of the kit's (they are {})",
+                    named.name,
+                    haptic::NAMES.join(", ")
+                ));
+                None
+            }
+        },
+        wit::HapticAsk::Pattern(own) => {
+            let pattern = Pattern::new(own.events.iter().map(|event| haptic::Event {
+                at: event.at,
+                seconds: event.seconds,
+                intensity: event.intensity,
+                intensity_end: event.intensity_end,
+                sharpness: event.sharpness,
+                sharpness_end: event.sharpness_end,
+            }))
+            .map_err(|refusal| Fault::Malformed(format!("a haptic pattern: {refusal}")))?;
+            Some(if pattern.is_empty() {
+                Haptic::Stop
+            } else {
+                Haptic::Play(pattern)
+            })
+        }
     })
 }
 
@@ -4289,6 +4336,7 @@ mod tests {
             link: None,
             wake: None,
             text_size: None,
+            haptic: None,
 
             panel: None,
         };
@@ -4424,6 +4472,7 @@ mod tests {
             link: None,
             wake: None,
             text_size: None,
+            haptic: None,
 
             panel: None,
         };
@@ -4527,6 +4576,7 @@ mod tests {
             link: None,
             wake: None,
             text_size: None,
+            haptic: None,
             panel,
         };
         // A text of a reply is at most sixteen lines' worth.
@@ -4592,6 +4642,7 @@ mod tests {
             link,
             wake: None,
             text_size: None,
+            haptic: None,
 
             panel: None,
         };
@@ -4641,6 +4692,7 @@ mod tests {
             link: None,
             wake,
             text_size: None,
+            haptic: None,
 
             panel: None,
         };

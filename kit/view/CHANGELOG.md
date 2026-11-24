@@ -11,9 +11,11 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 - **`BrowserError` has a `certificate` field and `BrowserAsk` three more variants.** A `BrowserError { .. }`
   written out in full needs `certificate: None`, and a `match` on every `BrowserAsk` needs the arms for
   `ClearCache`, `ClearSiteData` and `Proceed` (or a catch-all).
+- **`Reply` has `haptic` and `diagnostics` fields.** A `Reply { .. }` written out in full needs `haptic: None` and `diagnostics: Vec::new()`.
 
 ### Added
 
+- **`pencere_view::haptic`**: a vibration of the trackpad as a pattern of events (`Event`, `Pattern`: a tap or a held event with a strength and a sharpness from 0 to 1, at most 256 events and 60 seconds), the thirteen ready patterns by name (`NAMES`, `preset`) and `Haptic`, the ask a page makes. `Reply::haptic` carries it and `Reply::diagnostics` the sentences for the page's author that a reply earns (a name the kit has no pattern for).
 - **A laid-out page lists its elements, named or not** (`Laid::inspect(&page)`): each one's place in
   the tree the page wrote (`Inspected::path`), its box, clip, padding, border and scrolling, whether it
   is hidden, a layer or going out, and the part of its style that placed it (`Placing`: margin, flex,

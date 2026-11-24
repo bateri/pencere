@@ -1160,6 +1160,34 @@ impl UserData for Handle {
         methods.add_method("links", |_, this, ()| {
             this.look(|page| page.links().to_vec())
         });
+        // What the page asked the trackpad to do, in order: a list of the events of each pattern
+        // (`at`, `seconds`, `intensity`, `intensity_end`, `sharpness`, `sharpness_end`), or `false`
+        // where it asked for the end of what was playing. A test has no finger and no device, so
+        // every ask is kept.
+        methods.add_method("haptics", |lua, this, ()| {
+            let asks = this.look(|page| page.haptics().to_vec())?;
+            let list = lua.create_table()?;
+            for (index, ask) in asks.iter().enumerate() {
+                match ask {
+                    pencere_view::haptic::Haptic::Stop => list.raw_set(index + 1, false)?,
+                    pencere_view::haptic::Haptic::Play(pattern) => {
+                        let events = lua.create_table()?;
+                        for (place, event) in pattern.events().iter().enumerate() {
+                            let item = lua.create_table()?;
+                            item.set("at", event.at)?;
+                            item.set("seconds", event.seconds)?;
+                            item.set("intensity", event.intensity)?;
+                            item.set("intensity_end", event.intensity_end)?;
+                            item.set("sharpness", event.sharpness)?;
+                            item.set("sharpness_end", event.sharpness_end)?;
+                            events.raw_set(place + 1, item)?;
+                        }
+                        list.raw_set(index + 1, events)?;
+                    }
+                }
+            }
+            Ok(list)
+        });
         methods.add_method("menu", |lua, this, ()| {
             let menu = this.look(|page| page.menu().cloned())?;
             let Some(menu) = menu else {

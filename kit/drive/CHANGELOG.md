@@ -8,6 +8,7 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Added
 
+- **`Host::haptic`**: the vibration the page asked for, a pattern to play or the end of it, told after the size of the text; `Headless::haptics` keeps every ask in order. A reply's diagnostics (a haptic name the kit has not) go to `Host::diagnostic` with the images'.
 - **`Page::link_dropped`, `Headless::drop_link`, `InProcess::hand_over` and `Headless::hand_over`**: an address dropped on a page, and what the terminal hands a program that runs in the test's process (specification §10.9), the page settled after it.
 - **A page that asks a browser to empty its cache or a site's data, or to go on past a certificate it did not
   trust, is given to the host as asked** (`clear_cache`, `clear_site_data`, `proceed`), and is told why a load

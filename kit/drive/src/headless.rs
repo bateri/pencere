@@ -49,6 +49,7 @@ use std::time::{Duration, Instant};
 
 use pencere_editor::Buffer;
 use pencere_sandbox::{Answer, Assets, Fault, Images, ModuleLimits, Program, Runner, Script};
+use pencere_view::haptic::Haptic;
 use pencere_view::wire::Kind;
 use pencere_view::{
     BrowserAsk, Button, Cursor, DrawList, Drawing, Element, Event, FieldKind, FileEntry,
@@ -364,6 +365,8 @@ struct Seen {
     /// Every write to the pasteboard that a page or the person's copy key made, oldest first.
     copies: Vec<Copied>,
     links: Vec<String>,
+    /// Every vibration the page asked for, in order, whatever a device would have done with it.
+    haptics: Vec<Haptic>,
     /// How many points larger than the host's text the page last asked to be drawn.
     text_size: i32,
     /// Every drag out of the view the person began, oldest first: the system's drag of what an
@@ -524,6 +527,10 @@ impl<P: Peer> Host for Deliver<'_, P> {
 
     fn text_size(&mut self, points: i32) {
         self.seen.text_size = points;
+    }
+
+    fn haptic(&mut self, haptic: Haptic) {
+        self.seen.haptics.push(haptic);
     }
 
     fn carry(&mut self, carry: CarryOut) {
@@ -2686,6 +2693,14 @@ impl<P: Peer> Headless<P> {
     /// large; below 0: smaller), in whatever reply it said it.
     pub fn text_size(&self) -> i32 {
         self.seen.text_size
+    }
+
+    /// The vibrations the page asked for, in order, each the pattern the host was given or the end
+    /// of what was playing ([`Haptic`]): a host with no screen has no finger and no device, so it
+    /// keeps every one.
+    #[must_use]
+    pub fn haptics(&self) -> &[Haptic] {
+        &self.seen.haptics
     }
 
     /// The links the page asked to open, in order (each one the sandbox let through).

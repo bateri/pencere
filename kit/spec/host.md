@@ -95,6 +95,19 @@ A host draws the page's words as many points larger than its own text as a reply
 - its own text as it was;
 - and the host tells the page nothing of what came of it.
 
+### Vibration of the trackpad
+
+A host vibrates the trackpad as a reply's `haptic` says ([Haptics](haptics.md); `Host::haptic`), and holds the vibration to these rules:
+
+- it vibrates only while a finger is on the glass of a device that can, and only for the view the person is working in;
+- a vibration ends when the finger lifts, when a new one takes its place, and when the view is gone;
+- a strength is held to what the device gives at most, and a sharpness is mapped to the band the device feels, so that the same pattern feels alike on every one;
+- a host with no device that vibrates ignores it;
+- a host with no screen keeps every ask, whatever a device would have done with it;
+- and the host tells the page nothing of what came of it.
+
+A page that asks while no finger is on the glass asks for nothing: it is not told, and the vibration is not kept for when a finger comes.
+
 ### Carrying out of the view
 
 A host carries out of the view what a page's element says it carries (`carry`, [Commands and dragging](commands.md)) as its system's drag:

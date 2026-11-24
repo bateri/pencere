@@ -6,6 +6,7 @@
 //! host can do: pop up a menu, move the keyboard into a text field, copy, close the page.
 
 use crate::edit::{Edited, EditorAsk, Found, Refusal, Selection};
+use crate::haptic::Haptic;
 use crate::{BrowserAsk, BrowserRefusal, BrowserState, Fill, Id, Phase, Point, Shortcut};
 
 /// A key the page reads. Letters, symbols and the space bar come as [`Key::Character`] — the
@@ -624,6 +625,15 @@ pub struct Reply {
     /// larger for a person who reads small print) and is not told what came of it; a host that
     /// has no such size ignores it. Not the person's act: any reply may carry it.
     pub text_size: Option<i32>,
+    /// What the page asks of the vibration of its view ([`Haptic`]): a pattern to play on the
+    /// trackpad in place of the one playing, or the end of it. Not the person's act: any reply may
+    /// carry it, and the page is not told what came of it. Whether it is felt is the host's rule
+    /// (`kit/spec/host.md`).
+    pub haptic: Option<Haptic>,
+    /// Sentences for the page's author about what the reply asked and the kit could not do (a name
+    /// of a pattern it does not have): the rest of the reply goes through. The drive hands them to
+    /// the host as it does an image's.
+    pub diagnostics: Vec<String>,
     /// A panel the page asks the host to show ([`Panel`]): only for a reply to something the person
     /// did ([`Panel::follows`]: a press or its release, a key, a pick in a menu, a command); asked
     /// for in another, it is passed over. One is shown at a time.

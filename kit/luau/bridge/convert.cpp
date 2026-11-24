@@ -3594,6 +3594,109 @@ void read_editor_asks(lua_State* L, int t, pencere_view_types_list_editor_ask_t&
 
 }  // namespace
 
+// --- A vibration of the trackpad ------------------------------------------------------------
+
+namespace {
+
+// What a reply's `haptic` may be, as the words of the script's mistake.
+const char* const kHapticIs =
+    "haptic is the name of a pattern (\"tick\"), { name =, intensity = }, { events = { { at =, seconds =, "
+    "intensity =, sharpness = } } } or false (the vibration ends)";
+
+// A pattern is at most this many events, and lasts at most this many seconds: the floors of the kit
+// (`pencere_view::haptic`), which a reply past is the script's mistake, not the host's.
+const size_t kMaxHapticEvents = 256;
+const double kMaxHapticSeconds = 60.0;
+
+// A number of an event or of a named pattern, from 0 to `most`; `fallback` where it is not said.
+float haptic_number(lua_State* L, int t, const char* name, float fallback, double most) {
+    get(L, t, name);
+    float value = fallback;
+    int kind = lua_type(L, -1);
+    if (kind == LUA_TNUMBER) {
+        double given = lua_tonumber(L, -1);
+        if (!(given >= 0 && given <= most)) luaL_error(L, "a haptic's %s is a number from 0 to %g", name, most);
+        value = (float)given;
+    } else if (kind != LUA_TNIL) {
+        luaL_error(L, "a haptic's %s is a number from 0 to %g", name, most);
+    }
+    lua_pop(L, 1);
+    return value;
+}
+
+// The `haptic` of a reply, the value at the stack index `index`: nothing (nil) leaves the reply as it
+// is. A name the kit has no pattern for is told to the page's author by the sandbox, which keeps the
+// patterns; here what is not the shape of a haptic, a number out of its range and a pattern past the
+// floors are the script's mistake.
+void haptic_of(lua_State* L, int index, pencere_view_types_reply_t& out) {
+    int kind = lua_type(L, index);
+    if (kind == LUA_TNIL) return;
+    auto& ask = out.haptic.val;
+    if (kind == LUA_TBOOLEAN) {
+        if (lua_toboolean(L, index)) luaL_error(L, "%s", kHapticIs);
+        out.haptic.is_some = true;
+        ask.tag = PENCERE_VIEW_TYPES_HAPTIC_ASK_STOP;
+        return;
+    }
+    if (kind == LUA_TSTRING) {
+        size_t length = 0;
+        const char* bytes = lua_tolstring(L, index, &length);
+        out.haptic.is_some = true;
+        ask.tag = PENCERE_VIEW_TYPES_HAPTIC_ASK_NAMED;
+        ask.val.named.name = host_string(bytes, length);
+        ask.val.named.intensity = 1.0f;
+        return;
+    }
+    if (kind != LUA_TTABLE) luaL_error(L, "%s", kHapticIs);
+    get(L, index, "name");
+    bool named = !lua_isnil(L, -1);
+    int name_index = lua_gettop(L);
+    get(L, index, "events");
+    bool own = !lua_isnil(L, -1);
+    int events_index = lua_gettop(L);
+    if (named == own) luaL_error(L, "%s", kHapticIs);
+    if (named) {
+        if (lua_type(L, name_index) != LUA_TSTRING) luaL_error(L, "%s", kHapticIs);
+        size_t length = 0;
+        const char* bytes = lua_tolstring(L, name_index, &length);
+        out.haptic.is_some = true;
+        ask.tag = PENCERE_VIEW_TYPES_HAPTIC_ASK_NAMED;
+        ask.val.named.name = host_string(bytes, length);
+        ask.val.named.intensity = haptic_number(L, index, "intensity", 1.0f, 1.0);
+    } else {
+        if (lua_type(L, events_index) != LUA_TTABLE) luaL_error(L, "%s", kHapticIs);
+        size_t count = (size_t)lua_objlen(L, events_index);
+        if (count > kMaxHapticEvents) luaL_error(L, "a haptic pattern has at most %d events", (int)kMaxHapticEvents);
+        out.haptic.is_some = true;
+        ask.tag = PENCERE_VIEW_TYPES_HAPTIC_ASK_PATTERN;
+        if (count) {
+            auto* events = (pencere_view_types_haptic_event_t*)xmalloc(count * sizeof(pencere_view_types_haptic_event_t));
+            memset(events, 0, count * sizeof(pencere_view_types_haptic_event_t));
+            ask.val.pattern.events.ptr = events;
+            ask.val.pattern.events.len = count;
+        }
+        for (size_t at = 0; at < count; at++) {
+            lua_rawgeti(L, events_index, (int)at + 1);
+            if (lua_type(L, -1) != LUA_TTABLE) luaL_error(L, "an event of a haptic pattern is a table: { at =, seconds =, intensity =, sharpness = }");
+            int event = lua_gettop(L);
+            auto& to = ask.val.pattern.events.ptr[at];
+            to.at = haptic_number(L, event, "at", 0.0f, kMaxHapticSeconds);
+            to.seconds = haptic_number(L, event, "seconds", 0.0f, kMaxHapticSeconds);
+            if ((double)to.at + (double)to.seconds > kMaxHapticSeconds) {
+                luaL_error(L, "a haptic pattern lasts at most %g seconds", kMaxHapticSeconds);
+            }
+            to.intensity = haptic_number(L, event, "intensity", 1.0f, 1.0);
+            to.intensity_end = haptic_number(L, event, "intensity_end", to.intensity, 1.0);
+            to.sharpness = haptic_number(L, event, "sharpness", 0.5f, 1.0);
+            to.sharpness_end = haptic_number(L, event, "sharpness_end", to.sharpness, 1.0);
+            lua_pop(L, 1);
+        }
+    }
+    lua_pop(L, 2);
+}
+
+}  // namespace
+
 int reply_call(lua_State* L) {
     auto* job = (ReplyJob*)lua_touserdata(L, 2);
     pencere_view_types_reply_t& out = *job->out;
@@ -3784,6 +3887,10 @@ int reply_call(lua_State* L) {
     } else if (!lua_isnil(L, -1)) {
         luaL_error(L, "text_size is a whole number of points more than the host's text (below 0: less)");
     }
+    lua_pop(L, 1);
+    // The vibration of the trackpad: a ready pattern by its name, one of the page's own, or its end.
+    get(L, 1, "haptic");
+    haptic_of(L, lua_gettop(L), out);
     lua_pop(L, 1);
     // When to wake the page, seconds from now. The prelude puts it (the earliest its timers and
     // the page ask); what is not a number of seconds is still an error of the script's.

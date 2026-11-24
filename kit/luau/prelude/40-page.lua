@@ -197,6 +197,17 @@
 -- own text as it was, and does not tell the page what came of it. Any reply may carry it, the
 -- person's act or not (a page says it when it opens, from what it kept). It is not the
 -- `text_size` of an element (a size in points of that element's text).
+-- `haptic` asks the trackpad to vibrate, for a view has one vibration at a time and a new one takes the
+-- place of the one playing: a ready pattern by its name (`haptic = "tick"`; `pencere.has("haptic.tick")`
+-- says whether a host's kit has it), `{ name =, intensity = }` (0 to 1: how much of its strength),
+-- a pattern of the page's own, `{ events = { { at =, seconds =, intensity =, intensity_end =, sharpness =,
+-- sharpness_end = } } }` (a tap where `seconds` is 0 or not said, otherwise held, its strength and its
+-- sharpness going from where they begin to where they end; `at`, `seconds` 0 to 60 and over by 60,
+-- `intensity` and `sharpness` 0 to 1: 1 and 0.5 where not said, the `_end` of each the one it
+-- begins at), or `false` for the end of what is playing. The host plays it only while a finger is on
+-- the glass of a device that vibrates and the view is the one the person is working in, and the page is
+-- not told what came of it. Any reply may carry it, the person's act or not; a name the kit has no
+-- pattern for is told to the page's author, and the rest of the reply goes through.
 --
 -- What the page says to its program is JSON objects, messages of a view and its program:
 -- `pencere.call` asks the program to do something and answers once, `pencere.subscribe` asks to hear

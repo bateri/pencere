@@ -2556,6 +2556,40 @@ interface types {
         save(save-panel),
     }
 
+    /// One event of a pattern of vibration, for the trackpad: a tap (`seconds` 0) or one held for
+    /// `seconds`, its strength and its sharpness going straight from where they begin to
+    /// where they end. The times are seconds, the strengths and the sharpnesses 0 to 1.
+    record haptic-event {
+        /// Seconds from the start of the pattern.
+        at: f32,
+        seconds: f32,
+        intensity: f32,
+        intensity-end: f32,
+        sharpness: f32,
+        sharpness-end: f32,
+    }
+
+    /// A ready pattern of the kit's, by its name, as strong as `intensity` (0 to 1) says.
+    record haptic-named {
+        name: string,
+        intensity: f32,
+    }
+
+    /// A pattern of the page's own: at most 256 events, the last of them over by 60 seconds. None is
+    /// a pattern that plays nothing.
+    record haptic-pattern {
+        events: list<haptic-event>,
+    }
+
+    /// What the page asks of the vibration of its view. The kit's own names are the sandbox's to
+    /// resolve (it is where the patterns are kept), so that a host is given a pattern and no name.
+    variant haptic-ask {
+        named(haptic-named),
+        pattern(haptic-pattern),
+        /// What the view is playing ends.
+        stop,
+    }
+
     /// What the page says back after an event.
     record reply {
         /// Something the page shows changed: a frame is worth drawing.
@@ -2597,6 +2631,10 @@ interface types {
         /// it draws it at, within what it can draw. The host's own text is not changed, and the
         /// page is not told what came of it. Not the person's act: any reply may carry it.
         text-size: option<s32>,
+        /// A vibration of the trackpad, or the end of the one playing: whether it is felt is the
+        /// host's rule (the finger is on the glass, the view is the one the person works in). The
+        /// page is not told what came of it. Not the person's act: any reply may carry it.
+        haptic: option<haptic-ask>,
         /// A panel the page asks the application to show. Shown only for a reply to something the
         /// person did (a press or its release, a key, a pick in a menu, a command): asked for in a
         /// reply to anything else (the pointer moving, a wake, a message of the program), it is
