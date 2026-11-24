@@ -8,6 +8,7 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
+- **`page:inspect()`, `page:inspect_text()`, `page:inspect_at(x, y)` and `page:measure(on)` in `pencere test`**: the page element by element, the ones with no name too (its place in the tree the page wrote, its box, its room, the style that placed it, what a screen reader says for it) and what its frames cost (elements, pages the script made, each call into the script, layouts, laying out and painting), as a table or as the text an agent reads.
 - **`dist --opens url`**: the release says it takes an address (`file`, `folder` and `url`, several with commas).
 - **`takes` of `serve`** (specification §10.9): what the app takes while it runs, `"url"`, `"file"` and `"folder"`; the view subscribes to the topic `pencere.take` and is pushed each thing the terminal hands the app. A page of the kit is told `link_dropped` when an address is dropped on it, and `pencere test` plays it with `drop_link`.
 - **`pencere test` knows the asks of a browser that empty its cache or a site's data and go on past a

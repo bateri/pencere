@@ -126,6 +126,7 @@ index)` (and `Page::command_on`, `Page::reveal`, the host/test `page:command_on`
   in (`Laid::spills` of `pencere-view`), in the host's points, for a test that looks at a page at
   every size of its window. `pencere test` has it as `page:spills()`: a list of tables, each with
   `box`, `inside`, `left`, `above`, `right`, `below`, `words` and `around`.
+- **A page can be looked at** (`Page::inspect(on)`, `Headless::inspect`; off to begin with): `Page::inspection()` is the page as its last frame left it, element by element (`Inspection`: each `Item` is a `pencere_view::Inspected`, named or not, with its place in the tree the page wrote, its box in the host's points, its room, the style that placed it and what a screen reader says for it, as a reading says it and cleaned as it is; the value of a secret field is in neither) and what its last frames that did something cost (`Cost`: how many elements the page was, how many pages the script made, each call into the script and how long it took, how many layouts and how long laying out and painting took). `Inspection::text()` writes it for a reader, the same for every host, with what was measured on lines of their own. `Page::inspect_at(point)` is the place of the topmost element that shows at a point of the host's, named or not. Off, no clock is read and no model is built.
 
 ### Changed
 

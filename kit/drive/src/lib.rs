@@ -21,6 +21,7 @@ mod editing;
 mod glide;
 pub mod headless;
 mod host;
+mod inspect;
 mod outline;
 mod page;
 pub mod reading;
@@ -32,6 +33,7 @@ mod waking;
 pub use audit::{Finding, Flaw};
 pub use browsers::{Browser, UNSUPPORTED, frame, placeholder};
 pub use host::{CarryOut, Copied, Drained, Held, Host};
+pub use inspect::{Cost, Inspection, Item, Said};
 pub use outline::{Field, Outline, Placement, Tip, ZOOM_TEXT};
 pub use page::{FrameAt, NoText, Page, PageEditors, Painted, Setup, Unreachable, carriable};
 pub use pencere_editor::Route;
@@ -52,6 +54,8 @@ mod golden_tests;
 mod headless_tests;
 #[cfg(all(test, feature = "program"))]
 mod in_process_tests;
+#[cfg(test)]
+mod inspect_tests;
 #[cfg(test)]
 mod library_fuzzy_tests;
 #[cfg(test)]

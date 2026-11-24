@@ -123,8 +123,16 @@ pub(crate) struct Node {
     pub shadow: Option<Shadow>,
     /// How much of what it draws shows: its own opacity times those of the boxes that hold it.
     pub opacity: f32,
-    /// The element that holds this one (its place in the paint order).
+    /// The element that holds this one (its place in the paint order): for an overlay, the one it
+    /// is written in, not the page.
     pub parent: Option<usize>,
+    /// Which of the children of the element that holds it this one is, as the page wrote them
+    /// (an overlay and a box that is not shown among them): with `parent`, its place in the page's
+    /// tree ([`Laid::inspect`]).
+    pub slot: u32,
+    /// It is what is going out ([`crate::Motion::exit`]): drawn where it was, and no part of the
+    /// page's tree.
+    pub exiting: bool,
     pub meta: Meta,
     /// For a box that scrolls: how large its content is and how large the box is, pixels.
     pub extent: Option<(Size, Size)>,
@@ -217,6 +225,8 @@ enum Leaf {
 struct Pending {
     id: NodeId,
     parent: Option<usize>,
+    /// Which of the children of `parent` it is, as the page wrote them.
+    slot: u32,
     meta: Meta,
     overflow: Overflow,
     /// Pixels.
@@ -247,11 +257,13 @@ struct Pending {
 }
 
 /// An overlay met on the walk down, laid out after the rest as a child of the page: the element,
-/// the text it inherits where it is written, and the element that holds it there.
+/// the text it inherits where it is written, the element that holds it there and which of its
+/// children it is.
 struct Lifted {
     element: Element,
     text: TextStyle,
     parent: usize,
+    slot: u32,
 }
 
 /// Lays `root` out on a page of `viewport` pixels. A page is written in points: `scale` is
@@ -272,6 +284,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
         &mut lifted,
         root,
         None,
+        0,
         DEFAULT_TEXT,
         scale,
         measure,
@@ -282,6 +295,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
         element,
         text,
         parent,
+        slot,
     }) = lifted.pop_front()
     {
         let (index, id) = build(
@@ -290,6 +304,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             &mut lifted,
             element,
             Some(parent),
+            slot,
             text,
             scale,
             measure,
@@ -504,6 +519,8 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             shadow: entry.shadow,
             opacity: entry.opacity * held_opacity,
             parent: entry.parent,
+            slot: entry.slot,
+            exiting: false,
             meta: entry.meta,
             extent: (entry.overflow == Overflow::Scroll)
                 .then_some((Size::new(0.0, 0.0), Size::new(rect.w, rect.h))),
@@ -891,6 +908,8 @@ fn empty(page: Rect) -> Node {
         shadow: None,
         opacity: 1.0,
         parent: None,
+        slot: 0,
+        exiting: false,
         meta: Meta::default(),
         extent: None,
         scroll: (0.0, 0.0),
@@ -941,6 +960,7 @@ fn build(
     lifted: &mut VecDeque<Lifted>,
     element: Element,
     parent: Option<usize>,
+    slot: u32,
     outer: TextStyle,
     scale: f32,
     measure: &mut dyn Measure,
@@ -987,6 +1007,7 @@ fn build(
     pending.push(Pending {
         id: NodeId::new(0),
         parent,
+        slot,
         meta,
         overflow: style.overflow,
         scroll: (px(style.scroll.0), px(style.scroll.1)),
@@ -1143,13 +1164,14 @@ fn build(
                 entry.content = Content::Browser;
             }
             let mut ids: Vec<NodeId> = Vec::with_capacity(children.len());
-            for child in children {
+            for (slot, child) in (0_u32..).zip(children) {
                 if child.style.overlay {
                     // Laid out after the rest, as a child of the page.
                     lifted.push_back(Lifted {
                         element: child,
                         text,
                         parent: index,
+                        slot,
                     });
                     continue;
                 }
@@ -1160,6 +1182,7 @@ fn build(
                         lifted,
                         child,
                         Some(index),
+                        slot,
                         text,
                         scale * zoomed,
                         measure,
@@ -1480,7 +1503,7 @@ impl Laid {
     }
 
     /// The part of `node` that shows, pixels: its box where the boxes around it let it be seen.
-    fn shown(node: &Node) -> Rect {
+    pub(crate) fn shown(node: &Node) -> Rect {
         node.rect.intersect(node.clip)
     }
 
@@ -2200,6 +2223,13 @@ impl Laid {
     /// a group, and so is a dialog, a group, a list, a table, a tree or a row of tabs that has a label
     /// whatever is in it: what is inside it is its children ([`Accessible::parent`]).
     pub fn accessible_behind(&self) -> (Vec<Accessible>, usize) {
+        let (items, _, behind) = self.accessible_owned();
+        (items, behind)
+    }
+
+    /// [`Laid::accessible_behind`], and for each item the element it is said for (its place in the
+    /// paint order): what [`Laid::inspect`] says of an element's place in what is read.
+    pub(crate) fn accessible_owned(&self) -> (Vec<Accessible>, Vec<usize>, usize) {
         let s = self.scale;
         let points = |rect: Rect| Rect::new(rect.x / s, rect.y / s, rect.w / s, rect.h / s);
         let shown = Self::drawn;
@@ -2428,7 +2458,8 @@ impl Laid {
                 groups.push((at, node));
             }
         }
-        (items, behind)
+        let nodes = owners.into_iter().map(|(node, _)| node).collect();
+        (items, nodes, behind)
     }
 
     /// Whether the words at `index` are said already by the label of the group they are in (the

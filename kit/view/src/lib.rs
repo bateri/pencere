@@ -36,6 +36,10 @@
 //! list and picks it up again, and [`Queries`] is what a page asks of itself laid out — the pair a
 //! page kept in a sandbox is written against, as [`Laid`] answers the same questions to one that
 //! is not.
+//!
+//! A page laid out says what each of its elements is, named or not — where it stands in the tree
+//! the page wrote, its box, its room, how the page placed it ([`Laid::inspect`]) — and what shows at
+//! a point ([`Laid::inspect_at`]): what a reader that is not the person at the screen asks.
 
 pub mod bands;
 mod browser;
@@ -49,6 +53,7 @@ mod figure;
 mod geometry;
 mod id;
 mod input;
+mod inspect;
 mod layout;
 mod motion;
 mod paint;
@@ -82,6 +87,7 @@ pub use input::{
     Button, Cursor, Event, FileEntry, FileSource, GesturePhase, Input, Key, Keyboard, Menu,
     MenuEntry, Mods, Panel, Place, Reply, Saving, Scrolled, copy_key,
 };
+pub use inspect::{Inspected, Placing, Shape};
 pub use layout::{
     Accessible, AccessibleRole, Action, BrowserRoom, Carrying, Detail, EditorRoom, Extent, Field,
     Laid, Queries, Spill, layout,
@@ -92,7 +98,10 @@ pub use rich::{Span, span};
 pub use rows::{Built, List, Rows};
 pub use scrolls::{Bars, Phase, ScrollTo, Scrolls, Wheeled};
 pub use spring::spring_step;
-pub use style::{Anchor, Border, Gradient, Shadow, Side, Track, Zoom};
+pub use style::{
+    Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Shadow, Side,
+    Track, Zoom,
+};
 pub use system::{
     Drawing, KeyConvention, TerminalCaret, TerminalLook, TerminalSelection, WallTime,
 };
@@ -113,6 +122,8 @@ mod editor_tests;
 mod figure_tests;
 #[cfg(test)]
 mod image_tests;
+#[cfg(test)]
+mod inspect_tests;
 #[cfg(test)]
 mod interact_tests;
 #[cfg(test)]
