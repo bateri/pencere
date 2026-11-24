@@ -142,8 +142,17 @@ dy, blur, color)` (a glow with no offset), `pencere.linear` and `pencere.radial`
   Before, a page that was larger than the pixels a view may hold, or two of them, was drawn smaller
   than shown or waited for room.
 - **More motion for pages.** `motion` takes `bounce`, `rounded`, `border`, `shadow`, `padding`, `text_size`, `loop` and `auto_size`, and `Element:transform({ rotate =, scale = })` turns and scales a picture or a canvas. Each one is listed in `pencere.has`.
-- **`@pencere/query`**, a module of the library: what a page reads of its program, kept by the method and params it asked (`query.new`, `q:get`, `q:peek`, `q:invalidate`, `q:set`, `q:forget`). A read is `{ status =, data =, error =, fetching = }`; the call that is out is one for a key, the old data stays while a new answer is awaited, an answer for a key that was given up is let go of, and data alike to what is held keeps its table. A key is asked again when it is made stale (`invalidate`), when a `stamp` of the page's own changes, and every so often while the page goes on asking (`every`); a key made by `set` takes the stamp of the first `get` that follows; a `slot` has one live key and gives up the call of the one before it; data that no render asked for in `keep` seconds is let go of. A page asks `pencere.has("library.query")` before it requires the module (the names `"library.<module>"` and `"query.<option>"` are the kit's way of naming what a library module has).
-- **`Module::time_calls(on)` times each call into the page's script** (a page made, an event, a message, a settle, the room): the application takes them with what else the module put out (`Update::calls`, each a `Call` with its `CallKind` and how long the script took to come back from it). Off to begin with: no clock is read and nothing is kept; the calls kept are bounded.
+- **`@pencere/query`: a page keeps what it reads of its program.** A page no longer writes the
+  bookkeeping of its calls itself. In `render`, `q:get(method, params)` gives what is known of an
+  answer (`status`, `data`, `error`, `fetching`) and asks the program only when it has to; the old data
+  stays on screen while a new answer comes. A read is asked again when the page makes it stale
+  (`q:invalidate`), when a `stamp` the page gives changes, or every so often while it is shown
+  (`every`); a `slot` keeps one live read and gives up the one before it; what no render asked for in
+  `keep` seconds is let go of. A page asks `pencere.has("library.query")` before it requires the
+  module. The rules are in the library's specification (`kit/spec/library.md`).
+- **`Module::time_calls(on)`**: how long each call into the page's script took (a page made, an event,
+  a message), handed out with the module's other output (`Update::calls`). Off unless a host asks for
+  it; then no clock is read.
 
 ### Changed
 
