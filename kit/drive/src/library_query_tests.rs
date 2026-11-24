@@ -401,6 +401,38 @@ end
     Ok(())
 }
 
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_key_that_a_push_made_takes_the_stamp_of_the_first_get_and_is_asked_again_when_it_moves()
+-> Result<(), Error> {
+    let mut page = open(
+        r#"
+S.at = 1
+pencere.subscribe("pushed", nil, function(value)
+    q:set("list", nil, value)
+    return true
+end)
+keys.g = function() S.shown = true end
+keys.s = function() S.at += 1 end
+view = function()
+    if not S.shown then
+        return pencere.text("nothing asked")
+    end
+    return pencere.text("list " .. show(q:get("list", nil, { stamp = S.at })))
+end
+"#,
+    )?;
+    page.push("pushed", &json!({ "v": 7 }))?;
+    page.press("g")?;
+    // What the push gave is as new as the stamp the page gives with it: no call.
+    assert!(page.says("list ready 7 idle"), "{:?}", page.words());
+    assert!(page.methods().is_empty());
+    page.press("s")?;
+    assert_eq!(page.methods(), ["list"]);
+    assert!(page.says("list ready 7 fetching"), "{:?}", page.words());
+    Ok(())
+}
+
 // --- Asking again as long as it is asked for ----------------------------------------------------
 
 #[test]

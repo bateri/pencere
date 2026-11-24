@@ -3,17 +3,20 @@
 -- its own font and theme: the colours below are roles of the theme (success, error, accent, dim),
 -- and the icons are SVGs of the app that are painted in a role, so they follow the theme too.
 --
--- It asks its program for the list once (`list`), listens to the readings it feeds (`stats`), and
--- asks it to stop or start a container (`toggle`). Up and down choose a container, Return stops
--- or starts it.
+-- It asks its program for the list (`list`, through the kit's query module, which keeps what the
+-- program answered), listens to the readings it feeds (`stats`), and asks it to stop or start a
+-- container (`toggle`). Up and down choose a container, Return stops or starts it.
+
+local query = require("@pencere/query")
 
 local b = pencere
 local ui = b.Ui.new()
+local q = query.new()
 
-local containers = {}
 -- By container name: the last reading, and the line of the last thirty.
 local readings = {}
-local note = "Loading…"
+-- What a stop or a start that failed said.
+local failed = nil
 local chosen = 1
 local busy = {}
 
@@ -21,20 +24,12 @@ local function say(error)
 	return error.message or error.code or "it failed"
 end
 
-local function refresh()
-	b.call("list", nil, function(result, error)
-		if error then
-			note = "The list failed: " .. say(error)
-		else
-			containers = result.containers
-			chosen = math.min(chosen, math.max(#containers, 1))
-			note = #containers == 0 and "There are no containers." or ""
-		end
-		return true
-	end)
+-- The containers the program listed, as the render last read them: what a handler that is not a
+-- render looks at (`peek` asks nothing).
+local function listed()
+	local list = q:peek("list")
+	return list and list.data and list.data.containers or {}
 end
-
-refresh()
 
 b.subscribe("stats", nil, function(pushed)
 	for _, reading in ipairs(pushed.readings or {}) do
@@ -61,13 +56,15 @@ local function toggle(container)
 	b.call("toggle", { id = container.id }, function(result, error)
 		busy[container.id] = nil
 		if error then
-			note = say(error)
+			failed = say(error)
 		else
+			-- The record the query module holds is the page's to change where the program says it
+			-- did: asking for the whole list again would be a call for one word.
 			container.state = result.state
 			if result.state ~= "running" then
 				readings[container.name] = nil
 			end
-			note = ""
+			failed = nil
 		end
 		return true
 	end)
@@ -96,6 +93,21 @@ end
 
 return {
 	render = function(size, now, reduce_motion)
+		local list = q:get("list")
+		local containers = list.data and list.data.containers or {}
+		chosen = math.min(chosen, math.max(#containers, 1))
+		local note = failed
+		if note == nil then
+			if list.status == "loading" then
+				note = "Loading…"
+			elseif list.status == "failed" then
+				note = "The list failed: " .. say(list.error)
+			elseif #containers == 0 then
+				note = "There are no containers."
+			else
+				note = ""
+			end
+		end
 		local page = b.div():size_full():p(20):gap(10)
 			:child(b.div():row():items_center():gap(10)
 				:child(b.image("assets/icon.png"):size(28, 28))
@@ -119,7 +131,7 @@ return {
 		elseif event.type == "release" then
 			local released = ui:release(b.layout, event)
 			local id = released and string.match(released, "^act (.+)$")
-			for index, container in ipairs(containers) do
+			for index, container in ipairs(listed()) do
 				if container.id == id then
 					chosen = index
 					toggle(container)
@@ -131,10 +143,10 @@ return {
 				chosen = math.max(1, chosen - 1)
 				return true
 			elseif event.key == "down" then
-				chosen = math.min(#containers, chosen + 1)
+				chosen = math.min(#listed(), chosen + 1)
 				return true
-			elseif event.key == "enter" and containers[chosen] then
-				toggle(containers[chosen])
+			elseif event.key == "enter" and listed()[chosen] then
+				toggle(listed()[chosen])
 				return true
 			end
 		end

@@ -157,6 +157,9 @@ local function new_entry(key, method, params, text, now)
 		-- What the call that is out, or the last, was asked under, and what the page says now.
 		stamp = nil,
 		want_stamp = nil,
+		-- A key that `set` made takes the stamp of the first `get` that follows: it was asked under
+		-- none, and what is told is as new as the page says.
+		adopt = false,
 		-- When the last call was over, and whether a `get` came since: the polling goes on for
 		-- data that is asked for.
 		answered = nil,
@@ -418,6 +421,10 @@ function Query:get(method, params, options)
 	entry.every = every
 	entry.version_of = version
 	entry.want_stamp = stamp
+	if entry.adopt then
+		entry.stamp = stamp
+		entry.adopt = false
+	end
 	if slot ~= nil then
 		claim(self, slot, entry, now)
 	end
@@ -479,7 +486,8 @@ function Query:invalidate(method, params)
 end
 
 -- Puts data in a key, as the program pushed it (the last of this and an answer is what stays,
--- unless `version` says one is older). The next `get` does not ask on its account.
+-- unless `version` says one is older). The next `get` does not ask on its account: a key that `set`
+-- makes takes the stamp of the first `get` that follows, as what it holds is as new as the page says.
 function Query:set(method, params, data)
 	check_self(self, "set")
 	check_call(method, params, "set")
@@ -488,6 +496,7 @@ function Query:set(method, params, data)
 	if entry == nil then
 		entry = new_entry(key, method, params, text, pencere.time.now())
 		entry.stale = false
+		entry.adopt = true
 		self.entries[key] = entry
 	end
 	if store(entry, data) then
