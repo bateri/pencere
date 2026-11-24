@@ -280,7 +280,7 @@ looked at: `Page::inspect(true)` (`Headless::inspect`). It is off to begin with 
 nothing: no clock is read, nothing is measured and no model is built.
 
 - **`Page::inspection()`** is the page as its last frame left it, element by element
-  (`inspect::Inspection`), the elements with no name included: each one's place in the tree the page
+  (`Inspection`), the elements with no name included: each one's place in the tree the page
   wrote (`Inspected::path`, the child's place at each step; an overlay has the place it was written
   in, what is going out has none), its box, clip, room, border and scrolling in the host's points, as
   the boxes of `Outline` are, the part of its style that places it as the page wrote it
@@ -290,7 +290,8 @@ nothing: no clock is read, nothing is measured and no model is built.
   its own pace, not at every frame. It is local to the host: nothing of it is written to the program
   or the wire.
 - **What the frames cost** (`Inspection::frames`, `Cost`): of the last frames that did something (a
-  frame that drew the page it had, made no page and called no script is not kept), how many elements
+  frame that drew the page it had, made no page, laid nothing out and called the script for nothing
+  but to settle it is not kept: the page is asked at every frame), how many elements
   the page was, how many pages the script made since the frame before, each call into the script
   (`pencere_sandbox::Call`: a page made, an event, a message, a settle) and how long it took, how
   many times the frame laid the page out and how long laying out and painting took. The script runs

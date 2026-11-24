@@ -345,6 +345,20 @@ end)
   control with no name, the same words twice in a row, a control with no id, an element that answers
   the pointer and says it only shows), a line each and empty where the page is read well:
   `expect(page:audit()).to_equal({})`.
+- **How the page is built** is `page:inspect()`: every element of the page as its last frame left it,
+  the ones with no name too, as a table (`size`, `elements`, `items`, `frames`). An item has its place
+  in the tree the page wrote (`path`, the child's number at each step from 1 as Lua counts; none for an
+  element that is going out), the `name` a reading gives it (`page:reading()`), its `shape`, `rect` and
+  `clip` in the host's points, `padding`, `scroll`, the `placing` the page wrote (margin, flex and grid, sizes),
+  `hidden`, `overlay`, `exiting`, its `parent` (a place in `items`) and what a screen reader says for it
+  (`said`). `page:inspect_text()` is the same as the text an agent reads, indented by depth, and
+  `page:inspect_at(x, y)` the topmost element that shows at a point, named or not (it does not turn
+  the measuring on). `frames` is what the
+  last frames that did something cost: `elements`, `renders` (pages the script made), `layouts`, `layout_ms`,
+  `paint_ms` and each call into the script (`script = { { kind =, ms = } }`). Costs are measured from the
+  first `page:inspect()` or `page:measure(true)` on, and cost nothing before; they are real time on the
+  machine, to set one run against another, not a number to hold the page to. The value of a secret field is in
+  none of it.
 - **Finding things** as a person does, not by the page's own names: `get_by_text`, `get_by_role`
   (button, field, editor, link, checkbox, heading …), `get_by_field`, and `get_by_id` for what the
   page names. A locator looks again when it is used, wants exactly one match, and says what is on the

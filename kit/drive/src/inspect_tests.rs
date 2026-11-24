@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use pencere_sandbox::{CallKind, Fault, Frame, Runner};
 use pencere_view::{
-    Event, FieldKind, Font, Id, Laid, Measure, Metrics, Motion, Point, Reply, Shift, Size, div,
-    text,
+    Event, FieldKind, Font, Id, Laid, Measure, Metrics, Motion, Point, Reply, Role, Shift, Size,
+    div, text,
 };
 
 use crate::headless::Headless;
@@ -352,4 +352,147 @@ fn what_a_change_cost_is_still_said_after_the_frames_that_settle_it() {
         page.inspect(false);
         assert!(page.inspection().is_none());
     }
+}
+
+/// A page whose box fades to its colour when anything happens: what moves only paints, and the
+/// page is drawn again from the layout it has at each frame of the fade.
+struct Fading {
+    hot: bool,
+}
+
+impl Runner for Fading {
+    fn render(&mut self, _size: Size, _now: f64, _reduce: bool) -> Result<Frame, Fault> {
+        let fill = if self.hot {
+            Role::Accent.solid()
+        } else {
+            Role::Accent.alpha(0.0)
+        };
+        Ok(Frame {
+            root: div().col().child(
+                div()
+                    .id(Id::new(9))
+                    .w(50.0)
+                    .h(20.0)
+                    .bg(fill)
+                    .motion(Motion::new(0.5).color()),
+            ),
+            animating: false,
+            wake_at: None,
+            wake: None,
+        })
+    }
+
+    fn settle(&mut self) -> Result<bool, Fault> {
+        Ok(false)
+    }
+
+    fn handle(&mut self, _event: Event) -> Result<Reply, Fault> {
+        self.hot = true;
+        Ok(Reply::redraw())
+    }
+
+    fn lay_out(&mut self, _laid: std::sync::Arc<Laid>) {}
+
+    fn take_sent(&mut self) -> Vec<String> {
+        Vec::new()
+    }
+}
+
+#[test]
+fn the_frames_of_a_fade_do_not_push_out_the_work_that_began_it() {
+    let mut page = Headless::spawn(|| Ok(Fading { hot: false }))
+        .open()
+        .expect("opens");
+    page.inspect(true);
+    page.settle().expect("settles");
+    page.move_to(Point::new(5.0, 5.0)).expect("moves");
+    page.settle().expect("settles");
+    // The box fades for half a second: thirty frames and more, each of which draws the layout it
+    // has again, and none of which is work of the page's.
+    page.advance(1.0).expect("advances");
+    let looked = page.inspection().expect("looked at");
+    let kinds: Vec<CallKind> = looked
+        .frames
+        .iter()
+        .flat_map(|frame| frame.script.iter().map(|call| call.kind))
+        .collect();
+    assert!(kinds.contains(&CallKind::Event), "{kinds:?}");
+    assert!(kinds.contains(&CallKind::Render), "{kinds:?}");
+    let text = looked.text();
+    assert!(
+        text.lines()
+            .any(|line| line.starts_with("cost ") && line.contains("event")),
+        "{text}"
+    );
+}
+
+#[test]
+fn the_text_has_a_line_for_each_element_indented_by_its_depth_and_the_cost_on_lines_of_its_own() {
+    let mut page = growing(false, Placement::default());
+    page.inspect(true);
+    settle(&mut page);
+    let text = page.inspection().expect("looked at").text();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.first(), Some(&"page 800x600 · 5 elements"));
+    assert_eq!(lines.get(1), Some(&"box 0,0 800x600"));
+    assert!(
+        lines
+            .get(2)
+            .is_some_and(|line| line.starts_with("  text #")),
+        "{text}"
+    );
+    assert!(
+        lines
+            .get(3)
+            .is_some_and(|line| line.starts_with("    says text \"row 0\"")),
+        "{text}"
+    );
+    // What was measured is on lines that begin with `cost`, and nowhere else.
+    assert!(lines.iter().any(|line| line.starts_with("cost ")), "{text}");
+    assert!(
+        lines
+            .iter()
+            .filter(|line| !line.starts_with("cost "))
+            .all(|line| !line.contains(" ms")),
+        "{text}"
+    );
+}
+
+#[test]
+fn the_style_is_read_where_the_layout_is_only_due_again_and_not_of_a_page_it_is_not_of() {
+    let mut page = growing(false, Placement::default());
+    page.inspect(true);
+    settle(&mut page);
+    let styled = |page: &Page| {
+        let looked = page.inspection().expect("looked at");
+        looked
+            .items
+            .iter()
+            .filter(|item| item.element.placing.is_some())
+            .count()
+    };
+    let all = page.inspection().expect("looked at").items.len();
+    assert_eq!(styled(&page), all);
+    // The host's measure changed: the page is to be laid out again, and it is the same page.
+    page.set_measure(Box::new(Even));
+    assert_eq!(styled(&page), all);
+    // The script made another page, which is not laid out yet: the style that is read is not of
+    // the layout.
+    page.message("grow");
+    assert!(page.module().flush(Duration::from_secs(5)));
+    page.drain();
+    assert_eq!(styled(&page), 0);
+    settle(&mut page);
+    assert_eq!(styled(&page), all + 1);
+}
+
+#[test]
+fn a_length_that_rounds_to_nothing_is_written_as_nothing() {
+    use crate::inspect::number;
+    assert_eq!(number(-0.001), "0");
+    assert_eq!(number(-0.0), "0");
+    assert_eq!(number(0.004), "0");
+    assert_eq!(number(12.0), "12");
+    assert_eq!(number(1.5), "1.5");
+    assert_eq!(number(-2.25), "-2.25");
 }

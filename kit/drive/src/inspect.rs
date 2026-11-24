@@ -63,7 +63,7 @@ pub struct Item {
 }
 
 /// What a frame cost, as it was measured ([`crate::Page::inspect`]): a frame that drew the page it
-/// had, made no page and called no script is not kept.
+/// had, made no page, laid nothing out and called no script but to settle it is not kept.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Cost {
     /// How many elements the page the frame drew is made of.
@@ -321,7 +321,14 @@ impl Meter {
         }
         let made = renders.saturating_sub(self.renders);
         self.renders = renders;
-        if made == 0 && self.calls.is_empty() && self.layouts == 0 {
+        // The module is asked to settle against the layout at every frame, so a call to settle is
+        // not work of the page's: a frame that made no page, laid nothing out and called nothing
+        // but that is the frame of a fade or of a page at rest.
+        let worked = made > 0
+            || self.layouts > 0
+            || self.calls.iter().any(|call| call.kind != CallKind::Settle);
+        if !worked {
+            self.calls.clear();
             return;
         }
         if self.kept.len() == FRAMES_KEPT {
@@ -514,8 +521,11 @@ fn edges(sides: [f32; 4]) -> String {
 
 /// A length in points, as short as it can be said: no fraction where there is none, two places
 /// where there is.
-fn number(value: f32) -> String {
-    if value.is_finite() && (value - value.round()).abs() < 0.005 {
+pub(crate) fn number(value: f32) -> String {
+    // What rounds to nothing is nothing, not `-0`.
+    if value.abs() < 0.005 {
+        "0".to_owned()
+    } else if value.is_finite() && (value - value.round()).abs() < 0.005 {
         format!("{value:.0}")
     } else {
         let text = format!("{value:.2}");

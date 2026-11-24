@@ -14,6 +14,7 @@ use pencere_view::{AccessibleRole, FieldKind, Id, Payload, Point, Rect};
 use serde_json::Value as Json;
 
 mod browsing;
+mod inspecting;
 
 use crate::peer::Any;
 use crate::program::App;
@@ -522,6 +523,7 @@ impl UserData for Handle {
     #[allow(clippy::too_many_lines)]
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         browsing::add(methods);
+        inspecting::add(methods);
         // ---- the keyboard ----
         methods.add_method("press", |_, this, keys: String| {
             this.act(|page| page.press(&keys).map(drop))

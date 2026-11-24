@@ -654,6 +654,81 @@ end)
 
 #[test]
 #[ignore = "heavy: opens pages, which compiles the interpreter"]
+fn a_test_reads_the_page_element_by_element_the_ones_with_no_name_too() {
+    let app = App::template("inspect");
+    // A card with a margin and a padding, a box in it, and a button.
+    app.write(
+        "src/view/page.lua",
+        r#"return {
+	render = function()
+		return pencere.div():col():p(10)
+			:child(pencere.div():h(30):mt(4):p(2):child(pencere.div():w(10):h(10)))
+			:child(pencere.div():press("save"):h(20):px(8):child(pencere.text("Save")))
+	end,
+}
+"#,
+    );
+    app.write(
+        "test/page_test.lua",
+        r#"local test = require("pencere.test")
+local expect = test.expect
+
+test("an element with no name has its place, its box and the style that put it there", function()
+	local page = test.open({ calls = {}, size = { 300, 200 } })
+	local looked = page:inspect()
+	expect(looked.elements):to_be(5)
+	local card = looked.items[2]
+	expect(card.path):to_equal({ 1 })
+	expect(card.name):to_be_nil()
+	expect(card.rect.x):to_be(10)
+	expect(card.rect.y):to_be(14)
+	expect(card.rect.w):to_be(280)
+	expect(card.padding.top):to_be(2)
+	expect(card.placing.margin.top):to_be(4)
+	expect(card.placing.height):to_be(30)
+	-- A point finds what is under it, with no name or with one.
+	expect(page:inspect_at(15, 20).path):to_equal({ 1, 1 })
+	expect(page:inspect_at(100, 20).path):to_equal({ 1 })
+	expect(page:inspect_at(100, 100).path):to_equal({})
+	expect(page:inspect_at(-5, 20)):to_be_nil()
+	local lines = {}
+	for line in page:inspect_text():gmatch("[^\n]+") do
+		lines[#lines + 1] = line
+	end
+	expect(lines[1]):to_be("page 300x200 · 5 elements")
+	expect(lines[2]):to_be("box 0,0 300x200 padding 10")
+	expect(lines[3]):to_be("  box 10,14 280x30 padding 2 · h 30 · margin 4,0,0,0")
+	expect(lines[4]):to_be("    box 12,16 10x10 · w 10 · h 10")
+end)
+
+test("what the page cost is told from the moment it is asked to be measured", function()
+	local page = test.open({ calls = {}, size = { 300, 200 } })
+	page:measure(true)
+	-- A page for another size: the script is asked for it and the page is laid out again.
+	page:resize(200, 120)
+	local looked = page:inspect()
+	expect(looked.size.w):to_be(200)
+	local kinds, layouts = {}, 0
+	for _, frame in ipairs(looked.frames) do
+		layouts = layouts + frame.layouts
+		for _, call in ipairs(frame.script) do
+			kinds[call.kind] = true
+		end
+	end
+	expect(kinds.render):to_be(true)
+	expect(layouts > 0):to_be(true)
+	-- Measured no more, nothing of it is kept.
+	page:measure(false)
+	expect(page:inspect().frames):to_equal({})
+end)
+"#,
+    );
+    let (code, text) = app.run(&[]);
+    assert_eq!(code, 0, "{text}");
+}
+
+#[test]
+#[ignore = "heavy: opens pages, which compiles the interpreter"]
 fn what_the_page_prints_is_logged_for_the_test_and_in_the_log_of_the_program_it_has() {
     let app = App::template("page-prints");
     app.write(

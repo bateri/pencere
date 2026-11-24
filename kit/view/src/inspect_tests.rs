@@ -53,6 +53,7 @@ fn an_element_with_no_name_has_its_place_box_room_and_style() {
     let page = plain();
     let items = lay(&page, 1.0).inspect(&page);
     assert_eq!(items.len(), 4);
+    assert_eq!(lay(&page, 1.0).elements(), 4);
     let places: Vec<_> = items.iter().map(|item| item.path.clone()).collect();
     assert_eq!(
         places,
@@ -329,6 +330,11 @@ fn what_is_going_out_has_no_place_and_the_places_of_the_rest_do_not_move() {
         "the box that held it"
     );
     assert_eq!(items.last(), Some(ghost), "what is going is the last");
+    assert_eq!(
+        laid.elements(),
+        items.len() - 1,
+        "what is going is no part of the page"
+    );
     assert_eq!(
         laid.inspect_at(Point::new(5.0, 5.0)),
         Some(vec![0]),

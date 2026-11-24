@@ -167,8 +167,10 @@ struct Mailbox {
     woken: AtomicBool,
     /// How many pages the module has made ([`Module::renders`]).
     renders: AtomicU64,
-    /// Whether the calls into the script are timed ([`Module::time_calls`]).
+    /// Whether the calls into the script are timed ([`Module::time_calls`]), and how many times that
+    /// was said: a call that began under another saying is not told of.
     timing: AtomicBool,
+    timing_said: AtomicU64,
     /// How many times the module read the clock to time a call: what a test counts.
     #[cfg(test)]
     clock_reads: AtomicU64,
@@ -420,15 +422,16 @@ impl Module {
     /// application takes them with what else the module put out ([`Update::calls`]). Off, which it is
     /// to begin with, the clock is not read and nothing is kept.
     pub fn time_calls(&self, on: bool) {
+        // Under the lock a call is put down under, so that one that is running when this is said is
+        // either put down before it (and gone with the rest) or not at all.
+        let mut waiting = self
+            .mailbox
+            .waiting
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.mailbox.timing_said.fetch_add(1, Ordering::Relaxed);
         self.mailbox.timing.store(on, Ordering::Relaxed);
-        if !on {
-            self.mailbox
-                .waiting
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .calls
-                .clear();
-        }
+        waiting.calls.clear();
     }
 
     /// How many times the clock was read to time a call: none while the calls are not timed.
@@ -560,6 +563,7 @@ impl Post<'_> {
         }
         #[cfg(test)]
         self.mailbox.clock_reads.fetch_add(1, Ordering::Relaxed);
+        let said = self.mailbox.timing_said.load(Ordering::Relaxed);
         let began = Instant::now();
         let result = call();
         let took = began.elapsed();
@@ -568,8 +572,13 @@ impl Post<'_> {
             .waiting
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        // A page that is never taken from does not make the module keep every call it ever made.
-        if waiting.calls.len() < CALLS_KEPT {
+        // Not one that began before the application said otherwise: it is not what it asked for.
+        if self.mailbox.timing_said.load(Ordering::Relaxed) == said {
+            // A page that is never taken from does not make the module keep every call it ever
+            // made: the oldest go.
+            if waiting.calls.len() >= CALLS_KEPT {
+                waiting.calls.remove(0);
+            }
             waiting.calls.push(Call { kind, took });
         }
         result
@@ -2872,6 +2881,57 @@ mod tests {
         caught_up(&rig, 3);
         assert_eq!(rig.module.poll().calls, Vec::new());
         assert_eq!(rig.module.clock_reads(), reads);
+    }
+
+    #[test]
+    fn a_call_that_began_before_the_timing_was_said_again_is_not_told() {
+        let (open, gate) = mpsc::channel();
+        let rig = rig(Some(gate), None, false);
+        rig.module.time_calls(true);
+        rig.module.render(SMALL, 1.0, false);
+        // The page is held in the script: the application says it again meanwhile, as it does when it
+        // stops looking and looks anew, and what was held is of the looking before.
+        let began = std::time::Instant::now();
+        while !rig.log().contains(&"held".to_owned()) {
+            assert!(began.elapsed() < Duration::from_secs(5), "{:?}", rig.log());
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        rig.module.time_calls(false);
+        rig.module.time_calls(true);
+        open.send(()).unwrap();
+        assert!(rig.module.flush(Duration::from_secs(5)));
+        let kinds: Vec<CallKind> = rig
+            .module
+            .poll()
+            .calls
+            .iter()
+            .map(|call| call.kind)
+            .collect();
+        assert!(!kinds.contains(&CallKind::Render), "{kinds:?}");
+        rig.module.render(SMALL, 2.0, false);
+        assert!(rig.module.flush(Duration::from_secs(5)));
+        let kinds: Vec<CallKind> = rig
+            .module
+            .poll()
+            .calls
+            .iter()
+            .map(|call| call.kind)
+            .collect();
+        assert!(kinds.contains(&CallKind::Render), "{kinds:?}");
+    }
+
+    #[test]
+    fn the_calls_kept_for_an_application_that_does_not_take_them_are_the_newest() {
+        let rig = rig(None, None, false);
+        rig.module.time_calls(true);
+        for _ in 0..CALLS_KEPT + 50 {
+            rig.module.message("x".into());
+        }
+        rig.module.render(SMALL, 1.0, false);
+        assert!(rig.module.flush(Duration::from_secs(60)));
+        let calls = rig.module.poll().calls;
+        assert_eq!(calls.len(), CALLS_KEPT);
+        assert_eq!(calls.last().map(|call| call.kind), Some(CallKind::Render));
     }
 
     #[test]

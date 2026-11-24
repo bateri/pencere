@@ -207,6 +207,10 @@ struct State {
     /// The page has to be laid out again (a new page, an image's size): until it is, a frame for
     /// what only the scrolling changed moves the boxes of the page last laid out.
     fresh: bool,
+    /// Which page of the module's `root` is, counted from the first, and which of them `laid` was
+    /// laid out from: what says whether the tree is the one the layout is of.
+    root_made: u64,
+    laid_from: u64,
     /// How many pages the module has handed out that this took, and how many times the page was
     /// laid out: what a test counts.
     #[cfg(test)]
@@ -454,6 +458,8 @@ impl Page {
                 laid: None,
                 laid_for: None,
                 fresh: true,
+                root_made: 0,
+                laid_from: 0,
                 #[cfg(test)]
                 counts: (0, 0),
                 meter: Meter::default(),
@@ -1196,8 +1202,13 @@ impl Page {
         let resting = laid.without_loops();
         let laid = resting.as_ref().unwrap_or(laid);
         // The style is read from the page the layout was made from: a page the script made since
-        // is not it.
-        let page = self.state.root.as_ref().filter(|_| !self.state.fresh);
+        // is not it (a layout that is only due again, for the host's measure or an editor's room,
+        // is of the same page).
+        let page = self
+            .state
+            .root
+            .as_ref()
+            .filter(|_| self.state.laid_from == self.state.root_made);
         Some(Inspection::of(
             laid,
             page,
@@ -1208,10 +1219,15 @@ impl Page {
 
     /// The place in the page's tree ([`pencere_view::Inspected::path`]) of the topmost element
     /// that shows at `at`, in the host's points: named or not, the layers over the rest and what a
-    /// box cuts off cut. `None` where none shows or the page is not laid out.
+    /// box cuts off cut, where the page put it (as [`Page::inspection`] has it, with no loop's
+    /// movement). `None` where none shows or the page is not laid out.
     pub fn inspect_at(&self, at: Point) -> Option<Vec<usize>> {
         let laid = self.state.laid.as_deref()?;
-        laid.inspect_at(self.state.place.to_page(at))
+        let resting = laid.without_loops();
+        resting
+            .as_ref()
+            .unwrap_or(laid)
+            .inspect_at(self.state.place.to_page(at))
     }
 
     /// Whether the drive keeps, from now on, every event it tells the page ([`Page::told`]) and
@@ -1738,6 +1754,7 @@ impl State {
             // measure, the room an editor asked for) says so itself.
             if self.root.as_ref() != Some(&frame.root) {
                 self.root = Some(frame.root);
+                self.root_made += 1;
                 self.fresh = true;
             }
             self.animating = frame.animating;
@@ -1928,6 +1945,7 @@ impl State {
         let still = steady && !self.motions.moving();
         let cached = self.laid.clone().filter(|_| still);
         let root = self.root.clone();
+        let root_made = self.root_made;
         let starting = root.is_none();
         let mut laid = match cached {
             Some(laid) if !starting => {
@@ -2005,6 +2023,7 @@ impl State {
             self.module.lay_out(Arc::clone(&laid));
             self.laid = Some(Arc::clone(&laid));
             self.laid_for = Some((size, scale, at.reduce_motion));
+            self.laid_from = root_made;
             self.fresh = false;
             // Where the boxes went (a spring, a glide, an ask, a list that got shorter): the page
             // builds what came into view.
@@ -2055,7 +2074,8 @@ impl State {
         self.scrolls
             .scrolls
             .place(&mut laid, at.now, at.reduce_motion);
-        self.meter.laid(began);
+        // Drawn again from the layout it has: that is painting's time, and no layout.
+        self.meter.painted(began);
         Some(laid)
     }
 
