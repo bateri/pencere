@@ -1446,6 +1446,7 @@ impl Motions {
                 };
                 // What is going is only seen: it cannot be pressed, focused, read or typed in.
                 node.meta = crate::element::Meta::default();
+                node.exiting = true;
                 laid.nodes.push(node);
             }
             pace.finite = true;
