@@ -42,6 +42,10 @@ mod probe;
 
 pub use live::{KIT_VERSION, run};
 
+/// The kit's own sounds as WAV files, each with the name a page asks for it by (48 kHz, 16 bits,
+/// stereo): what `pencere sounds` writes, so that the palette can be listened to.
+pub use pencere_sandbox::sounds::palette_wavs;
+
 /// Serves the program's views as [`pencere::serve`] does, and where no terminal hosts a view shows
 /// the program's `lua` view on its own terminal: `options` carry the screen ([`pencere::Options::screen`]).
 ///

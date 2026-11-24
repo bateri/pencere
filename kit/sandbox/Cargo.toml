@@ -52,6 +52,14 @@ zune-core = { version = "0.5", default-features = false, features = ["std"] }
 resvg = { version = "0.48.1", default-features = false }
 hayro = { version = "0.9", default-features = false, features = ["embed-fonts", "embed-cmaps"], optional = true }
 
+# The decoders of the sounds a page plays (`sounds`): WAV (`hound`, Apache-2.0) and Ogg Vorbis
+# (`lewton`, MIT OR Apache-2.0, and the Ogg container it reads through, `ogg`, BSD-3-Clause), both
+# in Rust and linked by this crate alone, as the images' are, so that every terminal that plays
+# these pages takes the same formats and the same limits. The bytes are a file a program sent: a
+# decoder's panic is the file's being unreadable (the plan of the set, decision 6).
+hound = "3.5"
+lewton = "0.10"
+
 # Regular expressions (MIT or Apache-2.0), the same crate and features as the editor's: the rules of
 # an editor's indent a page says are compiled here as the editor compiles them, so that one that is
 # no pattern fails the page that said it, with the option's name, and is never dropped without a

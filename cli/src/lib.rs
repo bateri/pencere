@@ -21,6 +21,7 @@ mod macho;
 mod new;
 mod payload;
 mod runtime;
+mod sounds_cmd;
 mod test_cmd;
 mod upgrade;
 
@@ -62,6 +63,10 @@ usage:
                                              (the secret half in ~/.config/pencere/signing.key,
                                              never overwritten), and print the public half; when
                                              there is a key, only print it
+  pencere sounds DIR                         write the kit's own sounds, the ones a page asks for by
+                                             name, into DIR as NAME.wav (48 kHz, 16 bits, stereo), to
+                                             be listened to; DIR is made if it is not there, and a
+                                             file of a sound's name in it is replaced
   pencere dist VERSION [dir] [--name NAME] [--files DIR] [--key FILE] [--base URL] [--tag TAG]
                [--previous URL|FILE|none] [--describe-args ARGS] [--describe-with FILE]
                [--opens file,folder]
@@ -127,6 +132,7 @@ fn command(args: Vec<String>) -> ExitCode {
         "dev" => dev::command(&rest),
         "build" => build_cmd::command(&rest),
         "key" => key::command(&rest),
+        "sounds" => sounds_cmd::command(&rest),
         "dist" => dist::command(&rest),
         "test" => test_cmd::command(&rest),
         "upgrade" => upgrade::command(&rest),

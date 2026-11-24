@@ -8,6 +8,7 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
 
 ### Added
 
+- **`palette_wavs`**: the kit's own sounds as WAV files, each with the name a page asks for it by (what `pencere sounds` writes).
 - **A browser's room** shows a placeholder, "This terminal cannot show a browser.", where a page asks for
   one.
 - **A program's own screen: `serve` and `run`.** Where no terminal hosts the program's view, the

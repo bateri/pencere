@@ -8,6 +8,7 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
+- **`pencere sounds DIR`** writes the kit's own sounds (the twenty a page will be able to ask for by name) into DIR as WAV files, to be listened to.
 - **`page:haptics()` in `pencere test`**: what the page asked the trackpad to do, in order: the events of each pattern, or `false` where it ended one.
 - **`pencere test` can look inside a page**: `page:inspect()` gives every element, named or not, with
   its place in the tree, box, style and what a screen reader says of it, and what the frames cost;

@@ -61,6 +61,7 @@ mod paint;
 mod rich;
 mod rows;
 mod scrolls;
+pub mod sound;
 mod spring;
 mod style;
 mod system;
@@ -139,6 +140,8 @@ mod overlay_tests;
 mod rich_tests;
 #[cfg(test)]
 mod scroll_tests;
+#[cfg(test)]
+mod sound_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

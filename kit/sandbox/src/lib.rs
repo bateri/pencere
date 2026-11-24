@@ -28,6 +28,7 @@ mod pdf;
 #[path = "pdf_off.rs"]
 mod pdf;
 mod sandbox;
+pub mod sounds;
 mod watchdog;
 mod world;
 
@@ -61,6 +62,8 @@ mod luau_require_tests;
 mod luau_tests;
 #[cfg(all(test, feature = "pdf"))]
 mod pdf_tests;
+#[cfg(test)]
+mod sounds_tests;
 #[cfg(test)]
 mod test_support;
 
