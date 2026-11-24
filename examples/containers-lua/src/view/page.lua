@@ -7,6 +7,8 @@
 -- program answered), listens to the readings it feeds (`stats`), and asks it to stop or start a
 -- container (`toggle`). Up and down choose a container, Return stops or starts it.
 
+-- (This example is made with the kit it runs on, so it does not ask `pencere.has("library.query")`
+-- first, as a page that an older kit may run does.)
 local query = require("@pencere/query")
 
 local b = pencere

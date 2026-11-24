@@ -563,6 +563,88 @@ end
     Ok(())
 }
 
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_key_that_a_push_made_is_asked_every_so_often_from_the_push() -> Result<(), Error> {
+    let mut page = open(
+        r#"
+pencere.subscribe("pushed", nil, function(value)
+    q:set("list", nil, value)
+    return true
+end)
+view = function()
+    return pencere.text("list " .. show(q:get("list", nil, { every = 10 })))
+end
+"#,
+    )?;
+    // The first render asks (nothing is held); the push after it is the data.
+    assert_eq!(page.methods(), ["list"]);
+    assert!(page.answer("list", Ok(json!({ "v": 1 })))?);
+    page.push("pushed", &json!({ "v": 2 }))?;
+    assert!(page.says("list ready 2 idle"), "{:?}", page.words());
+    page.advance(10.5)?;
+    assert_eq!(page.methods(), ["list", "list"]);
+    // A key that only a push made is asked for the first time `every` seconds after it.
+    let mut page = open(
+        r#"
+pencere.subscribe("pushed", nil, function(value)
+    q:set("list", nil, value)
+    return true
+end)
+keys.g = function() S.shown = true end
+view = function()
+    if not S.shown then
+        return pencere.text("nothing asked")
+    end
+    return pencere.text("list " .. show(q:get("list", nil, { every = 10 })))
+end
+"#,
+    )?;
+    page.push("pushed", &json!({ "v": 7 }))?;
+    after(&mut page, 3.0)?;
+    page.press("g")?;
+    assert!(page.says("list ready 7 idle"), "{:?}", page.words());
+    assert!(page.methods().is_empty());
+    page.advance(5.0)?;
+    assert!(page.methods().is_empty());
+    page.advance(3.0)?;
+    assert_eq!(page.methods(), ["list"]);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_key_asked_for_every_so_often_is_asked_again_after_an_answer_that_failed() -> Result<(), Error>
+{
+    let heard = Rc::new(Cell::new(0));
+    let counted = Rc::clone(&heard);
+    let calls = Calls::new().on("list", move |_| {
+        counted.set(counted.get() + 1);
+        Err(failure("busy"))
+    });
+    let mut page = Headless::script(page_of(
+        r#"
+view = function()
+    return pencere.text("list " .. show(q:get("list", nil, { every = 10 })))
+end
+"#,
+    ))
+    .at(100.0)
+    .peer(calls)
+    .open()?;
+    assert_eq!(heard.get(), 1);
+    assert!(
+        page.says("list failed - idle err=busy"),
+        "{:?}",
+        page.words()
+    );
+    page.advance(10.5)?;
+    assert_eq!(heard.get(), 2);
+    page.advance(10.5)?;
+    assert_eq!(heard.get(), 3);
+    Ok(())
+}
+
 // --- A slot -------------------------------------------------------------------------------------
 
 /// A page whose one slot holds the key of `S.n`: `a` and `b` move it to 1 and to 2, `i` makes the
@@ -662,7 +744,9 @@ S.n = 1
 keys.a = function() S.n = 1 end
 keys.b = function() S.n = 2 end
 view = function()
-    return pencere.text("n" .. S.n .. " " .. show(q:get("list", { n = S.n })))
+    local shown = pencere.text("n" .. S.n .. " " .. show(q:get("list", { n = S.n })))
+    -- Whether the first key is still held, whatever the page asks for.
+    return pencere.div():child(shown):child(pencere.text("held1 " .. tostring(q:peek("list", { n = 1 }) ~= nil)))
 end
 "#;
 
@@ -675,11 +759,14 @@ fn data_that_no_render_asked_for_in_keep_seconds_before_the_last_one_is_let_go()
     after(&mut page, 1.0)?;
     page.press("b")?;
     assert!(page.answer("list", Ok(json!({ "v": 2 })))?);
-    // The render at 141 asks for the second key: the first was asked for in the render at 101, which
-    // is where keep counts from, and 40 seconds before the one at 141 is not 30 before the one at 101.
+    // The render at 141 asks for the second key only. The first was asked for in the render at 101,
+    // which is 40 seconds before it, and keep counts from the render before the one that is made: the
+    // one at 101, which is where the first key was asked for. It is held.
     after(&mut page, 40.0)?;
-    // At 142 the render before it, at 141, is 40 seconds after the first key was asked for.
+    assert!(page.says("held1 true"), "{:?}", page.words());
+    // At 142 the render before it is the one at 141, 40 seconds after the first key was asked for.
     after(&mut page, 1.0)?;
+    assert!(page.says("held1 false"), "{:?}", page.words());
     page.press("a")?;
     assert!(page.says("n1 loading - fetching"), "{:?}", page.words());
     assert_eq!(page.methods().len(), 3);
@@ -874,6 +961,24 @@ end
     Ok(())
 }
 
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_kit_says_it_has_the_query_module_and_no_module_it_has_not() -> Result<(), Error> {
+    let page = open(
+        r#"
+view = function()
+    return pencere.text(
+        "has " .. tostring(pencere.has("library.query"))
+        .. " " .. tostring(pencere.has("library.nothing"))
+        .. " " .. tostring(pencere.has("query.nothing"))
+    )
+end
+"#,
+    )?;
+    assert!(page.says("has true false false"), "{:?}", page.words());
+    Ok(())
+}
+
 // --- What a page gives wrong --------------------------------------------------------------------
 
 #[test]
@@ -903,6 +1008,14 @@ fn what_a_page_gives_wrong_is_an_error_at_its_own_line() {
         ),
         ("q:invalidate(7)", "takes the method to ask for"),
         ("q:forget({})", "takes the method to ask for"),
+        (
+            "q:get(\"list\", { f = function() end })",
+            "cannot be written",
+        ),
+        (
+            "q:invalidate(\"list\", { f = function() end })",
+            "cannot be written",
+        ),
         ("q.get(\"list\")", "is called on a context"),
         ("query.new(5)", "takes a table of options"),
         ("query.new({ keep = -1 })", "keep as a number of seconds"),

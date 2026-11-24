@@ -296,7 +296,7 @@ export const PAGES = [
     sections: [],
     title: "The library: the pencere kit",
     description:
-      "The modules of the pencere kit's library: components, syntax colouring, languages, fuzzy finding, keys, Markdown and the terminal's own look.",
+      "The modules of the pencere kit's library: components, syntax colouring, languages, fuzzy finding, keys, Markdown, the terminal's own look and what a page asks of its program.",
   },
   ...[
     [
@@ -328,6 +328,10 @@ export const PAGES = [
     [
       "charts",
       "Charts drawn on a canvas: the model, the painter and the sample under the pointer.",
+    ],
+    [
+      "query",
+      "What a page asks its program for, kept by the method and params: loading, ready and failed, old data while a new answer is awaited, polling and answers let go of.",
     ],
   ].map(([name, description, more]) => ({
     path: `kit/library/${name}`,

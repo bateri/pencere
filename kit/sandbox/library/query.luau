@@ -85,8 +85,17 @@ end
 
 -- The key of a method and its params, and the params as text. No params and an empty table are one
 -- key (`encode` writes the members in order, so that the same params are always the same text).
-local function key_of(method, params)
-	local text = params == nil and "{}" or pencere.json.encode(params)
+-- Params that cannot be written are the page's mistake, said at the page's line (`level`, as `fail`
+-- has it: where the function that calls `key_of` was called from).
+local function key_of(method, params, level)
+	local text = "{}"
+	if params ~= nil then
+		local ok, written = pcall(pencere.json.encode, params)
+		if not ok then
+			fail(level, (string.gsub(tostring(written), "^%S+:%d+: ", "")))
+		end
+		text = written
+	end
 	return method .. "\0" .. text, text
 end
 
@@ -265,14 +274,13 @@ function answered(self, entry, id, result, err)
 	if entry.call ~= id then
 		return nil
 	end
+	entry.call = nil
 	if err ~= nil then
-		entry.call = nil
 		entry.error = err
 	else
 		-- A result that is older than what the entry holds is let go of (`store`), and the ask is
 		-- over all the same.
 		store(entry, result)
-		entry.call = nil
 		entry.error = nil
 	end
 	entry.answered = pencere.time.now()
@@ -391,7 +399,7 @@ function Query:get(method, params, options)
 	check_self(self, "get")
 	check_call(method, params, "get")
 	check_options(options, GET_OPTIONS, "query:get")
-	local key, text = key_of(method, params)
+	local key, text = key_of(method, params, 3)
 	local every, stamp, slot, version = nil, nil, nil, nil
 	if options ~= nil then
 		every, stamp, slot, version = options.every, options.stamp, options.slot, options.version
@@ -451,7 +459,7 @@ end
 function Query:peek(method, params)
 	check_self(self, "peek")
 	check_call(method, params, "peek")
-	local key = key_of(method, params)
+	local key = key_of(method, params, 3)
 	local entry = self.entries[key]
 	if entry == nil then
 		return nil
@@ -463,7 +471,7 @@ end
 -- there are no params.
 local function entries_of(self, method, params)
 	if params ~= nil then
-		local entry = self.entries[(key_of(method, params))]
+		local entry = self.entries[(key_of(method, params, 4))]
 		return entry and { entry } or {}
 	end
 	local found = {}
@@ -491,12 +499,15 @@ end
 function Query:set(method, params, data)
 	check_self(self, "set")
 	check_call(method, params, "set")
-	local key, text = key_of(method, params)
+	local key, text = key_of(method, params, 3)
 	local entry = self.entries[key]
 	if entry == nil then
-		entry = new_entry(key, method, params, text, pencere.time.now())
+		local now = pencere.time.now()
+		entry = new_entry(key, method, params, text, now)
 		entry.stale = false
 		entry.adopt = true
+		-- What the program pushed is as new as now: a `get` that asks `every` seconds asks from here.
+		entry.answered = now
 		self.entries[key] = entry
 	end
 	if store(entry, data) then

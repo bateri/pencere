@@ -1155,8 +1155,10 @@ local ROLES = {
 -- What this kit has that an earlier one has not, by name: the roles it knows (`pencere.roles`, and
 -- "role.<name>"), the methods of an element that came after the first (`"element.<method>"`), what a
 -- host tells the page (`"event.<type>"`, `"command.target"`), the fields of an element's `motion`
--- that came after the first (`"motion.<field>"`), and the options of the library's
--- components (`"ui.<component>.<option>"`). A page written for a later kit asks `pencere.has(name)`
+-- that came after the first (`"motion.<field>"`), the options of the library's
+-- components (`"ui.<component>.<option>"`), the modules of the library that are named so
+-- (`"library.<module>"`: `"library.query"`) and the options such a module took after its first kit
+-- (`"<module>.<option>"`: `"query.<option>"`). A page written for a later kit asks `pencere.has(name)`
 -- before it uses what it asks for and shows a screen that says so where the host is too old: an older
 -- kit has no `pencere.has` at all, and that is as good as `false`.
 local HAS = {
@@ -1168,6 +1170,8 @@ local HAS = {
 	-- What the library's components took after the first kit, as `ui.<component>.<option>`: the `reveal`
 	-- of a list and of a grid.
 	["ui.list.reveal"] = true, ["ui.grid.reveal"] = true,
+	-- The modules of the library that a page asks for before it requires them.
+	["library.query"] = true,
 	-- What the motion of an element took after the first kit, as `element.<method>` and
 	-- `motion.<field>`: a spring that bounces, the numbers of how an element looks that follow a
 	-- change, the turn and the scale of a picture or a canvas, and what goes round and round. A field

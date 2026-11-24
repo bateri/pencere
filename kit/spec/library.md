@@ -673,3 +673,106 @@ Where the pointer is, is the page's to tell (its `move` events, [Events](events.
 ### Charts and older kits
 
 A page that may run where the kit has no such module asks for it with `pcall(require, "@pencere/charts")`, which is false there.
+
+## `@pencere/query`
+
+What a page reads of its program, kept by what it asked (`local query = require("@pencere/query")`).
+
+A page asks its program with `pencere.call`, and the answers come later and in no order. Every page then keeps the same ledger: whether the data is on its way, here or lost; the old data that stays while a new answer is awaited; the answer to a choice the person has left, which is let go of; the one call that is out; the data that is asked again when it goes stale. `@pencere/query` keeps it once, for any method of the program.
+
+### A context
+
+`query.new(options)` is a context, one for a page (a page may have several, each with its own keys). `options.keep` is how long, in seconds, data that no render asks for is kept ([What is let go of](#what-is-let-go-of)): 300 unless said.
+
+A mistake of the page (a method that is no string, params that are no table, an option the call does not have or a value it cannot take) is an error at the line of the page.
+
+### Asking
+
+`q:get(method, params, options)` is what `render` asks. It returns what is known of the key and asks the program where the data is missing or stale. What it returns is `{ status =, data =, error =, fetching = }`:
+
+- `status` is `"loading"` (there is no data, and it is asked), `"ready"` (there is data) or `"failed"` (there is no data, and the last call failed);
+- `data` is what the program answered. A JSON `null` is an answer: the status is `"ready"` and `data` is nil;
+- `error` is `{ code =, message = }` of the last call that failed, and stays until a call answers or a `set` puts data in the key. A call that fails where there is data leaves the status `"ready"` and the old `data`: the page shows both. A call asked again after a failure with no data is `"loading"` again, with the error still there;
+- `fetching` is whether a call is out.
+
+The key is the method and its params as `pencere.json.encode` writes them (the members in order): the same params are one key however they were made, and `nil` and `{}` are one key. The call is made with the params as the key says them, not with the table the page may change later; where there are none it has none, or `{}`, as the page that made the key gave them. A key has one call out at most: asked again in the same render, or while its call is out, it makes no second call.
+
+The module's own callbacks (an answer, a timer) ask for a frame, so that what changed is seen at the next render.
+
+### What a handler does
+
+`get` is the render's. What an event, a message or a timer does uses:
+
+- `q:peek(method, params)` is what `get` would return, or nil where the context knows nothing of the key. It asks nothing and counts as no use of the data;
+- `q:set(method, params, data)` puts data in a key, as a topic's push gives it (`pencere.subscribe`). Of a `set` and an answer, the one that comes last is the data. The next `get` does not ask on its account;
+- `q:invalidate(method, params)` and `q:forget(method, params)`.
+
+Where `params` is left out, `get`, `peek` and `set` mean the key of no params, and `invalidate` and `forget` every key of the method; `{}` is the key of no params in all five.
+
+A handler changes what the next render shows, and asks for it as any handler does (a reply of `true`). A `get` made where no render is (a handler that must ask at once) is a render's for the module.
+
+### When data is stale
+
+A key is asked again by the next `get` where it is stale:
+
+- `q:invalidate` made it so. Where its call is out, the answer is written all the same and the key stays stale: the render that the answer asks for asks again;
+- the `stamp` the page gives is not the one the data was asked under (compared with `==`). The stamp is a value the page makes of what the data is asked from (an `updated` time, a signature of its choices); the old data stays in the meantime. The stamp is the key's, one for each render: a render that asks one key under two stamps asks it again after every answer. A key made by `set` takes the stamp of the first `get` that follows, as what it holds is as new as the page says;
+- `every` seconds have gone by since its last answer, for as long as the page goes on asking ([Asking every so often](#asking-every-so-often)).
+
+A key whose call failed is not asked again by the render that shows it, only by one of these: a failing program is not asked on every frame.
+
+A window of time is a stamp: `stamp = math.floor(now / 10)` is data that is ten seconds old at most.
+
+### Asking every so often
+
+`every = seconds` asks the key again after each answer, a failed one too, for as long as the page goes on asking:
+
+- the timer is made from an answer, so that a call that takes longer than `every` does not overlap the next and is not given up;
+- the key is asked again if a `get` came since the answer. If none did (what was on the page is gone from it) the polling stops, and the next `get` sets it going again: at once where `every` has gone by since the last answer, else at the time that is left;
+- the interval is at least `every` seconds: the timer counts from the next wake, a frame at most more, and an answer is told at the time the host last gave the page. A key that a `set` made is asked `every` seconds after the `set`.
+
+What the page may rely on is that, and that the polling goes on while the page asks. In a view that is not seen it may be sparser, or not happen at all, and a page does not rely on either: the module makes the page again for every answer or timer that asks a frame, seen or not, so a page that asks for the key whenever it is made is asked on, as seldom as the host lets it wake (a host MAY hold the wakes of a page that is not seen to one a second, [What a host does for a kit view](host.md)). That a host stops the polling of a page that is not seen is no change of what this says.
+
+### What replaces what
+
+`slot = name` makes the key the one of that slot. A slot has one key at a time, and where another is asked in it the call of the one before it is given up (`pencere.cancel`, and its answer is let go of). What that one had told stays in the context. A page that asks for each text a person types, in one slot, leaves the program no answers to work on for the texts the person has gone past.
+
+The call is given up at the next wake, not at once. A key that is asked for in the same render by a part of the page that has no slot for it, or another slot, keeps its call, whether that `get` comes after the key that took the slot or before it. A render is told by its time where it has one: the page is made again for an event at the time of the frame before it, so that two renders may have one time.
+
+`q:forget` lets go of a key: its data, its timer and its call, which is given up. The next `get` asks from the start.
+
+### What is let go of
+
+Data that no render asks for in `keep` seconds is let go of, as `forget` does it.
+
+- A `get` that sees a later time than the one before it (a new render) lets go of the keys last asked for more than `keep` seconds before the render that came before it. A `get` that is made where no render is is a render's.
+- Only `get` counts as using data. `peek`, `set` and `invalidate` do not, and none of them lets go of anything.
+- Time with no render is not counted: a view that nothing asks a frame of, while it is not seen, comes back with the data it showed. Where something does ask a frame (an answer, a timer, a handler that replies `true`), the page is made and time goes on, and what it asks for stays while the keys it does not ask for are let go of after `keep`.
+
+### The same data
+
+An answer, or a `set`, whose data is alike to what the key holds (the same all the way down: tables by their members) leaves the table that is held: a page that keeps a row by the identity of a table, a menu open on it, keeps it. The frame that the answer asks is drawn all the same, for `fetching` changed.
+
+The comparison goes no further than the first difference. A member that was JSON `null` is no member of a table, and the comparison does not see it: an answer with `a = null` and one with no `a` are alike, and the table that is kept is the older (`pencere.json.has` tells what it was read with).
+
+### What the program pushes
+
+A topic's data is put in with `q:set`, or the key is made stale with `q:invalidate`. Of a push and an answer the one that comes last is the data. Where the program numbers its data, `version = function(data) return … end` (a number, or nil) lets go of an answer or a `set` whose version is less than the held data's.
+
+`every` and `version` are those of the last `get` of the key.
+
+### A kit that has no query module
+
+A kit that is older than the module has none: `require("@pencere/query")` fails the page where it runs. A page asks `pencere.has("library.query")` first, and requires the module only where the answer is true ([Asking whether the kit has what a page needs](accessibility.md#asking-whether-the-kit-has-what-a-page-needs)):
+
+```lua
+if pencere.has == nil or not pencere.has("library.query") then
+	return { render = function()
+		return pencere.div():size_full():items_center():justify_center():child(
+			pencere.text("This needs a newer version of the application: please update it."))
+	end }
+end
+local query = require("@pencere/query")
+```
+
+`require` is run where the line is reached, so a script that is not run asks for no module: the other scripts of the page require it, and only those the page reaches after the question.

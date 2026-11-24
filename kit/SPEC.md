@@ -27,7 +27,7 @@ The kit of the kind `lua` has one file for each topic, listed here. [The Lua pag
 
 ## Library
 
-- [The kit's library](spec/library.md): The modules a page requires from the kit: syntax, languages, fuzzy finding, keys, Markdown, the terminal's look, components and charts.
+- [The kit's library](spec/library.md): The modules a page requires from the kit: syntax, languages, fuzzy finding, keys, Markdown, the terminal's look, components, charts and what a page asks of its program.
 
 ## The program
 
