@@ -2571,6 +2571,23 @@ impl<P: Peer> Headless<P> {
         self.seen.fields.get(&Id::named(name)).map(Held::selection)
     }
 
+    /// Looks at the page from now on, or no more ([`Page::inspect`]): what its frames cost is
+    /// measured and [`Headless::inspection`] says it.
+    pub fn inspect(&mut self, on: bool) {
+        self.page.inspect(on);
+    }
+
+    /// The page element by element and what the last frame cost ([`Page::inspection`]).
+    pub fn inspection(&self) -> Option<crate::Inspection> {
+        self.page.inspection()
+    }
+
+    /// The place in the page's tree of the topmost element that shows at `at`, in the host's points
+    /// ([`Page::inspect_at`]).
+    pub fn inspect_at(&self, at: Point) -> Option<Vec<usize>> {
+        self.page.inspect_at(at)
+    }
+
     /// The page's fields, what a screen reader says of it, its tooltips and its commands.
     pub fn outline(&self) -> &Outline {
         self.page.outline()

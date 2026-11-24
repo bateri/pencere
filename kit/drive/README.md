@@ -273,6 +273,37 @@ agent will see.
 Three things make a page easy to read and drive: a name (`id`) on every element that answers a press,
 a title on every command, and a label or hint on every field.
 
+## What a page is made of and what it costs
+
+A host that shows a page to someone who builds it (a panel beside it, a test) asks the page to be
+looked at: `Page::inspect(true)` (`Headless::inspect`). It is off to begin with and off it costs
+nothing: no clock is read, nothing is measured and no model is built.
+
+- **`Page::inspection()`** is the page as its last frame left it, element by element
+  (`inspect::Inspection`), the elements with no name included: each one's place in the tree the page
+  wrote (`Inspected::path`, the child's place at each step; an overlay has the place it was written
+  in, what is going out has none), its box, clip, room, border and scrolling in the host's points, as
+  the boxes of `Outline` are, the part of its style that places it as the page wrote it
+  (`Placing`: margin, flex and grid, sizes) and what a screen reader says for it, as a reading says
+  it and cleaned as it is. Nothing else of the page's own is in it, and the value of a secret field is
+  in no reading and in no model. It is built each time it is asked for: a host that shows it asks at
+  its own pace, not at every frame. It is local to the host: nothing of it is written to the program
+  or the wire.
+- **What the frames cost** (`Inspection::frames`, `Cost`): of the last frames that did something (a
+  frame that drew the page it had, made no page and called no script is not kept), how many elements
+  the page was, how many pages the script made since the frame before, each call into the script
+  (`pencere_sandbox::Call`: a page made, an event, a message, a settle) and how long it took, how
+  many times the frame laid the page out and how long laying out and painting took. The script runs
+  on a thread of its own, so its time is measured there and told to the page with the rest of what
+  the module puts out; layout and painting are measured in `Page::frame`. A host that settles draws
+  frames after the one that did the work: the work is in the frames that did it, not the last.
+- **`Inspection::text()`** writes it for a reader, indented by the depth in the tree, the same for
+  every host; what was measured is on lines of their own (`cost …`), so that the rest of the text is
+  the same each time the page is.
+- **`Page::inspect_at(point)`** (the host's points) is the place of the topmost element that shows
+  there, named or not: a layer is over what is under it and what a box cuts off is cut. It needs no
+  switch.
+
 ## Pictures of a page (`shot`)
 
 With the feature `shot`, `Headless::shot(&fonts)` draws the last frame into a PNG (and

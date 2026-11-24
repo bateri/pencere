@@ -142,6 +142,7 @@ dy, blur, color)` (a glow with no offset), `pencere.linear` and `pencere.radial`
   Before, a page that was larger than the pixels a view may hold, or two of them, was drawn smaller
   than shown or waited for room.
 - **More motion for pages.** `motion` takes `bounce`, `rounded`, `border`, `shadow`, `padding`, `text_size`, `loop` and `auto_size`, and `Element:transform({ rotate =, scale = })` turns and scales a picture or a canvas. Each one is listed in `pencere.has`.
+- **`Module::time_calls(on)` times each call into the page's script** (a page made, an event, a message, a settle, the room): the application takes them with what else the module put out (`Update::calls`, each a `Call` with its `CallKind` and how long the script took to come back from it). Off to begin with: no clock is read and nothing is kept; the calls kept are bounded.
 
 ### Changed
 

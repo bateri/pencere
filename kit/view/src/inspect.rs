@@ -223,6 +223,12 @@ impl Laid {
             .collect()
     }
 
+    /// How many elements the page is made of: what is going out, which is no part of it, is not
+    /// counted.
+    pub fn elements(&self) -> usize {
+        self.nodes.iter().filter(|node| !node.exiting).count()
+    }
+
     /// The place in the page's tree ([`Inspected::path`]) of the element at `at`, in points: the
     /// topmost one that shows there, named or not. A layer is over what is under it, what a box
     /// that cuts its content shows is where it shows, and a box that is not shown is not found

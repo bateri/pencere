@@ -59,6 +59,7 @@ use pencere_view::{
 use crate::browsers::{self, Browser, Browsers};
 use crate::editing::{Editing, Told, in_a_room};
 use crate::host::{CarryOut, Copied, Drained, Held, Host};
+use crate::inspect::{Inspection, Meter};
 use crate::outline::{Field, Outline, Placement, ZOOM_TEXT};
 use crate::reading::{Owed, Reading, ReadingInput, Rest};
 use crate::scrolling::{HostScrolls, Scrolling};
@@ -210,6 +211,8 @@ struct State {
     /// laid out: what a test counts.
     #[cfg(test)]
     counts: (usize, usize),
+    /// What a frame costs, kept while the page is looked at ([`Page::inspect`]).
+    meter: Meter,
     /// How far the host has the page's boxes scrolled.
     scrolls: HostScrolls,
     /// The scrolls the module asked for that the next frame does.
@@ -453,6 +456,7 @@ impl Page {
                 fresh: true,
                 #[cfg(test)]
                 counts: (0, 0),
+                meter: Meter::default(),
                 scrolls,
                 asks: Vec::new(),
                 animating: false,
@@ -1165,6 +1169,51 @@ impl Page {
             .reduce(f64::min)
     }
 
+    /// Whether the page is looked at from now on: what its frames cost is measured (how many pages
+    /// its script made, how long each call into it took, how long laying the page out and painting
+    /// it took) and [`Page::inspection`] says the page element by element. Off to begin with and
+    /// when turned off: nothing is measured, no clock is read and no model is built, so that a page
+    /// nobody looks at pays nothing for it.
+    pub fn inspect(&mut self, on: bool) {
+        self.state.meter.set(on, self.state.module.renders());
+        self.state.module.time_calls(on);
+    }
+
+    /// Whether the page is looked at ([`Page::inspect`]).
+    pub fn inspecting(&self) -> bool {
+        self.state.meter.on
+    }
+
+    /// The page as the last frame left it, element by element, with what that frame cost: `None`
+    /// while the page is not looked at ([`Page::inspect`]) and before its first frame. What
+    /// shows of a secret field's value is nothing, as in a reading ([`crate::Reading`]).
+    pub fn inspection(&self) -> Option<Inspection> {
+        if !self.state.meter.on {
+            return None;
+        }
+        let laid = self.state.laid.as_deref()?;
+        // Where the page put the elements, as what a screen reader is told is read.
+        let resting = laid.without_loops();
+        let laid = resting.as_ref().unwrap_or(laid);
+        // The style is read from the page the layout was made from: a page the script made since
+        // is not it.
+        let page = self.state.root.as_ref().filter(|_| !self.state.fresh);
+        Some(Inspection::of(
+            laid,
+            page,
+            self.state.place,
+            self.state.meter.frames(),
+        ))
+    }
+
+    /// The place in the page's tree ([`pencere_view::Inspected::path`]) of the topmost element
+    /// that shows at `at`, in the host's points: named or not, the layers over the rest and what a
+    /// box cuts off cut. `None` where none shows or the page is not laid out.
+    pub fn inspect_at(&self, at: Point) -> Option<Vec<usize>> {
+        let laid = self.state.laid.as_deref()?;
+        laid.inspect_at(self.state.place.to_page(at))
+    }
+
     /// Whether the drive keeps, from now on, every event it tells the page ([`Page::told`]) and
     /// every reply whole ([`Drained::replies`] with what they asked of the editors, which the drive
     /// otherwise takes out of them as it does it): what a host that tests a page reads. Off unless
@@ -1366,6 +1415,12 @@ impl Page {
     #[cfg(test)]
     pub(crate) fn counts(&self) -> (usize, usize) {
         self.state.counts
+    }
+
+    /// How many times the clock was read to measure what a frame costs: what a test counts.
+    #[cfg(test)]
+    pub(crate) fn clock_reads(&self) -> usize {
+        self.state.meter.reads
     }
 
     /// The module the page is: what a host that drives a page by hand waits for
@@ -1671,6 +1726,7 @@ impl State {
     /// which is not a frame, is the one that says a page is to be drawn.
     fn sync(&mut self, building: bool, images: Option<&Images>) {
         let update = self.module.poll();
+        self.meter.take(update.calls);
         if let Some(frame) = update.frame {
             #[cfg(test)]
             {
@@ -1832,6 +1888,7 @@ impl State {
         let viewport = Size::new(width, height);
         self.again = false;
         self.owed_frame = false;
+        self.meter.frame_begins();
         self.clock.frame(at.now);
         self.sync(true, images);
         // The time the page asked to be woken at has come: it is woken at this frame's time, before
@@ -1925,6 +1982,7 @@ impl State {
             self.blink_at = next;
         }
         let laid = Arc::new(laid);
+        let began = self.meter.began();
         let draws = laid.paint(measure);
         let editing = &mut self.editing;
         let (now, still) = (at.now, at.reduce_motion);
@@ -1939,6 +1997,7 @@ impl State {
             ZOOM_TEXT * scale,
             measure,
         );
+        self.meter.painted(began);
         // The module may ask of this layout from now on, and brings what depends on it back within
         // it; a page that was already within it answers nothing. The line that stands in for a page
         // is not the module's.
@@ -1976,6 +2035,8 @@ impl State {
         } else {
             std::mem::take(&mut self.held)
         };
+        self.meter
+            .frame_ends(self.module.renders(), || laid.elements());
         Painted {
             list,
             outline: changed,
@@ -1989,10 +2050,12 @@ impl State {
         if !able {
             return None;
         }
+        let began = self.meter.began();
         let mut laid = self.motions.repaint(at.now, at.reduce_motion)?;
         self.scrolls
             .scrolls
             .place(&mut laid, at.now, at.reduce_motion);
+        self.meter.laid(began);
         Some(laid)
     }
 
@@ -2011,6 +2074,7 @@ impl State {
             self.counts.1 += 1;
         }
         let starting = root.is_none();
+        let began = self.meter.began();
         let mut root = root.unwrap_or_else(starting_line);
         self.scrolls.scrolls.advance_zoom(at.now);
         self.scrolls.scrolls.apply(&mut root);
@@ -2028,6 +2092,7 @@ impl State {
                 .scrolls
                 .place(&mut laid, at.now, at.reduce_motion);
         }
+        self.meter.laid(began);
         laid
     }
 }

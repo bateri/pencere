@@ -66,5 +66,5 @@ pub use blur::Blur;
 pub use figure::{FigureKey, draw_figure, figure_key};
 pub use images::{Arrival, Assets, Bitmap, Diagnostic, ImageLimits, Images};
 pub use luau::{COMPONENT as LUAU_COMPONENT, Script};
-pub use module::{Answer, Frame, Module, Runner, Update};
+pub use module::{Answer, Call, CallKind, Frame, Module, Runner, Update};
 pub use sandbox::{Fault, ModuleLimits, Program, TimeLimit, Unbounded};

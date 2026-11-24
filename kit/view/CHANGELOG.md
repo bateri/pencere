@@ -22,7 +22,7 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
   elements come in the order of the tree, what is going out last. `Laid::inspect_at(point)` is the
   place of the topmost element that shows at a point, named or not, the layers over the rest, what a box
   cuts off cut (`ids_at` names only the elements with a name). Nothing is built until it is asked: a
-  page laid out carries two more small numbers for each box. `Display`, `Direction`, `Items`, `Justify`,
+  page laid out carries two more small numbers for each box. `Laid::elements` is how many elements the page is made of. `Display`, `Direction`, `Items`, `Justify`,
   `Length` and `Overflow` are exported, for `Placing` is made of them.
 - **`Event::LinkDropped { at, url }`**: the person dropped an address on the page, from another application or from the terminal.
 - **A browser can empty its cache, a site's data, and go on past a certificate**: `BrowserAsk::ClearCache`,

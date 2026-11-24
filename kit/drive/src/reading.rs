@@ -326,7 +326,7 @@ pub fn clean(text: &str, limit: usize) -> String {
     out
 }
 
-fn role_of(role: AccessibleRole) -> String {
+pub(crate) fn role_of(role: AccessibleRole) -> String {
     match role {
         AccessibleRole::Button => "button".to_owned(),
         AccessibleRole::Field(_) => "field".to_owned(),
@@ -896,7 +896,7 @@ fn quoted(words: &str) -> String {
     format!("\"{}\"", words.replace('\n', "\n        "))
 }
 
-fn state_words(state: &State, detail: &Detail) -> String {
+pub(crate) fn state_words(state: &State, detail: &Detail) -> String {
     let mut parts: Vec<String> = Vec::new();
     match state.checked {
         Some(true) => parts.push("checked".to_owned()),
