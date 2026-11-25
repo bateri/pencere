@@ -9,6 +9,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::bundle::Bundle;
+use crate::host::{self, Host};
 use crate::view::{Access, Icon, Kind, is_version};
 use pencere_wire::take::Kind as TakeKind;
 
@@ -335,6 +336,8 @@ pub(crate) struct Listed {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Offer {
     pub(crate) token: String,
+    /// The terminal that answered, when its `welcome` names it in the shape of §5.2.
+    pub(crate) host: Option<Host>,
     pub(crate) features: Vec<String>,
     /// The folder the terminal keeps on the program's machine, when it lists `stage` and says
     /// where (§5.2, §8.11). Whether it is the terminal's is for the program to prove.
@@ -362,8 +365,8 @@ pub(crate) struct StageOffer {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Welcome {
     Offer(Offer),
-    /// A terminal that shares no version of the wire with the program.
-    Unsupported,
+    /// A terminal that shares no version of the wire with the program, and who it says it is.
+    Unsupported(Option<Host>),
 }
 
 /// A token: 16 bytes in base64url without padding (§6.1).
@@ -429,7 +432,7 @@ pub(crate) fn welcome(payload: &str) -> Option<Welcome> {
         let version = version.as_u64().filter(|v| *v >= 1)?;
         let token = body.get("token")?.as_str().filter(|t| is_token(t))?;
         if !VERSIONS.iter().any(|v| u64::from(*v) == version) {
-            return Some(Welcome::Unsupported);
+            return Some(Welcome::Unsupported(host::read(body.get("host"))));
         }
         let features = strings(body.get("features"));
         let stage = features
@@ -439,6 +442,7 @@ pub(crate) fn welcome(payload: &str) -> Option<Welcome> {
             .flatten();
         return Some(Welcome::Offer(Offer {
             token: token.to_owned(),
+            host: host::read(body.get("host")),
             features,
             stage,
             views: listed(body.get("views")),
@@ -448,7 +452,7 @@ pub(crate) fn welcome(payload: &str) -> Option<Welcome> {
     }
     body.get("supported")
         .is_some_and(Value::is_array)
-        .then_some(Welcome::Unsupported)
+        .then(|| Welcome::Unsupported(host::read(body.get("host"))))
 }
 
 /// The `stage` of a `welcome`: an absolute `dir` and a `token` of 32 lowercase hex digits; anything
@@ -990,6 +994,34 @@ mod tests {
     }
 
     #[test]
+    fn the_host_of_a_welcome_is_read_and_a_bad_one_leaves_the_rest_standing() {
+        let host_of = |payload: &str| match welcome(payload) {
+            Some(Welcome::Offer(offer)) => {
+                assert_eq!(offer.token, "q7Vh2sB0xJm9kLw4TzN1cA", "the rest stands");
+                offer.host
+            }
+            other => panic!("an offer, not {other:?}"),
+        };
+        assert_eq!(
+            host_of(
+                r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"bateri","version":"1.2.3"},"views":[]}"#
+            ),
+            Some(Host {
+                name: "bateri".to_owned(),
+                version: "1.2.3".to_owned(),
+            })
+        );
+        for payload in [
+            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","views":[]}"#,
+            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":"bateri","views":[]}"#,
+            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"bateri"},"views":[]}"#,
+            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":3,"version":"1"},"views":[]}"#,
+        ] {
+            assert_eq!(host_of(payload), None, "{payload}");
+        }
+    }
+
+    #[test]
     fn a_welcome_is_read_as_the_fixtures_have_it() {
         let offer = welcome(
             r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"t","version":"0"},"features":["dismiss"],"views":[{"kind":"lua","versions":["0.5","0.4"]},{"kind":"web","versions":["0.1"]}]}"#,
@@ -1011,13 +1043,23 @@ mod tests {
         assert_eq!(offer.views.len(), 1);
         assert!(offer.restart);
 
+        let t0 = Host {
+            name: "t".to_owned(),
+            version: "0".to_owned(),
+        };
         assert_eq!(
             welcome(r#"{"supported":[2],"host":{"name":"t","version":"0"}}"#),
-            Some(Welcome::Unsupported)
+            Some(Welcome::Unsupported(Some(t0.clone())))
         );
         assert_eq!(
             welcome(r#"{"version":2,"token":"q7Vh2sB0xJm9kLw4TzN1cA"}"#),
-            Some(Welcome::Unsupported)
+            Some(Welcome::Unsupported(None))
+        );
+        assert_eq!(
+            welcome(
+                r#"{"version":2,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"t","version":"0"}}"#
+            ),
+            Some(Welcome::Unsupported(Some(t0)))
         );
         // A token that is not 22 characters of base64url, a payload that is not an object.
         assert_eq!(welcome(r#"{"version":1,"token":"short"}"#), None);

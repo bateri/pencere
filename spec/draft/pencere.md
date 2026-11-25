@@ -539,6 +539,27 @@ the feature, or the feature without a `stage` that is well formed, is no offer.
 <ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss","stage"],"stage":{"dir":"/home/alice/.pencere/stage/6d0f9f1c","token":"3f9c2a7be1d84056a9c4e7b1d2f80a65"},"views":[{"kind":"lua","versions":["0.1"]}]}<ESC>\
 ```
 
+`host` says which terminal answered, as two strings: `name` and `version`. `name` is the stable name
+of the host's product, in lower case, and it is the same on every channel and in every build of that
+product: a development build of a terminal answers with the terminal's name, not one of its own. A
+program compares it with the names it knows by equality, whole. `version` is the host's own text:
+this document promises it no form and no order, and a program compares it only for equality, to see
+that it is the one it saw before; it MUST NOT parse it or put two of them in order. A host sends the
+name of its own product and no other, and has no member that says it is compatible with another host:
+a program that has not met the name reads it as it reads any other, and MUST NOT refuse, leave out or
+limit anything because of it. A reader skips a member of `host` it does not know. A `host` that is
+not an object with a `name` and a `version` that are strings is read as if it were absent, and the
+rest of the message stands: a program that does not know which terminal it is in goes on, and a
+missing `host` is never the reason to ask the person to update the terminal.
+
+What a host can do is found in `features` and, for what the kit draws, in the kit's `pencere.has`,
+not in its name; the name is for words (a report, a hint), and for work that only that terminal does.
+Such work is no message of this document: a program that wants it runs the terminal's own command
+and looks that the command is there, because the name says which terminal answered and not what is
+installed on the machine the program runs on. A host that adds parts of its own names them in
+`features` and in the kit's `pencere.has` with its own name and a dot first (`name.part`); the names
+of this document never begin with the name of a host.
+
 `views` lists what the host will open: the kinds of the `hello` and, for each, the versions of its
 interface that the program and the host both speak. For each entry of the `hello`'s `views`, in
 order, the answer has an entry with the same `kind` and `versions` cut down to the versions the host
@@ -2083,7 +2104,10 @@ the host speaks, in the host's own order, since no `hello` asks) into the pane's
 a view open, or believes it has, treats it as a request to start again: it forgets
 what it knew of its view, and sends `open` with the new token, which runs Sections 6 to 8 again with the bundle
 served from the store and the view starting afresh: it asks its program again for what it shows, as at any first start. A program with no view open
-ignores it. A host SHOULD restart only for a pane where its own record says a view was
+ignores it. The restart `welcome` has a `host` as every `welcome` has, and it MAY be another host
+than the one that answered the `hello`: the terminal was updated, or the pane was taken up by another
+computer. The host of a program is the one of the last `welcome` it acted on, and a program that tells
+its own code which terminal it is in tells it again when that changes (Section 5.2). A host SHOULD restart only for a pane where its own record says a view was
 open, SHOULD apply the checks of Section 6.2, and gives up if no `open` arrives
 in a time of its choosing.
 
@@ -2216,7 +2240,9 @@ or in one of its own.
 
 A page is told what the host knows of the person's machine, not the program's, in its `context`
 (Section 9.5): the size of the pane (Section 7.2), the theme and the font, `locale` and `timeZone`,
-which are the person's, and whether the person asked for less motion.
+which are the person's, and whether the person asked for less motion. The name and version of the
+host (Section 5.2) are told to the program, not to the page: a page that wants them asks its program
+with a `call`.
 
 A kit view is told less, and by the kit's own interface: each time it is asked to draw, the size of
 the pane (in points), the time and whether the person asked for less motion (`kit/wit/view.wit`,
@@ -2630,7 +2656,7 @@ interface Hello {
 interface Welcome {
   version?: number; // present with token, absent with supported
   token?: string;
-  host: { name: string; version: string };
+  host: { name: string; version: string }; // the terminal's own product and version text (Section 5.2)
   features?: string[]; // "dismiss" (Section 10.8), "stage" (Section 8.11), "probe" (Section 4.10)
   stage?: { dir: string; token: string }; // with "stage" in features: the host's folder and what its marker file holds (Section 8.11)
   views?: ViewOffer[]; // with token (always present then): the program's list cut down to what the host opens, in the program's order; may be empty (Section 5.2)

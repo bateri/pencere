@@ -210,12 +210,28 @@ export interface StageOffer {
   readonly token: string;
 }
 
+/**
+ * The terminal that answered the program, as the `host` of its `welcome` names it (§5.2).
+ *
+ * `name` is the stable, lower-case name of the terminal's product, the same on every channel and in
+ * every build of it: compare it with the names you know by equality. `version` is the terminal's
+ * own text with no form and no order promised: compare it only for equality. A name you do not
+ * know is a terminal like any other: restrict nothing because of it.
+ */
+export interface Host {
+  /** The product's name, in lower case: `"bateri"`. */
+  readonly name: string;
+  /** The terminal's own version text. */
+  readonly version: string;
+}
+
 /** What a host answers to `hello` with a version in common (§5.2), or offers again unasked (§10.7). */
 export interface WelcomeOffer {
   readonly kind: "offer";
   readonly version: number;
   readonly token: string;
-  readonly host?: { readonly name: string; readonly version: string };
+  /** Who answered, when the `welcome` names it in the shape of §5.2. */
+  readonly host?: Host;
   readonly features: readonly string[];
   /**
    * The folder the host keeps on the program's machine, when it lists `stage` and says where (§5.2,
@@ -239,8 +255,12 @@ export interface WelcomeOffer {
 /** What a host answers to `hello` (§5.2) or offers again unasked (§10.7). */
 export type Welcome =
   | WelcomeOffer
-  /** A host that shares no protocol version with this program. */
-  | { readonly kind: "unsupported"; readonly supported: readonly number[] };
+  /** A host that shares no protocol version with this program, and who it says it is. */
+  | {
+      readonly kind: "unsupported";
+      readonly supported: readonly number[];
+      readonly host?: Host;
+    };
 
 /** A token: 16 bytes in base64url without padding (§6.1). */
 const TOKEN = /^[A-Za-z0-9_-]{22}$/;
@@ -260,6 +280,14 @@ function strings(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+/** The `host` of a `welcome`; `undefined` when it is not there or not of the shape (§5.2). */
+function readHost(value: unknown): Host | undefined {
+  if (!isRecord(value)) return undefined;
+  const { name, version } = value;
+  if (typeof name !== "string" || typeof version !== "string") return undefined;
+  return { name, version };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -294,17 +322,17 @@ export function parseWelcome(payload: string, offered: readonly number[]): Welco
   if (version !== undefined) {
     if (typeof version !== "number" || !Number.isInteger(version) || version < 1) return undefined;
     if (typeof token !== "string" || !TOKEN.test(token)) return undefined;
-    if (!offered.includes(version)) return { kind: "unsupported", supported: [] };
-    const host = body.host;
+    const host = readHost(body.host);
+    if (!offered.includes(version)) {
+      return { kind: "unsupported", supported: [], ...(host === undefined ? {} : { host }) };
+    }
     const features = strings(body.features);
     const stage = features.includes(FEATURE_STAGE) ? readStage(body.stage) : undefined;
     return {
       kind: "offer",
       version,
       token,
-      ...(isRecord(host) && typeof host.name === "string" && typeof host.version === "string"
-        ? { host: { name: host.name, version: host.version } }
-        : {}),
+      ...(host === undefined ? {} : { host }),
       features,
       ...(stage === undefined ? {} : { stage }),
       views: readViews(body.views),
@@ -316,7 +344,8 @@ export function parseWelcome(payload: string, offered: readonly number[]): Welco
     const supported = body.supported.filter(
       (n): n is number => typeof n === "number" && Number.isInteger(n) && n >= 1,
     );
-    return { kind: "unsupported", supported };
+    const host = readHost(body.host);
+    return { kind: "unsupported", supported, ...(host === undefined ? {} : { host }) };
   }
   return undefined;
 }

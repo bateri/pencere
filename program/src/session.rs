@@ -29,6 +29,7 @@ use crate::exchange::{Exchange, Toward, WORK_ROOM, WRITE_ROOM};
 use crate::files::{self, Files};
 use crate::foreground::{self, Job};
 use crate::handlers::{self, Outbox, Work};
+use crate::host::Host;
 use crate::link::{Item, Reader, Writer};
 use crate::payload::{self, ByeReason, ClosedReason, FEATURE_DISMISS, Offer, OpenFields, Welcome};
 use crate::probe::Probe;
@@ -293,6 +294,8 @@ struct Session<'a> {
     heard: bool,
     /// The terminal lists `dismiss` (§10.8): the program may close its view.
     dismiss: bool,
+    /// The `host` of the last `welcome` that was acted on (§5.2, §10.7).
+    host: Option<Host>,
     /// The kinds of view a reopening offers instead of the options' ones.
     reopened: Option<Vec<View>>,
     /// The program is closing its view or showing another (§10.8).
@@ -381,6 +384,7 @@ pub(crate) fn run(
         accepted: false,
         heard: false,
         dismiss: false,
+        host: None,
         reopened: None,
         change: None,
         closed_reply: None,
@@ -861,24 +865,32 @@ impl Session<'_> {
         match payload::welcome(&message.payload) {
             // Not an answer: the wait goes on.
             None => {}
-            Some(Welcome::Unsupported) => self.no_view(NoViewReason::NoCommonVersion),
-            Some(Welcome::Offer(offer)) => match self.choose(&offer) {
-                // A terminal with a token and nothing to open: the program knows at once and
-                // does not wait (§5.3). When the terminal opens a kind of the program's in other
-                // versions, it says which and the program says so in words (§5.2).
-                None => {
-                    let message = payload::no_version_sentence(&self.offers(), &offer.opens);
-                    self.no_view_with(NoViewReason::NoCommonView, message);
+            Some(Welcome::Unsupported(host)) => {
+                self.know_host(host);
+                self.no_view(NoViewReason::NoCommonVersion);
+            }
+            Some(Welcome::Offer(offer)) => {
+                // Before it is chosen from: a terminal that has nothing the program can show is
+                // still a terminal the program may name in the words it falls back with.
+                self.know_host(offer.host.clone());
+                match self.choose(&offer) {
+                    // A terminal with a token and nothing to open: the program knows at once and
+                    // does not wait (§5.3). When the terminal opens a kind of the program's in other
+                    // versions, it says which and the program says so in words (§5.2).
+                    None => {
+                        let message = payload::no_version_sentence(&self.offers(), &offer.opens);
+                        self.no_view_with(NoViewReason::NoCommonView, message);
+                    }
+                    Some(choice) => {
+                        self.dismiss = offer
+                            .features
+                            .iter()
+                            .any(|feature| feature == FEATURE_DISMISS);
+                        self.files.offer(offer.stage);
+                        self.open(offer.token, choice);
+                    }
                 }
-                Some(choice) => {
-                    self.dismiss = offer
-                        .features
-                        .iter()
-                        .any(|feature| feature == FEATURE_DISMISS);
-                    self.files.offer(offer.stage);
-                    self.open(offer.token, choice);
-                }
-            },
+            }
         }
     }
 
@@ -889,6 +901,23 @@ impl Session<'_> {
 
     /// An unsolicited `welcome` while a view is shown: a terminal that came up after a break
     /// asks for the view again (§10.7).
+    /// The terminal's `host` is the one of the `welcome` just acted on: absent when that names
+    /// none. The program is told when it is another host than the one it knew, and not when the
+    /// `welcome` names none (§5.2, §10.7). The control has it before the program is told, so that
+    /// asking the control from inside the notice gives the new host.
+    fn know_host(&mut self, host: Option<Host>) {
+        if self.host == host {
+            return;
+        }
+        self.host.clone_from(&host);
+        if let Some(control) = &self.options.control {
+            control.set_host(host.clone());
+        }
+        if let (Some(host), Some(notify)) = (host, &self.options.on_host) {
+            notify(&host);
+        }
+    }
+
     fn on_welcome(&mut self, message: &Frame) {
         if message.re().is_some() {
             return;
@@ -907,6 +936,7 @@ impl Session<'_> {
         let Some(choice) = self.choose(&offer) else {
             return;
         };
+        self.know_host(offer.host.clone());
         // A closing or a reopening that was under way is over with the view it was about; a hand-off
         // whose command has ended goes on with the view the terminal asks for.
         if !self.returning() {

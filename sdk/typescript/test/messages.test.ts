@@ -407,13 +407,40 @@ describe("a welcome", () => {
     expect(parseWelcome(payloadOf("to-program/welcome-unsupported.frame"), VERSIONS)).toEqual({
       kind: "unsupported",
       supported: [1],
+      host: { name: "pencere-test", version: "0.0.0" },
     });
   });
 
   it("with a version the program did not offer is an unsupported one", () => {
     const welcome = payloadOf("to-program/welcome.frame").replace('"version":1', '"version":7');
-    expect(parseWelcome(welcome, VERSIONS)).toEqual({ kind: "unsupported", supported: [] });
+    expect(parseWelcome(welcome, VERSIONS)).toEqual({
+      kind: "unsupported",
+      supported: [],
+      host: { name: "pencere-test", version: "0.0.0" },
+    });
     expect(parseWelcome(welcome, [7])).toMatchObject({ kind: "offer", version: 7 });
+  });
+
+  it("names its host as two strings, and a host of another shape is none, the rest standing", () => {
+    const good = payloadOf("to-program/welcome.frame");
+    const host = '"host":{"name":"pencere-test","version":"0.0.0"}';
+    expect(good).toContain(host);
+    expect(parseWelcome(good, VERSIONS)).toMatchObject({
+      host: { name: "pencere-test", version: "0.0.0" },
+    });
+    for (const other of [
+      "",
+      '"host":"bateri"',
+      '"host":{"name":"bateri"}',
+      '"host":{"name":1,"version":"1"}',
+      '"host":null',
+    ]) {
+      const welcome = parseWelcome(good.replace(host, other).replace(",,", ","), VERSIONS);
+      expect(welcome, other).toMatchObject({ kind: "offer", token: TOKEN });
+      expect(welcome, other).not.toHaveProperty("host");
+    }
+    const extra = good.replace(host, '"host":{"name":"bateri","version":"1","build":7}');
+    expect(parseWelcome(extra, VERSIONS)).toMatchObject({ host: { name: "bateri", version: "1" } });
   });
 
   it("is not read when it is not a welcome", () => {

@@ -57,6 +57,7 @@ import type {
   ByeReason,
   Choice,
   Closed,
+  Host,
   Icon,
   StageOffer,
   ViewKind,
@@ -213,6 +214,23 @@ export interface ServeOptions {
    * given back (§10.3), in milliseconds. 500 by default.
    */
   byeTimeout?: number;
+  /**
+   * Tells the program which terminal it runs in: called with the {@link Host} of the host's
+   * `welcome` (§5.2), once for the first `welcome`, and again for each restart `welcome`
+   * (§10.7) that names another one, as when the terminal was updated or another computer took
+   * the pane up. A `welcome` that names no host, or names the one already told, does not call
+   * it; the host that answers that it shares no version with the program is told too, before
+   * the fallback runs.
+   *
+   * The host is for words (a report, a hint) and for work only that terminal does; what a
+   * terminal can do is found in its `features` and the kit's `pencere.has`, never in its name.
+   * A program that runs the terminal's own command for such work (`bateri split …`) looks that
+   * the command is there too, since the name says which terminal answered and not what is
+   * installed where the program runs. A {@link ViewControl} given as `control` has the same
+   * host at any time (`control.host`). It runs before the view is opened and should return at
+   * once; an error it throws ends `serve` as an error of the program's own would.
+   */
+  onHost?: (host: Host) => void;
 }
 
 // ---- how it ended -----------------------------------------------------------------
@@ -501,7 +519,7 @@ async function ended(options: ServeOptions, result: ServeResult): Promise<ServeR
 /** What the host answered to `hello`, or what stood in for an answer. */
 type Answer =
   | { readonly kind: "offer"; readonly welcome: WelcomeOffer }
-  | { readonly kind: "unsupported" }
+  | { readonly kind: "unsupported"; readonly host?: Host }
   | { readonly kind: "reply" }
   | { readonly kind: "timeout" }
   | { readonly kind: "aborted" };
@@ -555,6 +573,8 @@ class TerminalSession implements ViewTarget {
   #views: Prepared[];
   /** The host's last `welcome` listed `dismiss`. */
   #dismiss = false;
+  /** The `host` of the last `welcome` that was acted on (§5.2, §10.7). */
+  #host: Host | undefined;
   #change: Change | undefined;
 
   #phase: Phase = "asking";
@@ -633,6 +653,7 @@ class TerminalSession implements ViewTarget {
       this.#helloSent = true;
       void this.#link.raw(DEVICE_ATTRIBUTES);
       const answer = await this.#ask(hello.id);
+      this.#hearHost(answer);
       if (answer.kind !== "offer") {
         if (answer.kind === "timeout") await this.#drainLateReply();
         this.#phase = "over";
@@ -829,7 +850,12 @@ class TerminalSession implements ViewTarget {
         const welcome = parseWelcome(message.payload, VERSIONS);
         if (welcome === undefined) return;
         asking.settle(
-          welcome.kind === "offer" ? { kind: "offer", welcome } : { kind: "unsupported" },
+          welcome.kind === "offer"
+            ? { kind: "offer", welcome }
+            : {
+                kind: "unsupported",
+                ...(welcome.host === undefined ? {} : { host: welcome.host }),
+              },
         );
       } else if (re === undefined && (this.#change !== undefined || this.#revival !== undefined)) {
         // A host that came up after a break while the program waits to be offered a view
@@ -857,10 +883,34 @@ class TerminalSession implements ViewTarget {
     // would be nobody's.
     this.#forgetView();
     try {
+      this.#knowHost(welcome.host);
       await this.#open(welcome, choice);
     } catch (error) {
       this.#fail(error);
     }
+  }
+
+  /** What the host said of itself in an answer to `hello`, to a no-view answer as to an offer. */
+  #hearHost(answer: Answer): void {
+    if (answer.kind === "offer") this.#knowHost(answer.welcome.host);
+    else if (answer.kind === "unsupported") this.#knowHost(answer.host);
+  }
+
+  /**
+   * The host is the one of the `welcome` just acted on, and absent when that names none. The
+   * program is told when it is another host than the one it knew, and not when the `welcome`
+   * names none (§5.2, §10.7). It is kept before the program is told, so that `control.host`
+   * inside `onHost` is the new one.
+   */
+  #knowHost(host: Host | undefined): void {
+    const known = this.#host;
+    if (known?.name === host?.name && known?.version === host?.version) return;
+    this.#host = host;
+    if (host !== undefined) this.#options.onHost?.(host);
+  }
+
+  host(): Host | undefined {
+    return this.#host;
   }
 
   #onNeed(message: Message): void {
@@ -999,6 +1049,7 @@ class TerminalSession implements ViewTarget {
       const answer = await this.#ask(hello.id, this.#options.reopenTimeout ?? 10_000);
       // Something ended the wait (a signal): the view is not opened.
       if (this.#phase !== "showing") return;
+      this.#hearHost(answer);
       const choice = answer.kind === "offer" ? this.#choose(answer.welcome) : undefined;
       if (answer.kind !== "offer" || choice === undefined) {
         this.#phase = "over";
@@ -1210,6 +1261,7 @@ class TerminalSession implements ViewTarget {
     const hello = this.#link.send("hello", helloPayload(this.#offers()));
     const answer = await this.#ask(hello.id, this.#options.reopenTimeout ?? 10_000);
     if (this.#phase !== "showing" || this.#change !== change) return;
+    this.#hearHost(answer);
     const choice = answer.kind === "offer" ? this.#choose(answer.welcome) : undefined;
     if (answer.kind !== "offer" || choice === undefined) {
       this.#phase = "over";

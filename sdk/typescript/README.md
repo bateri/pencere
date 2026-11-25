@@ -126,6 +126,40 @@ subscribes to the topic `pencere.take`; each thing is pushed to it at once, `{ u
 its first values. A program that takes nothing answers that subscription `not-found`. A terminal
 hands over only the kinds the program named (specification §10.9).
 
+## Which terminal this is
+
+The host names itself in its `welcome`, and `serve` hands it to you as a `Host`: a `name` (the
+product's, in lower case: `"bateri"`) and a `version` (the terminal's own text). `onHost` is called
+when it is first known and again when a host that restarts the view is another one (it was updated;
+another computer took the pane up), and a `ViewControl` given as `control` has the last as `host`.
+`undefined` means "not known" and stops nothing. Compare the name by equality and the version only for
+equality: neither promises a form or an order, and a name you do not know is a terminal like any other.
+
+Three questions have three answers. What the terminal can do (a haptic, a sound, `dismiss`) is found in
+its `features` and, for a page of the kit, in `pencere.has`, never in its name. Which terminal it is is
+the `Host`. Work only that terminal does, a pane beside the view, say, is not a message of pencere: run
+the terminal's own command, and look that the command is there, because the name says which terminal
+answered and not what is installed where your program runs.
+
+```ts
+import { spawnSync } from "node:child_process";
+import { ViewControl } from "@pencere/sdk";
+
+const control = new ViewControl();
+// serve({ views, control, onHost: (host) => log(`terminal: ${host.name} ${host.version}`) });
+
+/** Opens a pane beside the view where the terminal can, and says whether it did. */
+function beside(): boolean {
+  // Read it when you need it: a restarted view may be in another terminal.
+  if (control.host?.name !== "bateri") return false;
+  // `split` stands for what the terminal's own command takes; its being there is looked at too.
+  return spawnSync("bateri", ["split"]).status === 0;
+}
+```
+
+`onHost` runs before the view is opened, and the terminal is the view's from then on: keep it short, and write what you say to a log, not to the terminal. The page is not told: it asks your program with a
+`call` of its own.
+
 ## Files
 
 For a `lua` view, `ViewControl` moves files between the person's

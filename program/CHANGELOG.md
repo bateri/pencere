@@ -8,6 +8,11 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Added
 
+- **`Host` and `Options::on_host`: which terminal the program runs in (specification §5.2).** The
+  terminal names itself in its `welcome`, and `on_host` is called with its `name` and `version` when it
+  is first known and when a restart `welcome` names another one; `ViewControl::host()` has the last, and
+  `None` when the terminal named none. The name is the product's, for words and for work only that
+  terminal does; what a terminal can do is still found in its features.
 - **`Options::takes`** (specification §10.9): what the program takes while it runs, an address, a file, a folder. The `open` says so, and the view subscribes to the topic `pencere.take` (`TAKE_TOPIC`): each `Take` the terminal hands the program is pushed to it at once, and up to eight that came before it subscribed are its first values. `Conversation::hand_over` plays the terminal in a test.
 - **A program answers the proof of a terminal's own route (specification §4.10).** Asked with a
   `probe`, it opens a listener on `127.0.0.1` that gives the terminal's token to one connection.

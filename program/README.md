@@ -149,6 +149,43 @@ eight that came before the view subscribed for its first subscription. A program
 answers that subscription `not-found`, and a terminal hands over only the kinds the program named
 (specification §10.9). `Conversation::hand_over` plays the terminal in a test.
 
+## Which terminal this is
+
+The terminal names itself in its `welcome`, and the library hands it to you as a `Host`: a `name`
+(the product's, in lower case: `"bateri"`) and a `version` (the terminal's own text). `Options::on_host`
+is called when it is first known and again when a terminal that restarts the view is another one (it
+was updated; another computer took the pane up), and a `ViewControl` given to `Options::control` has
+the last as `host()`. `None` means "not known" and stops nothing. Compare the name by equality and the
+version only for equality: neither promises a form or an order, and a name you do not know is a
+terminal like any other.
+
+Three questions have three answers. What the terminal can do (a haptic, a sound, `dismiss`) is found
+in its `features` and, for a page of the kit, in `pencere.has`, never in its name. Which terminal it is
+is the `Host`. Work only that terminal does, a pane beside the view, say, is not a message of pencere:
+run the terminal's own command, and look that the command is there, because the name says which
+terminal answered and not what is installed where your program runs.
+
+```rust
+use pencere::ViewControl;
+use std::process::Command;
+
+/// Opens a pane beside the view where the terminal can, and says whether it did.
+fn beside(control: &ViewControl) -> bool {
+    // Read it when you need it: a restarted view may be in another terminal.
+    let bateri = control.host().is_some_and(|host| host.name == "bateri");
+    // `split` stands for what the terminal's own command takes; its being there is looked at too.
+    bateri
+        && Command::new("bateri")
+            .arg("split")
+            .status()
+            .is_ok_and(|status| status.success())
+}
+```
+
+The notice runs on the thread that runs `serve`, before the view is opened; keep it short, write what it says to a log and not to the terminal, and do not
+call a `ViewControl` method that waits for the terminal (`reopen`, `close`, `hand_off`) from inside it.
+The page is not told: it asks your program with a `call` of its own.
+
 ## What a page prints
 
 A page of the kit has no terminal of its own, and the one under it is yours, which you must not write to

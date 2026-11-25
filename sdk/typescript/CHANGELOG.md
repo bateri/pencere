@@ -8,6 +8,11 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ### Added
 
+- **`Host`, `onHost` of `serve` and `ViewControl.host`: which terminal the program runs in (specification
+  §5.2).** The host names itself in its `welcome`, and `onHost` is called with its `name` and `version`
+  when it is first known and when a restart `welcome` names another one; `control.host` has the last,
+  and `undefined` when the host named none. The name is the product's, for words and for work only that
+  terminal does; what a host can do is still found in its features.
 - **`takes` of `serve`** (specification §10.9): what the program takes while it runs, `url`, `file` and `folder`. The `open` says so, and the view subscribes to the topic `pencere.take` (`TAKE_TOPIC`): each thing the terminal hands the program is pushed to it at once, and up to eight that came before it subscribed are its first values. `createRouter` takes `takes` and has `take`.
 - **A program answers the proof of a host's own route (specification §4.10).** Asked with a `probe`,
   `serve` opens a listener on `127.0.0.1` that gives the host's token to one connection.

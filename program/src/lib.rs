@@ -93,6 +93,7 @@ mod files;
 #[allow(unsafe_code)]
 mod foreground;
 mod handlers;
+mod host;
 mod link;
 mod log;
 mod payload;
@@ -124,6 +125,7 @@ pub use files::{
     FileError, MAX_ATTACHED_FILE, MAX_ATTACHED_FILES, MAX_ATTACHED_TOTAL, MAX_PIECE, safe_name,
 };
 pub use handlers::{Answer, Call, Subscription, ViewError};
+pub use host::Host;
 pub use log::{LogLevel, RESERVED_PREFIX};
 pub use pencere_wire::take::{Kind as TakeKind, Take};
 
@@ -138,6 +140,9 @@ pub use view::{Access, Icon, IconTheme, Kind, Permission, View, WEB_VERSION};
 use handlers::{CallFn, CallHandler, Method, TopicHandler};
 use log::LogFn;
 use view::Source;
+
+/// What the program is told of the terminal it runs in (see [`Options::on_host`]).
+type HostFn = dyn Fn(&Host) + Send + Sync;
 
 /// What the program does when no view is shown.
 type Fallback = Box<dyn FnOnce(&NoView) + Send>;
@@ -162,6 +167,7 @@ pub struct Options {
     calls: HashMap<String, Method>,
     topics: HashMap<String, TopicHandler>,
     log: Option<Arc<LogFn>>,
+    on_host: Option<Arc<HostFn>>,
     fallback: Option<Fallback>,
     screen: Option<Screen>,
     terminal: Option<Terminal>,
@@ -209,6 +215,7 @@ impl Options {
             calls: HashMap::new(),
             topics: HashMap::new(),
             log: None,
+            on_host: None,
             fallback: None,
             screen: None,
             terminal: None,
@@ -424,6 +431,29 @@ impl Options {
     #[must_use]
     pub fn log(mut self, sink: impl Fn(LogLevel, &str) + Send + Sync + 'static) -> Self {
         self.log = Some(Arc::new(sink));
+        self
+    }
+
+    /// Tells the program which terminal it runs in: `notify` is given the [`Host`] of the
+    /// terminal's `welcome` (specification §5.2), once for the first `welcome`, and again for
+    /// each restart `welcome` (§10.7) that names another one, as when the terminal was updated
+    /// or another computer took the pane up. A `welcome` that names no host, or names the one
+    /// already told, does not call it, and the terminal that answers that it shares no version
+    /// with the program is told too (before the fallback runs).
+    ///
+    /// The host is for words (a report, a hint) and for work only that terminal does; what a
+    /// terminal can do is found in its `features` and the kit's `pencere.has`, never in its name.
+    /// A program that runs the terminal's own command for such work (`bateri split …`) looks
+    /// that the command is there too, since the name says which terminal answered and not what is
+    /// installed where the program runs. A [`ViewControl`] given to [`Options::control`] has the
+    /// same host at any time ([`ViewControl::host`]).
+    ///
+    /// `notify` runs on the thread that runs [`serve`], before the view is opened, and should
+    /// return at once: a [`ViewControl`] call that waits for the terminal (`reopen`, `close`,
+    /// `hand_off`) from inside it waits for the very thread that runs it.
+    #[must_use]
+    pub fn on_host(mut self, notify: impl Fn(&Host) + Send + Sync + 'static) -> Self {
+        self.on_host = Some(Arc::new(notify));
         self
     }
 

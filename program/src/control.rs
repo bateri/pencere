@@ -43,6 +43,7 @@ use pencere_wire::bundle::Digest;
 
 use crate::files::{FileError, Transferring};
 use crate::handlers::{Outbox, Work};
+use crate::host::Host;
 use crate::payload::StageOffer;
 use crate::{Error, NoView, Options, View};
 
@@ -293,6 +294,8 @@ pub(crate) fn answered() {
 #[derive(Clone, Default)]
 pub struct ViewControl {
     bound: Arc<Mutex<Option<(u64, Outbox)>>>,
+    /// The `host` of the last `welcome` the bound `serve` acted on.
+    host: Arc<Mutex<Option<Host>>>,
 }
 
 /// The numbers the loops a control is tied to are told apart by.
@@ -307,6 +310,7 @@ impl std::fmt::Debug for ViewControl {
 /// The control is tied to the loop of a `serve` while this lives.
 pub(crate) struct Bound {
     bound: Arc<Mutex<Option<(u64, Outbox)>>>,
+    host: Arc<Mutex<Option<Host>>>,
     generation: u64,
 }
 
@@ -319,6 +323,10 @@ impl Drop for Bound {
                 .is_some_and(|(held, _)| *held == self.generation)
         {
             *slot = None;
+            // The terminal belongs to the connection that `serve` was: with none, none is known.
+            if let Ok(mut host) = self.host.lock() {
+                *host = None;
+            }
         }
     }
 }
@@ -337,9 +345,29 @@ impl ViewControl {
         if let Ok(mut slot) = self.bound.lock() {
             *slot = Some((generation, outbox));
         }
+        // What the last `serve` learned of its terminal is not this one's.
+        self.set_host(None);
         Bound {
             bound: Arc::clone(&self.bound),
+            host: Arc::clone(&self.host),
             generation,
+        }
+    }
+
+    /// The terminal that the running `serve` is talking to: the `host` of the last `welcome` it
+    /// acted on (specification §5.2, §10.7). `None` is "not known": the terminal named none, or
+    /// no `serve` that holds this control has read a `welcome` yet or runs any more. It changes when
+    /// a terminal that restarts the view is another one (it was updated; another computer took the
+    /// pane), so ask when you need it rather than keep what you read; [`Options::on_host`] says
+    /// when it changes.
+    #[must_use]
+    pub fn host(&self) -> Option<Host> {
+        self.host.lock().ok().and_then(|slot| slot.clone())
+    }
+
+    pub(crate) fn set_host(&self, host: Option<Host>) {
+        if let Ok(mut slot) = self.host.lock() {
+            *slot = host;
         }
     }
 

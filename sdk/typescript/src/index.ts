@@ -34,6 +34,7 @@ export { PipeError, StageFolder } from "./stage.js";
 export { createRouter } from "./router.js";
 export { TAKE_TOPIC, takeKind } from "./take.js";
 export type { Take, TakeKind } from "./take.js";
+export type { Host } from "./messages.js";
 export type { Router, RouterHandlers, Send } from "./router.js";
 export type { CloseResult, ReopenOptions, ReopenResult } from "./control.js";
 export type {

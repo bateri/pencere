@@ -22,7 +22,7 @@
 import { FileError } from "./files.js";
 import type { MAX_PIECE, Transfer } from "./files.js";
 import type { NoViewReason, ViewSpec } from "./serve.js";
-import type { StageOffer } from "./messages.js";
+import type { Host, StageOffer } from "./messages.js";
 import { proveStage } from "./stage.js";
 import type { StageFolder } from "./stage.js";
 
@@ -73,6 +73,8 @@ export type CloseResult =
 
 /** What a running `serve` answers to a control; `serve` is the only one that makes it. */
 export interface ViewTarget {
+  /** The host of the last `welcome` acted on. */
+  host(): Host | undefined;
   reopen(next: ReopenOptions): Promise<ReopenResult>;
   close(): Promise<CloseResult>;
   attach(data: Uint8Array): Promise<string>;
@@ -102,6 +104,18 @@ export function unbindControl(control: ViewControl, target: ViewTarget): void {
  * until `serve` has a view, and once it has ended, its calls answer `unavailable`.
  */
 export class ViewControl {
+  /**
+   * The terminal that the running `serve` is talking to: the {@link Host} of the last `welcome`
+   * it acted on (§5.2, §10.7). `undefined` is "not known": the terminal named none, or no `serve`
+   * that holds this control has read a `welcome` yet or runs any more. It changes when a terminal
+   * that restarts the view is another one (it was updated; another computer took the pane), so
+   * read it when you need it rather than keep what you read; `onHost` of `serve` says when it
+   * changes.
+   */
+  get host(): Host | undefined {
+    return targets.get(this)?.host();
+  }
+
   /**
    * Closes the view and opens one again: with the same files (the host serves
    * them from its store), or with `next.views` (only what changed is sent).
