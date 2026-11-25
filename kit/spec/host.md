@@ -101,7 +101,7 @@ A host vibrates the trackpad as a reply's `haptic` says ([Haptics](haptics.md); 
 
 - it vibrates only while a finger is on the glass of a device that can, and only for the view the person is working in;
 - a vibration ends when the finger lifts, when a new one takes its place, and when the view is gone;
-- a strength is held to what the device gives at most, and a sharpness is mapped to the band the device feels, so that the same pattern feels alike on every one;
+- a strength is a share of the strongest the device gives, and a sharpness is mapped to the band the device feels, so that a crisp tap is crisp on every one;
 - a host with no device that vibrates ignores it;
 - a host with no screen keeps every ask, whatever a device would have done with it;
 - and the host tells the page nothing of what came of it.

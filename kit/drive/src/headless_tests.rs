@@ -1068,7 +1068,7 @@ return {
     page.press("b")?;
     page.press("c")?;
     let own = Pattern::new([
-        Tap::held(0.0, 0.2, (1.0, 1.0), (0.5, 0.5)),
+        Tap::held(0.0, 0.2, (0.3, 0.3), (0.5, 0.5)),
         Tap::tap(0.1, 0.5, 0.5),
     ])
     .expect("a pattern");

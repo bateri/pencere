@@ -6,8 +6,12 @@
 //! 1, and a time in seconds. An event is a *tap* (0 seconds) or is *held* for a
 //! time, its strength and its sharpness going straight from where they begin to where they end.
 //! That is the family of what the platforms' own haptic libraries take, so that a pattern is
-//! carried to another device as it is. Which frequency a sharpness comes to, and what the strongest
-//! the device can give is, are the host's to know: it maps what it is given to what it can feel.
+//! carried to another device as it is.
+//!
+//! A strength is a share of the strongest the device gives: 1 is all of it and 0 nothing. It is
+//! the one scale for every pattern, the kit's ready ones and a page's own, so that a number means
+//! the same wherever it is written. Which frequency a sharpness comes to is the host's to know: it
+//! maps what it is given to what it can feel.
 //!
 //! The crate holds the patterns and the floors they are held to ([`MOST_EVENTS`], [`MOST_SECONDS`])
 //! and plays nothing: no platform's library is linked.
@@ -158,18 +162,37 @@ impl Pattern {
             .fold(0.0, f32::max)
     }
 
-    /// The same pattern `by` times as strong (from 0 to 1: a number past them is the nearest, and
-    /// one that is not a number is 1). How sharp it is, and when, stay.
+    /// The strongest this pattern gets: the greatest strength any event has, where it begins or
+    /// where it ends. 0 where there are no events or all of them are silent.
     #[must_use]
-    pub fn scaled(&self, by: f32) -> Self {
-        let by = if by.is_nan() { 1.0 } else { by.clamp(0.0, 1.0) };
+    pub fn peak(&self) -> f32 {
+        self.events
+            .iter()
+            .map(|event| event.intensity.max(event.intensity_end))
+            .fold(0.0, f32::max)
+    }
+
+    /// The same pattern with its strongest moment at `peak` (from 0 to 1: a number past them is the
+    /// nearest, and one that is not a number leaves the pattern as it is). Every other strength keeps
+    /// its share of the strongest, so the shape stays: how sharp it is, and when, are not touched. A
+    /// pattern that is silent has no shape to keep, and stays as it is.
+    #[must_use]
+    pub fn with_peak(&self, peak: f32) -> Self {
+        let most = self.peak();
+        if peak.is_nan() || most <= 0.0 {
+            return self.clone();
+        }
+        let peak = peak.clamp(0.0, 1.0);
+        // Each strength is divided by the strongest and then given the new one: the strongest comes
+        // to `peak` itself and none to more, whatever the rounding of the others.
+        let at = |strength: f32| strength / most * peak;
         Self {
             events: self
                 .events
                 .iter()
                 .map(|event| Event {
-                    intensity: event.intensity * by,
-                    intensity_end: event.intensity_end * by,
+                    intensity: at(event.intensity),
+                    intensity_end: at(event.intensity_end),
                     ..*event
                 })
                 .collect(),
@@ -204,47 +227,49 @@ pub const NAMES: [&str; 13] = [
 ];
 
 /// The ready pattern called `name` (one of [`NAMES`]), or none. The names are the API; what each one
-/// is made of may change, as long as it feels like what it is called.
+/// is made of may change, as long as it feels like what it is called. Their strengths are shares of
+/// the strongest the device gives, and the strongest moment of any of them is 0.3: a page that wants
+/// one stronger or lighter says how strong its strongest moment is ([`Pattern::with_peak`]).
 #[must_use]
 pub fn preset(name: &str) -> Option<Pattern> {
     let events = match name {
         // The lightest, crisp: a thing under the finger moved by a step (a pick in a list, a tab).
-        "tick" => vec![Event::tap(0.0, 0.45, 0.9)],
+        "tick" => vec![Event::tap(0.0, 0.18, 0.9)],
         // A press that landed: a little fuller than a tick, a little less sharp.
-        "tap" => vec![Event::tap(0.0, 0.75, 0.6)],
+        "tap" => vec![Event::tap(0.0, 0.225, 0.6)],
         // Something heavy set down: a strong dull knock that dies away.
         "thud" => vec![
-            Event::tap(0.0, 1.0, 0.1),
-            Event::held(0.0, 0.07, (0.7, 0.0), (0.1, 0.1)),
+            Event::tap(0.0, 0.3, 0.1),
+            Event::held(0.0, 0.07, (0.21, 0.0), (0.1, 0.1)),
         ],
         // Something clicked into place: the strongest, the crispest.
-        "snap" => vec![Event::tap(0.0, 1.0, 1.0)],
+        "snap" => vec![Event::tap(0.0, 0.3, 1.0)],
         // Running into an edge: a soft dull knock.
-        "bump" => vec![Event::tap(0.0, 0.7, 0.25)],
+        "bump" => vec![Event::tap(0.0, 0.21, 0.25)],
         // Two taps close together.
-        "double" => vec![Event::tap(0.0, 0.7, 0.6), Event::tap(0.12, 0.7, 0.6)],
+        "double" => vec![Event::tap(0.0, 0.21, 0.6), Event::tap(0.12, 0.21, 0.6)],
         // It worked: a light tap, then a stronger, sharper one.
-        "success" => vec![Event::tap(0.0, 0.5, 0.5), Event::tap(0.1, 1.0, 0.9)],
+        "success" => vec![Event::tap(0.0, 0.18, 0.5), Event::tap(0.1, 0.3, 0.9)],
         // Look at this: two strong taps, the second weaker, with a pause between.
-        "warning" => vec![Event::tap(0.0, 0.9, 0.7), Event::tap(0.18, 0.5, 0.5)],
+        "warning" => vec![Event::tap(0.0, 0.27, 0.7), Event::tap(0.18, 0.18, 0.5)],
         // It failed: three heavy, dull knocks.
         "error" => vec![
-            Event::tap(0.0, 1.0, 0.3),
-            Event::tap(0.11, 1.0, 0.3),
-            Event::tap(0.22, 1.0, 0.3),
+            Event::tap(0.0, 0.3, 0.3),
+            Event::tap(0.11, 0.3, 0.3),
+            Event::tap(0.22, 0.3, 0.3),
         ],
         // Building: a held buzz that grows stronger and sharper.
-        "rise" => vec![Event::held(0.0, 0.4, (0.1, 1.0), (0.2, 0.8))],
+        "rise" => vec![Event::held(0.0, 0.4, (0.09, 0.3), (0.2, 0.8))],
         // Fading: a held buzz that dies away and dulls.
-        "fall" => vec![Event::held(0.0, 0.4, (1.0, 0.1), (0.8, 0.2))],
+        "fall" => vec![Event::held(0.0, 0.4, (0.3, 0.09), (0.8, 0.2))],
         // A steady dull growl.
-        "rumble" => vec![Event::held(0.0, 0.8, (0.7, 0.7), (0.1, 0.1))],
+        "rumble" => vec![Event::held(0.0, 0.8, (0.21, 0.21), (0.1, 0.1))],
         // Two beats and a rest, twice.
         "heartbeat" => vec![
-            Event::tap(0.0, 0.9, 0.2),
-            Event::tap(0.18, 0.6, 0.2),
-            Event::tap(0.9, 0.9, 0.2),
-            Event::tap(1.08, 0.6, 0.2),
+            Event::tap(0.0, 0.27, 0.2),
+            Event::tap(0.18, 0.18, 0.2),
+            Event::tap(0.9, 0.27, 0.2),
+            Event::tap(1.08, 0.18, 0.2),
         ],
         _ => return None,
     };

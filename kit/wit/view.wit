@@ -2569,10 +2569,12 @@ interface types {
         sharpness-end: f32,
     }
 
-    /// A ready pattern of the kit's, by its name, as strong as `intensity` (0 to 1) says.
+    /// A ready pattern of the kit's, by its name. `intensity` (0 to 1) is how strong its strongest
+    /// moment is, as a share of the strongest the device gives, the rest keeping its proportion; none
+    /// is the pattern as the kit made it.
     record haptic-named {
         name: string,
-        intensity: f32,
+        intensity: option<f32>,
     }
 
     /// A pattern of the page's own: at most 256 events, the last of them over by 60 seconds. None is

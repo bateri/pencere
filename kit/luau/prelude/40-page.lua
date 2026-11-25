@@ -199,12 +199,14 @@
 -- `text_size` of an element (a size in points of that element's text).
 -- `haptic` asks the trackpad to vibrate, for a view has one vibration at a time and a new one takes the
 -- place of the one playing: a ready pattern by its name (`haptic = "tick"`; `pencere.has("haptic.tick")`
--- says whether a host's kit has it), `{ name =, intensity = }` (0 to 1: how much of its strength),
--- a pattern of the page's own, `{ events = { { at =, seconds =, intensity =, intensity_end =, sharpness =,
--- sharpness_end = } } }` (a tap where `seconds` is 0 or not said, otherwise held, its strength and its
--- sharpness going from where they begin to where they end; `at`, `seconds` 0 to 60 and over by 60,
--- `intensity` and `sharpness` 0 to 1: 1 and 0.5 where not said, the `_end` of each the one it
--- begins at), or `false` for the end of what is playing. The host plays it only while a finger is on
+-- says whether a host's kit has it), `{ name =, intensity = }` (0 to 1: how strong its strongest moment is,
+-- as a share of the strongest the device gives, the rest of it keeping its proportion; as the kit made it
+-- where not said), a pattern of the page's own, `{ events = { { at =, seconds =, intensity =,
+-- intensity_end =, sharpness =, sharpness_end = } } }` (a tap where `seconds` is 0 or not said,
+-- otherwise held, its strength and its sharpness going from where they begin to where they end; `at`,
+-- `seconds` 0 to 60 and over by 60, `intensity` and `sharpness` 0 to 1: 0.3 and 0.5 where not said, the
+-- `_end` of each the one it begins at; an `intensity` is a share of the strongest the device gives, 1
+-- being all of it), or `false` for the end of what is playing. The host plays it only while a finger is on
 -- the glass of a device that vibrates and the view is the one the person is working in, and the page is
 -- not told what came of it. Any reply may carry it, the person's act or not; a name the kit has no
 -- pattern for is told to the page's author, and the rest of the reply goes through.

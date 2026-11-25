@@ -12,7 +12,7 @@ A reply's `sound` plays a sound: a short click when a toggle flips, a chime when
 
 `volume` is from 0 to 1 and is 1 where it is not said. `pitch` is how much faster the sound plays, from 0.5 to 2, and is 1 where it is not said: a sound at 2 is twice as fast and an octave higher, and half as long.
 
-It is no person's permission to give and none to ask: a page that plays a sound reads nothing and takes nothing, and the worst it does is annoy. The person's remedy is the system's volume and silence, or closing the view. The page is not told what came of it, or whether a speaker was there at all.
+It is no person's permission to give and none to ask: a page that plays a sound reads nothing and takes nothing, and the worst it does is annoy. The person's remedy is the system's volume and silence, the host's own switch for sounds where it has one, or closing the view. The page is not told what came of it, or whether a speaker was there at all, or whether a switch is off.
 
 Any reply may carry it, a press's, a wake's or a program's message's.
 

@@ -3608,6 +3608,10 @@ const char* const kHapticIs =
 const size_t kMaxHapticEvents = 256;
 const double kMaxHapticSeconds = 60.0;
 
+// How strong an event of a page's own pattern is where it does not say: a firm click, as a share of
+// the strongest the device gives (the ready patterns are made at the same scale, none stronger).
+const float kDefaultHapticIntensity = 0.3f;
+
 // A number of an event or of a named pattern, from 0 to `most`; `fallback` where it is not said.
 float haptic_number(lua_State* L, int t, const char* name, float fallback, double most) {
     get(L, t, name);
@@ -3644,7 +3648,7 @@ void haptic_of(lua_State* L, int index, pencere_view_types_reply_t& out) {
         out.haptic.is_some = true;
         ask.tag = PENCERE_VIEW_TYPES_HAPTIC_ASK_NAMED;
         ask.val.named.name = host_string(bytes, length);
-        ask.val.named.intensity = 1.0f;
+        ask.val.named.intensity.is_some = false;
         return;
     }
     if (kind != LUA_TTABLE) luaL_error(L, "%s", kHapticIs);
@@ -3662,7 +3666,12 @@ void haptic_of(lua_State* L, int index, pencere_view_types_reply_t& out) {
         out.haptic.is_some = true;
         ask.tag = PENCERE_VIEW_TYPES_HAPTIC_ASK_NAMED;
         ask.val.named.name = host_string(bytes, length);
-        ask.val.named.intensity = haptic_number(L, index, "intensity", 1.0f, 1.0);
+        // Not said is not a number: the pattern is played as the kit made it.
+        get(L, index, "intensity");
+        bool said = !lua_isnil(L, -1);
+        lua_pop(L, 1);
+        ask.val.named.intensity.is_some = said;
+        ask.val.named.intensity.val = said ? haptic_number(L, index, "intensity", 0.0f, 1.0) : 0.0f;
     } else {
         if (lua_type(L, events_index) != LUA_TTABLE) luaL_error(L, "%s", kHapticIs);
         size_t count = (size_t)lua_objlen(L, events_index);
@@ -3685,7 +3694,7 @@ void haptic_of(lua_State* L, int index, pencere_view_types_reply_t& out) {
             if ((double)to.at + (double)to.seconds > kMaxHapticSeconds) {
                 luaL_error(L, "a haptic pattern lasts at most %g seconds", kMaxHapticSeconds);
             }
-            to.intensity = haptic_number(L, event, "intensity", 1.0f, 1.0);
+            to.intensity = haptic_number(L, event, "intensity", kDefaultHapticIntensity, 1.0);
             to.intensity_end = haptic_number(L, event, "intensity_end", to.intensity, 1.0);
             to.sharpness = haptic_number(L, event, "sharpness", 0.5f, 1.0);
             to.sharpness_end = haptic_number(L, event, "sharpness_end", to.sharpness, 1.0);

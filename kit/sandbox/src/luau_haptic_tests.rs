@@ -73,17 +73,37 @@ fn play(name: &str) -> Haptic {
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
-fn a_ready_pattern_is_asked_for_by_its_name_and_as_strong_as_the_page_says() {
+fn a_ready_pattern_is_asked_for_by_its_name_and_with_its_strongest_moment_as_strong_as_the_page_says()
+ {
     assert_eq!(asked(r#"{ haptic = "tick" }"#), Some(play("tick")));
     assert_eq!(
         asked(r#"{ haptic = { name = "thud" } }"#),
         Some(play("thud"))
     );
-    let half = haptic::preset("thud").expect("a name").scaled(0.5);
+    let half = haptic::preset("thud").expect("a name").with_peak(0.5);
     assert_eq!(
         asked(r#"{ haptic = { name = "thud", intensity = 0.5 } }"#),
         Some(Haptic::Play(half))
     );
+    // A strength the page says is where the strongest moment is, whether that is more than the
+    // pattern was made at or less, and what it does not say is as the kit made it.
+    let Some(Haptic::Play(strong)) = asked(r#"{ haptic = { name = "tick", intensity = 1 } }"#)
+    else {
+        panic!("a pattern");
+    };
+    assert_eq!(strong.peak(), 1.0);
+    let Some(Haptic::Play(none)) = asked(r#"{ haptic = { name = "snap", intensity = 0 } }"#) else {
+        panic!("a pattern");
+    };
+    assert_eq!((none.peak(), none.events().len()), (0.0, 1));
+    let Some(Haptic::Play(rise)) = asked(r#"{ haptic = { name = "rise", intensity = 0.6 } }"#)
+    else {
+        panic!("a pattern");
+    };
+    let made = haptic::preset("rise").expect("a name");
+    assert_eq!(rise.peak(), 0.6);
+    assert_eq!(rise.events()[0].sharpness, made.events()[0].sharpness);
+    assert!((rise.events()[0].intensity - 0.6 * 0.09 / 0.3).abs() < 1e-6);
     // The reply is the page's whole answer: the rest of it goes through.
     let reply = answer(&mut open(r#"{ redraw = true, haptic = "snap" }"#));
     assert!(reply.redraw);
@@ -105,7 +125,7 @@ fn a_pattern_of_the_pages_own_is_made_of_taps_and_held_events_with_what_is_not_s
     let pattern = Pattern::new([
         Tap::held(0.0, 0.3, (0.1, 0.9), (0.2, 0.8)),
         Tap::tap(0.2, 0.4, 0.5),
-        Tap::tap(0.2, 1.0, 1.0),
+        Tap::tap(0.2, 0.3, 1.0),
     ])
     .expect("a pattern");
     assert_eq!(asked, Some(Haptic::Play(pattern)));

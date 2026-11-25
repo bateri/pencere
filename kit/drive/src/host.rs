@@ -149,10 +149,10 @@ pub trait Host {
     /// plays, or the end of it ([`Haptic`]). The patterns are the kit's to give (a name is the kit's
     /// to resolve), so that every host is given the same one; the rules are the host's
     /// (`kit/spec/host.md`): it plays only while a finger is on the glass of a device that vibrates
-    /// and the view is the one the person works in, cuts it when the finger lifts, holds the strength
-    /// to what the device gives and maps the sharpness to what it feels. The page is not told what
-    /// came of it. It is not the person's act: any reply says it, a wake's and a program's message's
-    /// included.
+    /// and the view is the one the person works in, cuts it when the finger lifts, takes a strength as
+    /// a share of the strongest the device gives and maps the sharpness to what it feels. The page is
+    /// not told what came of it. It is not the person's act: any reply says it, a wake's and a
+    /// program's message's included.
     fn haptic(&mut self, _haptic: Haptic) {}
     /// A sound the page asks for, or the end of every sound its view plays ([`SoundAsk`]): a sound is
     /// given as its samples (the kit's own by their names, a file of the page's bundle decoded), at the

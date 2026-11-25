@@ -983,6 +983,8 @@ fn a_test_reads_what_the_page_asked_the_trackpad_to_do() {
 			return { haptic = { events = { { at = 0.1, seconds = 0.2, intensity = 0.3, intensity_end = 0.9 } } } }
 		elseif e.type == "key" and e.key == "c" then
 			return { haptic = false }
+		elseif e.type == "key" and e.key == "d" then
+			return { haptic = { name = "thud", intensity = 0.5 } }
 		end
 	end,
 }
@@ -1001,9 +1003,10 @@ test("a test reads the vibrations the page asked for, in order", function()
 	page:press("c")
 	local asked = page:haptics()
 	expect(#asked):to_equal(3)
-	-- A ready pattern is the pattern the kit gives it, one event of a tap's kind.
+	-- A ready pattern is the pattern the kit gives it, one event of a tap's kind, as strong as it
+	-- was made.
 	expect(asked[1][1].seconds):to_equal(0)
-	expect(asked[1][1].intensity):to_equal(1)
+	expect(asked[1][1].intensity):to_be_close_to(0.3, 3)
 	expect(asked[1][1].sharpness):to_equal(1)
 	-- A pattern of the page's own, with what it did not say as the default.
 	expect(#asked[2]):to_equal(1)
@@ -1012,6 +1015,12 @@ test("a test reads the vibrations the page asked for, in order", function()
 	expect(asked[2][1].sharpness_end):to_equal(0.5)
 	-- The end of what was playing.
 	expect(asked[3]):to_equal(false)
+	-- A ready pattern with its strongest moment said: that moment is where it was said and the rest
+	-- is in proportion.
+	page:press("d")
+	local thud = page:haptics()[4]
+	expect(thud[1].intensity):to_be_close_to(0.5, 3)
+	expect(thud[2].intensity):to_be_close_to(0.35, 3)
 end)
 "#,
     );

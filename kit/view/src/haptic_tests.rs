@@ -118,28 +118,126 @@ fn a_pattern_with_no_events_is_a_pattern_and_has_no_length() {
 }
 
 #[test]
-fn a_pattern_scaled_is_as_strong_as_it_was_by_that_much() {
+fn the_peak_of_a_pattern_is_the_strongest_it_gets_where_an_event_begins_or_ends() {
     let pattern = Pattern::new([
         Event {
             seconds: 0.4,
-            intensity: 1.0,
-            intensity_end: 0.5,
-            ..tap(0.0, 1.0, 0.7)
+            intensity: 0.2,
+            intensity_end: 0.9,
+            ..tap(0.0, 0.2, 0.7)
         },
         tap(0.5, 0.8, 0.2),
     ])
     .expect("a pattern");
-    let half = pattern.scaled(0.5);
-    assert_eq!(half.events()[0].intensity, 0.5);
-    assert_eq!(half.events()[0].intensity_end, 0.25);
-    assert_eq!(half.events()[1].intensity, 0.4);
+    assert_eq!(pattern.peak(), 0.9);
+    assert_eq!(Pattern::default().peak(), 0.0);
+}
+
+#[test]
+fn a_pattern_with_its_peak_at_a_strength_has_its_strongest_moment_there_and_keeps_its_shape() {
+    let pattern = Pattern::new([
+        Event {
+            seconds: 0.4,
+            intensity: 0.3,
+            intensity_end: 0.15,
+            ..tap(0.0, 0.3, 0.7)
+        },
+        tap(0.5, 0.2, 0.2),
+    ])
+    .expect("a pattern");
+    // Weaker: the strongest moment is what was said, and the others are in the same proportion.
+    let half = pattern.with_peak(0.15);
+    assert_eq!(half.peak(), 0.15);
+    assert_eq!(half.events()[0].intensity, 0.15);
+    assert_eq!(half.events()[0].intensity_end, 0.075);
+    assert!((half.events()[1].intensity - 0.1).abs() < 1e-6);
+    // Stronger too: a ready pattern is as light as it is made, and a page can ask for more of it.
+    let more = pattern.with_peak(1.0);
+    assert_eq!(more.peak(), 1.0);
+    assert_eq!(more.events()[0].intensity, 1.0);
+    assert_eq!(more.events()[0].intensity_end, 0.5);
+    assert!((more.events()[1].intensity - 2.0 / 3.0).abs() < 1e-6);
     // How sharp it is, and when, are not its strength.
-    assert_eq!(half.events()[0].sharpness, 0.7);
-    assert_eq!(half.events()[1].at, 0.5);
-    // A number past 0 to 1 is held to it, and the pattern it was made from is as it was.
-    assert_eq!(pattern.scaled(7.0).events()[1].intensity, 0.8);
-    assert_eq!(pattern.scaled(-1.0).events()[1].intensity, 0.0);
-    assert_eq!(pattern.events()[0].intensity, 1.0);
+    for changed in [&half, &more] {
+        assert_eq!(changed.events()[0].sharpness, 0.7);
+        assert_eq!(changed.events()[0].seconds, 0.4);
+        assert_eq!(changed.events()[1].at, 0.5);
+        assert_eq!(changed.events()[1].sharpness, 0.2);
+    }
+    // The pattern it was made from is as it was.
+    assert_eq!(pattern.peak(), 0.3);
+}
+
+#[test]
+fn a_peak_is_exactly_what_was_said_and_never_more_than_one_whatever_the_rounding() {
+    for name in NAMES {
+        let ready = preset(name).expect("a name");
+        for peak in [0.0, 0.01, 0.09, 0.1, 0.18, 0.3, 0.33, 0.5, 0.7, 0.99, 1.0] {
+            let changed = ready.with_peak(peak);
+            assert_eq!(changed.peak(), peak, "{name} at {peak}");
+            assert_eq!(changed.events().len(), ready.events().len(), "{name}");
+            for event in changed.events() {
+                assert!(
+                    (0.0..=1.0).contains(&event.intensity)
+                        && (0.0..=1.0).contains(&event.intensity_end),
+                    "{name} at {peak}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_peak_past_zero_to_one_is_the_nearest_and_one_that_is_no_number_leaves_the_pattern() {
+    let pattern = preset("thud").expect("a name");
+    assert_eq!(pattern.with_peak(7.0).peak(), 1.0);
+    assert_eq!(pattern.with_peak(-1.0).peak(), 0.0);
+    // Zero is still a pattern, a silent one: it is not the end of what plays.
+    assert_eq!(pattern.with_peak(0.0).events().len(), 2);
+    assert_eq!(pattern.with_peak(f32::NAN), pattern);
+    assert_eq!(pattern.with_peak(f32::INFINITY).peak(), 1.0);
+}
+
+#[test]
+fn a_pattern_that_is_silent_has_no_shape_to_keep_and_is_as_it_was() {
+    let silent = Pattern::new([tap(0.0, 0.0, 0.5), tap(0.1, 0.0, 0.9)]).expect("a pattern");
+    assert_eq!(silent.with_peak(0.5), silent);
+    assert_eq!(Pattern::default().with_peak(0.5), Pattern::default());
+}
+
+#[test]
+fn the_ready_patterns_are_the_strengths_they_are_designed_at_and_none_gets_past_a_share_of_three_in_ten()
+ {
+    // Each name with the strength of every event (a held event's from its beginning to its end).
+    let designed: [(&str, &[(f32, f32)]); 13] = [
+        ("tick", &[(0.18, 0.18)]),
+        ("tap", &[(0.225, 0.225)]),
+        ("thud", &[(0.3, 0.3), (0.21, 0.0)]),
+        ("snap", &[(0.3, 0.3)]),
+        ("bump", &[(0.21, 0.21)]),
+        ("double", &[(0.21, 0.21), (0.21, 0.21)]),
+        ("success", &[(0.18, 0.18), (0.3, 0.3)]),
+        ("warning", &[(0.27, 0.27), (0.18, 0.18)]),
+        ("error", &[(0.3, 0.3), (0.3, 0.3), (0.3, 0.3)]),
+        ("rise", &[(0.09, 0.3)]),
+        ("fall", &[(0.3, 0.09)]),
+        ("rumble", &[(0.21, 0.21)]),
+        (
+            "heartbeat",
+            &[(0.27, 0.27), (0.18, 0.18), (0.27, 0.27), (0.18, 0.18)],
+        ),
+    ];
+    for (name, strengths) in designed {
+        let pattern = preset(name).expect("a name");
+        let made: Vec<(f32, f32)> = pattern
+            .events()
+            .iter()
+            .map(|event| (event.intensity, event.intensity_end))
+            .collect();
+        assert_eq!(made, strengths, "{name}");
+        assert!(pattern.peak() <= 0.3, "{name}");
+    }
+    assert_eq!(designed.len(), NAMES.len());
 }
 
 #[test]

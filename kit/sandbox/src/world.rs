@@ -2180,15 +2180,18 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
 }
 
 /// What a page asks of the vibration of its view, as the host is given it: the kit's own pattern
-/// for a name (as strong as the page said), the pattern of the page's own, or the end of what
-/// plays. A name the kit has no pattern for is the page author's to be told, in `diagnostics`, and
+/// for a name (as the kit made it, or with its strongest moment as strong as the page said), the
+/// pattern of the page's own, or the end of what plays. A name the kit has no pattern for is the page author's to be told, in `diagnostics`, and
 /// the reply goes on without it; a pattern with nothing in it plays nothing, which is to end what
 /// plays.
 fn haptic_out(ask: wit::HapticAsk, diagnostics: &mut Vec<String>) -> Result<Option<Haptic>, Fault> {
     Ok(match ask {
         wit::HapticAsk::Stop => Some(Haptic::Stop),
         wit::HapticAsk::Named(named) => match haptic::preset(&named.name) {
-            Some(pattern) => Some(Haptic::Play(pattern.scaled(named.intensity))),
+            Some(pattern) => Some(Haptic::Play(match named.intensity {
+                Some(peak) => pattern.with_peak(peak),
+                None => pattern,
+            })),
             None => {
                 diagnostics.push(format!(
                     "haptic {:?} is not a pattern of the kit's (they are {})",
@@ -3290,11 +3293,50 @@ mod tests {
         super::frame_out(frame, limits, &mut Patterns::default())
     }
 
+    fn named(name: &str, intensity: Option<f32>) -> wit::HapticAsk {
+        wit::HapticAsk::Named(wit::HapticNamed {
+            name: name.to_owned(),
+            intensity,
+        })
+    }
+
     fn rules(increase: &str, decrease: &str) -> IndentRules {
         IndentRules {
             increase: Some(increase.to_owned()),
             decrease: Some(decrease.to_owned()),
         }
+    }
+
+    #[test]
+    fn a_ready_pattern_is_as_the_kit_made_it_unless_the_page_says_how_strong_its_strongest_moment_is()
+     {
+        let mut told = Vec::new();
+        let made = haptic::preset("thud").expect("a name");
+        assert_eq!(
+            haptic_out(named("thud", None), &mut told).expect("an ask"),
+            Some(Haptic::Play(made.clone()))
+        );
+        let Some(Haptic::Play(asked)) =
+            haptic_out(named("thud", Some(0.5)), &mut told).expect("an ask")
+        else {
+            panic!("a pattern");
+        };
+        assert_eq!(asked.peak(), 0.5);
+        assert_eq!(asked, made.with_peak(0.5));
+        // Stronger than it was made is as good a thing to ask as weaker.
+        let Some(Haptic::Play(asked)) =
+            haptic_out(named("tick", Some(1.0)), &mut told).expect("an ask")
+        else {
+            panic!("a pattern");
+        };
+        assert_eq!(asked.peak(), 1.0);
+        assert!(told.is_empty(), "{told:?}");
+        // A name the kit has not is told to the author, whatever the strength.
+        assert_eq!(
+            haptic_out(named("nope", Some(0.5)), &mut told).expect("an ask"),
+            None
+        );
+        assert_eq!(told.len(), 1);
     }
 
     #[test]
