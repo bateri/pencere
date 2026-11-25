@@ -152,7 +152,7 @@ const control = new ViewControl();
 function beside(): boolean {
   // Read it when you need it: a restarted view may be in another terminal.
   if (control.host?.name !== "bateri") return false;
-  // `split` stands for what the terminal's own command takes; its being there is looked at too.
+  // `bateri split` opens a shell in a pane beside this one; a missing command is a failed run.
   return spawnSync("bateri", ["split"]).status === 0;
 }
 ```

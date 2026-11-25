@@ -298,10 +298,10 @@ The page is not told; it asks the program with a `call` of its own.
 local pencere = require("pencere")
 
 local function beside(command)
-	-- `split` stands for what the terminal's own command takes.
+	-- `bateri split -- COMMAND` runs COMMAND in a pane beside this one.
 	local host = pencere.host()
 	if host and host.name == "bateri" then
-		return pencere.process.run({ argv = { "bateri", "split", command } }).ok
+		return pencere.process.run({ argv = { "bateri", "split", "--", command } }).ok
 	end
 	return false
 end

@@ -173,7 +173,7 @@ use std::process::{Command, Stdio};
 fn beside(control: &ViewControl) -> bool {
     // Read it when you need it: a restarted view may be in another terminal.
     let bateri = control.host().is_some_and(|host| host.name == "bateri");
-    // `split` stands for what the terminal's own command takes; its being there is looked at too.
+    // `bateri split` opens a shell in a pane beside this one; a missing command is a failed run.
     bateri
         && Command::new("bateri")
             .arg("split")
