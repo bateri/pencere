@@ -59,6 +59,8 @@ mod luau_print_tests;
 #[cfg(test)]
 mod luau_require_tests;
 #[cfg(test)]
+mod luau_sound_tests;
+#[cfg(test)]
 mod luau_tests;
 #[cfg(all(test, feature = "pdf"))]
 mod pdf_tests;

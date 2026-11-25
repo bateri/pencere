@@ -74,6 +74,10 @@ struct State {
     next: u64,
     pending: Vec<Pending>,
     arrived: Arrival,
+    /// Bytes of the sounds made at a pitch that are in `arrived` and not taken yet: each is a copy
+    /// of its own, which the entries do not hold, so that a page asking for the one file at a
+    /// hundred pitches is held to what a view may hold as a page asking for a hundred files is.
+    queued: usize,
     /// The paths a diagnostic was written for: each once.
     told: HashSet<String>,
 }
@@ -213,7 +217,25 @@ impl Sounds {
             };
             tell(&mut state, &pending.path, &failure);
         }
+        state.queued = 0;
         std::mem::take(&mut state.arrived)
+    }
+
+    /// The requests with these tickets are no longer wanted: they are not waited for, not answered
+    /// and not told to the author as late. What is decoded for them is kept for the next ask.
+    pub fn cancel(&self, tickets: &[u64]) {
+        let mut state = self.shared.state();
+        state
+            .pending
+            .retain(|pending| !tickets.contains(&pending.ticket));
+        state
+            .arrived
+            .ready
+            .retain(|(ticket, _)| !tickets.contains(ticket));
+        state
+            .arrived
+            .failed
+            .retain(|ticket| !tickets.contains(ticket));
     }
 
     /// When the oldest request that is waiting is dropped, if any is: when to look again if
@@ -235,7 +257,13 @@ impl Sounds {
 
 /// Writes what is wrong with the file at `path`, if it was not written already.
 fn tell(state: &mut State, path: &str, failure: &Failure) {
-    if state.told.insert(path.to_owned()) {
+    // That a sound was late is not what is wrong with a file that turns out to be no sound after it:
+    // each is told once.
+    let key = match failure {
+        Failure::Late { .. } => format!("{path}\0late"),
+        _ => path.to_owned(),
+    };
+    if state.told.insert(key) {
         state.arrived.diagnostics.push(Diagnostic {
             path: path.to_owned(),
             message: failure.to_string(),
@@ -257,12 +285,21 @@ fn serve(shared: &Shared, inbox: &Receiver<Job>) {
             {
                 state.pending.remove(at);
                 match made {
-                    Ok(sound) => state.arrived.ready.push((job.ticket, sound)),
+                    Ok(sound) => {
+                        if (job.pitch - 1.0).abs() >= f32::EPSILON {
+                            state.queued += sound.bytes();
+                        }
+                        state.arrived.ready.push((job.ticket, sound));
+                    }
                     Err(failure) => {
                         state.arrived.failed.push(job.ticket);
                         tell(&mut state, &job.path, &failure);
                     }
                 }
+            } else if let Err(failure) = &made {
+                // A request that was dropped for its time is not answered, but what is wrong with
+                // its file is still the author's to be told (the late was only the first of it).
+                tell(&mut state, &job.path, failure);
             }
             // A request that was dropped for its time has its sound kept, but is not answered.
         }
@@ -306,8 +343,10 @@ fn prepare(shared: &Shared, path: &str, pitch: f32) -> Result<Arc<Sound>, Failur
     if (pitch - 1.0).abs() < f32::EPSILON {
         return Ok(sound);
     }
-    // What it comes to at that pitch is held to what a view may hold before it is made.
-    let bytes = (sound.bytes() as f64 / f64::from(pitch)) as usize;
+    // What it comes to at that pitch, with the copies made at a pitch that wait to be taken, is held
+    // to what a view may hold before it is made. (Only this thread makes them: what is checked here
+    // is what is there when it is made.)
+    let bytes = (sound.bytes() as f64 / f64::from(pitch)) as usize + shared.state().queued;
     if bytes > shared.limits.decoded_bytes {
         return Err(Failure::Whole {
             bytes,

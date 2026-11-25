@@ -190,7 +190,7 @@ export const PAGES = [
     source: "kit/spec/replies.md",
     title: "Replies: the pencere kit",
     description:
-      "What a reply asks of the host: filling a field, opening a link, taking files, picking a file, waking the page, drawing larger and vibrating the trackpad.",
+      "What a reply asks of the host: filling a field, opening a link, taking files, picking a file, waking the page, drawing larger, vibrating the trackpad and playing a sound.",
   },
   {
     path: "kit/spec/haptics",
@@ -201,6 +201,16 @@ export const PAGES = [
     title: "Haptics: the pencere kit",
     description:
       "What a page asks of the trackpad: a ready pattern by its name or one of its own, and what a host does with it.",
+  },
+  {
+    path: "kit/spec/sounds",
+    words: "Sounds",
+    area: "apps",
+    group: "Behaviour",
+    source: "kit/spec/sounds.md",
+    title: "Sounds: the pencere kit",
+    description:
+      "What a page asks of the speakers: a sound of the kit's by its name or a file of its own, and what a host does with it.",
   },
   {
     path: "kit/spec/commands",

@@ -119,6 +119,10 @@ A `text_size` that is not a whole number is an error of the script. It is not th
 
 A reply's `haptic` asks the trackpad to vibrate, as `text_size` asks for a size: in any reply, and the page is not told what came of it. What it says and what the host does are in [Haptics](haptics.md).
 
+## Playing a sound
+
+A reply's `sound` plays a sound or ends them all, as `haptic` vibrates: in any reply, and the page is not told what came of it. What it says and what the host does are in [Sounds](sounds.md).
+
 ## Replies put together
 
 A page made of parts that answer apart (its timers, a module of the library, its own `handle`) answers with one reply. `pencere.merge(first, second, …)` is that reply: the replies (each nil, `true`, `false` or a table) put together in the order given, and none of them changed.
@@ -129,6 +133,7 @@ It asks everything they ask:
 - the texts of `fill`, by name, the later's where two name one field;
 - a frame where any wants one (`true`, `redraw`), and the page closed where any asks;
 - of what says one thing (`keyboard`, `copy`, `cursor`, `menu`, `link`, `text_size`, `haptic`), the last that says it (`haptic = false` is one);
+- the sounds of all of them, in the order of the replies, one list (`sound = false`, the end of every sound, stays where it was said);
 - the earliest `wake`.
 
 Of replies none of which is a table, it is `true` where any is `true`, nil where every one is nil, and `false` otherwise.

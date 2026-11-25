@@ -285,6 +285,10 @@ Every reply to an input of the pointer says it. One that says none, `nil` too, i
 
 `haptic`: `"tick"`, `{ name =, intensity = }`, `{ events = { … } }` or `false`: the trackpad's vibration, or the end of the one playing ([Haptics](haptics.md)).
 
+### Sound
+
+`sound`: `"success"`, `{ name =, volume =, pitch = }`, `{ file =, volume =, pitch = }`, a list of these or `false`: the sounds to play, or the end of every sound the view plays ([Sounds](sounds.md)).
+
 ### What the page asks of its browsers
 
 `browser = { [name] = ask, or { ask, ... } }` is what the page asks of its browsers.

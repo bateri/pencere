@@ -7,6 +7,7 @@
 
 use crate::edit::{Edited, EditorAsk, Found, Refusal, Selection};
 use crate::haptic::Haptic;
+use crate::sound::Ask as SoundAsk;
 use crate::{BrowserAsk, BrowserRefusal, BrowserState, Fill, Id, Phase, Point, Shortcut};
 
 /// A key the page reads. Letters, symbols and the space bar come as [`Key::Character`] — the
@@ -630,6 +631,11 @@ pub struct Reply {
     /// carry it, and the page is not told what came of it. Whether it is felt is the host's rule
     /// (`kit/spec/host.md`).
     pub haptic: Option<Haptic>,
+    /// What the page asks of the sounds of its view, in order ([`SoundAsk`]): sounds to play over
+    /// what is playing and the end of every one. Not the person's act: any reply may carry them,
+    /// and the page is not told what came of them. The drive makes ready what a host is given to
+    /// play ([`crate::sound::Play::samples`]).
+    pub sound: Vec<SoundAsk>,
     /// Sentences for the page's author about what the reply asked and the kit could not do (a name
     /// of a pattern it does not have): the rest of the reply goes through. The drive hands them to
     /// the host as it does an image's.

@@ -11,6 +11,7 @@
 
 use pencere_sandbox::{Answer, Fault};
 use pencere_view::haptic::Haptic;
+use pencere_view::sound::Ask as SoundAsk;
 use pencere_view::{BrowserAsk, Carry, Cursor, Fill, Id, Keyboard, Menu, Panel, Point, Rect};
 
 /// What a page had besides its replies, since the host last looked ([`crate::Page::drain`]).
@@ -47,6 +48,11 @@ pub struct Drained {
     /// [`crate::Page::carried`]. The page hears none of the pointer's moves nor its release until
     /// then.
     pub carry: Option<CarryOut>,
+    /// Sounds the page asked for that were not decoded then and are now, in the order they were
+    /// asked for: the host plays them as it plays a reply's ([`Host::sound`]), after the replies'. A
+    /// sound that is not decoded in the time a page may wait for it is not among them, and the page's
+    /// author is told ([`Drained::diagnostics`]).
+    pub sounds: Vec<SoundAsk>,
 }
 
 /// A drag out of the view the person began with what an element carries ([`Host::carry`]).
@@ -148,6 +154,16 @@ pub trait Host {
     /// came of it. It is not the person's act: any reply says it, a wake's and a program's message's
     /// included.
     fn haptic(&mut self, _haptic: Haptic) {}
+    /// A sound the page asks for, or the end of every sound its view plays ([`SoundAsk`]): a sound is
+    /// given as its samples (the kit's own by their names, a file of the page's bundle decoded), at the
+    /// pitch asked for, ready to play at the volume asked for (`volume`); the host never resolves a
+    /// name nor reads a file. The rules are the host's (`kit/spec/host.md`): the sound plays over what
+    /// plays, up to [`pencere_view::sound::MOST_VOICES`] at a time ([`pencere_view::sound::Voices`]
+    /// keeps the count), as the system's volume and silence say, and ends with the view. The page is
+    /// not told what came of it. It is not the person's act: any reply says it, a wake's and a
+    /// program's message's included. A sound that was not decoded when the page asked is told here
+    /// when it is ([`Drained::sounds`]), and not at all if the page ended the view's sounds before.
+    fn sound(&mut self, _ask: SoundAsk) {}
     /// Text for the pasteboard, and whether the person's own word asked for it (`by_person`): a
     /// reply to a press or its release, a pick in a menu or a command, and of the keys only the
     /// system's copy and cut ([`pencere_view::copy_key`]); the copy or cut an editor makes of what
@@ -240,6 +256,9 @@ impl Drained {
             if let Some(haptic) = reply.haptic {
                 host.haptic(haptic);
             }
+            for ask in reply.sound {
+                host.sound(ask);
+            }
             if let Some(text) = reply.copy {
                 host.copy(text, person);
             }
@@ -252,6 +271,9 @@ impl Drained {
             if let Some(menu) = reply.menu {
                 host.menu(menu);
             }
+        }
+        for ask in self.sounds {
+            host.sound(ask);
         }
         for Copied { text, by_person } in self.copied {
             host.copy(text, by_person);
@@ -315,6 +337,17 @@ mod tests {
                 Haptic::Stop => "haptic stop".into(),
             });
         }
+        fn sound(&mut self, ask: SoundAsk) {
+            self.0.push(match ask {
+                SoundAsk::Play(play) => format!(
+                    "sound {:?} {} {}",
+                    play.source,
+                    play.volume,
+                    play.samples.map_or(0, |sound| sound.frames())
+                ),
+                SoundAsk::Stop => "sound stop".into(),
+            });
+        }
         fn copy(&mut self, text: String, by_person: bool) {
             self.0.push(format!("copy {text} {by_person}"));
         }
@@ -359,6 +392,16 @@ mod tests {
             copy: Some("copied".into()),
             text_size: Some(-2),
             haptic: pencere_view::haptic::preset("double").map(Haptic::Play),
+            sound: vec![
+                SoundAsk::Play(pencere_view::sound::Play {
+                    source: pencere_view::sound::Source::Kit("tap".into()),
+                    volume: 0.5,
+                    pitch: 1.0,
+                    samples: pencere_view::sound::Sound::new(48_000, 1, vec![0.0; 4])
+                        .map(Into::into),
+                }),
+                SoundAsk::Stop,
+            ],
             cursor: Cursor::Text,
             link: Some("https://example.com".into()),
             panel: Some(Panel::Pick { multiple: true }),
@@ -394,6 +437,7 @@ mod tests {
                 text: "cut".into(),
                 by_person: false,
             }],
+            sounds: vec![SoundAsk::Stop],
             carry: Some(CarryOut {
                 id: Id::named("tab"),
                 carry: Carry::text("hello"),
@@ -412,11 +456,14 @@ mod tests {
                 "keyboard Page",
                 "text_size -2",
                 "haptic 2 events",
+                "sound Kit(\"tap\") 0.5 4",
+                "sound stop",
                 "copy copied true",
                 "link https://example.com",
                 "panel Pick { multiple: true }",
                 "menu 1",
                 "cursor Pointer",
+                "sound stop",
                 "copy cut false",
                 "carry hello",
                 "diagnostic image \"x\" is not one",

@@ -108,6 +108,19 @@ A host vibrates the trackpad as a reply's `haptic` says ([Haptics](haptics.md); 
 
 A page that asks while no finger is on the glass asks for nothing: it is not told, and the vibration is not kept for when a finger comes.
 
+### Playing sounds
+
+A host plays the sounds a reply's `sound` asks for ([Sounds](sounds.md); `Host::sound`). It is given the samples, never a name or a file (the kit makes its own sounds and decodes the page's files, the same on every system), and holds the playing to these rules:
+
+- it plays them as the system's volume and silence say, multiplied by the `volume` of each, and a host with no speaker, or with the sound off, ignores them;
+- sounds play over each other, up to eight at once for a view (`pencere_view::sound::Voices` keeps the count): the ninth silences the one that has played longest;
+- the end of every sound (`false`) is told as a sound is, in its place among them, and ends all that the view plays;
+- a sound is ended when the view is gone;
+- a file that was not decoded when the page asked is told later (`Drained::sounds`), and a host that is to drop what has waited too long drains the page when `Page::sounds_deadline` says;
+- and the host tells the page nothing of what came of it.
+
+A host with no screen keeps every ask, whatever a speaker would have done with it.
+
 ### Carrying out of the view
 
 A host carries out of the view what a page's element says it carries (`carry`, [Commands and dragging](commands.md)) as its system's drag:

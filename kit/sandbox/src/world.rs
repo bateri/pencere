@@ -15,6 +15,7 @@ use pencere_view::edit::{
     Widget, WidgetGroup, WidgetPart, WidgetShow, WidgetSide, Zone, ZoneSide, limits,
 };
 use pencere_view::haptic::{self, Haptic, Pattern};
+use pencere_view::sound::{self, Play};
 use pencere_view::wire::{
     self, Direction, Display, FieldKind, Fit, Image, Items, Justify, Kind, Length, Meta, Node,
     Overflow, Spark, Style, TextStyle,
@@ -2125,6 +2126,7 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
         .map(|ask| haptic_out(ask, &mut diagnostics))
         .transpose()?
         .flatten();
+    let sound = sound_out(reply.sound, &mut diagnostics)?;
     Ok(Reply {
         redraw: reply.redraw,
         close: reply.close,
@@ -2147,6 +2149,7 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
         // A number of points more than the host's text: the host holds it within what it draws.
         text_size: reply.text_size,
         haptic,
+        sound,
         diagnostics,
         panel: reply
             .panel
@@ -2212,6 +2215,57 @@ fn haptic_out(ask: wit::HapticAsk, diagnostics: &mut Vec<String>) -> Result<Opti
             })
         }
     })
+}
+
+/// What a page asks of the sounds of its view, as the drive is given it: the asks in the order they
+/// were made. A name the kit has no sound for is the page author's to be told, in `diagnostics`, and
+/// the reply goes on without it; a file is the drive's to find and decode.
+fn sound_out(
+    asks: Vec<wit::SoundAsk>,
+    diagnostics: &mut Vec<String>,
+) -> Result<Vec<sound::Ask>, Fault> {
+    if asks.len() > sound::MOST_ASKS {
+        return Err(Fault::Malformed(format!(
+            "a reply asks for at most {} sounds",
+            sound::MOST_ASKS
+        )));
+    }
+    let mut out = Vec::with_capacity(asks.len());
+    for ask in asks {
+        match ask {
+            wit::SoundAsk::Stop => out.push(sound::Ask::Stop),
+            wit::SoundAsk::Play(play) => {
+                let (volume, pitch) = (play.volume, play.pitch);
+                if !(0.0..=1.0).contains(&volume)
+                    || !(sound::LOWEST_PITCH..=sound::HIGHEST_PITCH).contains(&pitch)
+                {
+                    return Err(Fault::Malformed(
+                        "a sound's volume is from 0 to 1 and its pitch from 0.5 to 2".into(),
+                    ));
+                }
+                let source = match play.source {
+                    wit::SoundSource::Kit(name) if sound::is_name(&name) => {
+                        sound::Source::Kit(name)
+                    }
+                    wit::SoundSource::Kit(name) => {
+                        diagnostics.push(format!(
+                            "sound {name:?} is not a sound of the kit's (they are {})",
+                            sound::NAMES.join(", ")
+                        ));
+                        continue;
+                    }
+                    wit::SoundSource::File(path) => sound::Source::File(path),
+                };
+                out.push(sound::Ask::Play(Play {
+                    source,
+                    volume,
+                    pitch,
+                    samples: None,
+                }));
+            }
+        }
+    }
+    Ok(out)
 }
 
 // --- What a page says of its editors -----------------------------------------------------
@@ -4337,6 +4391,7 @@ mod tests {
             wake: None,
             text_size: None,
             haptic: None,
+            sound: Vec::new(),
 
             panel: None,
         };
@@ -4473,6 +4528,7 @@ mod tests {
             wake: None,
             text_size: None,
             haptic: None,
+            sound: Vec::new(),
 
             panel: None,
         };
@@ -4577,6 +4633,7 @@ mod tests {
             wake: None,
             text_size: None,
             haptic: None,
+            sound: Vec::new(),
             panel,
         };
         // A text of a reply is at most sixteen lines' worth.
@@ -4643,6 +4700,7 @@ mod tests {
             wake: None,
             text_size: None,
             haptic: None,
+            sound: Vec::new(),
 
             panel: None,
         };
@@ -4693,6 +4751,7 @@ mod tests {
             wake,
             text_size: None,
             haptic: None,
+            sound: Vec::new(),
 
             panel: None,
         };

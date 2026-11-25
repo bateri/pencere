@@ -17,7 +17,7 @@ use crate::images::Assets;
 use crate::sounds::decode::decode;
 use crate::sounds::palette::{SPECS, Tier, make, spec_of};
 use crate::sounds::{
-    Ask, Failure, Sound, SoundLimits, Sounds, palette, palette_wavs, variation, wav,
+    Ask, Failure, Sound, SoundLimits, Sounds, palette, palette_wavs, play_of, variation, wav,
 };
 
 // --- The palette --------------------------------------------------------------------------------
@@ -899,6 +899,36 @@ fn the_sounds_a_view_holds_are_kept_to_what_it_may_and_the_least_used_goes_first
     assert!(rig.sounds.held() <= 3300);
 }
 
+/// Copies of one file made at other pitches are copies of their own: what waits to be taken is held
+/// to what a view may hold, so that a page cannot make more by asking again at another pitch.
+#[test]
+fn the_copies_made_at_a_pitch_are_held_to_what_a_view_may_hold_until_they_are_taken() {
+    // 400 frames of 4 bytes is 1600 bytes; the view may hold 4000.
+    let limits = SoundLimits {
+        decoded_bytes: 4000,
+        ..SoundLimits::default()
+    };
+    let rig = Rig::new(vec![("a.wav", beep(400))], limits);
+    for pitch in [1.01, 1.02, 1.03, 1.04] {
+        pending(rig.sounds.request("a.wav", pitch));
+    }
+    // Nothing is taken until the four are made or refused: the first read decodes it (held, 1600
+    // bytes) and each copy is about as much again.
+    for _ in 0..4 {
+        rig.woke
+            .recv_timeout(Duration::from_secs(20))
+            .expect("the host is woken");
+    }
+    let arrival = rig.sounds.poll();
+    assert_eq!(arrival.ready.len(), 2, "{arrival:?}");
+    assert_eq!(arrival.failed.len(), 2, "{arrival:?}");
+    assert_eq!(arrival.diagnostics.len(), 1, "{arrival:?}");
+    assert!(arrival.diagnostics[0].message.contains("may hold"));
+    // What was taken is let go of: a copy is made again.
+    pending(rig.sounds.request("a.wav", 1.05));
+    assert_eq!(rig.ready(1).len(), 1);
+}
+
 #[test]
 fn a_sound_that_is_by_itself_more_than_a_view_may_hold_is_refused() {
     let limits = SoundLimits {
@@ -927,6 +957,81 @@ fn a_sound_that_is_by_itself_more_than_a_view_may_hold_is_refused() {
         rig.sounds.request("short.wav", 1.0),
         Ask::Ready(_)
     ));
+}
+
+/// A file that is late and then turns out to be no sound is told to be what it is, as well as late:
+/// the author is not left to ask again for what will never play.
+#[test]
+fn a_file_that_is_late_and_then_is_no_sound_is_told_to_be_late_and_then_what_it_is() {
+    let gate = Arc::new(Gate::default());
+    let limits = SoundLimits {
+        wait: Duration::from_millis(40),
+        ..SoundLimits::default()
+    };
+    let rig = Rig::with(
+        vec![("bad.wav", b"not a sound".to_vec())],
+        limits,
+        Some(Arc::clone(&gate)),
+        None,
+    );
+    pending(rig.sounds.request("bad.wav", 1.0));
+    std::thread::sleep(Duration::from_millis(120));
+    let late = rig.sounds.poll();
+    assert_eq!(late.diagnostics.len(), 1);
+    assert!(
+        late.diagnostics[0]
+            .message
+            .contains("was not decoded in 40 ms")
+    );
+    gate.open();
+    let after = rig.arrival();
+    assert_eq!(after.diagnostics.len(), 1, "{after:?}");
+    assert!(
+        after.diagnostics[0]
+            .message
+            .contains("is not a WAV or an Ogg Vorbis file"),
+        "{}",
+        after.diagnostics[0]
+    );
+    // And each once: asked again, it is refused and nothing more is said.
+    assert!(matches!(rig.sounds.request("bad.wav", 1.0), Ask::Refused));
+    assert!(rig.sounds.poll().diagnostics.is_empty());
+}
+
+/// A request the page no longer wants is not waited for, not answered and not told to be late.
+#[test]
+fn a_request_that_is_cancelled_is_not_waited_for_answered_or_told_late() {
+    let gate = Arc::new(Gate::default());
+    let limits = SoundLimits {
+        wait: Duration::from_millis(40),
+        ..SoundLimits::default()
+    };
+    let rig = Rig::with(
+        vec![("slow.wav", beep(100))],
+        limits,
+        Some(Arc::clone(&gate)),
+        None,
+    );
+    let ticket = pending(rig.sounds.request("slow.wav", 1.0));
+    let other = pending(rig.sounds.request("slow.wav", 0.5));
+    rig.sounds.cancel(&[ticket]);
+    // The other is still waited for; the cancelled one is gone.
+    assert!(rig.sounds.deadline().is_some());
+    rig.sounds.cancel(&[other]);
+    assert!(rig.sounds.deadline().is_none());
+    std::thread::sleep(Duration::from_millis(120));
+    assert!(rig.sounds.poll().is_empty());
+    gate.open();
+    rig.woke
+        .recv_timeout(Duration::from_secs(20))
+        .expect("woken");
+    rig.woke
+        .recv_timeout(Duration::from_secs(20))
+        .expect("woken");
+    let after = rig.sounds.poll();
+    assert!(after.is_empty(), "{after:?}");
+    // What was decoded is kept for the next ask.
+    assert!(matches!(rig.sounds.request("slow.wav", 1.0), Ask::Ready(_)));
 }
 
 #[test]
@@ -1008,4 +1113,36 @@ fn a_wav_of_the_most_a_file_may_be_with_a_header_that_lies_is_not_made() {
         "{}",
         arrival.diagnostics[0]
     );
+}
+
+// --- What a play of a palette sound is -----------------------------------------------------------
+
+#[test]
+fn a_play_of_a_sound_that_does_not_vary_is_the_palettes_own_and_at_a_pitch_it_is_that_much_faster()
+{
+    let own = palette("success").unwrap();
+    assert!(Arc::ptr_eq(&play_of("success", 1.0, 0).unwrap(), &own));
+    assert!(Arc::ptr_eq(&play_of("success", 1.0, 99).unwrap(), &own));
+    let fast = play_of("success", 2.0, 0).unwrap();
+    assert_eq!(fast.rate(), own.rate());
+    assert!(fast.frames().abs_diff(own.frames() / 2) <= 1);
+    let slow = play_of("success", 0.5, 0).unwrap();
+    assert!(slow.frames().abs_diff(own.frames() * 2) <= 1);
+    assert!(play_of("nope", 1.0, 0).is_none());
+}
+
+#[test]
+fn the_plays_of_a_sound_that_varies_are_different_the_same_play_is_the_same_and_none_is_louder_than_a_sound_may_be()
+ {
+    let first = play_of("tap", 1.0, 0).unwrap();
+    assert_eq!(first, play_of("tap", 1.0, 0).unwrap());
+    assert_ne!(first, play_of("tap", 1.0, 1).unwrap());
+    for draw in 0..200 {
+        let play = play_of("tap", 1.0, draw).unwrap();
+        assert!(play.peak() <= 1.0, "{draw}");
+        // Within what a person does not hear as another sound: a few percent of the length.
+        let own = palette("tap").unwrap();
+        let ratio = play.frames() as f64 / own.frames() as f64;
+        assert!((0.98..=1.02).contains(&ratio), "{draw}: {ratio}");
+    }
 }

@@ -2590,6 +2590,30 @@ interface types {
         stop,
     }
 
+    /// Where a sound a page asks for comes from.
+    variant sound-source {
+        /// One of the kit's own, by its name.
+        kit(string),
+        /// A file: a path of the view's bundle, `sha256:` and a digest, or `file:` and a handle.
+        file(string),
+    }
+
+    /// A sound to play: how loud (0 to 1) and how fast (0.5 to 2; twice as fast is an octave
+    /// higher). The names of the kit's own are the sandbox's to resolve, and the files are read and
+    /// decoded there, so that a host is given samples and no name.
+    record sound-play {
+        source: sound-source,
+        volume: f32,
+        pitch: f32,
+    }
+
+    /// What the page asks of the sounds of its view: one to play over what is playing, or the end
+    /// of every one.
+    variant sound-ask {
+        play(sound-play),
+        stop,
+    }
+
     /// What the page says back after an event.
     record reply {
         /// Something the page shows changed: a frame is worth drawing.
@@ -2635,6 +2659,9 @@ interface types {
         /// host's rule (the finger is on the glass, the view is the one the person works in). The
         /// page is not told what came of it. Not the person's act: any reply may carry it.
         haptic: option<haptic-ask>,
+        /// Sounds to play, and the end of every one, in order. The page is not told what came of
+        /// them. Not the person's act: any reply may carry them.
+        sound: list<sound-ask>,
         /// A panel the page asks the application to show. Shown only for a reply to something the
         /// person did (a press or its release, a key, a pick in a menu, a command): asked for in a
         /// reply to anything else (the pointer moving, a wake, a message of the program), it is

@@ -11,10 +11,11 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 - **`BrowserError` has a `certificate` field and `BrowserAsk` three more variants.** A `BrowserError { .. }`
   written out in full needs `certificate: None`, and a `match` on every `BrowserAsk` needs the arms for
   `ClearCache`, `ClearSiteData` and `Proceed` (or a catch-all).
-- **`Reply` has `haptic` and `diagnostics` fields.** A `Reply { .. }` written out in full needs `haptic: None` and `diagnostics: Vec::new()`.
+- **`Reply` has `haptic`, `sound` and `diagnostics` fields.** A `Reply { .. }` written out in full needs `haptic: None`, `sound: Vec::new()` and `diagnostics: Vec::new()`.
 
 ### Added
 
+- **`pencere_view::sound::{Sound, Source, Play, Ask, Voices}` and `Reply::sound`**: what a page asks of the sounds of its view (a sound of the kit's by its name, a file of the page's, as loud and as fast as it says, or the end of every sound) and the samples a host is given to play. `Sound` moved here from `pencere-sandbox` so that a reply can carry it (`pencere_sandbox::sounds::Sound` is the same type). `Voices` keeps the rule that a view plays eight sounds at once and the ninth silences the one that has played longest.
 - **`pencere_view::sound::NAMES`**: the names of the twenty sounds of the kit's palette (`tap`, `select`, `toggle_on`, `toggle_off`, `type`, `open`, `close`, `snap`, `copy`, `delete`, `success`, `warning`, `error`, `send`, `receive`, `notify`, `attention`, `start`, `complete`, `celebrate`) and `is_name`.
 - **`pencere_view::haptic`**: a vibration of the trackpad as a pattern of events (`Event`, `Pattern`: a tap or a held event with a strength and a sharpness from 0 to 1, at most 256 events and 60 seconds), the thirteen ready patterns by name (`NAMES`, `preset`) and `Haptic`, the ask a page makes. `Reply::haptic` carries it and `Reply::diagnostics` the sentences for the page's author that a reply earns (a name the kit has no pattern for).
 - **A laid-out page lists its elements, named or not** (`Laid::inspect(&page)`): each one's place in

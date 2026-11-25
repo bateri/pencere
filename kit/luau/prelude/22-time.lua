@@ -78,12 +78,22 @@ local function asks_of(value)
 	return value
 end
 
+-- A reply's `sound` as the list of asks it is: a name, a table that says `name` or `file` or `false`
+-- is one, and a table that says neither is a list.
+local function sounds_of(value)
+	if type(value) == "table" and value.name == nil and value.file == nil then
+		return value
+	end
+	return { value }
+end
+
 -- Two replies (nil, true, false or a table) as one: everything both ask, the first's asks of an
 -- editor or a browser before the second's; a frame where either wants one, the page closed where either asks;
 -- where both say the one thing (the keyboard, the pasteboard, a menu, a link, the size of the text, a
 -- panel — `pick` and `save` are one — the pointer's shape, the vibration of the trackpad: `false` is one
--- too, as a view has one vibration at a time) the second's; and the earlier of two wakes. Neither is
--- changed. (A menu or a panel in the reply to a wake or a timer is passed over by the host: they
+-- too, as a view has one vibration at a time) the second's; the sounds of both, the first's before the
+-- second's (`false`, the end of every sound, stays where it was said: what is said after it plays); and the
+-- earlier of two wakes. Neither is changed. (A menu or a panel in the reply to a wake or a timer is passed over by the host: they
 -- are the person's.)
 local function merge_two(first, second)
 	if first == nil then
@@ -123,6 +133,11 @@ local function merge_two(first, second)
 				end
 			end
 			out[key] = named
+		elseif key == "sound" then
+			local all = table.clone(sounds_of(mine))
+			local after = sounds_of(value)
+			table.move(after, 1, #after, #all + 1, all)
+			out.sound = all
 		elseif key == "fill" and type(mine) == "table" and type(value) == "table" then
 			local fill = table.clone(mine)
 			for name, text in next, value do

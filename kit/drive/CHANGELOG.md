@@ -8,6 +8,7 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Added
 
+- **`Host::sound`**: a sound the page asked for (the samples of one of the kit's own at the pitch asked for, or of a file of the page's bundle decoded) or the end of every sound, told after the vibration; one that was not decoded then is told when it is (`Drained::sounds`), and one not decoded within `Setup::sounds`' wait (a second) is dropped and the author told (`Host::diagnostic`). `Page::sounds_waiting` and `Page::sounds_deadline` say when a host is to look again. `Headless::sounds` keeps every ask in order.
 - **`Host::haptic`**: the vibration the page asked for, a pattern to play or the end of it, told after the size of the text; `Headless::haptics` keeps every ask in order. A reply's diagnostics (a haptic name the kit has not) go to `Host::diagnostic` with the images'.
 - **`Page::link_dropped`, `Headless::drop_link`, `InProcess::hand_over` and `Headless::hand_over`**: an address dropped on a page, and what the terminal hands a program that runs in the test's process (specification §10.9), the page settled after it.
 - **A page that asks a browser to empty its cache or a site's data, or to go on past a certificate it did not

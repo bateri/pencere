@@ -50,6 +50,7 @@ use std::time::{Duration, Instant};
 use pencere_editor::Buffer;
 use pencere_sandbox::{Answer, Assets, Fault, Images, ModuleLimits, Program, Runner, Script};
 use pencere_view::haptic::Haptic;
+use pencere_view::sound::Ask as SoundAsk;
 use pencere_view::wire::Kind;
 use pencere_view::{
     BrowserAsk, Button, Cursor, DrawList, Drawing, Element, Event, FieldKind, FileEntry,
@@ -367,6 +368,9 @@ struct Seen {
     links: Vec<String>,
     /// Every vibration the page asked for, in order, whatever a device would have done with it.
     haptics: Vec<Haptic>,
+    /// Every sound the page asked for and the end of every sound, in order, whatever a device would
+    /// have done with them: a sound as it was given, with its samples.
+    sounds: Vec<SoundAsk>,
     /// How many points larger than the host's text the page last asked to be drawn.
     text_size: i32,
     /// Every drag out of the view the person began, oldest first: the system's drag of what an
@@ -531,6 +535,10 @@ impl<P: Peer> Host for Deliver<'_, P> {
 
     fn haptic(&mut self, haptic: Haptic) {
         self.seen.haptics.push(haptic);
+    }
+
+    fn sound(&mut self, ask: SoundAsk) {
+        self.seen.sounds.push(ask);
     }
 
     fn carry(&mut self, carry: CarryOut) {
@@ -865,6 +873,18 @@ impl<P: Peer> Headless<P> {
                 }
                 let _ = self.woken.recv_timeout(Duration::from_millis(2));
             }
+            // The sounds the page asked for that are decoded on a thread of their own: waited for
+            // as long as the page waits for them (a sound not decoded by then is dropped, and the
+            // author told), never past the host's patience.
+            while self.page.sounds_waiting() {
+                if began.elapsed() > self.patience {
+                    return Err(Error::Slow {
+                        what: "the page's sounds were not decoded",
+                        waited: self.patience,
+                    });
+                }
+                let _ = self.woken.recv_timeout(Duration::from_millis(2));
+            }
             let drained = self.page.drain();
             let framing = frames && (self.dirty || drained.redraw || self.page.unsettled());
             self.seen.replies.extend(drained.replies.iter().cloned());
@@ -903,7 +923,7 @@ impl<P: Peer> Headless<P> {
             }
             if framing {
                 self.frame();
-            } else if !posted && !waits {
+            } else if !posted && !waits && !self.page.sounds_waiting() {
                 // What the host was woken for is all taken.
                 while self.woken.try_recv().is_ok() {}
                 return Ok(());
@@ -2701,6 +2721,15 @@ impl<P: Peer> Headless<P> {
     #[must_use]
     pub fn haptics(&self) -> &[Haptic] {
         &self.seen.haptics
+    }
+
+    /// The sounds the page asked for, in order, each as the host was given it (the kit's own and
+    /// the files decoded, with their samples at the pitch asked for) or the end of every sound
+    /// ([`SoundAsk`]): a host with no speaker keeps every one, however many play at once. A sound
+    /// that was not decoded when the page asked for it comes in the order it was decoded in.
+    #[must_use]
+    pub fn sounds(&self) -> &[SoundAsk] {
+        &self.seen.sounds
     }
 
     /// The links the page asked to open, in order (each one the sandbox let through).

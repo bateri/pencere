@@ -399,6 +399,33 @@ pub fn variation(name: &str, draw: u64) -> Option<Variation> {
     })
 }
 
+/// The palette's sound by this name for the play numbered `draw`, `pitch` times as fast as the page
+/// asks (from 0.5 to 2): the samples a host plays, with what makes the plays of a sound played often
+/// differ a little ([`variation`]) in them, so that the host multiplies them by the page's volume
+/// and nothing else. The same name, pitch and draw give the same samples. `None` where the kit has no
+/// sound by the name.
+#[must_use]
+pub fn play_of(name: &str, pitch: f32, draw: u64) -> Option<Arc<Sound>> {
+    let sound = palette(name)?;
+    let (ratio, level) = match variation(name, draw) {
+        Some(Variation {
+            pitch: drift,
+            level,
+        }) => (pitch * drift, level),
+        None => (pitch, 1.0),
+    };
+    if (ratio - 1.0).abs() < f32::EPSILON && (level - 1.0).abs() < f32::EPSILON {
+        return Some(sound);
+    }
+    let pitched = sound.pitched(ratio);
+    let samples = pitched
+        .samples()
+        .iter()
+        .map(|sample| (sample * level).clamp(-1.0, 1.0))
+        .collect();
+    Sound::new(pitched.rate(), pitched.channels(), samples).map(Arc::new)
+}
+
 /// The sound as a WAV file of 16-bit samples: what a person may listen to in any player.
 #[must_use]
 pub fn wav(sound: &Sound) -> Option<Vec<u8>> {

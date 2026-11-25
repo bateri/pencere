@@ -1190,6 +1190,15 @@ local HAS = {
 for name in string.gmatch("tick tap thud snap bump double success warning error rise fall rumble heartbeat", "%S+") do
 	HAS["haptic." .. name] = true
 end
+-- The sounds: the reply's `sound`, the formats of a file a page names (`sound.wav`, `sound.ogg`), and each
+-- of the kit's own as `sound.<name>`. The names are the kit's in `pencere_view::sound::NAMES` (a test
+-- holds the two lists to each other).
+HAS["sound"] = true
+HAS["sound.wav"] = true
+HAS["sound.ogg"] = true
+for name in string.gmatch("tap select toggle_on toggle_off type open close snap copy delete success warning error send receive notify attention start complete celebrate", "%S+") do
+	HAS["sound." .. name] = true
+end
 local roles = {}
 for role in ROLES do
 	HAS["role." .. role] = true

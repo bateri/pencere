@@ -3697,6 +3697,136 @@ void haptic_of(lua_State* L, int index, pencere_view_types_reply_t& out) {
 
 }  // namespace
 
+// --- Sounds ---------------------------------------------------------------------------------
+
+namespace {
+
+// What a reply's `sound` may be, as the words of the script's mistake.
+const char* const kSoundIs =
+    "sound is the name of a sound (\"success\"), { name =, volume =, pitch = }, { file =, volume =, pitch = }, a "
+    "list of these (nothing else in it), or false (the view's sounds end)";
+
+// A reply asks for at most this many sounds (the ends of them counted): the floor of the kit
+// (`pencere_view::sound::MOST_ASKS`), which a reply past is the script's mistake.
+const size_t kMaxSoundAsks = 64;
+// How fast a sound may be asked to play: half as fast, twice as fast.
+const double kLowestPitch = 0.5;
+const double kHighestPitch = 2.0;
+
+// A number of a sound, from `lowest` to `highest`; `fallback` where it is not said.
+float sound_number(lua_State* L, int t, const char* name, float fallback, double lowest, double highest) {
+    get(L, t, name);
+    float value = fallback;
+    int kind = lua_type(L, -1);
+    if (kind == LUA_TNUMBER) {
+        double given = lua_tonumber(L, -1);
+        if (!(given >= lowest && given <= highest)) {
+            luaL_error(L, "a sound's %s is a number from %g to %g", name, lowest, highest);
+        }
+        value = (float)given;
+    } else if (kind != LUA_TNIL) {
+        luaL_error(L, "a sound's %s is a number from %g to %g", name, lowest, highest);
+    }
+    lua_pop(L, 1);
+    return value;
+}
+
+// One ask, the value at the stack index `index`: the name of a sound, a table that says `name` or
+// `file`, or false. A name the kit has no sound for is told to the page's author by the sandbox,
+// which keeps the names; here what is not the shape of a sound and a number out of its range are the
+// script's mistake.
+void sound_ask_of(lua_State* L, int index, pencere_view_types_sound_ask_t& ask) {
+    int kind = lua_type(L, index);
+    if (kind == LUA_TBOOLEAN) {
+        if (lua_toboolean(L, index)) luaL_error(L, "%s", kSoundIs);
+        ask.tag = PENCERE_VIEW_TYPES_SOUND_ASK_STOP;
+        return;
+    }
+    ask.tag = PENCERE_VIEW_TYPES_SOUND_ASK_PLAY;
+    auto& play = ask.val.play;
+    play.volume = 1.0f;
+    play.pitch = 1.0f;
+    if (kind == LUA_TSTRING) {
+        size_t length = 0;
+        const char* bytes = lua_tolstring(L, index, &length);
+        play.source.tag = PENCERE_VIEW_TYPES_SOUND_SOURCE_KIT;
+        play.source.val.kit = host_string(bytes, length);
+        return;
+    }
+    if (kind != LUA_TTABLE) luaL_error(L, "%s", kSoundIs);
+    get(L, index, "name");
+    bool named = !lua_isnil(L, -1);
+    int name_index = lua_gettop(L);
+    get(L, index, "file");
+    bool file = !lua_isnil(L, -1);
+    int file_index = lua_gettop(L);
+    if (named == file) luaL_error(L, "%s", kSoundIs);
+    int at = named ? name_index : file_index;
+    if (lua_type(L, at) != LUA_TSTRING) luaL_error(L, "%s", kSoundIs);
+    size_t length = 0;
+    const char* bytes = lua_tolstring(L, at, &length);
+    if (named) {
+        play.source.tag = PENCERE_VIEW_TYPES_SOUND_SOURCE_KIT;
+        play.source.val.kit = host_string(bytes, length);
+    } else {
+        play.source.tag = PENCERE_VIEW_TYPES_SOUND_SOURCE_FILE;
+        play.source.val.file = host_string(bytes, length);
+    }
+    play.volume = sound_number(L, index, "volume", 1.0f, 0.0, 1.0);
+    play.pitch = sound_number(L, index, "pitch", 1.0f, kLowestPitch, kHighestPitch);
+    lua_pop(L, 2);
+}
+
+// The `sound` of a reply, the value at the stack index `index`: one ask, or a list of them (a table
+// that says neither `name` nor `file`), in order. Nothing (nil) leaves the reply as it is.
+void sound_of(lua_State* L, int index, pencere_view_types_reply_t& out) {
+    int kind = lua_type(L, index);
+    if (kind == LUA_TNIL) return;
+    size_t count = 1;
+    bool list = false;
+    if (kind == LUA_TTABLE) {
+        get(L, index, "name");
+        get(L, index, "file");
+        bool single = !lua_isnil(L, -2) || !lua_isnil(L, -1);
+        lua_pop(L, 2);
+        size_t array = (size_t)lua_objlen(L, index);
+        if (single) {
+            // A sound that also has entries (`{ name = "tap", "snap" }`) is two things said at once.
+            if (array != 0) luaL_error(L, "%s", kSoundIs);
+        } else {
+            list = true;
+            count = array;
+            // A table that says neither a name nor a file is a list, and a list has nothing but its
+            // entries: `{ volume = 1 }` is a sound the page forgot to name, and `{ "tap", volume = 1 }`
+            // two things said at once.
+            size_t keys = 0;
+            lua_pushnil(L);
+            while (lua_next(L, index) != 0) {
+                keys++;
+                lua_pop(L, 1);
+            }
+            if (keys != array) luaL_error(L, "%s", kSoundIs);
+        }
+    }
+    if (count > kMaxSoundAsks) luaL_error(L, "a reply asks for at most %d sounds", (int)kMaxSoundAsks);
+    if (count == 0) return;
+    auto* asks = (pencere_view_types_sound_ask_t*)xmalloc(count * sizeof(pencere_view_types_sound_ask_t));
+    memset(asks, 0, count * sizeof(pencere_view_types_sound_ask_t));
+    out.sound.ptr = asks;
+    out.sound.len = count;
+    if (!list) {
+        sound_ask_of(L, index, asks[0]);
+        return;
+    }
+    for (size_t at = 0; at < count; at++) {
+        lua_rawgeti(L, index, (int)at + 1);
+        sound_ask_of(L, lua_gettop(L), asks[at]);
+        lua_pop(L, 1);
+    }
+}
+
+}  // namespace
+
 int reply_call(lua_State* L) {
     auto* job = (ReplyJob*)lua_touserdata(L, 2);
     pencere_view_types_reply_t& out = *job->out;
@@ -3891,6 +4021,10 @@ int reply_call(lua_State* L) {
     // The vibration of the trackpad: a ready pattern by its name, one of the page's own, or its end.
     get(L, 1, "haptic");
     haptic_of(L, lua_gettop(L), out);
+    lua_pop(L, 1);
+    // The sounds: the kit's own by their names, files, a list of them in order, or the end of them all.
+    get(L, 1, "sound");
+    sound_of(L, lua_gettop(L), out);
     lua_pop(L, 1);
     // When to wake the page, seconds from now. The prelude puts it (the earliest its timers and
     // the page ask); what is not a number of seconds is still an error of the script's.

@@ -1091,6 +1091,121 @@ return {
     Ok(())
 }
 
+/// What the page asks of the sounds of its view is kept, every ask and in order, by the host with
+/// no screen (it has no speaker to judge them by): the kit's own with their samples at the pitch
+/// asked for, a file of the page's with its samples when it is decoded (after what was ready
+/// then), the end of every sound, and what is no sound as a diagnostic with the rest of the reply
+/// going on.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_page_asks_for_sounds_and_the_host_with_no_screen_keeps_every_ask_in_order() -> Result<(), Error>
+{
+    use pencere_sandbox::sounds::{palette, wav};
+    use pencere_view::sound::{Ask, Play, Source};
+    let ding = wav(&palette("success").expect("a sound")).expect("a file");
+    let name = format!("sha256:{}", pencere_wire::bundle::Digest::of(&ding));
+    let source = format!(
+        r#"
+local seen = 0
+return {{
+    render = function() return pencere.div():child(pencere.text("heard " .. seen)) end,
+    handle = function(event)
+        if event.type ~= "key" then return end
+        seen = seen + 1
+        if event.key == "a" then
+            return {{ sound = "tap" }}
+        elseif event.key == "b" then
+            return {{ sound = {{ name = "success", volume = 0.5, pitch = 2 }} }}
+        elseif event.key == "c" then
+            return {{ sound = {{ {{ file = "{name}", volume = 0.25 }}, "snap" }} }}
+        elseif event.key == "d" then
+            return {{ sound = false }}
+        elseif event.key == "e" then
+            return {{ redraw = true, sound = "nope" }}
+        elseif event.key == "f" then
+            return {{ redraw = true, sound = {{ file = "missing.wav" }} }}
+        end
+    end,
+}}
+"#
+    );
+    let mut page = Headless::script(&source).attached(&ding).open()?;
+    assert!(page.sounds().is_empty());
+    let play = |ask: &Ask| -> Play {
+        match ask {
+            Ask::Play(play) => play.clone(),
+            Ask::Stop => panic!("a sound, got the end of them"),
+        }
+    };
+    let whole = palette("success").expect("a sound").frames();
+    page.press("a")?;
+    page.press("b")?;
+    page.press("c")?;
+    page.press("d")?;
+    let asked = page.sounds();
+    assert_eq!(asked.len(), 5, "{asked:?}");
+    let tap = play(&asked[0]);
+    assert_eq!(tap.source, Source::Kit("tap".into()));
+    assert_eq!((tap.volume, tap.pitch), (1.0, 1.0));
+    assert!(tap.samples.is_some());
+    let success = play(&asked[1]);
+    assert_eq!(success.source, Source::Kit("success".into()));
+    assert_eq!((success.volume, success.pitch), (0.5, 2.0));
+    let frames = success.samples.expect("samples").frames();
+    assert!(frames.abs_diff(whole / 2) <= 1, "{frames} of {whole}");
+    // The kit's sound is given with the reply; the file is given when it is decoded.
+    assert_eq!(play(&asked[2]).source, Source::Kit("snap".into()));
+    let ding = play(&asked[3]);
+    assert_eq!(ding.source, Source::File(name));
+    assert_eq!(ding.volume, 0.25);
+    assert_eq!(ding.samples.expect("samples").frames(), whole);
+    assert_eq!(asked[4], Ask::Stop);
+    assert!(page.diagnostics().is_empty());
+    // A name the kit has not and a file that is not there: nothing is asked, the page's author is
+    // told, and the page is drawn again for the rest of the reply.
+    page.press("e")?;
+    page.press("f")?;
+    assert_eq!(page.sounds().len(), 5);
+    assert_eq!(page.diagnostics().len(), 2, "{:?}", page.diagnostics());
+    assert!(page.diagnostics()[0].contains("\"nope\""));
+    assert!(page.diagnostics()[1].contains("\"missing.wav\""));
+    assert!(page.reading().text().contains("heard 6"));
+    Ok(())
+}
+
+/// A file that is asked for in a reply that asks for no frame (a message of the program, here) is
+/// waited for as one in a reply that does: the page is settled when the sound is given.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_file_asked_for_in_a_reply_that_draws_nothing_is_waited_for_by_the_host_with_no_screen()
+-> Result<(), Error> {
+    use pencere_sandbox::sounds::{palette, wav};
+    use pencere_view::sound::{Ask, Source};
+    let ding = wav(&palette("success").expect("a sound")).expect("a file");
+    let name = format!("sha256:{}", pencere_wire::bundle::Digest::of(&ding));
+    let mut page = Headless::script(
+        r#"
+return {
+    render = function() return pencere.div() end,
+    message = function(message)
+        return { sound = { file = message.file } }
+    end,
+}
+"#,
+    )
+    .attached(&ding)
+    .open()?;
+    page.tell(&json!({ "file": name }).to_string())?;
+    let asked = page.sounds();
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    let Ask::Play(play) = &asked[0] else {
+        panic!("a sound, got {:?}", asked[0]);
+    };
+    assert_eq!(play.source, Source::File(name));
+    assert!(play.samples.is_some());
+    Ok(())
+}
+
 /// A page whose boxes say what they carry out of the view, and that counts what the pointer did to
 /// it: one that only carries, one that is no carrier, and one the page also drags.
 const CARRIERS: &str = r#"

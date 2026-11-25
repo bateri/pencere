@@ -18,14 +18,12 @@ mod engine;
 pub(crate) mod palette;
 mod synth;
 
-use std::sync::Arc;
 use std::time::Duration;
 
-pub use engine::{Arrival, Ask, Sounds};
-pub use palette::{Variation, palette, palette_wavs, variation, wav};
+pub use pencere_view::sound::{MOST_CHANNELS, Sound};
 
-/// The most channels a sound has: a sound is mono or stereo.
-pub const MOST_CHANNELS: u16 = 2;
+pub use engine::{Arrival, Ask, Sounds};
+pub use palette::{Variation, palette, palette_wavs, play_of, variation, wav};
 
 /// What the sounds of one view are held to.
 #[derive(Clone, Debug)]
@@ -50,114 +48,6 @@ impl Default for SoundLimits {
             decoded_bytes: 64 << 20,
             paths: 1024,
             wait: Duration::from_secs(1),
-        }
-    }
-}
-
-/// A sound: samples a host plays as they are, at the rate they are at.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Sound {
-    rate: u32,
-    channels: u16,
-    samples: Arc<[f32]>,
-}
-
-impl Sound {
-    /// A sound of `channels` (one or two) interleaved `samples` at `rate` Hz, or `None` where there
-    /// is no sound in them: no samples, a part of a frame, no rate, or a count of channels a sound
-    /// does not have.
-    #[must_use]
-    pub fn new(rate: u32, channels: u16, samples: Vec<f32>) -> Option<Self> {
-        let whole =
-            !samples.is_empty() && samples.len().is_multiple_of(usize::from(channels.max(1)));
-        (rate > 0 && (1..=MOST_CHANNELS).contains(&channels) && whole).then(|| Self {
-            rate,
-            channels,
-            samples: samples.into(),
-        })
-    }
-
-    /// Samples in a second of one channel.
-    #[must_use]
-    pub fn rate(&self) -> u32 {
-        self.rate
-    }
-
-    /// One channel or two.
-    #[must_use]
-    pub fn channels(&self) -> u16 {
-        self.channels
-    }
-
-    /// The samples, a frame (one for each channel) after another, each from -1 to 1.
-    #[must_use]
-    pub fn samples(&self) -> &[f32] {
-        &self.samples
-    }
-
-    /// How many frames it has.
-    #[must_use]
-    pub fn frames(&self) -> usize {
-        self.samples.len() / usize::from(self.channels)
-    }
-
-    /// How long it plays, in seconds.
-    #[must_use]
-    pub fn seconds(&self) -> f64 {
-        self.frames() as f64 / f64::from(self.rate)
-    }
-
-    /// Bytes its samples take.
-    #[must_use]
-    pub fn bytes(&self) -> usize {
-        self.samples.len() * 4
-    }
-
-    /// The largest a sample is, whichever side it is on.
-    #[must_use]
-    pub fn peak(&self) -> f32 {
-        self.samples.iter().fold(0.0, |peak, s| peak.max(s.abs()))
-    }
-
-    /// The sound played `ratio` times as fast, which is a pitch `ratio` times as high and a length
-    /// `1/ratio` times as long (cubic interpolation between the frames; what is above the half of the
-    /// new rate is not filtered away, which a ratio near one does not make heard). The rate is the
-    /// same: the host plays the new samples as it plays any other. A ratio that is no number above
-    /// zero is the sound as it is.
-    #[must_use]
-    pub fn pitched(&self, ratio: f32) -> Sound {
-        if !(ratio.is_finite() && ratio > 0.0) || (ratio - 1.0).abs() < f32::EPSILON {
-            return self.clone();
-        }
-        let channels = usize::from(self.channels);
-        let frames = self.frames();
-        let out = ((frames as f64 / f64::from(ratio)).round() as usize).max(1);
-        let mut samples = Vec::with_capacity(out * channels);
-        let last = frames.saturating_sub(1);
-        for frame in 0..out {
-            let at = frame as f64 * f64::from(ratio);
-            let whole = (at.floor() as usize).min(last);
-            let t = (at - whole as f64) as f32;
-            for channel in 0..channels {
-                let tap = |offset: isize| -> f32 {
-                    let index = whole.saturating_add_signed(offset).min(last);
-                    self.samples
-                        .get(index * channels + channel)
-                        .copied()
-                        .unwrap_or(0.0)
-                };
-                let (a, b, c, d) = (tap(-1), tap(0), tap(1), tap(2));
-                // Catmull-Rom: through the frames, smooth between.
-                let value = b + 0.5
-                    * t
-                    * (c - a + t * (2.0 * a - 5.0 * b + 4.0 * c - d + t * (3.0 * (b - c) + d - a)));
-                samples.push(value.clamp(-1.0, 1.0));
-            }
-        }
-        Sound {
-            rate: self.rate,
-            channels: self.channels,
-            samples: samples.into(),
         }
     }
 }

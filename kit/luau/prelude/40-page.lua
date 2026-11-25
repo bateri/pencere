@@ -208,6 +208,18 @@
 -- the glass of a device that vibrates and the view is the one the person is working in, and the page is
 -- not told what came of it. Any reply may carry it, the person's act or not; a name the kit has no
 -- pattern for is told to the page's author, and the rest of the reply goes through.
+-- `sound` plays a sound, over what is playing (a view plays up to eight at once, and the ninth
+-- silences the one that has played longest): one of the kit's own by its name (`sound = "success"`;
+-- `pencere.has("sound.success")` says whether a host's kit has it), `{ name =, volume =, pitch = }`
+-- (`volume` 0 to 1, 1 where not said; `pitch` 0.5 to 2, how much faster it plays, so an octave higher at 2:
+-- 1 where not said), `{ file = "sounds/ding.wav", volume =, pitch = }` (a WAV or an Ogg Vorbis file of the
+-- bundle, or `sha256:` and a digest, or `file:` and a handle: `pencere.has("sound.wav")`,
+-- `pencere.has("sound.ogg")`), a list of these in the order they are to start (at most 64), or `false` for the end of every
+-- sound the view plays. A reply's `false` among a list ends what was said before it. A file that is
+-- not decoded yet plays when it is, and is dropped, with the author told, if it is not within a
+-- second. The host plays them as the system's volume and silence say, and the page is not told what
+-- came of it. Any reply may carry them, the person's act or not; a name the kit has no sound for, a file
+-- that is not there or is no sound is told to the page's author, and the rest of the reply goes through.
 --
 -- What the page says to its program is JSON objects, messages of a view and its program:
 -- `pencere.call` asks the program to do something and answers once, `pencere.subscribe` asks to hear

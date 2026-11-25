@@ -719,7 +719,7 @@ for _, name in ipairs({
 	"now", "asks_at", "settle", "tell", "words", "says", "words_in", "tree_words", "bounds", "spills",
 	"editor", "editor_text", "browsers", "browser_asks", "browser_keys", "browser_state", "browser_window", "browser_unused",
 	"measure", "inspect", "inspect_text", "inspect_at",
-	"has_browser", "focus", "field", "outline", "reading", "audit", "cursor", "pasteboard", "links", "haptics", "text_size", "menu",
+	"has_browser", "focus", "field", "outline", "reading", "audit", "cursor", "pasteboard", "links", "haptics", "sounds", "text_size", "menu",
 	"closed", "diagnostics", "ended", "sent", "received", "push", "answer", "fail", "lent",
 	"give_back", "log", "fill", "scroll_to", "wheel", "drop_files", "click_gutter", "hover_gutter",
 	"gutter_cell", "zone", "anchor_rect", "dwell", "hold", "release", "click_holding",

@@ -1414,7 +1414,12 @@ return {{
             .. " nomotion=" .. tostring(pencere.has("motion.nope"))
             .. " haptic=" .. tostring(pencere.has("haptic"))
             .. " tick=" .. tostring(pencere.has("haptic.tick"))
-            .. " nohaptic=" .. tostring(pencere.has("haptic.nope"))))
+            .. " nohaptic=" .. tostring(pencere.has("haptic.nope")))):child(pencere.text(
+            "sound=" .. tostring(pencere.has("sound"))
+            .. " wav=" .. tostring(pencere.has("sound.wav"))
+            .. " ogg=" .. tostring(pencere.has("sound.ogg"))
+            .. " success=" .. tostring(pencere.has("sound.success"))
+            .. " nosound=" .. tostring(pencere.has("sound.nope"))))
     end,
 }}
 "#
@@ -1426,6 +1431,10 @@ return {{
         text.contains(
             "unnamed= roles=29 dialog=true target=true command=true listreveal=true nope=false loop=true bounce=true transform=true autosize=true nomotion=false haptic=true tick=true nohaptic=false"
         ),
+        "{text}"
+    );
+    assert!(
+        text.contains("sound=true wav=true ogg=true success=true nosound=false"),
         "{text}"
     );
     Ok(())

@@ -16,6 +16,7 @@ The kit of the kind `lua` has one file for each topic, listed here. [The Lua pag
 - [Events](spec/events.md): What the host tells a page, event by event, and the replies that answer them.
 - [Replies](spec/replies.md): What a reply asks of the host: fill a field, open a link, take files, pick a file, wake the page, draw larger, vibrate the trackpad.
 - [Haptics](spec/haptics.md): What a page asks of the trackpad: a ready pattern by its name or its own, and what a host does with it.
+- [Sounds](spec/sounds.md): What a page asks of the speakers: a sound of the kit's by its name or a file of its own, and what a host does with it.
 - [Commands and dragging](spec/commands.md): Commands, what can be dragged, and what can be carried out of the view.
 - [Motion](spec/motion.md): How a change of an element moves instead of jumping: looks, `auto_size` and transforms.
 - [Layout and scrolling](spec/layout.md): What a page remembers between frames, what it asks of the layout, timers, scrolling and zooming.

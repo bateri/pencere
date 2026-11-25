@@ -28,6 +28,7 @@ pub mod reading;
 mod scrolling;
 #[cfg(feature = "shot")]
 pub mod shot;
+mod sounding;
 mod waking;
 
 pub use audit::{Finding, Flaw};
@@ -78,3 +79,5 @@ mod reading_tests;
 mod shot_tests;
 #[cfg(all(test, feature = "shot"))]
 mod slide_tests;
+#[cfg(test)]
+mod sounding_tests;

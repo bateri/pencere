@@ -1188,6 +1188,39 @@ impl UserData for Handle {
             }
             Ok(list)
         });
+        // What the page asked of its sounds, in order: a table for each sound (`name` for one of the
+        // kit's own or `file` for a file of the page's, the `volume` and `pitch` the page said, and
+        // the samples the host was given: `seconds`, `frames`, `rate`, `channels` and `peak`), or
+        // `false` where it asked for the end of every sound. A test has no speaker, so every ask is
+        // kept, however many play at once.
+        methods.add_method("sounds", |lua, this, ()| {
+            use pencere_view::sound::{Ask, Source};
+            let asks = this.look(|page| page.sounds().to_vec())?;
+            let list = lua.create_table()?;
+            for (index, ask) in asks.iter().enumerate() {
+                match ask {
+                    Ask::Stop => list.raw_set(index + 1, false)?,
+                    Ask::Play(play) => {
+                        let item = lua.create_table()?;
+                        match &play.source {
+                            Source::Kit(name) => item.set("name", name.as_str())?,
+                            Source::File(path) => item.set("file", path.as_str())?,
+                        }
+                        item.set("volume", play.volume)?;
+                        item.set("pitch", play.pitch)?;
+                        if let Some(sound) = &play.samples {
+                            item.set("seconds", sound.seconds())?;
+                            item.set("frames", sound.frames())?;
+                            item.set("rate", sound.rate())?;
+                            item.set("channels", sound.channels())?;
+                            item.set("peak", sound.peak())?;
+                        }
+                        list.raw_set(index + 1, item)?;
+                    }
+                }
+            }
+            Ok(list)
+        });
         methods.add_method("menu", |lua, this, ()| {
             let menu = this.look(|page| page.menu().cloned())?;
             let Some(menu) = menu else {

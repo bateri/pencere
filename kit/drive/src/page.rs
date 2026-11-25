@@ -44,6 +44,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pencere_editor::{Buffer, CaretPhase, Editors, Route};
+use pencere_sandbox::sounds::SoundLimits;
 use pencere_sandbox::{
     Answer, Assets, Fault, ImageLimits, Images, Module, ModuleLimits, Program, Runner, Script,
     Unbounded,
@@ -63,6 +64,7 @@ use crate::inspect::{Inspection, Meter};
 use crate::outline::{Field, Outline, Placement, ZOOM_TEXT};
 use crate::reading::{Owed, Reading, ReadingInput, Rest};
 use crate::scrolling::{HostScrolls, Scrolling};
+use crate::sounding::Desk;
 use crate::waking::Wakes;
 
 /// What a host gives a page: what it is held to, who it speaks for and on what clock, where its
@@ -83,6 +85,8 @@ pub struct Setup {
     pub assets: Option<Arc<dyn Assets>>,
     /// What the page's images are held to.
     pub images: ImageLimits,
+    /// What the page's sounds of its own files are held to.
+    pub sounds: SoundLimits,
     /// Where the page stands in the host's view.
     pub placement: Placement,
     /// How the page's boxes scroll on the host's system.
@@ -98,6 +102,7 @@ impl Default for Setup {
             program: Arc::new(Unbounded),
             assets: None,
             images: ImageLimits::default(),
+            sounds: SoundLimits::default(),
             placement: Placement::default(),
             scrolling: Scrolling::default(),
             measure: Box::new(NoText),
@@ -187,6 +192,8 @@ pub struct Page {
     measure: Box<dyn Measure>,
     /// The page's images, if it has a bundle to read them from.
     images: Option<Images>,
+    /// The sounds the page asks for, made ready for the host.
+    sounding: Desk,
     state: State,
 }
 
@@ -436,16 +443,21 @@ impl Page {
     ) -> Self {
         // One way to the host for the module and for the images.
         let woken: Arc<dyn Fn() + Send + Sync> = Arc::new(woken);
-        let images = setup.assets.map(|assets| {
+        let images = setup.assets.clone().map(|assets| {
             let woken = Arc::clone(&woken);
             Images::new(assets, setup.images, move || woken())
         });
+        let sounding = {
+            let woken = Arc::clone(&woken);
+            Desk::new(setup.assets, setup.sounds, move || woken())
+        };
         let module = start(Arc::clone(&setup.program), Box::new(move || woken()));
         let mut scrolls = HostScrolls::new();
         scrolls.set(setup.scrolling);
         Self {
             measure: setup.measure,
             images,
+            sounding,
             state: State {
                 module,
                 clock: Clock {
@@ -1282,6 +1294,9 @@ impl Page {
     pub fn drain(&mut self) -> Drained {
         let state = &mut self.state;
         state.sync(false, self.images.as_ref());
+        // What was decoded since the host last looked comes before what the replies say now: an end
+        // of every sound among them ends it too.
+        self.sounding.take(&mut state.diagnostics);
         let ended = if state.told_end {
             None
         } else {
@@ -1295,6 +1310,8 @@ impl Page {
                 state.event(event);
                 state.redraw = true;
             }
+            let asks = std::mem::take(&mut answer.reply.sound);
+            answer.reply.sound = self.sounding.resolve(asks, &mut state.diagnostics);
         }
         let held = state.held.len();
         hold(
@@ -1319,7 +1336,24 @@ impl Page {
             wake: std::mem::take(&mut state.rewake),
             cursor: state.cursor_told.take(),
             carry: state.carry_out.take(),
+            sounds: self.sounding.late(),
         }
+    }
+
+    /// Whether a sound the page asked for is still being decoded, once what the decoder has done is
+    /// taken (a sound that took more than [`SoundLimits::wait`] is given up on here, and the page's
+    /// author told with the next drain's diagnostics): what a host that settles a page waits for, as it
+    /// waits for its images ([`Page::images`]).
+    pub fn sounds_waiting(&mut self) -> bool {
+        self.sounding.take(&mut self.state.diagnostics);
+        self.sounding.waiting()
+    }
+
+    /// When the page gives up on the oldest sound that is being decoded, if one is: a host that plays
+    /// the page's sounds drains it then, for the page's author is told and the host does not wait
+    /// for what is not coming. Anything the decoder finishes wakes the host before that.
+    pub fn sounds_deadline(&self) -> Option<Instant> {
+        self.sounding.deadline()
     }
 
     // --- What the page is now ----------------------------------------------------------------------

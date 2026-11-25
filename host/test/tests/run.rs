@@ -1021,6 +1021,66 @@ end)
 
 #[test]
 #[ignore = "heavy: opens pages, which compiles the interpreter"]
+fn a_test_reads_what_the_page_asked_of_its_sounds() {
+    let app = App::template("sounds");
+    app.write(
+        "src/view/page.lua",
+        r#"return {
+	render = function()
+		return pencere.div():size_full():child(pencere.text("press a key"))
+	end,
+	handle = function(e)
+		if e.type == "key" and e.key == "a" then
+			return { sound = "success" }
+		elseif e.type == "key" and e.key == "b" then
+			return { sound = { { name = "tap", volume = 0.5, pitch = 2 }, false, "snap" } }
+		elseif e.type == "key" and e.key == "c" then
+			return { redraw = true, sound = "nope" }
+		end
+	end,
+}
+"#,
+    );
+    app.write(
+        "test/page_test.lua",
+        r#"local test = require("pencere.test")
+local expect = test.expect
+
+test("a test reads the sounds the page asked for, in order", function()
+	local page = test.open()
+	expect(#page:sounds()):to_equal(0)
+	page:press("a")
+	page:press("b")
+	local asked = page:sounds()
+	expect(#asked):to_equal(4)
+	-- One of the kit's own, as the host was given it: by its name, with its samples.
+	expect(asked[1].name):to_equal("success")
+	expect(asked[1].volume):to_equal(1)
+	expect(asked[1].pitch):to_equal(1)
+	expect(asked[1].seconds > 0.5 and asked[1].seconds < 1):to_be(true)
+	expect(asked[1].channels >= 1):to_be(true)
+	expect(asked[1].peak > 0.1 and asked[1].peak < 1):to_be(true)
+	-- What the page said of how loud and how fast, and the samples at that pitch.
+	expect(asked[2].name):to_equal("tap")
+	expect(asked[2].volume):to_equal(0.5)
+	expect(asked[2].pitch):to_equal(2)
+	expect(asked[2].seconds < 0.1):to_be(true)
+	-- The end of every sound, where it was said.
+	expect(asked[3]):to_equal(false)
+	expect(asked[4].name):to_equal("snap")
+	-- A name the kit has no sound for is told to the page's author, and asks nothing.
+	page:press("c")
+	expect(#page:sounds()):to_equal(4)
+	expect(#page:diagnostics()):to_equal(1)
+end)
+"#,
+    );
+    let (code, text) = tap(&app, &[]);
+    assert_eq!(code, 0, "{text}");
+}
+
+#[test]
+#[ignore = "heavy: opens pages, which compiles the interpreter"]
 fn a_test_drags_an_element_that_carries_out_of_the_view_and_ends_the_systems_drag() {
     let app = App::template("trackpad");
     app.write(
