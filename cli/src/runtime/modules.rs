@@ -250,6 +250,14 @@ pub fn natives(lua: &Lua, core: &Rc<Core>) -> mlua::Result<Table> {
     )?;
     let hold = Rc::clone(core);
     native.set(
+        "host",
+        lua.create_function(move |lua, ()| match hold.control.host() {
+            Some(host) => Ok(Value::Table(super::serve::host_table(lua, &host)?)),
+            None => Ok(Value::Nil),
+        })?,
+    )?;
+    let hold = Rc::clone(core);
+    native.set(
         "serve",
         lua.create_function(move |_, (options, done): (Table, Function)| {
             super::serve::start(&hold, options, done)

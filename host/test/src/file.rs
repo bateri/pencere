@@ -620,10 +620,34 @@ struct Spec {
     browsers: bool,
     patience: Duration,
     place: Where,
+    /// The terminal the program is told it runs in (`host = { name =, version = }`), `pencere-test`
+    /// unless the test says: a name no program treats as special, so that one that shuts something
+    /// off for a name it does not know fails its own test.
+    host: (String, String),
 }
 
 fn number(options: &Table, name: &str) -> mlua::Result<Option<f64>> {
     options.get::<Option<f64>>(name)
+}
+
+/// The terminal the program is told it runs in: the one the test names, or `pencere-test`.
+fn host_of(value: Value) -> mlua::Result<(String, String)> {
+    let said = || words("host is { name = \"…\", version = \"…\" }, two strings");
+    let text = |value: Value| match value {
+        Value::String(text) => text
+            .to_str()
+            .map(|text| text.to_string())
+            .map_err(|_| said()),
+        _ => Err(said()),
+    };
+    match value {
+        Value::Nil => Ok((
+            "pencere-test".to_owned(),
+            env!("CARGO_PKG_VERSION").to_owned(),
+        )),
+        Value::Table(table) => Ok((text(table.get("name")?)?, text(table.get("version")?)?)),
+        _ => Err(said()),
+    }
 }
 
 fn spec_of(session: &Shared, options: &Table) -> mlua::Result<Spec> {
@@ -691,6 +715,7 @@ fn spec_of(session: &Shared, options: &Table) -> mlua::Result<Spec> {
         },
         patience: remaining.max(Duration::from_secs(1)),
         place,
+        host: host_of(options.get::<Value>("host")?)?,
     })
 }
 
@@ -870,6 +895,7 @@ fn open(lua: &Lua, session: &Shared, options: &Table) -> mlua::Result<Handle> {
                 env: env.clone(),
                 cwd: cwd.clone(),
                 log: file.clone(),
+                host: spec.host.clone(),
             },
             spec.patience.min(Duration::from_secs(30)),
         )
@@ -918,8 +944,13 @@ fn start_command(
         .iter()
         .map(|(name, value)| (name.clone(), value.clone()))
         .collect();
-    let mut program = Program::start_in(&parts, &environment, Some(cwd.unwrap_or(root)))
-        .map_err(|error| words(format!("{}: {error}", command.join(" "))))?;
+    let mut program = Program::start_as(
+        &parts,
+        &environment,
+        Some(cwd.unwrap_or(root)),
+        (&spec.host.0, &spec.host.1),
+    )
+    .map_err(|error| words(format!("{}: {error}", command.join(" "))))?;
     let opening =
         view_of(&mut program, Duration::from_secs(60)).map_err(|error| words(error.to_string()))?;
     let opening = opening

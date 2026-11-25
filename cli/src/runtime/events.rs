@@ -40,6 +40,9 @@ pub enum Event {
         level: LogLevel,
         text: String,
     },
+    /// The terminal the app runs in named itself, or is another one than it was (specification
+    /// §5.2, §10.7): the app's `on_host` is told on the loop's thread, where Lua runs.
+    Host(pencere::Host),
     /// `serve` returned.
     Served(Result<Outcome, pencere::Error>),
     /// The app is to start again from its files (`pencere dev`).

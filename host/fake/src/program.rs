@@ -184,13 +184,33 @@ impl Program {
         env: &[(String, String)],
         cwd: Option<&std::path::Path>,
     ) -> Result<Self, Error> {
+        Self::start_as(
+            command,
+            env,
+            cwd,
+            ("pencere-fake-host", env!("CARGO_PKG_VERSION")),
+        )
+    }
+
+    /// As [`Program::start_in`], with the terminal naming itself `host` (`(name, version)`) in its
+    /// `welcome`: a program that looks at which terminal it runs in sees this one.
+    ///
+    /// # Errors
+    ///
+    /// As [`Program::start`].
+    pub fn start_as(
+        command: &[&str],
+        env: &[(String, String)],
+        cwd: Option<&std::path::Path>,
+        host: (&str, &str),
+    ) -> Result<Self, Error> {
         let command: Vec<String> = command.iter().map(|part| (*part).to_owned()).collect();
         let urandom = File::open("/dev/urandom").map_err(Error::Start)?;
         let pty = Pty::spawn_in(&command, PANE, env, cwd).map_err(Error::Start)?;
         Ok(Self {
             pty,
             session: Session::new(
-                pane::config(PANE),
+                pane::config_for(PANE, host.0, host.1),
                 MemoryStore::new(),
                 pane::entropy(urandom),
             ),

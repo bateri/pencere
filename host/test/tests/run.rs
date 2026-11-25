@@ -1195,6 +1195,45 @@ end)
 
 #[test]
 #[ignore = "heavy: opens pages, which compiles the interpreter"]
+fn the_program_of_the_app_is_told_the_terminal_the_test_plays_and_a_test_may_play_another() {
+    let app = App::template("host-is-told");
+    app.write(
+        "src/program/app.lua",
+        r#"local pencere = require("pencere")
+pencere.serve {
+	on_host = function(host) print("host", host.name, host.version) end,
+}
+"#,
+    );
+    app.write(
+        "test/page_test.lua",
+        r#"local test = require("pencere.test")
+local expect = test.expect
+
+test("the program is told a name that no terminal has, so that one that looks at the name sees it", function()
+	local page = test.open()
+	page:wait_for(function() return string.find(page:log(), "host\tpencere-test\t", 1, true) ~= nil end)
+	expect(page:log()).never:to_contain("bateri")
+end)
+
+test("a test plays another terminal, name and version", function()
+	local page = test.open({ host = { name = "bateri", version = "9.9" } })
+	page:wait_for(function() return string.find(page:log(), "host\tbateri\t9.9", 1, true) ~= nil end)
+end)
+
+test("a host is a name and a version", function()
+	local ok, why = pcall(test.open, { host = { name = "bateri" } })
+	expect(ok):to_equal(false)
+	expect(why):to_contain("host is { name =")
+end)
+"#,
+    );
+    let (code, text) = tap(&app, &[]);
+    assert_eq!(code, 0, "{text}");
+}
+
+#[test]
+#[ignore = "heavy: opens pages, which compiles the interpreter"]
 fn a_program_that_lends_the_terminal_is_given_it_back_by_the_test_and_shows_its_page_again() {
     let app = App::template("lending");
     let _ = std::fs::remove_file(app.dir.join("test/page_test.lua"));

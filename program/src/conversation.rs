@@ -38,6 +38,7 @@ use crate::control::{self, Bound, OnReturn, Request};
 use crate::exchange::{Exchange, Toward, WORK_ROOM, WRITE_ROOM};
 use crate::files::{FileError, name_of};
 use crate::handlers::{Outbox, Work};
+use crate::host::{self, Host};
 use crate::{CloseResult, HandOffResult, Options, ReopenResult, Take, View};
 
 /// What the program says to the view in a [`Conversation`], in the order it says it.
@@ -320,6 +321,8 @@ pub struct Conversation {
     /// The program's control is the conversation's until the view is closed, as it is `serve`'s
     /// until `serve` ends.
     bound: Option<Bound>,
+    /// The host the terminal's `welcome` named last (§5.2).
+    host: Option<Host>,
 }
 
 impl fmt::Debug for Conversation {
@@ -393,7 +396,20 @@ impl Conversation {
             open: true,
             lent: None,
             bound,
+            host: None,
         }
+    }
+
+    /// The terminal's `welcome` names `host` (specification §5.2, §10.7; `None`: it names none):
+    /// the program is told as `serve` tells it, by [`Options::on_host`] when it is another host
+    /// than the one the last `welcome` named, and its [`crate::ViewControl`] has it. Whoever plays
+    /// the terminal says it before the view is used, and again for a restart that names another.
+    pub fn welcome(&mut self, host: Option<Host>) {
+        // A view that was closed has let go of its control, which tells nothing more.
+        if self.options.control.is_some() && self.bound.is_none() {
+            return;
+        }
+        host::tell(&self.options, &mut self.host, host);
     }
 
     /// The view says `message`: the JSON text of a `call`, a `subscribe` or a `cancel` (§9.2),

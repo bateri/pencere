@@ -168,6 +168,8 @@ pub struct Options {
     topics: HashMap<String, TopicHandler>,
     log: Option<Arc<LogFn>>,
     on_host: Option<Arc<HostFn>>,
+    /// The handshake alone, no view: the one `ask_host` makes.
+    host_only: bool,
     fallback: Option<Fallback>,
     screen: Option<Screen>,
     terminal: Option<Terminal>,
@@ -216,6 +218,7 @@ impl Options {
             topics: HashMap::new(),
             log: None,
             on_host: None,
+            host_only: false,
             fallback: None,
             screen: None,
             terminal: None,
@@ -450,7 +453,8 @@ impl Options {
     ///
     /// `notify` runs on the thread that runs [`serve`], before the view is opened, and should
     /// return at once: a [`ViewControl`] call that waits for the terminal (`reopen`, `close`,
-    /// `hand_off`) from inside it waits for the very thread that runs it.
+    /// `hand_off`) from inside it waits for the very thread that runs it. A panic in it ends
+    /// that thread as a panic of the program's own does; it is not caught as a handler's is.
     #[must_use]
     pub fn on_host(mut self, notify: impl Fn(&Host) + Send + Sync + 'static) -> Self {
         self.on_host = Some(Arc::new(notify));
@@ -662,6 +666,51 @@ impl From<io::Error> for Error {
     fn from(why: io::Error) -> Self {
         Self::Io(why)
     }
+}
+
+/// Asks the terminal this program runs in which terminal it is, and shows nothing: the `hello` and
+/// the fence every program sends first, the terminal's `welcome` read, and the terminal given back
+/// as it was found; no `open` is ever sent. It is the question `pencere host` asks. The answer is
+/// the terminal's [`Host`], or `None` where there is no pencere host in the terminal, or it names
+/// none.
+///
+/// It asks the controlling terminal, as a filter of a pipeline does (§13), so that it finds the
+/// terminal of the person when the standard output is a pipe (`$(…)`), and finds none where the
+/// program has no controlling terminal (an `ssh` command with no pty).
+///
+/// # Errors
+///
+/// When the terminal cannot be taken ([`Error::Busy`]), or a signal ended the wait
+/// ([`Error::Io`] of the kind [`io::ErrorKind::Interrupted`]).
+pub fn ask_host() -> Result<Option<Host>, Error> {
+    let Ok(terminal) = Terminal::controlling() else {
+        return Ok(None);
+    };
+    let found = Arc::new(std::sync::Mutex::new(None));
+    let kept = Arc::clone(&found);
+    // A `hello` lists at least one kind, or a terminal does not answer it (§5.1): this one is never
+    // opened.
+    let page = Bundle::new(
+        "index.html",
+        [File::new("index.html", &b"<!doctype html>"[..])],
+    )?;
+    let mut options = Options::new()
+        .view(View::web(page))
+        .terminal(terminal)
+        .on_host(move |host| {
+            if let Ok(mut slot) = kept.lock() {
+                *slot = Some(host.clone());
+            }
+        });
+    options.host_only = true;
+    if let Outcome::NoView(NoView {
+        reason: NoViewReason::Interrupted(_),
+        ..
+    }) = serve(options)?
+    {
+        return Err(Error::Io(io::Error::from(io::ErrorKind::Interrupted)));
+    }
+    Ok(found.lock().map_or(None, |mut slot| slot.take()))
 }
 
 /// How `serve` ended.

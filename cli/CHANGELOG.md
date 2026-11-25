@@ -8,6 +8,9 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
+- **`pencere host`**: says which terminal this is, `<name> <version>` as the terminal's pencere host named itself, and nothing is shown in the pane; where there is no pencere host in the terminal it says so on the standard error and ends with the status 1 (2 where the question itself failed). It asks the terminal of the person, so `$(pencere host)` finds it.
+- **`pencere.host()` and `serve{ on_host }`**: the terminal the app runs in, `{ name, version }` (specification §5.2), read when it is needed and told when it is first known and when a terminal that starts the view again is another one. `nil` where the terminal named none.
+- **`test.open({ host = { name =, version = } })` in `pencere test`**: plays another terminal to the app's program; without it the program is told `pencere-test`, a name no program treats as its own, so that a program that shuts something off for a name it does not know fails its own test.
 - **`pencere sounds DIR`** writes the kit's own sounds (the twenty a page asks for by name) into DIR as WAV files, to be listened to.
 - **`page:sounds()` in `pencere test`**: what the page asked of its sounds, in order: a table for each (`name` or `file`, the `volume` and `pitch` it said, and the `seconds`, `frames`, `rate`, `channels` and `peak` of the samples the host was given), or `false` where it ended every sound.
 - **`page:haptics()` in `pencere test`**: what the page asked the trackpad to do, in order: the events of each pattern, or `false` where it ended one.

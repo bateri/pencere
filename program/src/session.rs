@@ -29,7 +29,7 @@ use crate::exchange::{Exchange, Toward, WORK_ROOM, WRITE_ROOM};
 use crate::files::{self, Files};
 use crate::foreground::{self, Job};
 use crate::handlers::{self, Outbox, Work};
-use crate::host::Host;
+use crate::host::{self, Host};
 use crate::link::{Item, Reader, Writer};
 use crate::payload::{self, ByeReason, ClosedReason, FEATURE_DISMISS, Offer, OpenFields, Welcome};
 use crate::probe::Probe;
@@ -873,6 +873,12 @@ impl Session<'_> {
                 // Before it is chosen from: a terminal that has nothing the program can show is
                 // still a terminal the program may name in the words it falls back with.
                 self.know_host(offer.host.clone());
+                // `ask_host` asked for the terminal's name and nothing else: no view is chosen
+                // and no `open` is sent, and the outcome says nothing of why.
+                if self.options.host_only {
+                    self.no_view(NoViewReason::NoCommonView);
+                    return;
+                }
                 match self.choose(&offer) {
                     // A terminal with a token and nothing to open: the program knows at once and
                     // does not wait (§5.3). When the terminal opens a kind of the program's in other
@@ -899,25 +905,13 @@ impl Session<'_> {
         payload::choose(&self.offers(), &offer.views)
     }
 
-    /// An unsolicited `welcome` while a view is shown: a terminal that came up after a break
-    /// asks for the view again (§10.7).
-    /// The terminal's `host` is the one of the `welcome` just acted on: absent when that names
-    /// none. The program is told when it is another host than the one it knew, and not when the
-    /// `welcome` names none (§5.2, §10.7). The control has it before the program is told, so that
-    /// asking the control from inside the notice gives the new host.
+    /// The terminal's `host` is the one of the `welcome` just acted on (see [`host::tell`]).
     fn know_host(&mut self, host: Option<Host>) {
-        if self.host == host {
-            return;
-        }
-        self.host.clone_from(&host);
-        if let Some(control) = &self.options.control {
-            control.set_host(host.clone());
-        }
-        if let (Some(host), Some(notify)) = (host, &self.options.on_host) {
-            notify(&host);
-        }
+        host::tell(self.options, &mut self.host, host);
     }
 
+    /// An unsolicited `welcome` while a view is shown: a terminal that came up after a break
+    /// asks for the view again (§10.7).
     fn on_welcome(&mut self, message: &Frame) {
         if message.re().is_some() {
             return;

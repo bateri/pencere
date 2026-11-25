@@ -167,7 +167,7 @@ terminal answered and not what is installed where your program runs.
 
 ```rust
 use pencere::ViewControl;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 /// Opens a pane beside the view where the terminal can, and says whether it did.
 fn beside(control: &ViewControl) -> bool {
@@ -177,6 +177,10 @@ fn beside(control: &ViewControl) -> bool {
     bateri
         && Command::new("bateri")
             .arg("split")
+            // The pane is the view's while it is up: the command writes nowhere.
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .status()
             .is_ok_and(|status| status.success())
 }

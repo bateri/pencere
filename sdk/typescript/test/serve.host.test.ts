@@ -133,7 +133,7 @@ describe("the terminal the program runs in (§5.2)", () => {
     expect(told).toEqual([{ name: "pencere-test", version: "0.0.0" }]);
   });
 
-  it("is the program's own error when the notice throws, and the terminal is given back", async () => {
+  it("is the program's own error when the notice throws, and the terminal is given back after the late reply", async () => {
     const rig = new Rig();
     const served = serveWith(
       options({
@@ -143,10 +143,18 @@ describe("the terminal the program runs in (§5.2)", () => {
       }),
       rig.environment(),
     );
+    const failed = served.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
     const hello = await rig.next("hello");
     rig.say("welcome", welcomePayload(TOKEN), hello.id);
+    // The terminal's answer to `CSI c` is still on its way: it is waited for, as for any program
+    // that ends, and does not reach the shell as typed text.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(rig.terminal.calls).toEqual(["enter"]);
     rig.sayBytes(DA_REPLY);
-    await expect(served).rejects.toThrow("no host for me");
-    expect(rig.terminal.calls).toEqual(["enter", "restore"]);
+    expect(String(await failed)).toContain("no host for me");
+    expect(rig.terminal.calls).toEqual(["enter", "discard", "restore"]);
   });
 });

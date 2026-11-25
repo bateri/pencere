@@ -15,6 +15,7 @@ mod dev;
 mod dev_cargo;
 mod dist;
 mod files;
+mod host_cmd;
 mod key;
 mod leaving;
 mod macho;
@@ -59,6 +60,11 @@ usage:
                                              makes its own kind unless told; a Cargo package is
                                              built by Cargo (--release, --target passed on) and its
                                              program copied to dist/
+  pencere host                               say which terminal this is: the name and version its
+                                             pencere host gives of itself, as `<name> <version>`,
+                                             or, where there is no pencere host in the terminal,
+                                             so on the standard error and the status 1 (2 where the
+                                             question itself failed); nothing is shown in the pane
   pencere key [--key FILE]                   make the key an app's releases are signed with, once
                                              (the secret half in ~/.config/pencere/signing.key,
                                              never overwritten), and print the public half; when
@@ -131,6 +137,7 @@ fn command(args: Vec<String>) -> ExitCode {
         "new" => new::command(&rest),
         "dev" => dev::command(&rest),
         "build" => build_cmd::command(&rest),
+        "host" => host_cmd::command(&rest),
         "key" => key::command(&rest),
         "sounds" => sounds_cmd::command(&rest),
         "dist" => dist::command(&rest),

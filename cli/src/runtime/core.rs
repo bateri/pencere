@@ -178,6 +178,8 @@ pub struct ServeRun {
     pub calls: HashMap<String, Function>,
     pub topics: HashMap<String, Function>,
     pub done: Function,
+    /// What the app said to be told when the terminal names itself (`on_host`).
+    pub on_host: Option<Function>,
     /// The thread the library's `serve` runs on.
     pub thread: Option<JoinHandle<()>>,
 }

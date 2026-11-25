@@ -34,14 +34,20 @@ pub const CELL_HEIGHT: u32 = 16;
 /// What the session of a pane of `size` cells is: the stand-in host, a dark theme, and the views it
 /// opens besides a page — a Lua script, which a terminal draws itself.
 pub fn config(size: pty::Size) -> Config {
+    config_for(size, "pencere-fake-host", env!("CARGO_PKG_VERSION"))
+}
+
+/// As [`config`], with the host naming itself `name` and `version` in its `welcome`: a test that
+/// plays another terminal.
+pub fn config_for(size: pty::Size, name: &str, version: &str) -> Config {
     let theme = Theme::new(
         Rgb(0x11, 0x13, 0x18),
         Rgb(0xd8, 0xdb, 0xe2),
         "Menlo, monospace",
     );
     let host = HostInfo {
-        name: "pencere-fake-host".to_owned(),
-        version: env!("CARGO_PKG_VERSION").to_owned(),
+        name: name.to_owned(),
+        version: version.to_owned(),
     };
     let mut config = Config::new(
         host,
@@ -278,6 +284,17 @@ mod tests {
         assert_eq!(lua.len(), 1);
         assert_eq!(lua[0].versions, [KIT_VERSION]);
         assert_eq!(KIT_VERSION, "0.1");
+    }
+
+    /// The stand-in names itself as the stand-in, and a test that plays another terminal gives its
+    /// own name and version to the `welcome`.
+    #[test]
+    fn the_stand_in_names_itself_unless_a_test_plays_another_terminal() {
+        let size = pty::Size { cols: 80, rows: 24 };
+        assert_eq!(config(size).host.name, "pencere-fake-host");
+        let other = config_for(size, "bateri", "0.9.1");
+        assert_eq!(other.host.name, "bateri");
+        assert_eq!(other.host.version, "0.9.1");
     }
 
     /// What a view said goes past the bound with the terminal's own bytes after it: the view's

@@ -653,8 +653,8 @@ class TerminalSession implements ViewTarget {
       this.#helloSent = true;
       void this.#link.raw(DEVICE_ATTRIBUTES);
       const answer = await this.#ask(hello.id);
-      this.#hearHost(answer);
       if (answer.kind !== "offer") {
+        this.#hearHost(answer);
         if (answer.kind === "timeout") await this.#drainLateReply();
         this.#phase = "over";
         this.#cleanup();
@@ -664,6 +664,7 @@ class TerminalSession implements ViewTarget {
       if (choice === undefined) {
         // A host with a token and nothing to open: the program knows at once, and does not wait
         // (§5.3). When it opens a kind of the program's in other versions, it says which (§5.2).
+        this.#hearHost(answer);
         this.#phase = "over";
         this.#cleanup();
         return { kind: "no-view", reason: "no-common-view", ...this.#noVersion(answer.welcome) };
@@ -672,6 +673,8 @@ class TerminalSession implements ViewTarget {
         this.#end = { resolve, reject };
       });
       try {
+        // A notice that throws is the program's own error, said as one that `open` fails with is.
+        this.#hearHost(answer);
         await this.#open(answer.welcome, choice);
       } catch (error) {
         this.#fail(error);

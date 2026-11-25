@@ -21,6 +21,8 @@ pub struct Setting {
     pub cwd: Option<PathBuf>,
     /// Where its `print` and errors go.
     pub log: PathBuf,
+    /// The terminal it is told it runs in: `(name, version)`.
+    pub host: (String, String),
 }
 
 /// The program running, and what ends it.
@@ -38,6 +40,7 @@ impl App {
         let (hand, handed) = channel::<Handed>();
         let (ready, remote) = channel::<Result<Remote, String>>();
         let log = setting.log.clone();
+        let host = setting.host.clone();
         let thread = std::thread::Builder::new()
             .name("pencere-test-program".into())
             .spawn(move || run(setting, hand, &ready))
@@ -57,7 +60,10 @@ impl App {
             match handed.recv_timeout(Duration::from_millis(20)) {
                 Ok(taken) => {
                     app.served = Some(taken.served);
-                    return Ok((app, InProcess::new(taken.options)));
+                    // As the first `welcome` of a terminal does: before the view is used.
+                    let mut program = InProcess::new(taken.options);
+                    program.welcome(&host.0, &host.1);
+                    return Ok((app, program));
                 }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {}

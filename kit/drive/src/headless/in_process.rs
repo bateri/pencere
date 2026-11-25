@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use std::process::{Command, ExitStatus};
 use std::time::{Duration, Instant};
 
-use pencere::{Conversation, Lent, Options, Said, Take};
+use pencere::{Conversation, Host, Lent, Options, Said, Take};
 use pencere_wire::json;
 use pencere_wire::messages::{MAX_BYTES, Message};
 
@@ -80,6 +80,16 @@ impl InProcess {
             ended: false,
             fresh: true,
         }
+    }
+
+    /// The terminal's `welcome` names the host `name` and `version` (specification §5.2): the program
+    /// is told as `serve` tells it, by [`Options::on_host`], and its control has it. A terminal says
+    /// it once, before the view is used, as the first `welcome` does.
+    pub fn welcome(&mut self, name: &str, version: &str) {
+        self.conversation.welcome(Some(Host {
+            name: name.to_owned(),
+            version: version.to_owned(),
+        }));
     }
 
     /// The terminal hands the program `take` (specification §10.9), as a host that has an address,

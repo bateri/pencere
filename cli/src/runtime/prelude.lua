@@ -328,7 +328,7 @@ module.process = {
 }
 
 -- serve{ page =, web =, views =, assets =, access =, title =, program =, icon =, icons =, calls =,
--- topics =, tui =, fallback = } shows the view and waits until it is over. Told no `page`, `web` or `views`
+-- topics =, tui =, on_host =, fallback = } shows the view and waits until it is over. Told no `page`, `web` or `views`
 -- it shows what the app has in view/ (page.lua, index.html). What it gives says how:
 --   { shown = true, ended = "user" | "view" | "program" | "error" | "signal" | "terminal",
 --     signal =, code =, message =, status = }
@@ -374,6 +374,18 @@ end
 -- there was a view to close. Ask for it after the answer of the call that decided it has gone
 -- (`time.after(0, ...)`), or the page's own answer is lost with the view.
 module.close_view = guarded(native.close_view)
+
+-- host() is the terminal the app runs in, as it named itself in the handshake: { name =, version = },
+-- the name the product's in lower case ("bateri") to be compared as it is, the version the terminal's
+-- own text to be compared for equality only. It is nil where the terminal named none, where no pencere
+-- terminal answered (the runner draws the view itself) and while no view is being served, and it
+-- changes when a terminal that starts the view again is another one (it was updated; another computer
+-- took the pane): ask when you need it. `serve{ on_host = fn }` calls fn(host) on the app's loop when
+-- the terminal is first known and each time another one is (the view may be open by then: log what
+-- you say, do not write it to the terminal). What a terminal can do is for its features to say, never
+-- its name; the name is for words and for work only that terminal does, which is not a message of
+-- pencere: run the terminal's own command and look that it is there.
+module.host = guarded(native.host)
 
 -- handoff{ "zsh", "-l" } (or { argv =, cwd =, env = }) gives the terminal to a program, and takes it
 -- back when it ends: the view is closed and the terminal given back, the program runs with it in the

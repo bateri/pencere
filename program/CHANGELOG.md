@@ -8,6 +8,8 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Added
 
+- **`ask_host`**: asks the controlling terminal which terminal it is and shows nothing, the handshake alone: the `hello` and the fence, the `welcome` read, the terminal given back, no `open` sent. `pencere host` is made of it.
+- **`Conversation::welcome`**: plays the terminal's `welcome` naming a host to a program served in the same process, so that `Options::on_host` and `ViewControl::host` are as `serve` makes them.
 - **`Host` and `Options::on_host`: which terminal the program runs in (specification §5.2).** The
   terminal names itself in its `welcome`, and `on_host` is called with its `name` and `version` when it
   is first known and when a restart `welcome` names another one; `ViewControl::host()` has the last, and

@@ -327,7 +327,7 @@ pub fn icons_of(files: &Files, list: &Table) -> mlua::Result<Vec<Icon>> {
     Ok(icons)
 }
 
-/// `serve{ page =, web =, views =, assets =, access =, title =, program =, icon =, icons =, filter =, tui =, calls =, topics = }`,
+/// `serve{ page =, web =, views =, assets =, access =, title =, program =, icon =, icons =, filter =, tui =, calls =, topics =, on_host = }`,
 /// from the prelude: starts the library's `serve` on a thread, and calls `done` with how it ended.
 pub fn start(core: &Rc<Core>, options: Table, done: Function) -> mlua::Result<()> {
     if core.serve.borrow().is_some() {
@@ -335,7 +335,15 @@ pub fn start(core: &Rc<Core>, options: Table, done: Function) -> mlua::Result<()
             "a view is already being shown: an app shows one at a time",
         ));
     }
-    let (serving, calls, topics, specs) = prepare(core, &options)?;
+    let (mut serving, calls, topics, specs) = prepare(core, &options)?;
+    // The library tells the thread that runs `serve`; Lua runs on the loop's alone.
+    let on_host = options.get::<Option<Function>>("on_host")?;
+    if on_host.is_some() {
+        let events = core.events.clone();
+        serving = serving.on_host(move |host| {
+            events.send(Event::Host(host.clone()));
+        });
+    }
     // Where no terminal hosts the view, this runner draws the app's `lua` view in the terminal itself
     // (a runner with no terminal in it, and an app that says `tui = false`, leave it to `fallback`).
     let drawn_here = options.get::<Option<bool>>("tui")?.unwrap_or(true)
@@ -360,6 +368,7 @@ pub fn start(core: &Rc<Core>, options: Table, done: Function) -> mlua::Result<()
         calls,
         topics,
         done,
+        on_host,
         thread,
     });
     Ok(())
@@ -562,6 +571,7 @@ pub fn handle(core: &Core, event: Event) {
             }
         }
         Event::ViewLog { level, text } => on_view_log(core, level, &text),
+        Event::Host(host) => on_host(core, lua, &host),
         Event::Served(result) => on_served(core, lua, result),
         Event::Restart => core.end(super::core::Exit::Restart),
         Event::Watched { id, changes } => on_watched(core, lua, id, &changes),
@@ -569,6 +579,30 @@ pub fn handle(core: &Core, event: Event) {
             super::transfer::on_progress(core, id, bytes, &answer);
         }
         Event::FileDone { id, result } => super::transfer::on_done(core, lua, id, result),
+    }
+}
+
+/// `{ name =, version = }`: the terminal the app runs in, as the terminal named itself.
+pub fn host_table(lua: &Lua, host: &pencere::Host) -> mlua::Result<Table> {
+    let table = lua.create_table()?;
+    table.set("name", host.name.as_str())?;
+    table.set("version", host.version.as_str())?;
+    Ok(table)
+}
+
+/// The app's `on_host` is told the terminal that named itself, with the host as it was named.
+fn on_host(core: &Core, lua: &Lua, host: &pencere::Host) {
+    let func = core
+        .serve
+        .borrow()
+        .as_ref()
+        .and_then(|run| run.on_host.clone());
+    let Some(func) = func else {
+        return;
+    };
+    match host_table(lua, host) {
+        Ok(table) => core.callback(func, vec![Value::Table(table)]),
+        Err(why) => core.log.error(&format!("pencere: {why}")),
     }
 }
 

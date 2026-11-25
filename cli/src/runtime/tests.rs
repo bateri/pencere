@@ -1107,6 +1107,85 @@ fn a_view_handed_over_is_served_by_the_one_who_holds_it_and_ends_when_it_says() 
 }
 
 #[test]
+fn the_terminal_that_names_itself_is_told_to_the_app_and_read_by_it_while_the_view_is_served() {
+    use pencere::{Conversation, Host, Said};
+
+    let host = |version: &str| {
+        Some(Host {
+            name: "bateri".to_owned(),
+            version: version.to_owned(),
+        })
+    };
+    let (hand, handed) = std::sync::mpsc::channel::<super::Handed>();
+    let holder = std::thread::spawn(move || {
+        let taken = handed
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the view");
+        let mut conversation = Conversation::new(taken.options);
+        // What the app says to the call `who`, as the view hears it.
+        let who = |conversation: &mut Conversation, id: u32| {
+            assert!(conversation.send(&format!(r#"{{"call":{{"id":{id},"method":"who"}}}}"#)));
+            match conversation.receive(Duration::from_secs(10)) {
+                Some(Said::Message(text)) => text,
+                said => panic!("an answer, not {said:?}"),
+            }
+        };
+        conversation.welcome(host("0.9.1"));
+        assert!(who(&mut conversation, 1).contains("bateri 0.9.1"));
+        // The same terminal again says nothing; another is told, and is the one the app reads.
+        conversation.welcome(host("0.9.1"));
+        conversation.welcome(host("0.9.2"));
+        assert!(who(&mut conversation, 2).contains("bateri 0.9.2"));
+        // A restart that names none leaves it unknown.
+        conversation.welcome(None);
+        assert!(who(&mut conversation, 3).contains("none"));
+        drop(conversation);
+        taken.served.end(pencere::Outcome::Closed(pencere::Closed {
+            by: pencere::EndedBy::Program,
+            view: pencere::Shown {
+                kind: pencere::Kind::Lua,
+                version: "0.1".into(),
+            },
+            code: None,
+            message: None,
+        }));
+    });
+    let (exit, printed) = run_with(
+        &[
+            (
+                "app.lua",
+                r#"
+        local pencere = require("pencere")
+        print("before", pencere.host())
+        local outcome = pencere.serve {
+            page = "page.lua",
+            on_host = function(host) print("told", host.name, host.version) end,
+            calls = {
+                who = function()
+                    local host = pencere.host()
+                    return host and (host.name .. " " .. host.version) or "none"
+                end,
+            },
+        }
+        print("after", pencere.host())
+    "#,
+            ),
+            ("page.lua", "-- a page"),
+        ],
+        |mut config| {
+            config.serve = super::Serve::Hand(hand);
+            config
+        },
+    );
+    holder.join().expect("the holder");
+    assert_eq!(exit, Exit::Done(0));
+    assert_eq!(
+        printed,
+        "before\tnil\ntold\tbateri\t0.9.1\ntold\tbateri\t0.9.2\nafter\tnil\n"
+    );
+}
+
+#[test]
 fn a_view_handed_over_and_let_go_of_is_over_as_when_the_program_closes_it() {
     let (hand, handed) = std::sync::mpsc::channel::<super::Handed>();
     let holder = std::thread::spawn(move || {

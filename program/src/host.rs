@@ -7,6 +7,8 @@
 
 use serde_json::Value;
 
+use crate::Options;
+
 /// The terminal that answered the program: the `host` of its last `welcome`.
 ///
 /// `name` is the stable, lower-case name of the terminal's product, the same on every channel and
@@ -29,6 +31,23 @@ pub(crate) fn read(value: Option<&Value>) -> Option<Host> {
         name: host.get("name")?.as_str()?.to_owned(),
         version: host.get("version")?.as_str()?.to_owned(),
     })
+}
+
+/// The host of the `welcome` just acted on is the terminal's, `None` when that names none: kept
+/// in `known`, in the control before the program is told, so that asking the control from inside
+/// the notice gives the new host, and told when it is another than the one known, and not when the
+/// `welcome` names none (§5.2, §10.7).
+pub(crate) fn tell(options: &Options, known: &mut Option<Host>, host: Option<Host>) {
+    if *known == host {
+        return;
+    }
+    known.clone_from(&host);
+    if let Some(control) = &options.control {
+        control.set_host(host.clone());
+    }
+    if let (Some(host), Some(notify)) = (host, &options.on_host) {
+        notify(&host);
+    }
 }
 
 #[cfg(test)]
