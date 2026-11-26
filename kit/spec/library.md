@@ -582,6 +582,8 @@ A press of the right button on a tab, a row, a cell or a line of a tree is the a
 
 `list` and `tree` take `key_map = { j = "down" }` for keys of their own. A list with `multi` says `mark { marked }`.
 
+A `list`'s `inset` is the room around its rows: above the first, below the last and on each side of the ground of every row. Its `radius` rounds the corners of that ground (none by default). The `picker`, the `palette` and the `completions` keep the ground of the row chosen inside their card: their rows are inset on every side, and the corners of the ground are the card's less the inset.
+
 A `split`'s edge and a `grid`'s column say `resize { size, final }` (`{ column, width, final }`):
 
 - `final = false` while it is dragged;

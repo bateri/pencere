@@ -1171,8 +1171,8 @@ local HAS = {
 	["event.reveal"] = true, ["event.command"] = true, ["command.target"] = true,
 	["event.link_dropped"] = true,
 	-- What the library's components took after the first kit, as `ui.<component>.<option>`: the `reveal`
-	-- of a list and of a grid.
-	["ui.list.reveal"] = true, ["ui.grid.reveal"] = true,
+	-- of a list and of a grid, and the round corners of a list's rows.
+	["ui.list.reveal"] = true, ["ui.grid.reveal"] = true, ["ui.list.radius"] = true,
 	-- The modules of the library that a page asks for before it requires them.
 	["library.query"] = true,
 	-- What the motion of an element took after the first kit, as `element.<method>` and

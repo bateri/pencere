@@ -55,6 +55,15 @@ local function rows_of(u, props)
 	return pencere.Rows.even(count_of(props), height):padded(inset, inset), height
 end
 
+-- The corners of the ground of a row in a card whose rows are `inset` points inside it: the card's
+-- less the inset, so that the two curves are concentric; none where the rows touch the card's edge.
+local function concentric(t, inset)
+	if inset <= 0 then
+		return nil
+	end
+	return math.max(t.radius.card - inset, 0)
+end
+
 -- Scrolls the list `id` to show row `index`.
 local function reveal(u, id, props, index)
 	local rows = rows_of(u, props)
@@ -119,7 +128,8 @@ lists.move = move
 -- --- A list -----------------------------------------------------------------------------------------------------
 
 -- A long list of rows, built as the person scrolls (`pencere.Rows`: every row of one `height`, the
--- theme's `row` by default, and `inset` points around them). `items` are the rows' data, each with a
+-- theme's `row` by default, and `inset` points around them: above the first, below the last and on
+-- each side of every row's ground; `radius` rounds the corners of that ground, none by default). `items` are the rows' data, each with a
 -- stable `key` (or `props.key(item)` says it); `row(item, index, look)` makes what is in a row, where
 -- `look` is `{ selected, hovered, marked, focused }` (the list draws the ground of the row, the
 -- host-friendly role and the pointer's answers), and with no `row` a row says the item's `title` and
@@ -200,6 +210,14 @@ local List = core.component("list", {
 				:items_center()
 				:bg(ground)
 				:child(content)
+			-- The ground of a row stands inside the inset on its sides too, as the rows do above and
+			-- below, so that a list in a card with round corners keeps it inside them.
+			if (props.inset or 0) > 0 then
+				row:ml(props.inset):mr(props.inset)
+			end
+			if props.radius ~= nil then
+				row:rounded(props.radius)
+			end
 			if props.positions ~= false then
 				row:position(index, count_of(props))
 			end
@@ -484,6 +502,7 @@ local Palette = core.component("palette", {
 				hover_selects = true,
 				height = row_height,
 				inset = inset,
+				radius = concentric(t, inset),
 				pad = 10,
 				label = props.label,
 				row = function(item, _, look)
@@ -733,6 +752,7 @@ local Picker = core.component("picker", {
 				hover_selects = true,
 				height = row_height,
 				inset = inset,
+				radius = concentric(t, inset),
 				pad = 8,
 				role = props.multi and "checkbox" or nil,
 				label = props.label,
@@ -911,6 +931,7 @@ local Completions = core.component("completions", {
 				hover_selects = true,
 				height = height,
 				inset = 3,
+				radius = concentric(t, 3),
 				row = props.row,
 			}):h(shown * height + 6):grow(0))
 		return card

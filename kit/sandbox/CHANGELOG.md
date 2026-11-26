@@ -202,6 +202,7 @@ kind = "command", id =, target =, key = }`, where `key` is the row's if the elem
 
 ### Fixed
 
+- **The row chosen in a picker, a palette or the completions stays inside the card.** Its ground was as wide as the card and square, and its corners stood out of the card's round ones: the rows of a `list` are now inset on their sides as above and below, and a list's `radius` (`pencere.has("ui.list.radius")`) rounds them, the card's less the inset.
 - **A grid's rows are read by their cells.** `ui.grid` named every row "Row N" to a screen reader and
   an agent, and said nothing of what a cell held. A row is said by the words of its cells (its
   number first, no column's title: the head says them once; "Row N, loading" where none is read yet),

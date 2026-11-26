@@ -2027,6 +2027,33 @@ fn a_picker_with_no_field_gives_its_list_the_keyboard_and_the_space_bar_chooses(
     Ok(())
 }
 
+/// The ground of the row chosen stands inside the card on every side, its corners the card's less the
+/// rows' inset, so that it does not stand out of the card's round corners.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_row_chosen_in_a_picker_stands_inside_the_round_corners_of_its_card() -> Result<(), Error> {
+    let mut page = picker(false, false)?;
+    page.click("labels")?;
+    page.step()?;
+    page.advance(0.3)?;
+    let card = page.bounds("picker").expect("the card");
+    let row = page.bounds("picker/list/row/bug").expect("the first row");
+    assert!(row.y >= card.y + 4.0, "{row:?} in {card:?}");
+    assert!(
+        row.x >= card.x + 4.0 && row.x + row.w <= card.x + card.w - 4.0,
+        "{row:?} in {card:?}"
+    );
+    let ground = page.list().items.iter().find_map(|item| match item {
+        pencere_view::Paint::Quad(quad) if quad.rect == row && quad.fill.is_some() => Some(quad),
+        _ => None,
+    });
+    assert_eq!(
+        ground.expect("the ground of the row chosen").radii,
+        [6.0; 4]
+    );
+    Ok(())
+}
+
 // --- Completions --------------------------------------------------------------------------------------
 
 #[test]
