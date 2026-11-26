@@ -103,7 +103,7 @@ A host asks a page to **show** something (a screen reader moved to a row that is
 `pencere.has(name)` says whether the kit has a thing, by a name that never changes:
 
 - `"role.<role>"`;
-- `"element.<method>"` for each method that came after the first kit (`layer`, `fallback_name`, `mixed`, `level`, `position`, `table_size`, `cell_at`, `sorted`, `role_description`);
+- `"element.<method>"` for each method that came after the first kit (`layer`, `fallback_name`, `mixed`, `level`, `position`, `table_size`, `cell_at`, `sorted`, `role_description`, `m`, `mx`, `my`, `h_pct`);
 - `"event.reveal"`;
 - `"event.command"` (a command done on an element);
 - `"command.target"`;

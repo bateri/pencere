@@ -70,6 +70,29 @@ fn a_row_puts_its_children_side_by_side_inside_its_padding() {
     assert_eq!(boxes[2], Rect::new(34.0, 10.0, 40.0, 10.0));
 }
 
+/// `m`, `mx` and `my` are the margins of the sides said once, as `p`, `px` and `py` are of the
+/// padding; `h_pct` is a share of the parent's height, as `w_pct` is of its width.
+#[test]
+fn margin_on_every_side_and_on_an_axis_is_the_margin_of_its_sides_and_a_height_may_be_a_share() {
+    let by_sides = div()
+        .child(div().h(10.0).mt(3.0).mr(5.0).mb(3.0).ml(5.0))
+        .child(div().h(10.0).mt(2.0).mr(2.0).mb(2.0).ml(2.0));
+    let by_axes = div()
+        .child(div().h(10.0).my(3.0).mx(5.0))
+        .child(div().h(10.0).m(2.0));
+    let boxes = rects(by_axes, 80.0, 100.0, 1.0);
+    assert_eq!(boxes, rects(by_sides, 80.0, 100.0, 1.0));
+    assert_eq!(boxes[1], Rect::new(5.0, 3.0, 70.0, 10.0));
+    assert_eq!(boxes[2], Rect::new(2.0, 18.0, 76.0, 10.0));
+    let boxes = rects(
+        div().child(div().h(80.0).child(div().h_pct(25.0))),
+        80.0,
+        100.0,
+        1.0,
+    );
+    assert_eq!(boxes[2], Rect::new(0.0, 0.0, 80.0, 20.0));
+}
+
 #[test]
 fn a_column_is_the_default_and_stretches_its_children() {
     let root = div().child(div().h(10.0)).child(div().h(20.0));

@@ -786,6 +786,12 @@ impl Element {
         self.set(|s| s.width = Length::Percent(percent))
     }
 
+    /// A share of the parent's height, `0.0..=100.0`.
+    #[must_use]
+    pub fn h_pct(self, percent: f32) -> Self {
+        self.set(|s| s.height = Length::Percent(percent))
+    }
+
     /// The height, points.
     #[must_use]
     pub fn h(self, points: f32) -> Self {
@@ -889,6 +895,30 @@ impl Element {
     #[must_use]
     pub fn ml(self, points: f32) -> Self {
         self.set(|s| s.margin[3] = points)
+    }
+
+    /// Room outside the box on all four sides, points.
+    #[must_use]
+    pub fn m(self, points: f32) -> Self {
+        self.set(|s| s.margin = [points; 4])
+    }
+
+    /// Room outside the box left and right, points.
+    #[must_use]
+    pub fn mx(self, points: f32) -> Self {
+        self.set(|s| {
+            s.margin[1] = points;
+            s.margin[3] = points;
+        })
+    }
+
+    /// Room outside the box above and below, points.
+    #[must_use]
+    pub fn my(self, points: f32) -> Self {
+        self.set(|s| {
+            s.margin[0] = points;
+            s.margin[2] = points;
+        })
     }
 
     /// Takes the box out of the flow: it is placed against the parent's box by `inset`

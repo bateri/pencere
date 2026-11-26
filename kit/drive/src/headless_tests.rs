@@ -2423,3 +2423,37 @@ return {
     assert_eq!(page.editor_text("e").as_deref(), Some("hi"));
     Ok(())
 }
+
+/// In a script as in Rust, `m`, `mx` and `my` are the margins of the sides said once, and `h_pct` is
+/// a share of the parent's height.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_script_says_the_margin_of_every_side_or_of_an_axis_at_once_and_a_share_of_the_height()
+-> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+return {
+    render = function()
+        local function column(first, second)
+            return pencere.div():w(100):child(first:h(10)):child(second:h(10))
+        end
+        return pencere.div():size_full():row():items_start()
+            :child(column(pencere.div():id("sides"):mt(3):mr(5):mb(3):ml(5),
+                pencere.div():id("each"):mt(2):mr(2):mb(2):ml(2)))
+            :child(column(pencere.div():id("axes"):my(3):mx(5), pencere.div():id("every"):m(2)))
+            :child(pencere.div():w(100):h(80):child(pencere.div():id("share"):h_pct(25)))
+    end,
+}
+"#,
+    )
+    .size(400.0, 200.0)
+    .open()?;
+    page.settle()?;
+    let at = |name: &str| page.bounds(name).expect(name);
+    let moved = |rect: Rect| Rect::new(rect.x + 100.0, rect.y, rect.w, rect.h);
+    assert_eq!(at("axes"), moved(at("sides")));
+    assert_eq!(at("every"), moved(at("each")));
+    assert_eq!(at("axes"), Rect::new(105.0, 3.0, 90.0, 10.0));
+    assert_eq!(at("share").h, 20.0);
+    Ok(())
+}

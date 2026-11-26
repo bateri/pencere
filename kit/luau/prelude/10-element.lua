@@ -1165,6 +1165,9 @@ local HAS = {
 	["element.layer"] = true, ["element.fallback_name"] = true, ["element.mixed"] = true,
 	["element.level"] = true, ["element.position"] = true, ["element.table_size"] = true,
 	["element.cell_at"] = true, ["element.sorted"] = true, ["element.role_description"] = true,
+	-- The room outside a box on every side and on each axis, as its padding has them, and a share of
+	-- the parent's height, as of its width.
+	["element.m"] = true, ["element.mx"] = true, ["element.my"] = true, ["element.h_pct"] = true,
 	["event.reveal"] = true, ["event.command"] = true, ["command.target"] = true,
 	["event.link_dropped"] = true,
 	-- What the library's components took after the first kit, as `ui.<component>.<option>`: the `reveal`
@@ -1629,6 +1632,7 @@ end
 function Element:w(points) self.style.width = points return self end
 function Element:w_pct(percent) self.style.width = { percent = percent } return self end
 function Element:h(points) self.style.height = points return self end
+function Element:h_pct(percent) self.style.height = { percent = percent } return self end
 
 function Element:size(width, height)
 	return self:w(width):h(height)
@@ -1674,6 +1678,23 @@ function Element:mt(points) edges(self.style, "margin")[1] = points return self 
 function Element:mr(points) edges(self.style, "margin")[2] = points return self end
 function Element:mb(points) edges(self.style, "margin")[3] = points return self end
 function Element:ml(points) edges(self.style, "margin")[4] = points return self end
+
+function Element:m(points)
+	self.style.margin = { points, points, points, points }
+	return self
+end
+
+function Element:mx(points)
+	local margin = edges(self.style, "margin")
+	margin[2], margin[4] = points, points
+	return self
+end
+
+function Element:my(points)
+	local margin = edges(self.style, "margin")
+	margin[1], margin[3] = points, points
+	return self
+end
 
 -- Takes the box out of the flow; `inset` places it against the parent's box.
 function Element:absolute(...)
