@@ -398,13 +398,14 @@ export const PAGES = [
       "files-that-change",
       "files-with-the-view",
       "a-filter-in-a-pipeline",
+      "which-terminal-this-is",
       "giving-the-terminal-to-a-program",
     ],
     opening: false,
     heading: "A program in Lua",
     title: "A program in Lua: pencere",
     description:
-      'A pencere app\'s program in Lua: how an app is laid out, what require("pencere") has, the views it can show, files, pipelines and lending the terminal to another program.',
+      'A pencere app\'s program in Lua: how an app is laid out, what require("pencere") has, the views it can show, files, pipelines, which terminal it runs in and lending the terminal to another program.',
   },
   {
     path: "sdk/typescript",
@@ -416,6 +417,7 @@ export const PAGES = [
       "views",
       "calls-and-topics",
       "what-the-terminal-hands-a-running-program",
+      "which-terminal-this-is",
       "files",
       "runtimes",
       "the-router",
