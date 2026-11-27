@@ -1197,6 +1197,9 @@ local HAS = {
 	["element.m"] = true, ["element.mx"] = true, ["element.my"] = true, ["element.h_pct"] = true,
 	-- The lines a field of lines is as tall as: `text_field(id, "lines", { rows = 3 })`.
 	["text_field.rows"] = true,
+	-- The box a page's lengths are those of: a border takes room in every box, inside the `w` and the
+	-- `h` the page gives (a style sheet's `border-box`), and what the box holds stands inside it.
+	["layout.border_box"] = true,
 	["event.reveal"] = true, ["event.command"] = true, ["command.target"] = true,
 	["event.link_dropped"] = true,
 	-- What the library's components took after the first kit, as `ui.<component>.<option>`: the `reveal`

@@ -1062,7 +1062,9 @@ impl Element {
         })
     }
 
-    /// A border of `width` points inside the box, over the fill.
+    /// A border of `width` points on every side, inside the box and over the fill. It takes room as
+    /// the padding does: the width and the height a page gives are the box's, border included, and
+    /// what the box holds stands inside it.
     #[must_use]
     pub fn border(self, width: f32, color: impl Into<Color>) -> Self {
         let color = color.into();

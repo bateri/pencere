@@ -26,7 +26,7 @@
   },
   "components/find_bar": {
     "diagnostics": [],
-    "height": 181.0,
+    "height": 183.0,
     "width": 560.0
   },
   "components/grid": {
@@ -91,7 +91,7 @@
   },
   "components/status": {
     "diagnostics": [],
-    "height": 64.0,
+    "height": 66.0,
     "width": 600.0
   },
   "components/tabs": {
@@ -126,7 +126,7 @@
   },
   "elements/div": {
     "diagnostics": [],
-    "height": 171.5,
+    "height": 173.5,
     "width": 400.0
   },
   "elements/editor": {
@@ -146,7 +146,7 @@
   },
   "elements/spacer": {
     "diagnostics": [],
-    "height": 72.5,
+    "height": 74.5,
     "width": 400.0
   },
   "elements/spark": {

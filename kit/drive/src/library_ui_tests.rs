@@ -152,6 +152,41 @@ end
     Ok(())
 }
 
+/// A control is as large as the theme says and its words and padding make it, whatever its border
+/// takes: the ring of a button is a border, which takes room in a box, and the padding is less by it.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_control_is_as_large_as_its_theme_says_whatever_its_border_takes() -> Result<(), Error> {
+    let mut page = open(
+        r#"
+view = function(u)
+    return pencere.div():gap(8):items_start()
+        :child(pencere.text("Save"):weight(500):id("words"))
+        :child(u:button("save", { title = "Save" }))
+        :child(u:input("q", { hint = "Search", label = "Search" }))
+        :child(u:toggle("t", { on = false, glyph = "Aa", label = "Match case" }))
+end
+"#,
+    )?;
+    let sizes = |page: &Headless| {
+        let size = |name: &str| {
+            let rect = page.bounds(name).unwrap_or_else(|| panic!("no {name}"));
+            (rect.w, rect.h)
+        };
+        (size("words"), size("save"), size("q"), size("t"))
+    };
+    let (words, button, input, toggle) = sizes(&page);
+    // The regular theme: a control is 26 points tall, 10 of padding each side of a button's words,
+    // and a toggle 4 points less tall than a control.
+    assert_eq!(button, (words.0 + 20.0, 26.0));
+    assert_eq!(input.1, 26.0);
+    assert_eq!(toggle.1, 22.0);
+    // The ring a key gives the button changes the colour of its border, not what it takes.
+    page.press("tab")?;
+    assert_eq!(sizes(&page), (words, button, input, toggle));
+    Ok(())
+}
+
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_button_says_its_keys_in_its_tip_as_the_platform_writes_them() -> Result<(), Error> {
@@ -2027,8 +2062,9 @@ fn a_picker_with_no_field_gives_its_list_the_keyboard_and_the_space_bar_chooses(
     Ok(())
 }
 
-/// The ground of the row chosen stands inside the card on every side, its corners the card's less the
-/// rows' inset, so that it does not stand out of the card's round corners.
+/// The ground of the row chosen stands inside the card on every side, inside its border and the rows'
+/// inset, its corners the card's less the border and the inset, so that it does not stand out of the
+/// card's round corners.
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn the_row_chosen_in_a_picker_stands_inside_the_round_corners_of_its_card() -> Result<(), Error> {
@@ -2038,9 +2074,9 @@ fn the_row_chosen_in_a_picker_stands_inside_the_round_corners_of_its_card() -> R
     page.advance(0.3)?;
     let card = page.bounds("picker").expect("the card");
     let row = page.bounds("picker/list/row/bug").expect("the first row");
-    assert!(row.y >= card.y + 4.0, "{row:?} in {card:?}");
+    assert!(row.y >= card.y + 5.0, "{row:?} in {card:?}");
     assert!(
-        row.x >= card.x + 4.0 && row.x + row.w <= card.x + card.w - 4.0,
+        row.x >= card.x + 5.0 && row.x + row.w <= card.x + card.w - 5.0,
         "{row:?} in {card:?}"
     );
     let ground = page.list().items.iter().find_map(|item| match item {
@@ -2049,7 +2085,7 @@ fn the_row_chosen_in_a_picker_stands_inside_the_round_corners_of_its_card() -> R
     });
     assert_eq!(
         ground.expect("the ground of the row chosen").radii,
-        [6.0; 4]
+        [5.0; 4]
     );
     Ok(())
 }

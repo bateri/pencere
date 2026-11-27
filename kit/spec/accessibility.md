@@ -105,6 +105,7 @@ A host asks a page to **show** something (a screen reader moved to a row that is
 - `"role.<role>"`;
 - `"element.<method>"` for each method that came after the first kit (`layer`, `fallback_name`, `mixed`, `level`, `position`, `table_size`, `cell_at`, `sorted`, `role_description`, `m`, `mx`, `my`, `h_pct`);
 - `"text_field.<option>"` for each option of `text_field` that came after the first kit (`rows`);
+- `"layout.<behaviour>"` for a change in how boxes are laid out that the sizes of a page depend on (`"layout.border_box"`: a border takes room in a box, as [the box](layout.md#the-box-of-an-element) says);
 - `"event.reveal"`;
 - `"event.command"` (a command done on an element);
 - `"command.target"`;

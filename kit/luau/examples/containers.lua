@@ -288,7 +288,7 @@ end
 
 -- A key cap.
 local function kbd(label, size)
-	return div():row():items_center():justify_center():min_w(18):h(18):px(4):rounded(4)
+	return div():row():items_center():justify_center():min_w(18):h(18):px(3):rounded(4)
 		:bg("raised2"):border(1, "border"):no_shrink()
 		:child(text(label):text_size(size):color("dim"))
 end
@@ -627,11 +627,14 @@ end
 -- --- The rail ----------------------------------------------------------------------------------
 
 local function rail_item(label, current, count, badge)
-	local row = div():row():items_center():gap(10):h(30):px(8):rounded(6):no_shrink()
+	-- A border takes room in the box, so every item has one, clear where it is not the current one, with
+	-- a point less of padding for it: they all stand as they did.
+	local row = div():row():items_center():gap(10):h(30):px(7):rounded(6):no_shrink()
 		:color(current and "foreground" or "dim")
+		:border(1, alpha("accent", current and 0.24 or 0))
 		:child(text(label):grow(1):truncate())
 	if current then
-		row = row:bg(alpha("accent", 0.13)):border(1, alpha("accent", 0.24))
+		row = row:bg(alpha("accent", 0.13))
 	end
 	if badge then
 		return row:child(
@@ -660,7 +663,7 @@ function Containers:rail()
 		:child(rail_item("Networks", false, "4", nil))
 		:child(rail_item("System", false, nil, nil))
 		:child(rail_item("Activity", false, nil, nil))
-	local engine = div():col():gap(6):p(8):rounded(8):bg(alpha("background", 0.55)):border(1, "border")
+	local engine = div():col():gap(6):p(7):rounded(8):bg(alpha("background", 0.55)):border(1, "border")
 		:child(
 			div():row():items_center():gap(7):text_size(11):color("dim")
 				:child(dot(7, "success", false))
@@ -699,7 +702,7 @@ end
 function Containers:toolbar()
 	-- The host's text field stands in the box: the page draws the box and the key that reaches it,
 	-- and keeps the room (`FIELD`).
-	local search = div():row():items_center():gap(6):h(28):w(220):min_w(120):px(8):rounded(6)
+	local search = div():row():items_center():gap(6):h(28):w(220):min_w(120):px(7):rounded(6)
 		:bg("raised1"):border(1, "border"):press(SEARCH)
 		-- What the host's field says while it is empty.
 		:child(div():text_field(FIELD):grow(1):min_w(0):h(18):child(text("Filter by name, image, port\u{2026}")))
@@ -709,10 +712,11 @@ function Containers:toolbar()
 		local active = self.status == status
 		local id = status_id(status)
 		local glow = self:glow(id)
-		local cell = div():row():items_center():gap(6):h(24):px(9):rounded(6):press(id)
+		local cell = div():row():items_center():gap(6):h(24):px(8):rounded(6):press(id)
+			:border(1, alpha("border", active and 1 or 0))
 			:color((active or glow > 0) and "foreground" or "dim")
 		if active then
-			cell = cell:bg("raised2"):border(1, "border"):shadow(0, 1, 2, alpha("shadow", 0.5))
+			cell = cell:bg("raised2"):shadow(0, 1, 2, alpha("shadow", 0.5))
 		elseif glow > 0 then
 			cell = cell:bg(alpha("foreground", 0.07 * glow))
 		end
@@ -720,17 +724,18 @@ function Containers:toolbar()
 		return cell:child(text(STATUS_LABELS[status]))
 			:child(text(tostring(count)):text_size(10.5):color(count_color))
 	end
-	local segmented = div():row():p(2):gap(1):rounded(8):bg("raised1"):border(1, "border"):no_shrink()
+	local segmented = div():row():p(1):gap(1):rounded(8):bg("raised1"):border(1, "border"):no_shrink()
 		:child(option("all", counts.all, nil))
 		:child(option("running", counts.running, nil))
 		:child(option("stopped", counts.stopped, nil))
 		:child(option("issues", counts.issues, "error"))
 	local function button(label, id, pressed)
 		local glow = self:glow(id)
-		local look = div():row():items_center():h(28):px(9):rounded(6):no_shrink()
+		local look = div():row():items_center():h(28):px(8):rounded(6):no_shrink()
+			:border(1, alpha("accent", pressed and 0.4 or 0))
 			:color((pressed or glow > 0) and "foreground" or "dim")
 		if pressed then
-			look = look:bg(alpha("accent", 0.13)):border(1, alpha("accent", 0.4))
+			look = look:bg(alpha("accent", 0.13))
 		elseif glow > 0 then
 			look = look:bg(alpha("foreground", 0.07 * glow))
 		end
@@ -807,8 +812,11 @@ end
 -- The row dressed: a chosen one on the accent with its border, one the pointer is over on a
 -- faint light.
 local function dress(row, chosen, hovered)
+	-- Every row has the border, clear while it is not chosen, and a point less of padding: a border takes
+	-- room in the box, and the row stands as it did whether it is chosen or not.
+	row = row:border(1, alpha("accent", 0.55 * chosen))
 	if chosen > 0 then
-		return row:bg(alpha("accent", 0.13 * chosen)):border(1, alpha("accent", 0.55 * chosen))
+		return row:bg(alpha("accent", 0.13 * chosen))
 	elseif hovered > 0 then
 		return row:bg(alpha("foreground", 0.055 * hovered))
 	end
@@ -844,7 +852,7 @@ local function group_row(id, project, members, folded, chosen, hovered)
 		summary = string.format("%d/%d up", up, #members)
 	end
 	return dress(
-		div():row():items_center():gap(8):h(ROW):mt(GROUP_GAP):px(8):rounded(6):no_shrink():press(id):color("dim")
+		div():row():items_center():gap(8):h(ROW):mt(GROUP_GAP):px(7):rounded(6):no_shrink():press(id):color("dim")
 			:child(
 				div():row():justify_center():w(18)
 					:child(text(folded and "\u{25b8}" or "\u{25be}"):text_size(11))
@@ -940,11 +948,11 @@ local function container_row(id, c, width, chosen, hovered, marked)
 	end
 	cells[#cells + 1] = text(c.age):text_size(11.5):color("dim"):align("end"):truncate()
 
-	local row = div():grid(tracks(width)):gap_x(10):items_center():h(ROW):px(8):rounded(6):no_shrink()
+	local row = div():grid(tracks(width)):gap_x(10):items_center():h(ROW):px(7):rounded(6):no_shrink()
 		:press(id):children(cells)
 	if marked then
 		-- A bar at the row's edge: the container is marked, to be acted on with the others.
-		row = row:child(div():absolute():inset(8, nil, 8, 1):w(3):rounded(1.5):bg("accent"))
+		row = row:child(div():absolute():inset(7, nil, 7, 0):w(3):rounded(1.5):bg("accent"))
 	end
 	return dress(row, chosen, hovered)
 end

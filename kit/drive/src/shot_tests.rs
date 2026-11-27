@@ -119,6 +119,56 @@ fn a_list_drawn_with_no_font_is_the_same_picture_everywhere() {
     assert_ne!(light, drawn);
 }
 
+/// What is in a box with a border stands inside the border, and its ground does not cover it: the
+/// four sides of the border are the box's, as a box of a style sheet's.
+#[test]
+fn the_ground_of_what_is_in_a_bordered_box_leaves_the_four_sides_of_the_border_showing() {
+    struct Mute;
+    impl pencere_view::Measure for Mute {
+        fn measure(&mut self, _: &Font, _: &str) -> pencere_view::Metrics {
+            pencere_view::Metrics {
+                width: 0.0,
+                height: 0.0,
+            }
+        }
+    }
+    let root = div().child(
+        div()
+            .size(40.0, 30.0)
+            .border(2.0, Role::Accent)
+            .child(div().size_full().bg(Role::Raised(2))),
+    );
+    let list = pencere_view::layout(root, Size::new(60.0, 50.0), 1.0, &mut Mute).paint(&mut Mute);
+    let drawn = png(&list, (60, 50), &Fonts::none(), None, Palette::Dark).expect("a picture");
+    let pixmap = Pixmap::decode_png(&drawn).expect("a PNG");
+    let at = |x: u32, y: u32| {
+        pixmap
+            .pixel(x, y)
+            .map(|pixel| (pixel.red(), pixel.green(), pixel.blue()))
+    };
+    let ground = at(55, 45);
+    let inside = at(20, 15);
+    let border = at(0, 15);
+    assert_ne!(border, ground, "the border is drawn");
+    assert_ne!(inside, border, "and what is in the box is not the border");
+    // The border all round: the pixels of its two widths at each side, then the ground of what is in it.
+    for (x, y) in [
+        (0, 15),
+        (1, 15),
+        (38, 15),
+        (39, 15),
+        (20, 0),
+        (20, 1),
+        (20, 28),
+        (20, 29),
+    ] {
+        assert_eq!(at(x, y), border, "the border at {x}, {y}");
+    }
+    for (x, y) in [(2, 15), (37, 15), (20, 2), (20, 27)] {
+        assert_eq!(at(x, y), inside, "what is in the box at {x}, {y}");
+    }
+}
+
 /// A rounded box its clip cuts keeps its corners where they are and is cut straight at the clip.
 #[test]
 fn a_rounded_box_cut_by_its_clip_is_cut_straight_and_keeps_its_own_corners() {

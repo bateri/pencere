@@ -6,8 +6,13 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ## [Unreleased]
 
+### Changed
+
+- **The library's components are as large as they were under a border that takes room**: a button, a toggle, a segment, a tab, an input, a toast and a chosen cell of a grid have a point less of padding for their ring or border, so that they are the size the theme says; a card (a modal, a dialog, a picker, a palette, a popover, the completions) is two points taller for its border and what is in it two points narrower, and the row chosen in it stands inside the border, its corners the card's less the border and the inset.
+
 ### Added
 
+- **`pencere.has("layout.border_box")`**: a border takes room in a box, inside its `w` and `h`, as the padding does. The interpreter is rebuilt with it.
 - **`rows` of a text field** in a script: `text_field(id, "lines", { rows = 3 })` makes the field as tall as three lines of the host's field, as `Element::field_rows` does; `pencere.has("text_field.rows")` names it. The interpreter is rebuilt with it.
 - **`m`, `mx`, `my` and `h_pct` of an element** in a script, as in Rust; `pencere.has` names them (`"element.mx"`). The interpreter is rebuilt with them.
 - **`sound` in a reply** of the interface `pencere:view` (`sound-ask`): a sound of the kit's by name, `{ name =, volume =, pitch = }`, a file (`{ file =, volume =, pitch = }`), a list of these in order (at most 64), or `false` for the end of every sound; `pencere.merge` keeps every sound of the replies it puts together. A name the kit has no sound for is a diagnostic and the rest of the reply goes through; a wrong shape or a `volume` or `pitch` out of its range is the script's error. `pencere.has` names `sound`, `sound.wav`, `sound.ogg` and `sound.<name>` for each of the palette. `sounds::play_of` makes a palette sound for a play (at the pitch asked, with the little difference of the sounds heard often). The interpreter is rebuilt with it.

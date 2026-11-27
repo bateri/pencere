@@ -82,7 +82,9 @@ basic.button = core.component("button", {
 			:justify_center()
 			:gap(t.size.gap)
 			:h(t.size.control)
-			:px(t.size.pad)
+			-- The ring is a border, and a border takes room in the box: a point of the padding is the ring's,
+			-- so that the button is as wide as its words and its padding make it, whether it is ringed or not.
+			:px(t.size.pad - 1)
 			:no_shrink()
 			:rounded(t.radius.control)
 			:bg(ground)
@@ -222,7 +224,7 @@ basic.toggle = core.component("toggle", {
 			:justify_center()
 			:h(t.size.control - 4)
 			:min_w(t.size.control - 2)
-			:px(4)
+			:px(3)
 			:no_shrink()
 			:rounded(t.radius.chip + 1)
 			:bg(ground)

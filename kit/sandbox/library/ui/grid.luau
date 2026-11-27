@@ -407,7 +407,8 @@ local Grid = core.component("grid", {
 					cell:justify_end()
 				end
 				if not rows_only and chosen ~= nil and chosen.row == place and chosen.column == index then
-					cell:bg(alpha("accent", keyboard and 0.22 or 0.12)):border(1, alpha("accent", keyboard and 0.9 or 0.45))
+					-- The border takes a point of the padding: the words of the cell stand where they did.
+					cell:bg(alpha("accent", keyboard and 0.22 or 0.12)):border(1, alpha("accent", keyboard and 0.9 or 0.45)):px(7)
 				end
 				line:child(cell)
 			end

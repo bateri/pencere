@@ -655,7 +655,7 @@ fn the_numbers_of_how_an_element_looks_follow_a_change_and_the_ones_that_take_ro
     );
     let halfway = lay(&mut motions, card(true), 1.05);
     let inset = kid(&halfway);
-    assert!(inset > 0.0 && inset < 20.0, "{inset}");
+    assert!(inset > 0.0 && inset < 26.0, "{inset}");
     let node = &halfway.nodes[1];
     let radius = node.radii[0];
     assert!(radius > 0.0 && radius < 12.0, "{radius}");
@@ -665,8 +665,8 @@ fn the_numbers_of_how_an_element_looks_follow_a_change_and_the_ones_that_take_ro
     assert!(border.width > 0.0 && border.width < 6.0, "{border:?}");
     settle(&mut motions, || card(true), 1.05);
     let rest = lay(&mut motions, card(true), 3.0);
-    // The border is drawn over the box and takes no room: the padding is all of it.
-    assert_eq!(kid(&rest), 20.0);
+    // The border takes room in the box as the padding does: 6 of it and 20 of padding.
+    assert_eq!(kid(&rest), 26.0);
     assert_eq!(rest.nodes[1].radii, [12.0; 4]);
     assert_eq!(rest.nodes[1].border.unwrap().width, 6.0);
     assert_eq!(rest.nodes[1].shadow.unwrap().blur, 10.0);

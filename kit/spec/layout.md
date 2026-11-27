@@ -11,12 +11,40 @@
 
 A fade takes a highlight's 0.12 s, or its own time (`fades:to(id, level, seconds)`). It is read along a curve where one is given (`fades:level(id, "out")`; `pencere.ease(t, ease)` is the curve).
 
+## The box of an element
+
+Every element is three boxes, each inside the one before it, as a style sheet's are with `box-sizing: border-box`:
+
+- the **border box** is the element's room on the page. `w`, `h`, `min_w`, `max_w`, `min_h` and `max_h` give its size, and a box that has none of them is as large as what it holds with its border and padding added. Its fill is drawn in all of it, and `rounded` rounds it;
+- the **padding box** is the border box less the border (`border(width, color)`: one width on every side), which takes room as the padding does;
+- the **content box** is the padding box less the padding (`p`, `px`, …). What the box holds stands in it: its children, its words, its picture, a sparkline or a canvas.
+
+A box of `w(100)` with `border(2)` and `p(4)` is 100 across and its children start 6 in from its edge and are 88 across. A box is never smaller than its border and padding.
+
+An element is drawn in this order: its shadow, its fill, its border, then what is inside it. What is inside starts at the padding box, so it does not cover the border.
+
+What a page and a host are told is these boxes. `bounds` is the border box. The boxes of a text field are the element's own three ([Host](host.md#text-fields)). A box that scrolls has the border box for its view, and its content reaches as far as the end of its padding: it scrolls to the end of the padding, inside its border.
+
+A box that is `absolute` stands against its parent's padding box, as in a style sheet (its `inset` is from the border in), an `overlay` against the page, and a box that is anchored beside the border box of its element.
+
+### Where the kit leaves the style sheet
+
+| A style sheet                                                                   | The kit                                                                                                                                                                                                               | On purpose                                          |
+| ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `box-sizing` is `content-box` unless it is said                                 | Every element is `border-box`, as in a reset that sets it for all; there is no `content-box`.                                                                                                                         | Yes. An option may come, if a page needs one.       |
+| A border has a style (solid, dashed, …), and a width and a colour for each side | One width and one colour on every side, solid. The corners are each their own (`rounded_corners`).                                                                                                                    | Yes.                                                |
+| A scroll bar is in the padding box, inside the border                           | The bars of a box that scrolls lie over its content, in the border box, 2 points from its edge: over the border, not inside it. They are drawn as the system's are (`Bars`).                                          | No: they will stand in the padding box.             |
+| The bars of every box that scroll are alike (whatever the system says of them)  | A host's field of lines has the host's own bar. In bateri it is macOS's, which is always laid over the text: the system's "always show scroll bars" is not applied in it, as it is to the bars of a box that scrolls. | No: it is the host's.                               |
+| A field has the text size of its element (`font-size`)                          | A host's field takes the terminal's face at the kit's text size (`ZOOM_TEXT`) times the host's zoom and ignores the element's `text_size`.                                                                            | No.                                                 |
+| An editor or a browser is a replaced element, in the content box                | The room of an editor or a browser is the whole border box. The border and the padding of its element are not taken off it, and an editor has a `padding` option of its own instead.                                  | No.                                                 |
+| A focus ring is an `outline`, which takes no room                               | There is no `outline`. A page rings an element with a border, which takes room: the library's controls keep a point of their padding for it, so that the ring does not change their size.                             | No: the ring will be drawn over the box, not in it. |
+
 ## What is where
 
 `pencere.layout` answers what is where on the page as it was last laid out:
 
 - `hit`, `ids_at`;
-- `bounds` (a field's too, by its name);
+- `bounds` (the [border box](#the-box-of-an-element); a field's too, by its name);
 - `scroll_extent`:
   - `content` and `view` down, `content_w` and `view_w` across;
   - `max_offset` and `max_offset_x`;

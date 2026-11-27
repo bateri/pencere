@@ -290,7 +290,7 @@ impl Laid {
                         let scale = self.scale.max(f32::MIN_POSITIVE);
                         // A canvas drawn larger or smaller has its room grown or shrunk about its
                         // middle, and so is not cut at the box it has.
-                        let rect = grown(node.rect, node.scaled);
+                        let rect = grown(node.content_box(), node.scaled);
                         let middle = Point::new(rect.w / scale / 2.0, rect.h / scale / 2.0);
                         list.items.push(Paint::Figure(Figure {
                             rect,
@@ -315,10 +315,11 @@ impl Laid {
                     }
                 }
                 Content::Spark(spark) => {
-                    let clip = node.clip.intersect(node.rect);
+                    let room = node.content_box();
+                    let clip = node.clip.intersect(room);
                     paint_spark(
                         &mut list,
-                        node.rect,
+                        room,
                         clip,
                         &spark.values,
                         faded(spark.color),
@@ -530,7 +531,9 @@ fn place_text(node: &Node, line: &TextLine, measure: &mut dyn Measure) -> Vec<Ru
         // The host draws no words (no proportional text): nothing to place.
         return Vec::new();
     }
-    let box_width = node.rect.w;
+    // The words stand in the room inside the border and the padding.
+    let room = node.content_box();
+    let box_width = room.w;
     let lines: Vec<(String, f32)> = if line.wrap {
         let mut width = |run: &str| measure.measure(&line.font, run).width;
         wrap_lines(&line.text, node.wraps_at, &mut width)
@@ -552,8 +555,8 @@ fn place_text(node: &Node, line: &TextLine, measure: &mut dyn Measure) -> Vec<Ru
     let total = whole.height * lines.len() as f32;
     // One line stands in the middle of its box, whatever its height; lines that do not all fit
     // start at the top, so that the first is the one seen.
-    let room = (node.rect.h - total) / 2.0;
-    let top = node.rect.y + if line.wrap { room.max(0.0) } else { room };
+    let middle = (room.h - total) / 2.0;
+    let top = room.y + if line.wrap { middle.max(0.0) } else { middle };
     // A line that may be cut stays in its box; the rest is the boxes around it.
     let clip = if line.truncate {
         node.clip.intersect(node.rect)
@@ -566,9 +569,9 @@ fn place_text(node: &Node, line: &TextLine, measure: &mut dyn Measure) -> Vec<Ru
         .filter(|(_, (text, _))| !text.is_empty())
         .map(|(index, (text, width))| {
             let x = match line.align {
-                Align::Start => node.rect.x,
-                Align::Center => node.rect.x + (box_width - width) / 2.0,
-                Align::End => node.rect.right() - width,
+                Align::Start => room.x,
+                Align::Center => room.x + (box_width - width) / 2.0,
+                Align::End => room.right() - width,
             };
             #[allow(clippy::cast_precision_loss)]
             let y = top + whole.height * index as f32;

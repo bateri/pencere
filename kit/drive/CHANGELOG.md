@@ -6,6 +6,10 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ## [Unreleased]
 
+### Changed
+
+- **A picture of a page draws a border as the box it takes**: what is in a box stands inside its border and padding (a text, a sparkline, a canvas in the room that is left), and the ground of a child does not cover the border of the box it is in.
+
 ### Added
 
 - **A text field in a picture** (`Headless::shot`, the example `shots`) stands in the box of its text, inside the padding of its element, and a field of lines breaks its text and its hint at a word where that box is full and cuts them at its padding box, the room less the border.

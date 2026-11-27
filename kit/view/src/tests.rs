@@ -2,8 +2,8 @@
 //! and what the draw list holds. The host's measuring is a fixed-width stand-in.
 
 use crate::{
-    Align, Color, DrawList, Family, FieldKind, Font, Id, Measure, Metrics, Paint, Rect, Rgba, Role,
-    Size, Source, Track, div, layout, spacer, spark, text,
+    Align, Color, DrawList, Family, FieldKind, Font, Id, Measure, Metrics, Paint, Point, Rect,
+    Rgba, Role, Size, Source, Track, div, layout, spacer, spark, text,
 };
 
 /// Every character is `0.5 × size` wide and the line `1.25 × size` tall: round numbers.
@@ -305,27 +305,39 @@ fn text_that_wraps_is_drawn_in_as_many_lines_as_its_box_was_made_for() {
     // 5.05 px a character: "aaaaaaa bbbbbbbb" is 80.8 px, a little wider than the 80 it is
     // given. 4.6 px a character: "aaaa bbbb" is 41.4 px, a little wider than half of 81.
     let long = || text("aaaaaaa bbbbbbbb").wrap().text_size(10.1);
+    // The room above and below the lines that the box has besides them: the border's.
     let pages = [
-        ("its own width", div().child(long().w(80.0))),
-        ("the width of the box it is in", div().w(80.0).child(long())),
-        ("its padding", div().child(long().w(88.0).px(4.0))),
-        ("its padding in a box", div().w(88.0).child(long().px(4.0))),
+        ("its own width", div().child(long().w(80.0)), 0.0),
+        (
+            "the width of the box it is in",
+            div().w(80.0).child(long()),
+            0.0,
+        ),
+        ("its padding", div().child(long().w(88.0).px(4.0)), 0.0),
+        (
+            "its padding in a box",
+            div().w(88.0).child(long().px(4.0)),
+            0.0,
+        ),
         (
             "its border",
             div().child(long().w(82.0).border(1.0, Role::Border)),
+            2.0,
         ),
         (
             "what a row leaves it",
             div().row().items_start().w(80.0).child(long()),
+            0.0,
         ),
         (
             "a width of a fraction of a pixel",
             div()
                 .w(81.0)
                 .child(text("aaaa bbbb").wrap().text_size(9.2).w_pct(50.0)),
+            0.0,
         ),
     ];
-    for (case, page) in pages {
+    for (case, page, room) in pages {
         let laid = layout(page, Size::new(200.0, 200.0), 1.0, &mut Fixed);
         let height = laid.rects().nth(1).map(|r| r.h);
         let list = laid.paint(&mut Fixed);
@@ -333,7 +345,7 @@ fn text_that_wraps_is_drawn_in_as_many_lines_as_its_box_was_made_for() {
         let line = lines.first().map_or(0.0, |run| run.font.size * 1.25);
         #[allow(clippy::cast_precision_loss)]
         let drawn = (line * lines.len() as f32).round();
-        assert_eq!(height, Some(drawn), "{case}: {} lines", lines.len());
+        assert_eq!(height, Some(drawn + room), "{case}: {} lines", lines.len());
     }
 }
 
@@ -480,9 +492,10 @@ fn a_field_has_its_room_the_room_less_its_border_and_the_text_less_its_padding_t
 }
 
 #[test]
-fn the_boxes_of_a_field_stay_inside_one_another_where_its_border_and_padding_are_more_than_it_is() {
-    // The padding of 5 and 9 at the sides makes the room 14 across, and a border of 10 round it is
-    // more than it has: the boxes are empty, and still inside the room and inside one another.
+fn the_boxes_of_a_field_stay_inside_one_another_where_its_border_and_padding_are_all_it_is() {
+    // The padding of 5 and 9 at the sides and a border of 10 round make the box 34 across, whatever
+    // width it is given: the least a box is, is what its border and padding are. Its padding box is
+    // the 14 the padding makes and the box of its text is empty, inside the one before it.
     let field = lines_field(1)
         .w(6.0)
         .pl(5.0)
@@ -503,7 +516,8 @@ fn the_boxes_of_a_field_stay_inside_one_another_where_its_border_and_padding_are
     };
     assert!(inside(field.padding_box, field.rect), "{field:?}");
     assert!(inside(field.text, field.padding_box), "{field:?}");
-    assert_eq!((field.padding_box.w, field.text.w), (0.0, 0.0));
+    assert_eq!(field.rect.w, 34.0);
+    assert_eq!((field.padding_box.w, field.text.w), (14.0, 0.0));
 }
 
 #[test]
@@ -2019,4 +2033,126 @@ fn a_dialog_that_holds_buttons_is_a_group_with_the_buttons_as_its_children() {
             format!("  {Button:?} Keep"),
         ]
     );
+}
+
+#[test]
+fn a_border_takes_room_inside_the_box_as_the_padding_does() {
+    // The width the page gives is the box's, the border's too: 2 of border and 4 of padding leave
+    // the children 6 in from the edge and 88 across.
+    let root = div().child(
+        div()
+            .w(100.0)
+            .border(2.0, Role::Border)
+            .p(4.0)
+            .child(div().h(10.0)),
+    );
+    let boxes = rects(root, 200.0, 200.0, 1.0);
+    assert_eq!(boxes[1], Rect::new(0.0, 0.0, 100.0, 22.0));
+    assert_eq!(boxes[2], Rect::new(6.0, 6.0, 88.0, 10.0));
+    // No width said: the box is as large as what is in it with the border and the padding round it.
+    let root = div().row().items_start().child(
+        div()
+            .border(2.0, Role::Border)
+            .p(4.0)
+            .child(div().w(20.0).h(10.0)),
+    );
+    let boxes = rects(root, 200.0, 200.0, 1.0);
+    assert_eq!(boxes[1], Rect::new(0.0, 0.0, 32.0, 22.0));
+    assert_eq!(boxes[2], Rect::new(6.0, 6.0, 20.0, 10.0));
+    // At twice the scale the border is as many pixels as the points say, and takes as much room.
+    let root = div().child(
+        div()
+            .w(100.0)
+            .border(1.0, Role::Border)
+            .p(4.0)
+            .child(div().h(10.0)),
+    );
+    let boxes = rects(root, 200.0, 200.0, 2.0);
+    assert_eq!(boxes[1], Rect::new(0.0, 0.0, 200.0, 40.0));
+    assert_eq!(boxes[2], Rect::new(10.0, 10.0, 180.0, 20.0));
+}
+
+#[test]
+fn the_ground_of_a_box_is_its_border_box_and_what_is_in_it_stands_inside_the_border() {
+    let root = div().child(
+        div()
+            .w(100.0)
+            .bg(Role::Raised(1))
+            .border(2.0, Role::Border)
+            .p(4.0)
+            .child(div().h(10.0).bg(Role::Accent)),
+    );
+    let list = paint(root, 200.0, 200.0, 1.0);
+    let quads = quads(&list);
+    let (ground, child) = (quads[0], quads[1]);
+    assert_eq!(ground.rect, Rect::new(0.0, 0.0, 100.0, 22.0));
+    assert_eq!(ground.border.map(|border| border.width), Some(2.0));
+    assert_eq!(child.rect, Rect::new(6.0, 6.0, 88.0, 10.0));
+}
+
+#[test]
+fn a_text_stands_in_the_box_inside_its_border_and_padding() {
+    // 4 across a character and 10 a line: "ab" is 8 across, and the box 8 more on each side.
+    let root = div()
+        .row()
+        .items_start()
+        .child(text("ab").text_size(8.0).border(1.0, Role::Border).px(3.0));
+    let list = paint(root.clone(), 200.0, 200.0, 1.0);
+    let boxes = rects(root, 200.0, 200.0, 1.0);
+    assert_eq!(boxes[1], Rect::new(0.0, 0.0, 16.0, 12.0));
+    assert_eq!(runs(&list)[0].origin, Point::new(4.0, 1.0));
+    // A text that wraps is measured for the room inside the border: 82 across is 80 for the words,
+    // which "aaaaaaa bbbbbbbb" (80.8 across) does not fit.
+    let root = div().child(
+        text("aaaaaaa bbbbbbbb")
+            .wrap()
+            .text_size(10.1)
+            .w(82.0)
+            .border(1.0, Role::Border),
+    );
+    let list = paint(root, 200.0, 200.0, 1.0);
+    assert_eq!(runs(&list).len(), 2);
+}
+
+#[test]
+fn a_box_that_scrolls_goes_to_the_end_of_its_padding_inside_its_border() {
+    // 100 of content, 3 of padding above and below it and 2 of border round: the room inside the
+    // border is 46 down, and the content with its padding 106, so the box scrolls 60.
+    let id = Id::new(7);
+    let root = div().child(
+        div()
+            .id(id)
+            .col()
+            .w(100.0)
+            .h(50.0)
+            .scroll()
+            .border(2.0, Role::Border)
+            .p(3.0)
+            .child(div().h(100.0).no_shrink()),
+    );
+    let laid = layout(root, Size::new(200.0, 200.0), 1.0, &mut Fixed);
+    let extent = laid.scroll_extent(id).expect("a box that scrolls");
+    assert_eq!(extent.view, Size::new(100.0, 50.0));
+    assert_eq!(extent.content.h, 110.0);
+    assert_eq!(extent.max_offset(), 60.0);
+}
+
+#[test]
+fn an_absolute_box_is_placed_against_the_padding_box_inside_the_border() {
+    // As in a style sheet, where the box a positioned child is put against is its parent's padding
+    // edge: 2 in from the box's edge on every side, the padding not counted.
+    let root = div().child(
+        div()
+            .size(100.0, 60.0)
+            .border(2.0, Role::Border)
+            .p(8.0)
+            .child(
+                div()
+                    .absolute()
+                    .size(20.0, 20.0)
+                    .inset(Some(0.0), Some(0.0), None, None),
+            ),
+    );
+    let boxes = rects(root, 200.0, 200.0, 1.0);
+    assert_eq!(boxes[2], Rect::new(78.0, 2.0, 20.0, 20.0));
 }

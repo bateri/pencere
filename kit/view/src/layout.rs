@@ -158,7 +158,10 @@ pub(crate) struct Node {
     /// How far a loop ([`crate::Motion::cycle`]) has moved it from where the page put it, pixels:
     /// what is read of the page is read where the page put it.
     pub cycled: (f32, f32),
-    /// The room inside the box around what is in it, pixels: left, above, right, below.
+    /// The room the border takes inside the box, pixels: left, above, right, below (Taffy's).
+    pub edge: [f32; 4],
+    /// The room inside the box, in the border, around what is in it, pixels: left, above, right,
+    /// below.
     pub pad: [f32; 4],
     /// It is put where the page says (laid over the rest, or an overlay), not where the box it is
     /// in has room for it.
@@ -167,6 +170,14 @@ pub(crate) struct Node {
     /// rounded to whole pixels, which is what the text was measured in. Its lines are broken there
     /// when it is drawn, so that it draws as many as its box was made tall for.
     pub wraps_at: f32,
+}
+
+impl Node {
+    /// The room inside the border and the padding, where what the box holds (its words, its
+    /// picture, what is in it) stands: empty where they are more than the box.
+    pub(crate) fn content_box(&self) -> Rect {
+        less(less(self.rect, self.edge), self.pad)
+    }
 }
 
 /// A page laid out: every element's box, in the order they are painted.
@@ -535,6 +546,12 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             turn: entry.turn,
             scaled: entry.scaled,
             cycled: (0.0, 0.0),
+            edge: [
+                laid.border.left,
+                laid.border.top,
+                laid.border.right,
+                laid.border.bottom,
+            ],
             pad: [
                 laid.padding.left,
                 laid.padding.top,
@@ -923,6 +940,7 @@ fn empty(page: Rect) -> Node {
         turn: 0.0,
         cycled: (0.0, 0.0),
         scaled: 1.0,
+        edge: [0.0; 4],
         pad: [0.0; 4],
         placed: false,
         wraps_at: 0.0,
@@ -936,11 +954,19 @@ fn inner_width(laid: &taffy::Layout) -> f32 {
         - ((laid.padding.left + laid.border.left) + (laid.padding.right + laid.border.right))
 }
 
-/// The padding of a text's box across, pixels, as Taffy has it ([`convert`]): the border of a box
-/// that is not an image takes no room.
+/// The width of a box's border, pixels, as it is drawn and as Taffy has it ([`convert`]): whole
+/// pixels, at least one, and none where there is no border.
+fn border_px(style: &Style, scale: f32) -> f32 {
+    style
+        .border
+        .map_or(0.0, |border| (border.width * scale).round().max(1.0))
+}
+
+/// The padding and the border of a text's box across, pixels: what a width of the box is less of
+/// for the words.
 fn inset_across(style: &Style, scale: f32) -> f32 {
     let [_, right, _, left] = style.padding;
-    snap(left, scale) + snap(right, scale)
+    snap(left, scale) + snap(right, scale) + 2.0 * border_px(style, scale)
 }
 
 /// How many elements `root` is, itself among them.
@@ -1021,8 +1047,8 @@ fn build(
         scroll: (px(style.scroll.0), px(style.scroll.1)),
         zoom,
         zoomed,
-        pad_bottom: px(style.padding[2]),
-        pad_right: px(style.padding[1]),
+        pad_bottom: px(style.padding[2]) + border_px(&style, scale),
+        pad_right: px(style.padding[1]) + border_px(&style, scale),
         hidden: style.display == Display::None,
         opacity: style
             .opacity
@@ -1041,7 +1067,7 @@ fn build(
         fill: style.fill,
         gradient: style.gradient,
         border: style.border.map(|b| Border {
-            width: (b.width * scale).round().max(1.0),
+            width: border_px(&style, scale),
             color: b.color,
         }),
         radii: style.radii.map(px),
@@ -1058,11 +1084,9 @@ fn build(
 
     let mut taffy_style = convert(&style, scale, matches!(kind, Kind::Text(_) | Kind::Rich(_)));
     if let Some(rows) = rows {
-        // The box is the lines, the padding and the border (which takes no room of its own, it is
-        // drawn over the box): the height the page gave is not used, the least and the most are.
-        let border = style
-            .border
-            .map_or(0.0, |b| (b.width * scale).round().max(1.0));
+        // The box is the lines, the padding and the border: the height the page gave is not used,
+        // the least and the most are.
+        let border = border_px(&style, scale);
         let line = field_line_height(measure, scale);
         let room = px(style.padding[0]) + px(style.padding[2]) + 2.0 * border;
         // Whole pixels, upward: a box rounded down is shorter than the lines it holds, and the
@@ -1139,21 +1163,11 @@ fn build(
         Kind::Image(image) => {
             let natural = natural_size(measure.image(&image.src, image.page), scale);
             let [top, right, bottom, left] = style.padding;
-            let border = style
-                .border
-                .map_or(0.0, |b| (b.width * scale).round().max(1.0));
-            // The picture is drawn inside the padding and the border, so they are part of the
-            // box and the room it leaves is what the picture is measured for: a box that takes
-            // its size from the image is the image's, and the border besides. (The border of any
-            // other element is drawn over its box and takes no room.)
-            let border_room = LengthPercentage::length(border);
-            taffy_style.border = TRect {
-                top: border_room,
-                right: border_room,
-                bottom: border_room,
-                left: border_room,
-            };
-            // And the proportions are the box's whatever limits one side: an image held to a
+            let border = border_px(&style, scale);
+            // The picture is drawn inside the padding and the border, which are part of the box,
+            // and the room they leave is what the picture is measured for: a box that takes its
+            // size from the image is the image's, and the border and the padding besides. And the
+            // proportions are the box's whatever limits one side: an image held to a
             // largest width keeps its height in proportion. (A ratio is the box's, border and
             // padding included, so it is the picture's only where there are none; with some, the
             // sides the style gives are measured as ever and a limit on one is not followed.)
@@ -1255,6 +1269,10 @@ fn bound(length: Length, scale: f32) -> LengthPercentageAuto {
 fn convert(style: &Style, scale: f32, is_text: bool) -> TStyle {
     let px = |points: f32| snap(points, scale);
     let edge = |points: f32| LengthPercentage::length(snap(points, scale));
+    // The border takes room in every box, as it does in a style sheet's `border-box`: the width and
+    // the height a page gives are the box's, border included, and what is in the box stands inside
+    // it.
+    let border = LengthPercentage::length(border_px(style, scale));
     let margin = |points: f32| LengthPercentageAuto::length(snap(points, scale));
     let inset = |value: Option<f32>| value.map_or_else(LengthPercentageAuto::auto, margin);
     let [top, right, bottom, left] = style.padding;
@@ -1320,6 +1338,12 @@ fn convert(style: &Style, scale: f32, is_text: bool) -> TStyle {
             right: edge(right),
             bottom: edge(bottom),
             left: edge(left),
+        },
+        border: TRect {
+            top: border,
+            right: border,
+            bottom: border,
+            left: border,
         },
         gap: TSize {
             width: edge(style.gap.0),
@@ -1390,7 +1414,7 @@ fn track(track: Track, px: impl Fn(f32) -> f32) -> GridTemplateComponent<String>
 pub struct Spill {
     /// The box, pixels.
     pub rect: Rect,
-    /// The inside of the box it is in (that box less its padding), pixels.
+    /// The inside of the box it is in (that box less its border and padding), pixels.
     pub inside: Rect,
     /// How far the box stands past that inside, pixels: to the left, above, to the right, below;
     /// nothing on a side it does not pass.
@@ -1432,13 +1456,7 @@ impl Laid {
             if parent.extent.is_some() || matches!(parent.content, Content::Editor(_)) {
                 continue;
             }
-            let [left, top, right, bottom] = parent.pad;
-            let inside = Rect::new(
-                parent.rect.x + left,
-                parent.rect.y + top,
-                (parent.rect.w - left - right).max(0.0),
-                (parent.rect.h - top - bottom).max(0.0),
-            );
+            let inside = parent.content_box();
             let past = [
                 inside.x - node.rect.x,
                 inside.y - node.rect.y,
@@ -2916,8 +2934,7 @@ enum Apart {
 /// less the padding). The one place that says where a field's border and padding are in it; each
 /// box is inside the one before, and empty where what is taken off it is more than there is.
 fn field_boxes(node: &Node) -> (Rect, Rect) {
-    let border = node.border.map_or(0.0, |border| border.width);
-    let padding_box = less(node.rect, [border; 4]);
+    let padding_box = less(node.rect, node.edge);
     (padding_box, less(padding_box, node.pad))
 }
 
@@ -3216,16 +3233,22 @@ pub struct BrowserRoom {
 /// lines one under the other as the lines of a text that wraps are (one in the middle of its box),
 /// each where its element's alignment puts it.
 pub(crate) fn rich_boxes<'a>(node: &Node, rich: &'a Rich) -> Vec<(Rect, &'a crate::rich::Piece)> {
+    let room = node.content_box();
     #[allow(clippy::cast_precision_loss)]
     let total = rich.line_height * rich.lines.len() as f32;
-    let room = (node.rect.h - total) / 2.0;
-    let top = node.rect.y + if rich.base.wrap { room.max(0.0) } else { room };
+    let middle = (room.h - total) / 2.0;
+    let top = room.y
+        + if rich.base.wrap {
+            middle.max(0.0)
+        } else {
+            middle
+        };
     let mut out = Vec::new();
     for (index, line) in rich.lines.iter().enumerate() {
         let x = match rich.base.align {
-            Align::Start => node.rect.x,
-            Align::Center => node.rect.x + (node.rect.w - line.width) / 2.0,
-            Align::End => node.rect.right() - line.width,
+            Align::Start => room.x,
+            Align::Center => room.x + (room.w - line.width) / 2.0,
+            Align::End => room.right() - line.width,
         };
         #[allow(clippy::cast_precision_loss)]
         let y = top + rich.line_height * index as f32;

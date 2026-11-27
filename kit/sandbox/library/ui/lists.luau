@@ -55,13 +55,14 @@ local function rows_of(u, props)
 	return pencere.Rows.even(count_of(props), height):padded(inset, inset), height
 end
 
--- The corners of the ground of a row in a card whose rows are `inset` points inside it: the card's
--- less the inset, so that the two curves are concentric; none where the rows touch the card's edge.
+-- The corners of the ground of a row in a card whose rows are `inset` points inside its border: the
+-- card's less its border (a point, the one `layers.shell` draws) and the inset, so that the two curves
+-- are concentric; none where the rows touch the card's edge.
 local function concentric(t, inset)
 	if inset <= 0 then
 		return nil
 	end
-	return math.max(t.radius.card - inset, 0)
+	return math.max(t.radius.card - 1 - inset, 0)
 end
 
 -- Scrolls the list `id` to show row `index`.

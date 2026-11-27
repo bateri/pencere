@@ -398,20 +398,21 @@ impl Containers {
 
     fn rail(&self) -> Element {
         let item = |label: &str, current: bool, count: Option<String>, badge: Option<usize>| {
+            // A border takes room in the box, so every item has one, clear where it is not the current
+            // one, with a point less of padding for it: they all stand as they did.
             let mut row = div()
                 .row()
                 .items_center()
                 .gap(10.0)
                 .h(30.0)
-                .px(8.0)
+                .px(7.0)
                 .rounded(6.0)
                 .no_shrink()
                 .color(if current { Role::Foreground } else { Role::Dim })
+                .border(1.0, Role::Accent.alpha(if current { 0.24 } else { 0.0 }))
                 .child(text(label).grow(1.0).truncate());
             if current {
-                row = row
-                    .bg(Role::Accent.alpha(0.13))
-                    .border(1.0, Role::Accent.alpha(0.24));
+                row = row.bg(Role::Accent.alpha(0.13));
             }
             match (badge, count) {
                 (Some(n), _) => row.child(
@@ -470,7 +471,7 @@ impl Containers {
         let engine = div()
             .col()
             .gap(6.0)
-            .p(8.0)
+            .p(7.0)
             .rounded(8.0)
             .bg(Role::Background.alpha(0.55))
             .border(1.0, Role::Border)
@@ -559,7 +560,7 @@ impl Containers {
             .h(28.0)
             .w(220.0)
             .min_w(120.0)
-            .px(8.0)
+            .px(7.0)
             .rounded(6.0)
             .bg(Role::Raised(1))
             .border(1.0, Role::Border)
@@ -584,21 +585,19 @@ impl Containers {
                 .items_center()
                 .gap(6.0)
                 .h(24.0)
-                .px(9.0)
+                .px(8.0)
                 .rounded(6.0)
                 .press(id)
+                .border(1.0, Role::Border.alpha(if active { 1.0 } else { 0.0 }))
                 .color(if active || glow > 0.0 {
                     Role::Foreground
                 } else {
                     Role::Dim
                 });
             if active {
-                cell = cell.bg(Role::Raised(2)).border(1.0, Role::Border).shadow(
-                    0.0,
-                    1.0,
-                    2.0,
-                    Role::Shadow.alpha(0.5),
-                );
+                cell = cell
+                    .bg(Role::Raised(2))
+                    .shadow(0.0, 1.0, 2.0, Role::Shadow.alpha(0.5));
             } else if glow > 0.0 {
                 cell = cell.bg(Role::Foreground.alpha(0.07 * glow));
             }
@@ -608,7 +607,7 @@ impl Containers {
         };
         let segmented = div()
             .row()
-            .p(2.0)
+            .p(1.0)
             .gap(1.0)
             .rounded(8.0)
             .bg(Role::Raised(1))
@@ -624,18 +623,17 @@ impl Containers {
                 .row()
                 .items_center()
                 .h(28.0)
-                .px(9.0)
+                .px(8.0)
                 .rounded(6.0)
                 .no_shrink()
+                .border(1.0, Role::Accent.alpha(if pressed { 0.4 } else { 0.0 }))
                 .color(if pressed || glow > 0.0 {
                     Role::Foreground
                 } else {
                     Role::Dim
                 });
             if pressed {
-                button = button
-                    .bg(Role::Accent.alpha(0.13))
-                    .border(1.0, Role::Accent.alpha(0.4));
+                button = button.bg(Role::Accent.alpha(0.13));
             } else if glow > 0.0 {
                 button = button.bg(Role::Foreground.alpha(0.07 * glow));
             }
@@ -787,9 +785,11 @@ impl Look {
     /// The row dressed: a chosen one on the accent with its border, one the pointer is over
     /// on a faint light.
     fn dress(self, row: Element) -> Element {
+        // Every row has the border, clear while it is not chosen, and a point less of padding: a border
+        // takes room in the box, and the row stands as it did whether it is chosen or not.
+        let row = row.border(1.0, Role::Accent.alpha(0.55 * self.chosen));
         if self.chosen > 0.0 {
             row.bg(Role::Accent.alpha(0.13 * self.chosen))
-                .border(1.0, Role::Accent.alpha(0.55 * self.chosen))
         } else if self.hovered > 0.0 {
             row.bg(Role::Foreground.alpha(0.055 * self.hovered))
         } else {
@@ -832,7 +832,7 @@ fn group_row(
             .gap(8.0)
             .h(ROW)
             .mt(GROUP_GAP)
-            .px(8.0)
+            .px(7.0)
             .rounded(6.0)
             .no_shrink()
             .press(id)
@@ -975,17 +975,18 @@ fn container_row(id: Id, c: &Container, width: Width, look: Look, marked: bool) 
         .gap_x(10.0)
         .items_center()
         .h(ROW)
-        .px(8.0)
+        .px(7.0)
         .rounded(6.0)
         .no_shrink()
         .press(id)
         .children(cells);
     if marked {
-        // A bar at the row's edge: the container is marked, to be acted on with the others.
+        // A bar at the row's edge: the container is marked, to be acted on with the others. It stands
+        // against the padding box, inside the border.
         row = row.child(
             div()
                 .absolute()
-                .inset(Some(8.0), None, Some(8.0), Some(1.0))
+                .inset(Some(7.0), None, Some(7.0), Some(0.0))
                 .w(3.0)
                 .rounded(1.5)
                 .bg(Role::Accent),
@@ -1044,7 +1045,7 @@ fn kbd(label: &str, size: f32) -> Element {
         .justify_center()
         .min_w(18.0)
         .h(18.0)
-        .px(4.0)
+        .px(3.0)
         .rounded(4.0)
         .bg(Role::Raised(2))
         .border(1.0, Role::Border)

@@ -214,6 +214,8 @@ fn a_text_of_many_looks_that_wraps_is_drawn_in_as_many_lines_as_its_box_was_made
         ),
     ];
     for (case, page) in pages {
+        // The room above and below the lines that the box has besides them: the border's.
+        let room = if case == "its border" { 2.0 } else { 0.0 };
         let laid = lay(page, 200.0, 200.0);
         let height = laid.rects().nth(1).map(|r| r.h);
         let list = laid.paint(&mut Fixed);
@@ -223,7 +225,7 @@ fn a_text_of_many_looks_that_wraps_is_drawn_in_as_many_lines_as_its_box_was_made
         let line = drawn.first().map_or(0.0, |run| run.font.size * 1.25);
         #[allow(clippy::cast_precision_loss)]
         let lines = (line * tops.len() as f32).round();
-        assert_eq!(height, Some(lines), "{case}: {} lines", tops.len());
+        assert_eq!(height, Some(lines + room), "{case}: {} lines", tops.len());
     }
 }
 
