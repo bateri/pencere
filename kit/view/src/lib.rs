@@ -83,7 +83,7 @@ pub use element::{
 pub use fades::{FADE_SECONDS, Fades};
 pub use field::{FieldState, Fill};
 pub use figure::{Blend, Brush, Cap, Join, Matrix, Path, Segment, Stop, Stroke, path};
-pub use geometry::{Point, Rect, Size};
+pub use geometry::{Clip, Point, Rect, Round, Size};
 pub use id::Id;
 pub use input::{
     Button, Cursor, Event, FileEntry, FileSource, GesturePhase, Input, Key, Keyboard, Menu,

@@ -45,7 +45,7 @@ fn quad(rect: Rect, color: Color) -> Paint {
         gradient: None,
         border: None,
         shadow: None,
-        clip: Rect::new(0.0, 0.0, 800.0, 400.0),
+        clip: Rect::new(0.0, 0.0, 800.0, 400.0).into(),
     })
 }
 
@@ -62,7 +62,7 @@ fn words(x: f32, y: f32, text: &str, color: Color) -> Paint {
         color,
         opacity: 1.0,
         grounds: Vec::new(),
-        clip: Rect::new(0.0, 0.0, 800.0, 400.0),
+        clip: Rect::new(0.0, 0.0, 800.0, 400.0).into(),
         underline: false,
         strike: false,
     })
@@ -91,7 +91,7 @@ fn page(lines: &[String], shift: f32) -> DrawList {
             blur: 12.0,
             color: Role::Shadow.alpha(0.5),
         }),
-        clip: Rect::new(0.0, 0.0, 800.0, 400.0),
+        clip: Rect::new(0.0, 0.0, 800.0, 400.0).into(),
     }));
     for (row, line) in lines.iter().enumerate() {
         #[allow(clippy::cast_precision_loss)]
@@ -1100,7 +1100,7 @@ fn words_in(x: f32, y: f32, text: &str, clip: Rect, underline: bool) -> Paint {
     let Paint::Text(mut run) = words(x, y, text, Role::Foreground.solid()) else {
         unreachable!("words are text")
     };
-    run.clip = clip;
+    run.clip = clip.into();
     run.underline = underline;
     Paint::Text(run)
 }
@@ -1113,7 +1113,7 @@ fn box_in(rect: Rect, fill: Color, radius: f32, clip: Rect) -> Paint {
         gradient: None,
         border: None,
         shadow: None,
-        clip,
+        clip: clip.into(),
     })
 }
 
@@ -1582,7 +1582,7 @@ impl Typing {
                     blur: 12.0,
                     color: Role::Shadow.alpha(0.5),
                 }),
-                clip: room,
+                clip: room.into(),
             }));
         }
         if let Some((from, to)) = self.selection {
@@ -1933,7 +1933,7 @@ impl Listing {
                     blur: 12.0,
                     color: Role::Shadow.alpha(0.5),
                 }),
-                clip: page,
+                clip: page.into(),
             }));
         }
         for k in 0..16 {
@@ -1972,7 +1972,7 @@ impl Listing {
                     tint: None,
                     opacity: 1.0,
                     radii: [0.0; 4],
-                    clip: list,
+                    clip: list.into(),
                     turn: 0.0,
                 }));
             } else {

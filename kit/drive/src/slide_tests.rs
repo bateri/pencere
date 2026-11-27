@@ -55,7 +55,7 @@ fn quad(rect: Rect, fill: pencere_view::Color, radii: f32, clip: Rect) -> Paint 
         gradient: None,
         border: None,
         shadow: None,
-        clip,
+        clip: clip.into(),
     })
 }
 
@@ -72,7 +72,7 @@ fn words(x: f32, y: f32, text: &str, underline: bool, clip: Rect) -> Paint {
         color: Role::Foreground.solid(),
         opacity: 1.0,
         grounds: Vec::new(),
-        clip,
+        clip: clip.into(),
         underline,
         strike: false,
     })
@@ -162,7 +162,7 @@ fn page(scroll: f32, row: f32, extras: Extras) -> DrawList {
                 }),
                 border: None,
                 shadow: None,
-                clip: text_clip,
+                clip: text_clip.into(),
             }));
         }
         if extras.cards && n % 6 == 3 {
@@ -176,7 +176,7 @@ fn page(scroll: f32, row: f32, extras: Extras) -> DrawList {
                     color: Role::Border.solid(),
                 }),
                 shadow: None,
-                clip: text_clip,
+                clip: text_clip.into(),
             }));
         }
         if extras.veil && n % 3 == 0 {
@@ -212,7 +212,7 @@ fn page(scroll: f32, row: f32, extras: Extras) -> DrawList {
                 blur: 10.0,
                 color: Role::Shadow.alpha(0.5),
             }),
-            clip: WINDOW,
+            clip: WINDOW.into(),
         }));
     }
     DrawList { items }

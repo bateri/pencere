@@ -427,7 +427,7 @@ mod tests {
         let slot = BrowserSlot {
             id: Id::new(1),
             rect: Rect::new(10.0, 20.0, 400.0, 200.0),
-            clip: Rect::new(10.0, 20.0, 400.0, 200.0),
+            clip: pencere_view::Clip::new(Rect::new(10.0, 20.0, 400.0, 200.0)),
             opacity: 1.0,
         };
         let mut items = vec![Paint::Browser(slot.clone())];

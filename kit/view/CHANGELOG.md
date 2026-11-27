@@ -15,6 +15,7 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
   written out in full needs `certificate: None`, and a `match` on every `BrowserAsk` needs the arms for
   `ClearCache`, `ClearSiteData` and `Proceed` (or a catch-all).
 - **`Reply` has `haptic`, `sound` and `diagnostics` fields.** A `Reply { .. }` written out in full needs `haptic: None`, `sound: Vec::new()` and `diagnostics: Vec::new()`.
+- **What a box that clips cuts is a `Clip`: a rectangle and, where the box is rounded, its corners.** The `clip` of a `Node` and of every `Paint` is a `Clip` (`Clip::new(rect)` is the rectangle it was; `clip.rect` reads it), with a `Round` (a rectangle and four radii) where the corners are round. A box that says `clip()` or `scroll()` cuts at its padding box, with the radius of its corners less the width of its border (never below nothing), so what is inside never shows past the border's inner edge. A square box that clips keeps the corners of the rounded one around it, and where two rounded boxes clip the inner has its corners and the outer cuts as a rectangle. A box scrolled without a new layout keeps the corners of its cut, and `Laid::hit` does not answer in a corner that is cut. A host that cuts at `clip.rect` only is as it was, but for the padding box.
 
 ### Added
 

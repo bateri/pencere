@@ -327,7 +327,10 @@ fn snapshot(lua: &Lua, page: &Headless<Any>) -> mlua::Result<Table> {
             table.set("text", run.text.as_str())?;
             table.set("x", run.origin.x)?;
             table.set("y", run.origin.y)?;
-            table.set("w", (run.clip.x + run.clip.w - run.origin.x).max(1.0))?;
+            table.set(
+                "w",
+                (run.clip.rect.x + run.clip.rect.w - run.origin.x).max(1.0),
+            )?;
             table.set("h", size * 1.25)?;
             count += 1;
             runs.raw_set(count, table)?;

@@ -2,8 +2,8 @@
 //! and what the draw list holds. The host's measuring is a fixed-width stand-in.
 
 use crate::{
-    Align, Color, DrawList, Family, FieldKind, Font, Id, Measure, Metrics, Paint, Point, Rect,
-    Rgba, Role, Size, Source, Track, div, layout, spacer, spark, text,
+    Align, Clip, Color, DrawList, Family, FieldKind, Font, Id, Measure, Metrics, Paint, Point,
+    Rect, Rgba, Role, Round, Size, Source, Track, div, layout, spacer, spark, text,
 };
 
 /// Every character is `0.5 × size` wide and the line `1.25 × size` tall: round numbers.
@@ -211,7 +211,7 @@ fn a_line_that_may_be_cut_ends_in_an_ellipsis_where_it_does_not_fit() {
     let list = paint(root, 200.0, 20.0, 1.0);
     let run = runs(&list)[0];
     assert_eq!(run.text, "abcdefg\u{2026}");
-    assert_eq!(run.clip.w, 50.0, "and it stays in its box");
+    assert_eq!(run.clip.rect.w, 50.0, "and it stays in its box");
 }
 
 #[test]
@@ -2155,4 +2155,220 @@ fn an_absolute_box_is_placed_against_the_padding_box_inside_the_border() {
     );
     let boxes = rects(root, 200.0, 200.0, 1.0);
     assert_eq!(boxes[2], Rect::new(78.0, 2.0, 20.0, 20.0));
+}
+
+/// A box that clips and is rounded cuts what is in it at its padding box, with the corners of the box
+/// less its border (a style sheet's `overflow` with `border-radius`): what is inside never shows past
+/// the inner edge of the border.
+#[test]
+fn a_rounded_box_that_clips_cuts_at_its_padding_box_with_the_inner_radius() {
+    let root = div().child(
+        div()
+            .size(100.0, 60.0)
+            .border(2.0, Role::Border)
+            .rounded(10.0)
+            .clip()
+            .child(div().size(300.0, 300.0).bg(Role::Accent)),
+    );
+    let list = paint(root, 200.0, 200.0, 1.0);
+    let ground = quads(&list)
+        .into_iter()
+        .find(|quad| quad.fill.is_some())
+        .expect("the child's ground");
+    let inner = Rect::new(2.0, 2.0, 96.0, 56.0);
+    assert_eq!(
+        ground.clip,
+        Clip {
+            rect: inner,
+            round: Some(Round {
+                rect: inner,
+                radii: [8.0; 4]
+            }),
+        }
+    );
+    // The same at twice the scale: the border and the radius are pixels of that scale.
+    let root = div().child(
+        div()
+            .size(100.0, 60.0)
+            .border(2.0, Role::Border)
+            .rounded(10.0)
+            .clip()
+            .child(div().size(300.0, 300.0).bg(Role::Accent)),
+    );
+    let list = paint(root, 200.0, 200.0, 2.0);
+    let ground = quads(&list)
+        .into_iter()
+        .find(|quad| quad.fill.is_some())
+        .expect("the child's ground");
+    let round = ground.clip.round.expect("a rounded clip");
+    assert_eq!(round.radii, [16.0; 4]);
+    assert_eq!(round.rect, Rect::new(4.0, 4.0, 192.0, 112.0));
+}
+
+/// A border as wide as the radius leaves the corner square: the inner radius is never below nothing.
+#[test]
+fn what_a_border_takes_of_a_radius_is_never_more_than_the_radius() {
+    let root = div().child(
+        div()
+            .size(100.0, 60.0)
+            .border(4.0, Role::Border)
+            .rounded(3.0)
+            .clip()
+            .child(div().size(300.0, 300.0).bg(Role::Accent)),
+    );
+    let list = paint(root, 200.0, 200.0, 1.0);
+    let ground = quads(&list)
+        .into_iter()
+        .find(|quad| quad.fill.is_some())
+        .expect("the child's ground");
+    assert_eq!(ground.clip, Rect::new(4.0, 4.0, 92.0, 52.0));
+}
+
+/// The corners are the innermost box that clips and is rounded: a square one in between keeps those
+/// of the one around it, and where two rounded ones clip the outer cuts as a rectangle does.
+#[test]
+fn the_corners_of_a_clip_are_the_innermost_rounded_boxs_and_a_square_one_keeps_them() {
+    let ground = |root: crate::Element| {
+        let list = paint(root, 300.0, 300.0, 1.0);
+        quads(&list)
+            .into_iter()
+            .find(|quad| quad.fill.is_some())
+            .expect("the ground")
+            .clip
+    };
+    let square_in_round = ground(
+        div().child(
+            div().size(100.0, 100.0).rounded(12.0).clip().child(
+                div()
+                    .size(60.0, 60.0)
+                    .clip()
+                    .child(div().size(200.0, 200.0).bg(Role::Accent)),
+            ),
+        ),
+    );
+    assert_eq!(square_in_round.rect, Rect::new(0.0, 0.0, 60.0, 60.0));
+    assert_eq!(
+        square_in_round.round,
+        Some(Round {
+            rect: Rect::new(0.0, 0.0, 100.0, 100.0),
+            radii: [12.0; 4]
+        })
+    );
+    let round_in_round = ground(
+        div().child(
+            div().size(100.0, 100.0).rounded(12.0).clip().child(
+                div()
+                    .size(60.0, 60.0)
+                    .rounded(5.0)
+                    .clip()
+                    .child(div().size(200.0, 200.0).bg(Role::Accent)),
+            ),
+        ),
+    );
+    assert_eq!(round_in_round.rect, Rect::new(0.0, 0.0, 60.0, 60.0));
+    assert_eq!(
+        round_in_round.round,
+        Some(Round {
+            rect: Rect::new(0.0, 0.0, 60.0, 60.0),
+            radii: [5.0; 4]
+        })
+    );
+    // A box that does not clip changes nothing.
+    let open = ground(
+        div().child(
+            div().size(100.0, 100.0).rounded(12.0).clip().child(
+                div()
+                    .rounded(5.0)
+                    .child(div().size(200.0, 200.0).bg(Role::Accent)),
+            ),
+        ),
+    );
+    assert_eq!(open.round.map(|round| round.radii), Some([12.0; 4]));
+}
+
+/// What is in a scrolled box keeps the box's corners when the box scrolls without a new layout.
+#[test]
+fn a_box_scrolled_without_a_new_layout_keeps_the_corners_it_cuts_with() {
+    let root = div().child(
+        div()
+            .id(Id::new(7))
+            .size(100.0, 60.0)
+            .border(1.0, Role::Border)
+            .rounded(10.0)
+            .scroll()
+            .child(div().h(200.0).no_shrink().bg(Role::Accent)),
+    );
+    let mut laid = layout(root, Size::new(200.0, 200.0), 1.0, &mut Fixed);
+    let index = laid
+        .nodes
+        .iter()
+        .position(|node| node.meta.id == Some(Id::new(7)))
+        .expect("the box");
+    let before = laid.nodes[index + 1].clip;
+    laid.rescroll(index, (0.0, 30.0));
+    let after = &laid.nodes[index + 1];
+    assert_eq!(after.rect.y, -30.0 + 1.0);
+    assert_eq!(
+        after.clip, before,
+        "the cut stays where the box is, corners and all"
+    );
+    assert_eq!(
+        after.clip.round.map(|round| round.radii),
+        Some([9.0; 4]),
+        "{:?}",
+        after.clip
+    );
+}
+
+/// A press where a corner cuts what is there is not a press in it.
+#[test]
+fn a_press_in_a_corner_that_is_cut_is_not_a_press_in_what_is_there() {
+    let root = div().child(
+        div()
+            .size(100.0, 60.0)
+            .rounded(20.0)
+            .clip()
+            .child(div().press(Id::new(9)).size(100.0, 60.0)),
+    );
+    let laid = layout(root, Size::new(200.0, 200.0), 1.0, &mut Fixed);
+    let at = |x: f32, y: f32| laid.hit(Point::new(x, y));
+    assert_eq!(at(50.0, 30.0), Some(Id::new(9)));
+    assert_eq!(at(10.0, 10.0), Some(Id::new(9)), "inside the curve");
+    assert_eq!(at(1.0, 1.0), None, "the corner is cut");
+    assert_eq!(at(99.0, 59.0), None, "and the others");
+    assert_eq!(at(99.0, 1.0), None);
+    assert_eq!(at(1.0, 59.0), None);
+}
+
+#[test]
+fn a_clip_says_where_it_lets_a_point_be_with_its_corners() {
+    let clip = Clip::new(Rect::new(0.0, 0.0, 40.0, 40.0))
+        .within(Rect::new(0.0, 0.0, 40.0, 40.0), [10.0, 0.0, 0.0, 0.0]);
+    assert!(clip.contains(20.0, 20.0));
+    assert!(!clip.contains(1.0, 1.0), "the top left corner is round");
+    assert!(clip.contains(39.0, 1.0), "the others are square");
+    assert!(clip.contains(3.0, 3.0), "just inside the curve");
+    assert!(!clip.contains(2.0, 2.0), "just outside it");
+    assert!(!clip.contains(-1.0, 20.0), "and the rectangle holds");
+    assert_eq!(
+        Clip::new(Rect::new(1.0, 2.0, 3.0, 4.0)),
+        Rect::new(1.0, 2.0, 3.0, 4.0)
+    );
+}
+
+#[test]
+fn a_round_corner_covers_a_pixel_by_how_far_inside_its_edge_the_pixel_is() {
+    let round = Round {
+        rect: Rect::new(0.0, 0.0, 40.0, 40.0),
+        radii: [10.0; 4],
+    };
+    assert_eq!(round.cover(20.0, 20.0), 1.0, "in the middle");
+    assert_eq!(
+        round.cover(20.0, 0.0),
+        0.5,
+        "on a straight edge, half a pixel in"
+    );
+    assert_eq!(round.cover(0.5, 0.5), 0.0, "in the cut corner");
+    assert_eq!(round.cover(-5.0, 20.0), 0.0, "outside");
+    assert!(round.contains(20.0, 0.0) && !round.contains(20.0, -0.1));
 }

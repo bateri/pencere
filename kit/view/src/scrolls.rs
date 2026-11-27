@@ -33,7 +33,7 @@ use crate::element::Element;
 use crate::layout::{Laid, snap};
 use crate::paint::Quad;
 use crate::style::Overflow;
-use crate::{Ease, Extent, Id, Point, Rect, Role, Scrolled};
+use crate::{Clip, Ease, Extent, Id, Point, Rect, Role, Scrolled};
 
 /// What part of a gesture a turn of the wheel is, as the system says.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -696,7 +696,7 @@ impl Scrolls {
             b.rect = rect;
             let b = *b;
             self.covered.insert(id, laid.covering(index));
-            let quads = self.bars_of(&b, extent, rect, clip, scale, over, held, now);
+            let quads = self.bars_of(&b, extent, rect, Clip::new(clip), scale, over, held, now);
             if !quads.is_empty() {
                 bars.push((index, quads));
             }
@@ -735,7 +735,7 @@ impl Scrolls {
         b: &Scroller,
         extent: Extent,
         rect: Rect,
-        clip: Rect,
+        clip: Clip,
         scale: f32,
         over: Option<bool>,
         held: Option<bool>,
@@ -950,7 +950,7 @@ fn knob_of(extent: Extent, rect: Rect, stretch: Point, across: bool) -> (f32, f3
     (track, knob.min(track))
 }
 
-fn bar_quad(rect: Rect, radii: [f32; 4], alpha: f32, clip: Rect) -> Quad {
+fn bar_quad(rect: Rect, radii: [f32; 4], alpha: f32, clip: Clip) -> Quad {
     Quad {
         rect,
         radii,

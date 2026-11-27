@@ -292,7 +292,7 @@ fn with_fields(page: &Headless<Calls>, fonts: &Fonts) -> DrawList {
                 color: role.solid(),
                 opacity: 1.0,
                 grounds: Vec::new(),
-                clip,
+                clip: clip.into(),
                 underline: false,
                 strike: false,
             }));

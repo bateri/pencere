@@ -1208,7 +1208,7 @@ fn a_block_caret_that_glides_shows_the_text_it_covers_from_the_first_frame() {
             .iter()
             .filter_map(|item| match item {
                 Paint::Text(run) if run.color.role() == Some(Role::Background) => {
-                    Some((run.text.clone(), run.clip))
+                    Some((run.text.clone(), run.clip.rect))
                 }
                 _ => None,
             })

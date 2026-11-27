@@ -1100,7 +1100,7 @@ fn a_box_that_opens_to_its_content_shows_what_fits_and_nothing_inside_it_moves()
         assert_eq!([at(&laid, line(0)), at(&laid, line(1))], lines, "at {now}");
         // What is under the box follows its edge; what is in it is cut where it ends.
         assert!((at(&laid, FOOT).y - (20.0 + body.h)).abs() <= 1.0);
-        let cut = node_of(&laid, line(1)).clip;
+        let cut = node_of(&laid, line(1)).clip.rect;
         assert!(
             body.h >= 80.0 || cut.y + cut.h <= body.y + body.h + 0.5,
             "cut at {} of {}",
@@ -1121,7 +1121,7 @@ fn a_box_that_opens_to_its_content_shows_what_fits_and_nothing_inside_it_moves()
         !node_of(&rest, BODY).clips,
         "at rest the page's own clip stands"
     );
-    assert!(node_of(&rest, line(1)).clip.h > 300.0);
+    assert!(node_of(&rest, line(1)).clip.rect.h > 300.0);
 }
 
 #[test]
@@ -1147,9 +1147,9 @@ fn a_box_that_closes_cuts_the_lines_that_went_with_the_clip_it_has_now() {
             assert!(ghost.meta.id.is_none());
             assert_eq!(ghost.rect.y, open.y.min(ghost.rect.y), "it does not move");
             assert!(
-                ghost.clip.y + ghost.clip.h <= body.y + body.h + 0.5,
+                ghost.clip.rect.y + ghost.clip.rect.h <= body.y + body.h + 0.5,
                 "at {now}: cut at {} of {}",
-                ghost.clip.y + ghost.clip.h,
+                ghost.clip.rect.y + ghost.clip.rect.h,
                 body.h
             );
             cut_once |= body.h < 70.0;
@@ -1689,7 +1689,7 @@ fn what_went_from_a_box_that_follows_its_size_is_cut_by_it_at_rest_too() {
     assert!(laid.nodes.len() > 4, "what went is still drawn");
     for ghost in laid.nodes.iter().skip(4) {
         assert!(
-            ghost.clip.h <= 0.5,
+            ghost.clip.rect.h <= 0.5,
             "cut by the closed box: {:?}",
             ghost.clip
         );

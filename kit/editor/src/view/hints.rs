@@ -10,7 +10,7 @@ use std::borrow::Cow;
 use std::rc::Rc;
 
 use pencere_view::edit::{Widget, WidgetGroup, WidgetShow, WidgetSide, limits};
-use pencere_view::{Color, Font, Measure, Point, Quad, Rect, Role, Run};
+use pencere_view::{Clip, Color, Font, Measure, Point, Quad, Rect, Role, Run};
 use pencere_view::{EditorSlot, Paint};
 
 use super::{Gap, Placed, Row, Shaped, View};
@@ -344,7 +344,7 @@ impl View {
         row: &Row,
         (origin_x, y): (f32, f32),
         slot: &EditorSlot,
-        clip: Rect,
+        clip: Clip,
         out: &mut Vec<Paint>,
     ) {
         // Where the room ends, in the content (it is scrolled across by `scroll.x`).

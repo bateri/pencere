@@ -336,7 +336,9 @@ fn what_is_selected_of_a_row_is_cut_at_the_sides_of_the_box_and_a_hint_runs_into
     let cuts: Vec<Rect> = items
         .iter()
         .filter_map(|item| match item {
-            Paint::Quad(quad) if quad.fill == Some(Color::from(Role::Selection)) => Some(quad.clip),
+            Paint::Quad(quad) if quad.fill == Some(Color::from(Role::Selection)) => {
+                Some(quad.clip.rect)
+            }
             _ => None,
         })
         .collect();
@@ -703,7 +705,7 @@ fn boxed(x: f32, y: f32, w: f32, h: f32) -> Paint {
         gradient: None,
         border: None,
         shadow: None,
-        clip: rect,
+        clip: rect.into(),
     })
 }
 

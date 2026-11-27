@@ -46,19 +46,19 @@ pub struct Slide {
 pub fn spread(item: &Paint) -> (f32, f32) {
     match item {
         Paint::Quad(quad) if quad.shadow.is_none() => (
-            quad.rect.x.max(quad.clip.x),
-            quad.rect.right().min(quad.clip.right()),
+            quad.rect.x.max(quad.clip.rect.x),
+            quad.rect.right().min(quad.clip.rect.right()),
         ),
         Paint::Quad(_) | Paint::Editor(_) | Paint::Browser(_) => (f32::NEG_INFINITY, f32::INFINITY),
-        Paint::Text(run) => (run.clip.x, run.clip.right()),
+        Paint::Text(run) => (run.clip.rect.x, run.clip.rect.right()),
         Paint::Image(picture) if picture.turn == 0.0 => (
-            picture.rect.x.max(picture.clip.x),
-            picture.rect.right().min(picture.clip.right()),
+            picture.rect.x.max(picture.clip.rect.x),
+            picture.rect.right().min(picture.clip.rect.right()),
         ),
-        Paint::Image(picture) => (picture.clip.x, picture.clip.right()),
+        Paint::Image(picture) => (picture.clip.rect.x, picture.clip.rect.right()),
         Paint::Figure(figure) => (
-            figure.rect.x.max(figure.clip.x),
-            figure.rect.right().min(figure.clip.right()),
+            figure.rect.x.max(figure.clip.rect.x),
+            figure.rect.right().min(figure.clip.rect.right()),
         ),
     }
 }
@@ -296,8 +296,8 @@ fn votes(
                 .entry(by)
                 .or_insert((0, f32::INFINITY, f32::NEG_INFINITY));
             entry.0 += 1;
-            entry.1 = entry.1.min(now.clip.x);
-            entry.2 = entry.2.max(now.clip.right());
+            entry.1 = entry.1.min(now.clip.rect.x);
+            entry.2 = entry.2.max(now.clip.rect.right());
         }
     }
     let (&best, &(count, ..)) = moved
@@ -349,8 +349,8 @@ fn text_slides(
     };
     there - here == rows.1 - rows.0
         && text_alike(new, old)
-        && clear_of(new.clip, rows.0)
-        && clear_of(old.clip, rows.1)
+        && clear_of(new.clip.rect, rows.0)
+        && clear_of(old.clip.rect, rows.1)
 }
 
 /// Whether the row `row` is well inside the box `quad`: a fill across, whatever its corners are,
@@ -362,7 +362,7 @@ fn well_inside(quad: &Quad, row: i64) -> bool {
     let row = row as f32;
     row >= quad.rect.y + near
         && row + 1.0 <= quad.rect.bottom() - near
-        && clear_of(quad.clip, row as i64)
+        && clear_of(quad.clip.rect, row as i64)
 }
 
 /// Whether two boxes draw the same on the rows `rows` (new, old): they are the same but for where they
@@ -387,7 +387,7 @@ fn quad_slides(new: &Quad, old: &Quad, here: i64, there: i64) -> bool {
 
 /// Whether a box is drawn whole, with no mask of its clip (as the drawing does it).
 fn whole(quad: &Quad) -> bool {
-    intersect(quad.rect, quad.clip) == Some(quad.rect)
+    intersect(quad.rect, quad.clip.rect) == Some(quad.rect) && quad.clip.round.is_none()
 }
 
 /// The items that reach the rows, as a window moved down them: for a row, which are standing

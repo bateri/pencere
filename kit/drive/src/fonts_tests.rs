@@ -58,7 +58,7 @@ fn drawn(fonts: &Fonts, font: &Font, words: &str) -> Raster {
             color: Role::Foreground.solid(),
             opacity: 1.0,
             grounds: Vec::new(),
-            clip: whole,
+            clip: whole.into(),
             underline: false,
             strike: false,
         })],
@@ -475,7 +475,7 @@ fn the_character_sheet() {
                     color: role.solid(),
                     opacity: 1.0,
                     grounds: Vec::new(),
-                    clip: whole,
+                    clip: whole.into(),
                     underline: false,
                     strike: false,
                 }));

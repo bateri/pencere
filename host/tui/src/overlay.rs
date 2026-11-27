@@ -371,7 +371,7 @@ impl MenuBox {
                 blur: ch * 0.8,
                 color: Color::from(Role::Shadow).faded(0.5),
             }),
-            clip: paper.window,
+            clip: paper.window.into(),
         })];
         let font = paper.face(false);
         let inner = paper.cells(col + 1, row + 1, cols - 2, rows - 2);

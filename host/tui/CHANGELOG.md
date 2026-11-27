@@ -48,3 +48,7 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
   crate with no code generator and no PDF reader.
 - `PENCERE_TUI`, `PENCERE_TUI_THEME` and `PENCERE_TUI_TRACE` for a person to force the screen, say the
   terminal is light, and see where the time of the start went.
+
+### Changed
+
+- **A paint's clip is the rectangle of its `Clip`.** Cells have no round corners, so the corners of a cut are not drawn.

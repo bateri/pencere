@@ -24,7 +24,7 @@ use std::collections::{HashMap, HashSet};
 use crate::layout::{DEFAULT_TEXT, Laid, Node, layout, snap};
 use crate::spring::spring_step;
 use crate::style::{Border, Length, Shadow, Style};
-use crate::{Color, Element, Id, Measure, Mix, Rect, Size};
+use crate::{Color, Element, Id, Measure, Mix, Size};
 use fit::Fit;
 
 /// How a change of an element moves.
@@ -1409,7 +1409,7 @@ impl Motions {
                 // What the box that held it cuts now, not as it did where it went from. A box that
                 // follows its size cuts what went from it at rest too: that is not the page's.
                 let cut = if node.clips || node.meta.motion.is_some_and(|motion| motion.auto_size) {
-                    node.clip.intersect(node.rect)
+                    node.cut()
                 } else {
                     node.clip
                 };
@@ -1429,9 +1429,7 @@ impl Motions {
                 let mut node = node.clone();
                 node.rect.x += dx;
                 node.rect.y += dy;
-                node.clip.x += origin.0;
-                node.clip.y += origin.1;
-                node.clip = node.clip.intersect(cut);
+                node.clip = node.clip.translate(origin.0, origin.1).intersect(cut.rect);
                 node.opacity *= opacity;
                 if at == 0 {
                     node.turn += exit.rotate * t;
@@ -1486,8 +1484,7 @@ impl Motions {
                                     node.parent.and_then(|parent| parent.checked_sub(index));
                                 node.rect.x -= origin.0;
                                 node.rect.y -= origin.1;
-                                node.clip.x -= origin.0;
-                                node.clip.y -= origin.1;
+                                node.clip = node.clip.translate(-origin.0, -origin.1);
                                 // What goes does not loop on: it is where the loops had it.
                                 node.cycled = (0.0, 0.0);
                                 node
@@ -1596,7 +1593,7 @@ fn shift(nodes: &mut [Node], dx: f32, dy: f32, opacity: f32) {
         node.rect.x += dx;
         node.rect.y += dy;
         if node.clip != outer_clip {
-            node.clip = Rect::new(node.clip.x + dx, node.clip.y + dy, node.clip.w, node.clip.h);
+            node.clip = node.clip.translate(dx, dy);
         }
         node.opacity *= opacity;
     }

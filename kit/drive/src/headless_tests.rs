@@ -2449,7 +2449,7 @@ fn in_view(page: &Headless) -> Vec<(u32, bool)> {
         .items
         .iter()
         .filter_map(|item| match item {
-            Paint::Image(picture) if picture.rect.intersect(picture.clip).h > 0.0 => {
+            Paint::Image(picture) if picture.rect.intersect(picture.clip.rect).h > 0.0 => {
                 Some((picture.page, is_sharp(images, picture)))
             }
             _ => None,

@@ -4,7 +4,7 @@
 
 use pencere_view::bands::{Band, Corner, Part, rounded};
 use pencere_view::edit::Range;
-use pencere_view::{Color, Figure, Paint, Quad, Rect, path};
+use pencere_view::{Clip, Color, Figure, Paint, Quad, Rect, path};
 
 use super::{Row, View};
 
@@ -21,7 +21,7 @@ impl View {
         ranges: &[Range],
         rows: &[&Row],
         (origin_x, y): (f32, &dyn Fn(&Row) -> f32),
-        (ground, clip): (Color, Rect),
+        (ground, clip): (Color, Clip),
         radius: f32,
         out: &mut Vec<Paint>,
     ) {
@@ -60,7 +60,7 @@ impl View {
 
     /// The inside of a turn: a square of `rect`, filled but for a quarter of a circle about the
     /// corner [`Part::Fillet`] says, drawn as a figure (the same raster in every host).
-    fn fillet(&self, rect: Rect, corner: Corner, ground: Color, clip: Rect) -> Paint {
+    fn fillet(&self, rect: Rect, corner: Corner, ground: Color, clip: Clip) -> Paint {
         let s = self.scale.max(0.01);
         let side = rect.w.min(rect.h).floor();
         let rect = Rect::new(rect.x, rect.y, side, side);

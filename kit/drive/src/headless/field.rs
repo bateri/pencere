@@ -327,7 +327,7 @@ fn words_at(at: (f32, f32), text: &str, font: Font, ink: Role, clip: Rect) -> Pa
         color: Color::from(ink),
         opacity: 1.0,
         grounds: Vec::new(),
-        clip,
+        clip: pencere_view::Clip::new(clip),
         underline: false,
         strike: false,
     })
@@ -343,7 +343,7 @@ fn ground(rect: Rect, fill: Role, clip: Rect) -> Paint {
         gradient: None,
         border: None,
         shadow: None,
-        clip,
+        clip: pencere_view::Clip::new(clip),
     })
 }
 
@@ -614,7 +614,7 @@ mod tests {
                 ]
             );
             // The room has no border here: lines are cut at it, and the padding is inside it.
-            assert_eq!(runs(&items)[0].clip.x, 20.0, "cut at the padding box");
+            assert_eq!(runs(&items)[0].clip.rect.x, 20.0, "cut at the padding box");
         }
 
         #[test]
@@ -671,13 +671,13 @@ mod tests {
                 assert!(
                     runs(&items)
                         .iter()
-                        .all(|run| run.clip.x == 36.0 && run.clip.w == 168.0),
+                        .all(|run| run.clip.rect.x == 36.0 && run.clip.rect.w == 168.0),
                     "{items:?}"
                 );
                 assert!(
                     grounds(&items)
                         .iter()
-                        .all(|quad| quad.clip.x == 36.0 && quad.clip.w == 168.0),
+                        .all(|quad| quad.clip.rect.x == 36.0 && quad.clip.rect.w == 168.0),
                     "{items:?}"
                 );
             }

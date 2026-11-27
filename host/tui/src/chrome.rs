@@ -77,7 +77,7 @@ impl Paper<'_> {
             gradient: None,
             border: None,
             shadow: None,
-            clip,
+            clip: clip.into(),
         })
     }
 
@@ -97,7 +97,7 @@ impl Paper<'_> {
             color: Color::from(color),
             opacity: 1.0,
             grounds: Vec::new(),
-            clip,
+            clip: clip.into(),
             underline: false,
             strike: false,
         })
@@ -128,7 +128,7 @@ pub(crate) fn foot_of(items: &[Paint], window: Rect, row: f32) -> f32 {
         if quad.fill.is_none() && quad.gradient.is_none() {
             continue;
         }
-        let seen = quad.rect.intersect(quad.clip);
+        let seen = quad.rect.intersect(quad.clip.rect);
         if seen.w <= 0.0 || seen.h <= 0.0 {
             continue;
         }

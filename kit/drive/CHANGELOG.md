@@ -9,6 +9,7 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 ### Changed
 
 - **A picture of a page draws a border as the box it takes**: what is in a box stands inside its border and padding (a text, a sparkline, a canvas in the room that is left), and the ground of a child does not cover the border of the box it is in.
+- **The headless picture cuts at the round corners of a `Clip`**: a box, a line of words, a picture, a rule or a figure that a rounded box that clips holds is cut by the corners of its padding box, with an edge a pixel wide as a box's is, so a child's ground no longer squares off the corner of the box around it. What the picture moves by (`slide`) and the rows and columns it redraws read the rectangle of a clip, and a box with round corners is not drawn whole.
 
 ### Added
 

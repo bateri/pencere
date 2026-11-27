@@ -35,7 +35,7 @@ fn fills(list: &DrawList) -> Vec<(Rect, Rect, Role)> {
     list.items
         .iter()
         .filter_map(|item| match item {
-            Paint::Quad(quad) => Some((quad.rect, quad.clip, quad.fill?.role()?)),
+            Paint::Quad(quad) => Some((quad.rect, quad.clip.rect, quad.fill?.role()?)),
             _ => None,
         })
         .collect()

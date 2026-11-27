@@ -737,7 +737,7 @@ mod tests {
             rect: Rect::new(0.0, 0.0, 20.0 * scale, 20.0 * scale),
             scale,
             paths,
-            clip: Rect::new(0.0, 0.0, 1000.0, 1000.0),
+            clip: pencere_view::Clip::new(Rect::new(0.0, 0.0, 1000.0, 1000.0)),
         }
     }
 

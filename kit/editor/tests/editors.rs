@@ -2530,7 +2530,7 @@ fn what_stands_in_a_zone_scrolls_with_the_text_and_is_cut_by_the_room() {
         Paint::Quad(quad) if quad.fill.and_then(|f| f.role()) == Some(Role::Red) => Some(quad.clip),
         _ => None,
     });
-    assert!(red.is_none_or(|clip| clip.y >= 0.0 && clip.bottom() <= 200.0));
+    assert!(red.is_none_or(|clip| clip.rect.y >= 0.0 && clip.rect.bottom() <= 200.0));
 }
 
 #[test]

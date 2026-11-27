@@ -1894,7 +1894,7 @@ fn page_in(page: u32, top: f32, whole: Size, view: Size) -> Picture {
         tint: None,
         opacity: 1.0,
         radii: [0.0; 4],
-        clip,
+        clip: clip.into(),
         turn: 0.0,
     }
 }

@@ -1297,7 +1297,7 @@ mod tests {
                         ),
                     };
                     // What is drawn is what the clip lets through.
-                    let seen = rect.intersect(clip);
+                    let seen = rect.intersect(clip.rect);
                     if seen.w > 0.0 && seen.h > 0.0 {
                         assert!(
                             seen.right() <= edge + 1.0 && seen.bottom() <= 600.0 * scale + 1.0,

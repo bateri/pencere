@@ -15,7 +15,7 @@
 use super::{Ease, Leg, Motions, Pace, ancestors, content_origin, shift, subtree_end};
 use crate::layout::{Laid, Node, layout};
 use crate::style::{Length, Overflow};
-use crate::{Element, Id, Measure, Rect, Size};
+use crate::{Clip, Element, Id, Measure, Size};
 
 /// What is kept of a box that moves with the size it is laid out at.
 #[derive(Clone, Copy, Debug)]
@@ -195,7 +195,7 @@ impl Motions {
             };
             let (dx, dy) = (here.rect.x - there.rect.x, here.rect.y - there.rect.y);
             let kept = children_clip(&there);
-            let cut = here.clip.intersect(here.rect);
+            let cut = here.cut();
             for index in inner.index + 1..end {
                 let (Some(node), Some(slot)) = (source.nodes.get(index), page.nodes.get_mut(index))
                 else {
@@ -206,7 +206,7 @@ impl Motions {
                 slot.clip = if slot.clip == kept {
                     cut
                 } else {
-                    slot.clip.translate(dx, dy).intersect(cut)
+                    slot.clip.translate(dx, dy).intersect(cut.rect)
                 };
                 if let Some(held) = inside.get_mut(index) {
                     *held = true;
@@ -278,12 +278,8 @@ impl Motions {
 }
 
 /// What a box lets of itself be drawn in the boxes inside it.
-fn children_clip(node: &Node) -> Rect {
-    if node.clips {
-        node.clip.intersect(node.rect)
-    } else {
-        node.clip
-    }
+fn children_clip(node: &Node) -> Clip {
+    node.child_clip()
 }
 
 /// The boxes `sizes` name are as large as they say, and cut what is in them.

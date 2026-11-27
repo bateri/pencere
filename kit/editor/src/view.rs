@@ -19,8 +19,8 @@ use pencere_view::edit::{
     RulerLane, Underline, Whitespace, ZoneSide, limits,
 };
 use pencere_view::{
-    Border, Color, Cursor, EditorRoom, EditorSlot, Figure, Font, Id, Measure, Mods, Paint, Picture,
-    Point, Quad, Rect, Role, Run, Shadow, Size, path,
+    Border, Clip, Color, Cursor, EditorRoom, EditorSlot, Figure, Font, Id, Measure, Mods, Paint,
+    Picture, Point, Quad, Rect, Role, Run, Shadow, Size, path,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -1072,7 +1072,7 @@ impl View {
         let origin_x = room.x + self.text_x() - slot.scroll.x;
         let origin_y = room.y + self.pad - slot.scroll.y;
         let row_y = |row: &Row| origin_y + self.y_of(row.index);
-        let quad = |rect: Rect, fill: Color, clip: Rect| {
+        let quad = |rect: Rect, fill: Color, clip: Clip| {
             Paint::Quad(Quad {
                 rect,
                 radii: [0.0; 4],
@@ -1393,7 +1393,7 @@ impl View {
 
     /// The caret's box as it is drawn: with the corners the options round, the light round it where
     /// it has some, and an outline as thick as a bar where it is hollow.
-    fn caret_quad(&self, rect: Rect, color: Color, look: CaretLook, clip: Rect) -> Paint {
+    fn caret_quad(&self, rect: Rect, color: Color, look: CaretLook, clip: Clip) -> Paint {
         let caret = self.options.caret;
         let radius = (caret.radius * self.row)
             .min(rect.w / 2.0)
@@ -1475,7 +1475,7 @@ impl View {
         line: &str,
         origin_x: f32,
         y: f32,
-        clip: Rect,
+        clip: Clip,
         grounds: &mut Vec<Color>,
         slot: &EditorSlot,
         under: &Under<'_>,
@@ -1658,7 +1658,7 @@ impl View {
         rows: &[&Row],
         (focused, caret): (bool, usize),
         origin_x: f32,
-        clip: Rect,
+        clip: Clip,
     ) -> Vec<Vec<(f32, Color)>> {
         let colors = &self.options.colors;
         let guide = colors.indent_guides.or(Role::Border.solid());
@@ -1681,8 +1681,8 @@ impl View {
                     return Vec::new();
                 }
                 let level = levels.of(row.line);
-                let first = ((clip.x - thick - origin_x) / step).floor().max(0.0) as usize;
-                let past = ((clip.right() - origin_x) / step).floor().max(0.0) as usize;
+                let first = ((clip.rect.x - thick - origin_x) / step).floor().max(0.0) as usize;
+                let past = ((clip.rect.right() - origin_x) / step).floor().max(0.0) as usize;
                 (first..level.min(past.saturating_add(1)))
                     .filter_map(|at| {
                         let in_block = block.is_some_and(|(index, from, to)| {
@@ -1706,7 +1706,7 @@ impl View {
         guides: &mut Peekable<slice::Iter<'_, (f32, Color)>>,
         marks: Option<&Marks<'_>>,
         (a, b): (usize, usize),
-        (origin_x, y, clip, opacity): (f32, f32, Rect, f32),
+        (origin_x, y, clip, opacity): (f32, f32, Clip, f32),
         out: &mut Vec<Paint>,
     ) {
         let end = origin_x + row.end_x(b);
@@ -1724,11 +1724,11 @@ impl View {
                 continue;
             }
             let (left, right) = (origin_x + row.x(at), origin_x + row.end_x(at + 1));
-            if left > clip.right() {
+            if left > clip.rect.right() {
                 break;
             }
             // A space with an accent on it is a letter.
-            if right <= left || right < clip.x || !marks.shows(at) {
+            if right <= left || right < clip.rect.x || !marks.shows(at) {
                 continue;
             }
             match c {
@@ -1744,7 +1744,7 @@ impl View {
 
     /// A guide of the indent at `x` on the row whose top is `y`: a line a pixel wide down the row,
     /// so that those of the rows one under the other are one line.
-    fn guide(&self, x: f32, y: f32, color: Color, clip: Rect) -> Paint {
+    fn guide(&self, x: f32, y: f32, color: Color, clip: Clip) -> Paint {
         Paint::Quad(Quad {
             rect: Rect::new(x, y, self.scale.round().max(1.0), self.row),
             radii: [0.0; 4],
@@ -1764,7 +1764,7 @@ impl View {
 
     /// The dot of a space from `left` to `right` across, on the row whose top is `y`: in its
     /// middle, whole pixels wide.
-    fn dot(&self, (left, right): (f32, f32), y: f32, color: Color, clip: Rect) -> Paint {
+    fn dot(&self, (left, right): (f32, f32), y: f32, color: Color, clip: Clip) -> Paint {
         let d = (2.0 * self.mark_unit()).round().max(1.0);
         let (x, y) = ((left + right) / 2.0, y + self.row / 2.0);
         Paint::Quad(Quad {
@@ -1782,7 +1782,7 @@ impl View {
     /// the middle of the row as wide as the tab (a seventh of a space in from each end), its head at
     /// the right; none for a tab too narrow for one. The figure's box is whole pixels, and its line
     /// on them, so that it is drawn sharp.
-    fn arrow(&self, (left, right): (f32, f32), y: f32, color: Color, clip: Rect) -> Option<Paint> {
+    fn arrow(&self, (left, right): (f32, f32), y: f32, color: Color, clip: Clip) -> Option<Paint> {
         let unit = self.mark_unit();
         let length = right - left - 2.0 * unit;
         if length <= 0.0 {
@@ -1825,7 +1825,7 @@ impl View {
     /// The box of another space (a no-break space, an ideographic one) from `left` to `right`
     /// across, on the row whose top is `y`: as wide as it is and as tall as the text, a line a
     /// pixel wide round it.
-    fn space_box(&self, (left, right): (f32, f32), y: f32, color: Color, clip: Rect) -> Paint {
+    fn space_box(&self, (left, right): (f32, f32), y: f32, color: Color, clip: Clip) -> Paint {
         let width = right - left;
         Paint::Quad(Quad {
             rect: self.text_box(Rect::new(left, y, width, self.row)),
@@ -1853,7 +1853,7 @@ impl View {
         (rect, text_y): (Rect, f32),
         colors: (Color, Color),
         opacity: f32,
-        clip: Rect,
+        clip: Clip,
         out: &mut Vec<Paint>,
     ) {
         let end = (row.base + row.to).min(grapheme_after(&buffer.text, at));
@@ -1871,7 +1871,7 @@ impl View {
         rows: &[&Row],
         rect: Rect,
         (origin_x, row_y): (f32, &dyn Fn(&Row) -> f32),
-        (colors, opacity, clip): ((Color, Color), f32, Rect),
+        (colors, opacity, clip): ((Color, Color), f32, Clip),
         out: &mut Vec<Paint>,
     ) {
         for row in rows {
@@ -1910,7 +1910,7 @@ impl View {
         origin: Point,
         (block, color): (Color, Color),
         opacity: f32,
-        clip: Rect,
+        clip: Clip,
     ) -> Option<Paint> {
         let text = buffer
             .slice(from, to)
@@ -1949,7 +1949,7 @@ impl View {
         &self,
         underline: Underline,
         rect: Rect,
-        clip: Rect,
+        clip: Clip,
         opacity: f32,
         out: &mut Vec<Paint>,
     ) {
@@ -1996,7 +1996,7 @@ impl View {
         buffer: &Buffer,
         rows: &[&Row],
         slot: &EditorSlot,
-        (gutter, clip): (Rect, Rect),
+        (gutter, clip): (Rect, Clip),
         band: Option<(f32, Color)>,
         measure: &mut dyn Measure,
         out: &mut Vec<Paint>,
@@ -2256,7 +2256,7 @@ impl View {
         rows: &[&Row],
         hidden: &[(usize, usize)],
         slot: &EditorSlot,
-        (gutter, clip): (Rect, Rect),
+        (gutter, clip): (Rect, Clip),
         measure: &mut dyn Measure,
         out: &mut Vec<Paint>,
     ) {
@@ -2359,7 +2359,7 @@ impl View {
         veil: Option<Color>,
         wide: bool,
         col: &Col,
-        (gutter, clip): (Rect, Rect),
+        (gutter, clip): (Rect, Clip),
         (single, span): ((f32, f32), (f32, f32)),
         slot: &EditorSlot,
         measure: &mut dyn Measure,

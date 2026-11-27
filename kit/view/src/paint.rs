@@ -7,7 +7,7 @@ use crate::element::Fit;
 use crate::layout::{Content, Laid, Node, Placed, Rich, TextLine, rich_boxes};
 use crate::style::{Border, Gradient, Shadow};
 use crate::text::wrap_lines;
-use crate::{Align, Color, Font, Id, Measure, Path, Point, Rect, Size};
+use crate::{Align, Clip, Color, Font, Id, Measure, Path, Point, Rect, Size};
 
 /// A box: an optional fill, a fill that runs from one colour to another over it, a border (drawn
 /// inside, over the fills) and a soft shadow (never under the box), cut at `clip`. `radii` are
@@ -22,7 +22,7 @@ pub struct Quad {
     pub gradient: Option<Gradient>,
     pub border: Option<Border>,
     pub shadow: Option<Shadow>,
-    pub clip: Rect,
+    pub clip: Clip,
 }
 
 /// One line of text: `origin` is the top-left of its line box. Already cut to fit its box
@@ -50,7 +50,7 @@ pub struct Run {
     pub color: Color,
     pub opacity: f32,
     pub grounds: Vec<Color>,
-    pub clip: Rect,
+    pub clip: Clip,
     /// A line under the words, which the host draws where its font puts one, in `color`.
     pub underline: bool,
     /// A line through the words, likewise.
@@ -94,7 +94,7 @@ pub struct Picture {
     /// The corners of `rect`, pixels: top-left, top-right, bottom-right, bottom-left. The corners
     /// the element asked for, taken in where the room that is drawn is smaller than its box.
     pub radii: [f32; 4],
-    pub clip: Rect,
+    pub clip: Clip,
     /// How far it is turned, degrees clockwise about the middle of `rect`: the host draws it
     /// turned so (a spinner's, [`crate::Motion::spin`]), cut at `clip` as it is. 0 for one that is
     /// not.
@@ -124,7 +124,7 @@ pub struct Figure {
     pub rect: Rect,
     pub scale: f32,
     pub paths: Vec<Path>,
-    pub clip: Rect,
+    pub clip: Clip,
 }
 
 /// Where an editor of the host's is drawn ([`crate::Element::editor`]): the host puts what its editor
@@ -136,7 +136,7 @@ pub struct EditorSlot {
     /// The room, pixels.
     pub rect: Rect,
     /// What of it is seen: nothing is drawn outside it.
-    pub clip: Rect,
+    pub clip: Clip,
     /// How far the room is scrolled, across and down, pixels.
     pub scroll: Point,
     /// How much of what is drawn shows: the opacity of the room and the boxes that hold it.
@@ -154,7 +154,7 @@ pub struct BrowserSlot {
     /// The room, pixels.
     pub rect: Rect,
     /// What of it is seen: nothing is drawn outside it.
-    pub clip: Rect,
+    pub clip: Clip,
     /// How much of what is drawn shows: the opacity of the room and the boxes that hold it.
     pub opacity: f32,
 }
@@ -434,7 +434,7 @@ fn seen(picture: &Picture) -> bool {
         let (x, y) = (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
         Rect::new(x - reach, y - reach, 2.0 * reach, 2.0 * reach)
     };
-    let shown = bounds.intersect(picture.clip);
+    let shown = bounds.intersect(picture.clip.rect);
     shown.w > 0.0 && shown.h > 0.0
 }
 
@@ -503,7 +503,7 @@ fn place_image(node: &Node, image: &Placed) -> Option<Picture> {
     // at the box it has, only by what holds that.
     let rect = grown(rect, node.scaled);
     let most = rect.w.min(rect.h) / 2.0;
-    let shown = shown_of(rect, crop, node.clip, node.turn);
+    let shown = shown_of(rect, crop, node.clip.rect, node.turn);
     Some(Picture {
         src: image.src.clone(),
         page: image.page,
@@ -640,7 +640,7 @@ fn cut(text: &str, font: &Font, budget: f32, measure: &mut dyn Measure) -> Optio
 fn paint_spark(
     list: &mut DrawList,
     rect: Rect,
-    clip: Rect,
+    clip: Clip,
     values: &[f32],
     color: Color,
     peak: Option<f32>,

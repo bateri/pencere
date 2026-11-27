@@ -24,8 +24,8 @@ use crate::style::{
 };
 use crate::text::{FITS, ZOOM_TEXT, field_line_height, wrap_lines};
 use crate::{
-    Align, Color, Command, Element, Family, Font, Id, Key, Measure, Metrics, Mods, Path, Point,
-    Rect, Role, Size, Span,
+    Align, Clip, Color, Command, Element, Family, Font, Id, Key, Measure, Metrics, Mods, Path,
+    Point, Rect, Role, Size, Span,
 };
 
 /// The fewest and the most lines a field of lines is as tall as ([`Element::field_rows`]).
@@ -113,8 +113,9 @@ pub(crate) enum Content {
 pub(crate) struct Node {
     /// The box, in the page's pixels.
     pub rect: Rect,
-    /// What the elements around it let be drawn.
-    pub clip: Rect,
+    /// What the boxes around it let be drawn: a rectangle, and the corners of the innermost of them
+    /// that clips and is rounded.
+    pub clip: Clip,
     /// A box nothing of which is drawn (it, or an ancestor, is `hidden`).
     pub hidden: bool,
     pub content: Content,
@@ -178,6 +179,30 @@ impl Node {
     pub(crate) fn content_box(&self) -> Rect {
         less(less(self.rect, self.edge), self.pad)
     }
+
+    /// What it lets the boxes inside it draw, where it clips: its clip cut at its padding box, with the
+    /// corners of the box less its border (whether it clips or not; [`Node::child_clip`] is the one that
+    /// asks).
+    pub(crate) fn cut(&self) -> Clip {
+        cut_at(self.clip, self.rect, self.edge, self.radii)
+    }
+
+    /// What the boxes inside it may draw: [`Node::cut`] where it clips, and its own clip where it does
+    /// not.
+    pub(crate) fn child_clip(&self) -> Clip {
+        if self.clips { self.cut() } else { self.clip }
+    }
+}
+
+/// `outer` cut at the padding box of a box (its `rect` less its `edge`, the border), with the corners
+/// of the box less its border: `radii` are the box's, pixels, and what a border takes of a corner is
+/// the widest of its sides (they are all one width), never more than the radius is.
+fn cut_at(outer: Clip, rect: Rect, edge: [f32; 4], radii: [f32; 4]) -> Clip {
+    let border = edge.into_iter().fold(0.0_f32, f32::max);
+    outer.within(
+        less(rect, edge),
+        radii.map(|radius| (radius - border).max(0.0)),
+    )
 }
 
 /// A page laid out: every element's box, in the order they are painted.
@@ -453,7 +478,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
     // The overlays that stand beside an element, by their place in `nodes`.
     let mut anchors: Vec<(usize, Anchor)> = Vec::new();
     // Where each element's children are measured from, and the clip they inherit.
-    let mut origins: Vec<(f32, f32, Rect, bool)> = Vec::with_capacity(pending.len());
+    let mut origins: Vec<(f32, f32, Clip, bool)> = Vec::with_capacity(pending.len());
     // How far down and across each box's children reach, where the box does not scroll them:
     // the size of what a scrolling box holds.
     let mut reach: Vec<(f32, f32)> = Vec::with_capacity(pending.len());
@@ -464,7 +489,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
         let Ok(laid) = tree.layout(entry.id) else {
             // A node Taffy does not know: nothing of it (cannot happen — its own ids).
             nodes.push(empty(page));
-            origins.push((0.0, 0.0, page, true));
+            origins.push((0.0, 0.0, Clip::new(page), true));
             reach.push((0.0, 0.0));
             inside.push([0.0; 4]);
             continue;
@@ -476,12 +501,12 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
                 // An overlay stands against the page and is cut by nothing that holds it; it is
                 // hidden with it all the same.
                 if entry.overlay {
-                    (0.0, 0.0, page, hidden)
+                    (0.0, 0.0, Clip::new(page), hidden)
                 } else {
                     (ox, oy, clip, hidden)
                 }
             })
-            .unwrap_or((0.0, 0.0, page, false));
+            .unwrap_or((0.0, 0.0, Clip::new(page), false));
         let rect = Rect::new(
             ox + laid.location.x,
             oy + laid.location.y,
@@ -489,10 +514,16 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             laid.size.height,
         );
         let hidden = outer_hidden || entry.hidden;
+        let edge = [
+            laid.border.left,
+            laid.border.top,
+            laid.border.right,
+            laid.border.bottom,
+        ];
         let own_clip = if entry.overflow == Overflow::Visible {
             outer_clip
         } else {
-            outer_clip.intersect(rect)
+            cut_at(outer_clip, rect, edge, entry.radii)
         };
         origins.push((
             rect.x - entry.scroll.0,
@@ -546,12 +577,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             turn: entry.turn,
             scaled: entry.scaled,
             cycled: (0.0, 0.0),
-            edge: [
-                laid.border.left,
-                laid.border.top,
-                laid.border.right,
-                laid.border.bottom,
-            ],
+            edge,
             pad: [
                 laid.padding.left,
                 laid.padding.top,
@@ -672,7 +698,7 @@ fn place_zones(
                 // A clip of a box inside it moves with it, and the room cuts it where it ends; the
                 // editor's does not move.
                 if inside.clip != outer {
-                    inside.clip = inside.clip.translate(dx, dy).intersect(outer);
+                    inside.clip = inside.clip.translate(dx, dy).intersect(outer.rect);
                 }
                 inside.hidden |= found.is_none();
             }
@@ -785,7 +811,7 @@ fn place_beside(
             return None;
         }
         let rect = caret_on_page(nodes, found)?;
-        let seen = room.rect.intersect(room.clip);
+        let seen = room.rect.intersect(room.clip.rect);
         Some((rect, rect.y < seen.bottom() && rect.bottom() > seen.y))
     };
     let (to, seen) = match element.or_else(caret) {
@@ -918,7 +944,7 @@ fn natural_size(said: Option<Size>, scale: f32) -> Option<Size> {
 fn empty(page: Rect) -> Node {
     Node {
         rect: Rect::default(),
-        clip: page,
+        clip: Clip::new(page),
         hidden: true,
         content: Content::None,
         fill: None,
@@ -1546,7 +1572,7 @@ impl Laid {
 
     /// The part of `node` that shows, pixels: its box where the boxes around it let it be seen.
     pub(crate) fn shown(node: &Node) -> Rect {
-        node.rect.intersect(node.clip)
+        node.rect.intersect(node.clip.rect)
     }
 
     fn named(&self, id: Id) -> Option<&Node> {
@@ -1686,7 +1712,11 @@ impl Laid {
     pub fn hit(&self, at: Point) -> Option<Id> {
         let (x, y) = (at.x * self.scale, at.y * self.scale);
         self.nodes.iter().rev().find_map(|node| {
-            if node.hidden || node.meta.state.disabled || !Self::shown(node).contains(x, y) {
+            if node.hidden
+                || node.meta.state.disabled
+                || !Self::shown(node).contains(x, y)
+                || node.clip.round.is_some_and(|round| !round.contains(x, y))
+            {
                 return None;
             }
             if let Some(link) = self
@@ -1990,13 +2020,7 @@ impl Laid {
             let parent = self.nodes.get(at).and_then(|node| node.parent);
             let held = parent
                 .and_then(|parent| self.nodes.get(parent))
-                .map(|parent| {
-                    if parent.clips {
-                        parent.clip.intersect(parent.rect)
-                    } else {
-                        parent.clip
-                    }
-                });
+                .map(Node::child_clip);
             // What stands in a zone of an editor goes up and down with its text, and not across.
             let across = if editor.is_some() && self.in_zone_of(at, index) {
                 0.0

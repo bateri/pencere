@@ -201,7 +201,7 @@ impl Laid {
                     shape: shape_of(node),
                     field: node.meta.field,
                     rect: points(node.rect),
-                    clip: points(node.clip),
+                    clip: points(node.clip.rect),
                     padding: [top / s, right / s, bottom / s, left / s],
                     border: node.border.map(|border| Border {
                         width: border.width / s,

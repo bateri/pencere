@@ -31,6 +31,7 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
   of the content is made of): the length of the longest line is kept from one change to the next, and
   the lines are walked again only when a change shortens the longest line itself or touches many
   lines. Where the editor wraps, the rows are still counted line by line.
+- **The paints the editor makes carry a `Clip`** (the rectangle of its view, `Clip::new(rect)`), as every `Paint` of the kit does.
 
 ### Fixed
 

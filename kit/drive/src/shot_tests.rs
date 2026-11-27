@@ -29,7 +29,7 @@ fn quad(rect: Rect, role: Role) -> Paint {
         gradient: None,
         border: None,
         shadow: None,
-        clip: Rect::new(0.0, 0.0, 120.0, 60.0),
+        clip: Rect::new(0.0, 0.0, 120.0, 60.0).into(),
     })
 }
 
@@ -46,7 +46,7 @@ fn run(at: Point, words: &str, role: Role, underline: bool, clip: Rect) -> Paint
         color: role.solid(),
         opacity: 1.0,
         grounds: Vec::new(),
-        clip,
+        clip: clip.into(),
         underline,
         strike: false,
     })
@@ -119,19 +119,22 @@ fn a_list_drawn_with_no_font_is_the_same_picture_everywhere() {
     assert_ne!(light, drawn);
 }
 
+/// A measure of text with no width and no height, for a picture with no words in it.
+struct Mute;
+
+impl pencere_view::Measure for Mute {
+    fn measure(&mut self, _: &Font, _: &str) -> pencere_view::Metrics {
+        pencere_view::Metrics {
+            width: 0.0,
+            height: 0.0,
+        }
+    }
+}
+
 /// What is in a box with a border stands inside the border, and its ground does not cover it: the
 /// four sides of the border are the box's, as a box of a style sheet's.
 #[test]
 fn the_ground_of_what_is_in_a_bordered_box_leaves_the_four_sides_of_the_border_showing() {
-    struct Mute;
-    impl pencere_view::Measure for Mute {
-        fn measure(&mut self, _: &Font, _: &str) -> pencere_view::Metrics {
-            pencere_view::Metrics {
-                width: 0.0,
-                height: 0.0,
-            }
-        }
-    }
     let root = div().child(
         div()
             .size(40.0, 30.0)
@@ -169,6 +172,42 @@ fn the_ground_of_what_is_in_a_bordered_box_leaves_the_four_sides_of_the_border_s
     }
 }
 
+/// What a rounded box that clips holds is cut at the corners of its padding box (the box's own,
+/// less its border): the ground of a child that reaches into a corner does not square it off.
+#[test]
+fn the_ground_of_what_is_in_a_rounded_box_that_clips_follows_its_inner_corners() {
+    let root = div().child(
+        div()
+            .size(40.0, 30.0)
+            .border(2.0, Role::Accent)
+            .rounded(10.0)
+            .clip()
+            .child(div().size_full().bg(Role::Raised(2))),
+    );
+    let list = pencere_view::layout(root, Size::new(60.0, 50.0), 1.0, &mut Mute).paint(&mut Mute);
+    let drawn = png(&list, (60, 50), &Fonts::none(), None, Palette::Dark).expect("a picture");
+    let pixmap = Pixmap::decode_png(&drawn).expect("a PNG");
+    let at = |x: u32, y: u32| {
+        pixmap
+            .pixel(x, y)
+            .map(|pixel| (pixel.red(), pixel.green(), pixel.blue()))
+    };
+    let page = at(55, 45);
+    let inside = at(20, 15);
+    let border = at(0, 15);
+    assert_ne!(inside, border);
+    // Where the padding box's corner would be square: neither the child's ground nor the border's.
+    for (x, y) in [(2, 2), (37, 2), (2, 27), (37, 27)] {
+        assert_ne!(at(x, y), inside, "no ground at the square corner {x}, {y}");
+    }
+    // Past the curve of the inner corner the ground is there again, on the diagonal and along the sides.
+    for (x, y) in [(9, 9), (30, 20), (20, 4), (4, 15)] {
+        assert_eq!(at(x, y), inside, "the ground at {x}, {y}");
+    }
+    // The page behind the box is the page's, and the corner outside the border's curve too.
+    assert_eq!(at(0, 0), page);
+}
+
 /// A rounded box its clip cuts keeps its corners where they are and is cut straight at the clip.
 #[test]
 fn a_rounded_box_cut_by_its_clip_is_cut_straight_and_keeps_its_own_corners() {
@@ -180,7 +219,7 @@ fn a_rounded_box_cut_by_its_clip_is_cut_straight_and_keeps_its_own_corners() {
             gradient: None,
             border: None,
             shadow: None,
-            clip: Rect::new(0.0, 0.0, 40.0, 20.0),
+            clip: Rect::new(0.0, 0.0, 40.0, 20.0).into(),
         })],
     };
     let drawn = png(&list, (40, 40), &Fonts::none(), None, Palette::Dark).expect("a picture");
@@ -969,7 +1008,7 @@ fn items_that_reach() -> Vec<Paint> {
             color: Role::Foreground.solid(),
             opacity: 1.0,
             grounds: Vec::new(),
-            clip: world,
+            clip: world.into(),
             underline,
             strike,
         })
@@ -985,7 +1024,7 @@ fn items_that_reach() -> Vec<Paint> {
                 color: Role::Accent.solid(),
             }),
             shadow,
-            clip,
+            clip: clip.into(),
         })
     };
     let shadow = |dy: f32, blur: f32| {
@@ -1082,7 +1121,7 @@ fn rows_drawn_alone_are_the_rows_of_the_picture_drawn_whole() {
         gradient: None,
         border: None,
         shadow: None,
-        clip: Rect::new(0.0, 0.0, 400.0, 300.0),
+        clip: Rect::new(0.0, 0.0, 400.0, 300.0).into(),
     })];
     items.extend(items_that_reach());
     let list = DrawList { items };
@@ -1175,7 +1214,7 @@ fn bands_drawn_in_the_same_buffers_are_the_rows_of_the_whole_with_the_pages_edge
         gradient: None,
         border: None,
         shadow: None,
-        clip: Rect::new(0.0, 0.0, 400.0, 300.0),
+        clip: Rect::new(0.0, 0.0, 400.0, 300.0).into(),
     })];
     items.extend(items_that_reach());
     let list = DrawList { items };
@@ -1260,7 +1299,7 @@ fn a_clip_far_past_the_picture_is_cleared_for_the_next_clip() {
                 color: Role::Accent.solid(),
             }),
             shadow: None,
-            clip: rect,
+            clip: rect.into(),
         })
     };
     let list = DrawList {
@@ -1293,7 +1332,7 @@ fn words_at(x: f32, y: f32, size: f32, text: &str, italic: bool, strike: bool) -
         color: Role::Foreground.solid(),
         opacity: 1.0,
         grounds: Vec::new(),
-        clip: Rect::new(0.0, 0.0, 400.0, 300.0),
+        clip: Rect::new(0.0, 0.0, 400.0, 300.0).into(),
         underline: strike,
         strike,
     })
@@ -1362,7 +1401,7 @@ fn box_between_pixels() -> Paint {
             color: Role::Accent.solid(),
         }),
         shadow: None,
-        clip: Rect::new(0.0, 0.0, 400.0, 300.0),
+        clip: Rect::new(0.0, 0.0, 400.0, 300.0).into(),
     })
 }
 
@@ -1439,7 +1478,7 @@ fn columns_drawn_alone_are_the_columns_of_the_rows_drawn_across_the_picture() {
         gradient: None,
         border: None,
         shadow: None,
-        clip: Rect::new(0.0, 0.0, 400.0, 300.0),
+        clip: Rect::new(0.0, 0.0, 400.0, 300.0).into(),
     });
     let (width, height) = (400_u32, 300_u32);
     let mut worst = 0_u8;

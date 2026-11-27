@@ -13,7 +13,7 @@
 //! measured for.
 
 use pencere_sandbox::{Images, draw_figure};
-use pencere_view::{Color, DrawList, Paint, Rect, Role, Source};
+use pencere_view::{Clip, Color, DrawList, Paint, Rect, Role, Round, Source};
 use tiny_skia::{
     FillRule, Mask, Paint as Ink, PathBuilder, Pixmap, PixmapMut, PixmapPaint, PixmapRef, Stroke,
     Transform,
@@ -240,8 +240,8 @@ impl Scratch {
 struct Tools {
     /// The mask the drawing is cut through: one byte a pixel, zero but where `inked` says.
     mask: Option<Mask>,
-    /// The rectangle `mask` is the cut of.
-    clip: Option<[f32; 4]>,
+    /// The clip `mask` is the cut of.
+    clip: Option<Clip>,
     /// The columns and rows (end excluded) `mask` is not zero in.
     inked: Option<(usize, usize, usize, usize)>,
     /// A shadow's silhouette as pixels, and the coverage of the silhouette and of the box itself.
@@ -257,8 +257,8 @@ impl Tools {
     /// The mask of `clip` for a picture of `size`: what is drawn through it is cut there. The one
     /// buffer is cleared where its last clip was and written where this one is, and is as it was
     /// where the clip is the same. `None` where the clip is no rectangle.
-    fn masked(&mut self, size: (u32, u32), clip: Rect) -> Option<&Mask> {
-        let rect = tiny_skia::Rect::from_xywh(clip.x, clip.y, clip.w, clip.h)?;
+    fn masked(&mut self, size: (u32, u32), clip: Clip) -> Option<&Mask> {
+        let rect = tiny_skia::Rect::from_xywh(clip.rect.x, clip.rect.y, clip.rect.w, clip.rect.h)?;
         let (w, h) = (size.0 as usize, size.1 as usize);
         if self.mask.as_ref().map(|mask| (mask.width(), mask.height())) != Some(size) {
             let (mut bytes, across) = self.mask.take().map_or((Vec::new(), 0), |mask| {
@@ -281,8 +281,7 @@ impl Tools {
             self.clip = None;
         }
         let mask = self.mask.as_mut()?;
-        let key = [clip.x, clip.y, clip.w, clip.h];
-        if self.clip != Some(key) {
+        if self.clip != Some(clip) {
             if let Some((x0, y0, x1, y1)) = self.inked.take() {
                 let data = mask.data_mut();
                 for row in y0..y1.min(h) {
@@ -291,38 +290,60 @@ impl Tools {
                     }
                 }
             }
-            mask.fill_path(
-                &PathBuilder::from_rect(rect),
-                FillRule::Winding,
-                false,
-                Transform::identity(),
-            );
+            fill_clip(mask, clip, rect);
             // Where a fill of the rectangle can write: the pixels it covers and the rounding of its edges.
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let inked = (
-                ((clip.x.floor() - 1.0).max(0.0) as usize).min(w),
-                ((clip.y.floor() - 1.0).max(0.0) as usize).min(h),
-                ((clip.right().ceil() + 1.0).max(0.0) as usize).min(w),
-                ((clip.bottom().ceil() + 1.0).max(0.0) as usize).min(h),
+                ((clip.rect.x.floor() - 1.0).max(0.0) as usize).min(w),
+                ((clip.rect.y.floor() - 1.0).max(0.0) as usize).min(h),
+                ((clip.rect.right().ceil() + 1.0).max(0.0) as usize).min(w),
+                ((clip.rect.bottom().ceil() + 1.0).max(0.0) as usize).min(h),
             );
             self.inked = Some(inked);
-            self.clip = Some(key);
+            self.clip = Some(clip);
         }
         self.mask.as_ref()
     }
 }
 
+/// How much of the pixel at (`px`, `py`) the round corners of a clip let be drawn: all of it where there
+/// are none.
+fn round_cover(round: Option<Round>, px: i64, py: i64) -> f32 {
+    #[allow(clippy::cast_precision_loss)]
+    round.map_or(1.0, |round| round.cover(px as f32 + 0.5, py as f32 + 0.5))
+}
+
 /// A mask of its own, of `clip`, for a picture of `size`: for a drawing that cuts it further.
-fn fresh_mask(size: (u32, u32), clip: Rect) -> Option<Mask> {
+fn fresh_mask(size: (u32, u32), clip: Clip) -> Option<Mask> {
     let mut mask = Mask::new(size.0, size.1)?;
-    let rect = tiny_skia::Rect::from_xywh(clip.x, clip.y, clip.w, clip.h)?;
-    mask.fill_path(
-        &PathBuilder::from_rect(rect),
-        FillRule::Winding,
-        false,
-        Transform::identity(),
-    );
+    let rect = tiny_skia::Rect::from_xywh(clip.rect.x, clip.rect.y, clip.rect.w, clip.rect.h)?;
+    fill_clip(&mut mask, clip, rect);
     Some(mask)
+}
+
+/// Writes `clip` into a mask that is zero where it writes: the rectangle `rect` (the clip's) and,
+/// where the clip is rounded, the part of it the corners leave, their edge smoothed.
+fn fill_clip(mask: &mut Mask, clip: Clip, rect: tiny_skia::Rect) {
+    match clip
+        .round
+        .and_then(|round| rounded(round.rect, round.radii))
+    {
+        Some(shape) => {
+            mask.fill_path(&shape, FillRule::Winding, true, Transform::identity());
+            mask.intersect_path(
+                &PathBuilder::from_rect(rect),
+                FillRule::Winding,
+                false,
+                Transform::identity(),
+            );
+        }
+        None => mask.fill_path(
+            &PathBuilder::from_rect(rect),
+            FillRule::Winding,
+            false,
+            Transform::identity(),
+        ),
+    }
 }
 
 /// The draw list `list` of a view of `width` × `height` pixels drawn into pixels: as [`png`] draws
@@ -476,7 +497,7 @@ pub fn raster_part_in<'a>(
         .filter(|(item, _)| {
             // A line of words is set down to know where it ends only where its clip is in the columns.
             whole_width
-                || (!matches!(item, Paint::Text(run) if run.clip.x >= after || run.clip.right() <= before)
+                || (!matches!(item, Paint::Text(run) if run.clip.rect.x >= after || run.clip.rect.right() <= before)
                     && across(item, fonts).is_some_and(|(first, last)| first < after && last > before))
         })
         .collect();
@@ -590,7 +611,7 @@ pub fn reach(item: &Paint, fonts: &Fonts) -> Option<(f32, f32)> {
                 top = top.min(quad.rect.y + shadow.dy - blur);
                 bottom = bottom.max(quad.rect.bottom() + shadow.dy + blur);
             }
-            (top - 1.0, bottom + 1.0, quad.clip)
+            (top - 1.0, bottom + 1.0, quad.clip.rect)
         }
         Paint::Text(run) => {
             let (_, line) = fonts.line(&run.font);
@@ -598,21 +619,25 @@ pub fn reach(item: &Paint, fonts: &Fonts) -> Option<(f32, f32)> {
             (
                 run.origin.y - line * 0.25 - 1.0,
                 run.origin.y + line * 1.25 + 1.0,
-                run.clip,
+                run.clip.rect,
             )
         }
         Paint::Image(picture) => {
             let rect = picture.rect;
             if picture.turn == 0.0 {
-                (rect.y - 1.0, rect.bottom() + 1.0, picture.clip)
+                (rect.y - 1.0, rect.bottom() + 1.0, picture.clip.rect)
             } else {
                 // Turned about its middle: as far as its corners go.
                 let half = rect.w.hypot(rect.h) / 2.0;
                 let middle = rect.y + rect.h / 2.0;
-                (middle - half - 1.0, middle + half + 1.0, picture.clip)
+                (middle - half - 1.0, middle + half + 1.0, picture.clip.rect)
             }
         }
-        Paint::Figure(figure) => (figure.rect.y - 1.0, figure.rect.bottom() + 1.0, figure.clip),
+        Paint::Figure(figure) => (
+            figure.rect.y - 1.0,
+            figure.rect.bottom() + 1.0,
+            figure.clip.rect,
+        ),
         Paint::Editor(_) | Paint::Browser(_) => return None,
     };
     let (top, bottom) = (top.max(clip.y), bottom.min(clip.bottom()));
@@ -632,24 +657,28 @@ pub fn across(item: &Paint, fonts: &Fonts) -> Option<(f32, f32)> {
             if quad.shadow.is_some() {
                 return Some((f32::NEG_INFINITY, f32::INFINITY));
             }
-            (quad.rect.x - 1.0, quad.rect.right() + 1.0, quad.clip)
+            (quad.rect.x - 1.0, quad.rect.right() + 1.0, quad.clip.rect)
         }
         Paint::Text(run) => {
             let (left, right) = words_across(run, fonts)?;
-            (left - 1.0, right + 1.0, run.clip)
+            (left - 1.0, right + 1.0, run.clip.rect)
         }
         Paint::Image(picture) => {
             let rect = picture.rect;
             if picture.turn == 0.0 {
-                (rect.x - 1.0, rect.right() + 1.0, picture.clip)
+                (rect.x - 1.0, rect.right() + 1.0, picture.clip.rect)
             } else {
                 // Turned about its middle: as far as its corners go.
                 let half = rect.w.hypot(rect.h) / 2.0;
                 let middle = rect.x + rect.w / 2.0;
-                (middle - half - 1.0, middle + half + 1.0, picture.clip)
+                (middle - half - 1.0, middle + half + 1.0, picture.clip.rect)
             }
         }
-        Paint::Figure(figure) => (figure.rect.x - 1.0, figure.rect.right() + 1.0, figure.clip),
+        Paint::Figure(figure) => (
+            figure.rect.x - 1.0,
+            figure.rect.right() + 1.0,
+            figure.clip.rect,
+        ),
         Paint::Editor(_) | Paint::Browser(_) => return None,
     };
     let (left, right) = (left.max(clip.x), right.min(clip.right()));
@@ -704,7 +733,7 @@ fn shifted(item: &Paint, dx: f32, dy: f32) -> Paint {
         Paint::Quad(quad) => {
             let mut quad = quad.clone();
             quad.rect = moved(quad.rect);
-            quad.clip = moved(quad.clip);
+            quad.clip = quad.clip.translate(dx, dy);
             Paint::Quad(quad)
         }
         // The words are not moved across: where a letter is is rounded in the picture's columns,
@@ -712,19 +741,19 @@ fn shifted(item: &Paint, dx: f32, dy: f32) -> Paint {
         Paint::Text(run) => {
             let mut run = run.clone();
             run.origin.y += dy;
-            run.clip = moved(run.clip);
+            run.clip = run.clip.translate(dx, dy);
             Paint::Text(run)
         }
         Paint::Image(picture) => {
             let mut picture = picture.clone();
             picture.rect = moved(picture.rect);
-            picture.clip = moved(picture.clip);
+            picture.clip = picture.clip.translate(dx, dy);
             Paint::Image(picture)
         }
         Paint::Figure(figure) => {
             let mut figure = figure.clone();
             figure.rect = moved(figure.rect);
-            figure.clip = moved(figure.clip);
+            figure.clip = figure.clip.translate(dx, dy);
             Paint::Figure(figure)
         }
         Paint::Editor(slot) => Paint::Editor(slot.clone()),
@@ -885,7 +914,7 @@ impl Canvas<'_, '_> {
         if let Some(shadow) = quad.shadow {
             self.shadow(quad, shadow);
         }
-        let Some(shown) = intersect(quad.rect, quad.clip) else {
+        let Some(shown) = intersect(quad.rect, quad.clip.rect) else {
             return;
         };
         let fill = quad
@@ -893,7 +922,7 @@ impl Canvas<'_, '_> {
             .or(quad.gradient.map(pencere_view::Gradient::middle));
         // The box's own corners, cut where its clip cuts it: a box a scrolled list half hides
         // keeps its corners where they are and is cut straight at the edge.
-        let whole = shown == quad.rect;
+        let whole = shown == quad.rect && quad.clip.round.is_none();
         let size = (self.pixmap.width(), self.pixmap.height());
         if let (Some(fill), Some(path)) = (fill, rounded(quad.rect, quad.radii)) {
             let mask = if whole {
@@ -961,7 +990,7 @@ impl Canvas<'_, '_> {
             Rect::new(area.x, area.y, right - area.x, bottom - area.y),
             Rect::new(0.0, 0.0, width, height),
         )
-        .and_then(|work| intersect(work, quad.clip)) else {
+        .and_then(|work| intersect(work, quad.clip.rect)) else {
             return;
         };
         let (x0, y0) = (work.x.floor(), work.y.floor());
@@ -1012,10 +1041,10 @@ impl Canvas<'_, '_> {
             for column in 0..w {
                 let (px, py) = (x0 as usize + column, y0 as usize + row);
                 let (cx, cy) = (px as f32 + 0.5, py as f32 + 0.5);
-                if cx < quad.clip.x
-                    || cx >= quad.clip.right()
-                    || cy < quad.clip.y
-                    || cy >= quad.clip.bottom()
+                if cx < quad.clip.rect.x
+                    || cx >= quad.clip.rect.right()
+                    || cy < quad.clip.rect.y
+                    || cy >= quad.clip.rect.bottom()
                 {
                     continue;
                 }
@@ -1127,7 +1156,8 @@ impl Canvas<'_, '_> {
     }
 
     /// A colour glyph's own pixels (straight RGBA) at `at`, `opacity` of them showing, cut at `clip`.
-    fn blit_colour(&mut self, glyph: &fonts::Glyph, at: (f32, f32), opacity: f32, clip: Rect) {
+    fn blit_colour(&mut self, glyph: &fonts::Glyph, at: (f32, f32), opacity: f32, clip: Clip) {
+        let (round, clip) = (clip.round, clip.rect);
         #[allow(clippy::cast_possible_truncation)]
         let (x, y) = (at.0.round() as i64 - self.left, at.1.round() as i64);
         let (w, h) = (
@@ -1151,7 +1181,7 @@ impl Canvas<'_, '_> {
                 let &[red, green, blue, alpha] = pixel else {
                     continue;
                 };
-                let alpha = f32::from(alpha) / 255.0 * opacity;
+                let alpha = f32::from(alpha) / 255.0 * opacity * round_cover(round, px, py);
                 if alpha <= 0.0 {
                     continue;
                 }
@@ -1176,23 +1206,31 @@ impl Canvas<'_, '_> {
     }
 
     /// `rect`, cut at `clip`, filled with `color`.
-    fn fill(&mut self, rect: Rect, clip: Rect, color: [f32; 4]) {
+    fn fill(&mut self, rect: Rect, clip: Clip, color: [f32; 4]) {
         // The rectangle is in the picture's columns, rounded there; the clip is in the pixmap's.
         #[allow(clippy::cast_precision_loss)]
         let rect = Rect::new(rect.x - self.left as f32, rect.y, rect.w, rect.h);
-        let Some(shown) = intersect(rect, clip) else {
+        let Some(shown) = intersect(rect, clip.rect) else {
             return;
         };
         if let Some(rect) = tiny_skia::Rect::from_xywh(shown.x, shown.y, shown.w, shown.h) {
             let mut paint = ink(color);
             paint.anti_alias = false;
+            // Where the clip has round corners the fill goes through its mask.
+            let size = (self.pixmap.width(), self.pixmap.height());
+            let mask = if clip.round.is_some() {
+                self.tools.masked(size, clip)
+            } else {
+                None
+            };
             self.pixmap
-                .fill_rect(rect, &paint, Transform::identity(), None);
+                .fill_rect(rect, &paint, Transform::identity(), mask);
         }
     }
 
     /// A glyph's coverage (one byte a pixel, `width` wide) at `at`, in `color`, cut at `clip`.
-    fn blit(&mut self, coverage: &[u8], width: usize, at: (f32, f32), color: [f32; 4], clip: Rect) {
+    fn blit(&mut self, coverage: &[u8], width: usize, at: (f32, f32), color: [f32; 4], clip: Clip) {
+        let (round, clip) = (clip.round, clip.rect);
         #[allow(clippy::cast_possible_truncation)]
         let (x, y) = (at.0.round() as i64 - self.left, at.1.round() as i64);
         let (w, h) = (
@@ -1216,7 +1254,9 @@ impl Canvas<'_, '_> {
                 if !inside_x || *value == 0 {
                     continue;
                 }
-                let alpha = f32::from(*value) / 255.0 * color.get(3).copied().unwrap_or(1.0);
+                let alpha = f32::from(*value) / 255.0
+                    * color.get(3).copied().unwrap_or(1.0)
+                    * round_cover(round, px, py);
                 let Ok(at) = usize::try_from((py * w + px) * 4) else {
                     continue;
                 };
@@ -1248,7 +1288,7 @@ impl Canvas<'_, '_> {
         (rect, turn): (Rect, f32),
         crop: Rect,
         (tint, opacity): (Option<Color>, f32),
-        clip: Rect,
+        clip: Clip,
     ) {
         let tinted;
         let pixels = match tint {
@@ -1314,11 +1354,17 @@ impl Canvas<'_, '_> {
             );
             return;
         }
-        let Some(shown) = intersect(rect, clip) else {
+        let Some(shown) = intersect(rect, clip.rect) else {
             return;
         };
         let size = (self.pixmap.width(), self.pixmap.height());
-        let mask = self.tools.masked(size, shown);
+        let mask = self.tools.masked(
+            size,
+            Clip {
+                rect: shown,
+                round: clip.round,
+            },
+        );
         let paint = PixmapPaint {
             opacity: opacity.clamp(0.0, 1.0),
             ..PixmapPaint::default()
