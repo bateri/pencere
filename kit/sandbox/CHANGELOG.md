@@ -8,10 +8,12 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Changed
 
+- **An input of lines is the field itself in a box of the theme**: its ground, border and padding are the field element's own, so that the host scrolls the text in the padding and the first line stands a padding from the edge (it stood 2 points from it); an element around it, as large as it is, carries the input's name. An input with a `lead` or a `trail`, and the inputs of one line, are made as they were.
 - **The library's components are as large as they were under a border that takes room**: a button, a toggle, a segment, a tab, an input, a toast and a chosen cell of a grid have a point less of padding for their ring or border, so that they are the size the theme says; a card (a modal, a dialog, a picker, a palette, a popover, the completions) is two points taller for its border and what is in it two points narrower, and the row chosen in it stands inside the border, its corners the card's less the border and the inset.
 
 ### Added
 
+- **`rows` of `u:input`** in `@pencere/ui`: an input of kind `"lines"` is as tall as that many lines of the host's field, its padding and its border (`u:input(id, { kind = "lines", rows = 3 })`); `pencere.has("ui.input.rows")` names it. The interpreter is rebuilt with it.
 - **`pencere.has("layout.border_box")`**: a border takes room in a box, inside its `w` and `h`, as the padding does. The interpreter is rebuilt with it.
 - **`rows` of a text field** in a script: `text_field(id, "lines", { rows = 3 })` makes the field as tall as three lines of the host's field, as `Element::field_rows` does; `pencere.has("text_field.rows")` names it. The interpreter is rebuilt with it.
 - **`m`, `mx`, `my` and `h_pct` of an element** in a script, as in Rust; `pencere.has` names them (`"element.mx"`). The interpreter is rebuilt with them.

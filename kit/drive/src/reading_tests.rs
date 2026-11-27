@@ -1424,6 +1424,7 @@ return {{
             "fieldrows=" .. tostring(pencere.has("text_field.rows"))
             .. " nofieldrows=" .. tostring(pencere.has("text_field.nope"))
             .. " borderbox=" .. tostring(pencere.has("layout.border_box"))
+            .. " inputrows=" .. tostring(pencere.has("ui.input.rows"))
             .. " nolayout=" .. tostring(pencere.has("layout.nope"))))
     end,
 }}
@@ -1443,7 +1444,9 @@ return {{
         "{text}"
     );
     assert!(
-        text.contains("fieldrows=true nofieldrows=false borderbox=true nolayout=false"),
+        text.contains(
+            "fieldrows=true nofieldrows=false borderbox=true inputrows=true nolayout=false"
+        ),
         "{text}"
     );
     Ok(())

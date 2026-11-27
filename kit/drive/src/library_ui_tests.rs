@@ -547,6 +547,82 @@ end
     Ok(())
 }
 
+/// An input of lines is the field itself in a box of the theme: its ground, border and padding are the
+/// field element's own (so that the host scrolls the text in the padding), and with `rows` it is as tall
+/// as that many of the host's lines, its padding and its border.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn an_input_of_lines_is_as_tall_as_its_rows_and_its_field_is_the_box() -> Result<(), Error> {
+    let page = open(
+        r#"
+view = function(u)
+    return pencere.div():row():gap(8):items_stretch():w(400)
+        :child(pencere.div():col():gap(8):w(190)
+            :child(u:input("one", { kind = "lines", rows = 1, label = "One" }))
+            :child(u:input("three", { kind = "lines", rows = 3, label = "Three" }))
+            :child(u:input("plain", { kind = "lines", label = "Plain" }))
+            :child(u:input("line", { label = "Line" })))
+        :child(pencere.div():col():gap(8):w(190)
+            :child(u:input("lead", { kind = "lines", rows = 2, label = "Lead", lead = pencere.text("@") }))
+            :child(pencere.div():h(150)))
+end
+"#,
+    )?;
+    let fields = &page.outline().fields;
+    let field = |name: &str| {
+        fields
+            .iter()
+            .find(|field| field.id == pencere_view::Id::named(name))
+            .unwrap_or_else(|| panic!("no field {name}"))
+    };
+    let (one, three) = (field("one/field"), field("three/field"));
+    // The text box is the lines and nothing else: three lines are three times one.
+    let line = one.text.h;
+    assert!(line > 0.0);
+    assert_eq!(three.text.h, 3.0 * line);
+    // The padding (4 above and below, 7 at the sides) and the border (1) are the field's own: the
+    // padding box holds the text box and the border is outside it.
+    assert_eq!(
+        (
+            one.text.x - one.padding_box.x,
+            one.text.y - one.padding_box.y
+        ),
+        (7.0, 4.0)
+    );
+    assert_eq!(one.padding_box.h, line + 8.0);
+    assert_eq!(one.rect.h, line + 10.0);
+    assert_eq!(three.rect.h, 3.0 * line + 10.0);
+    // The element that carries the name is as large as the field, whatever is around it.
+    for name in ["one", "three"] {
+        assert_eq!(
+            page.bounds(name),
+            Some(field(&format!("{name}/field")).rect)
+        );
+    }
+    // Without rows the box is as tall as a control, as the field of a line is.
+    assert_eq!(field("plain/field").rect.h, 26.0);
+    assert_eq!(page.bounds("line").map(|rect| rect.h), Some(26.0));
+    // With a lead the box is around the field, and rows are the field's: no least height.
+    assert_eq!(field("lead/field").text.h, 2.0 * line);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn rows_are_for_an_input_of_lines() {
+    let why = failing(
+        r#"
+view = function(u)
+    return u:input("q", { label = "Search", rows = 3 })
+end
+"#,
+    );
+    assert!(
+        why.contains("only an input of kind \"lines\" has rows"),
+        "{why}"
+    );
+}
+
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn segments_choose_one_and_move_with_the_arrow_keys_as_radio_buttons_do() -> Result<(), Error> {

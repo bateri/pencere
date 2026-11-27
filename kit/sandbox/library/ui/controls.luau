@@ -35,6 +35,8 @@ local KINDS = { line = true, secret = true, lines = true }
 -- are elements before and after the text (an icon, the options of a search). With `select`, what is
 -- put in the field is selected in it, as a palette opened again has its query. `escape` makes
 -- escape in it an action of its own (`{ kind = "escape" }`), where it would close the layer it is in.
+-- `rows` (a field of "lines"; a page asks `pencere.has("ui.input.rows")`) is how many lines the field
+-- is as tall as, as the host's own line is tall.
 -- The field's own name is `u:name(id, "field")`; `u:focus(id)` puts the keyboard in it.
 controls.input = core.component("input", {
 	state = function()
@@ -47,6 +49,9 @@ controls.input = core.component("input", {
 		if props.kind ~= nil and not KINDS[props.kind] then
 			return 'an input\'s kind is "line", "secret" or "lines", not ' .. tostring(props.kind)
 		end
+		if props.rows ~= nil and props.kind ~= "lines" then
+			return 'only an input of kind "lines" has rows: input(id, { kind = "lines", rows = 3 })'
+		end
 		return nil
 	end,
 	view = function(u, id, props, state)
@@ -58,9 +63,33 @@ controls.input = core.component("input", {
 		u:field_text(name, state.value, props.select)
 		local ringed = u:keyboard() == name
 		local edge = ringed and t.ring or props.tone and theme.tone(t, props.tone) or t.line
-		local field = pencere.div():text_field(name, props.kind or "line"):focusable():label(props.label):grow(1):min_w(0):min_h(t.size.control - 4)
+		local kind = props.kind or "line"
+		local rows = props.rows ~= nil and { rows = props.rows } or nil
+		local field = pencere.div():text_field(name, kind, rows):focusable():label(props.label):grow(1):min_w(0)
 		if props.hint ~= nil then
 			field:child(pencere.text(props.hint):color(t.ink_quiet))
+		end
+		-- A field of lines with nothing beside its text is the box itself: the ground, the border and the
+		-- padding are the field element's own, so that the host scrolls the text in the padding. The
+		-- element that carries the component's name is a plain one around it, as tall as it is.
+		if kind == "lines" and props.lead == nil and props.trail == nil then
+			if rows == nil then
+				field:min_h(t.size.control)
+			end
+			return pencere.div()
+				:col()
+				:child(
+					field
+						:px(7)
+						:py(4)
+						:rounded(t.radius.control)
+						:bg(t.field)
+						:border(1, edge)
+						:motion({ seconds = t.motion, color = true })
+				)
+		end
+		if rows == nil then
+			field:min_h(t.size.control - 4)
 		end
 		local box = pencere.div()
 			:row()
