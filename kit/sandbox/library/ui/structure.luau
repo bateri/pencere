@@ -21,6 +21,9 @@ local structure = {}
 -- The width of the cell each level of depth takes, points.
 local INDENT = 12
 
+-- The width and the height of the cell of a node's arrow, points.
+local ARROW = 16
+
 -- The rows of the tree as they stand now: `{ key, depth, parent, open }` for each node that is shown,
 -- `open` being nil for a leaf (a node `children` says nothing of), true or false for one that has
 -- children.
@@ -98,13 +101,15 @@ local Tree = core.component("tree", {
 				local shown = row.shown
 				local line = pencere.div():row():items_center():w_full():h_full()
 				for _ = 1, row.depth do
+					-- The guide of a level goes through the middle of the arrow of the node above (an arrow
+					-- is a cell of ARROW points, and a level a cell of INDENT, from the same edge).
 					line:child(
-						pencere.div():w(INDENT):h_full():no_shrink():items_center():justify_center():child(
+						pencere.div():w(INDENT):h_full():no_shrink():row():pl(ARROW / 2 - 0.5):child(
 							guides and pencere.div():w(1):h_full():bg(alpha(t.line, 0.6)) or pencere.div()
 						)
 					)
 				end
-				local chevron = pencere.div():size(16, 16):no_shrink():items_center():justify_center()
+				local chevron = pencere.div():size(ARROW, ARROW):no_shrink():items_center():justify_center()
 				if row.open ~= nil then
 					chevron:press(u:part(id, "chevron", row.key))
 						:role("button")
@@ -271,27 +276,35 @@ local Split = core.component("split", {
 		local pane = pencere.div():w(state.size):h_full():no_shrink():min_h(0):clip():child(sized)
 		local held = u.capture ~= nil and u.capture.mount == id
 		local over = u:hovered(u:name(id, "handle")) or held
-		local line = pencere.div():w(over and 2 or 1):h_full():bg(over and t.ring or t.line):motion({ seconds = t.motion, color = true })
+		-- What is between the panes is a line of a point and no more: the panes touch it. The edge that is
+		-- pressed is a box of GRIP points laid over the line (in it, by the side of both panes, taking no
+		-- room), as the edge of a column of a grid is; it is in the line, so that a screen reader and the
+		-- keyboard find it between the panes.
+		local line = pencere.div():w(1):h_full():no_shrink():bg(t.line)
 		local handle = pencere.div()
 			:press(u:part(id, "handle"))
 			:focusable()
 			:role("slider")
 			:label(props.label)
 			:value(string.format("%d pt", state.size))
+			:absolute()
+			:inset(0, -(GRIP - 1) / 2, 0, nil)
 			:w(GRIP)
-			:h_full()
-			:no_shrink()
+			:row()
 			:items_center()
 			:justify_center()
-			:child(line)
+		if over then
+			handle:child(pencere.div():w(2):h_full():bg(t.ring):motion({ seconds = t.motion, color = true }))
+		end
 		if u:focus_visible(u:name(id, "handle")) then
 			handle:bg(alpha("accent", 0.2))
 		end
+		line:child(handle)
 		local rest = pencere.div():grow(1):min_w(0):h_full():min_h(0):child(other)
 		if at_start then
-			root:child(pane):child(handle):child(rest)
+			root:child(pane):child(line):child(rest)
 		else
-			root:child(rest):child(handle):child(pane)
+			root:child(rest):child(line):child(pane)
 		end
 		return root
 	end,
@@ -470,16 +483,20 @@ local Status = core.component("status", {
 			end
 			return row
 		end
+		-- Three columns, the middle as wide as its group and the other two sharing what is left: the
+		-- middle group is in the middle of the bar, whatever the groups at its sides say, and the last
+		-- stands at the end.
 		return pencere.div()
-			:row()
+			:grid({ pencere.fr(1), "auto", pencere.fr(1) })
+			:grid_rows({ pencere.fr(1) })
 			:items_center()
 			:h(t.size.status)
 			:w_full()
 			:bg(t.surface)
 			:px(4)
 			:child(group_of("start"))
-			:child(pencere.div():grow(1):min_w(0):row():justify_center():h_full():child(group_of("center")))
-			:child(group_of("finish"))
+			:child(group_of("center"))
+			:child(group_of("finish"):justify_end())
 	end,
 	click = function(_, _, _, _, part, key)
 		if part ~= "item" then

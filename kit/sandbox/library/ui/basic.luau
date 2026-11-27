@@ -94,6 +94,11 @@ basic.button = core.component("button", {
 		local label = props.label or props.title
 		button:label(tostring(label))
 		if props.icon ~= nil then
+			-- What is seen of a glyph starts inside its box: the padding on its side is less by that, so
+			-- that the button has as much of it on the left as it has on the right.
+			if props.title ~= nil then
+				button:pl(math.max(t.size.pad - 1 - look.bearing(props.icon, t.size.icon), 0))
+			end
 			button:child(look.icon(props.icon, t.size.icon, ink))
 		end
 		if props.title ~= nil then
@@ -317,11 +322,12 @@ function core.Ctx:kbd(shortcut, props)
 end
 
 -- A rule: a line of the theme's `line` (or `color`) a point thick, across ("x") or down ("y") what
--- it is in.
+-- it is in. One that goes down is as tall as the row it is in (a `self-stretch`, which the row's
+-- `items_center` would otherwise take from it).
 function core.Ctx:rule(axis, color)
 	color = color or self.theme.line
 	if axis == "y" then
-		return pencere.div():w(1):no_shrink():bg(color)
+		return pencere.div():w(1):h_full():no_shrink():bg(color)
 	elseif axis == nil or axis == "x" then
 		return pencere.div():h(1):no_shrink():bg(color)
 	end

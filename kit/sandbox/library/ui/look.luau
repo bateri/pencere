@@ -79,6 +79,22 @@ local CHARACTERS = {
 	warning = "!",
 }
 
+-- How far in from the left of its box of 16 points what each glyph draws starts (its strokes' width
+-- counted), so that what puts a glyph first can pad to what is seen.
+local BEARING = {
+	chevron_right = 5.25,
+	chevron_down = 3.25,
+	chevron_left = 5.25,
+	chevron_up = 3.25,
+	close = 3.75,
+	check = 2.75,
+	dash = 3.25,
+	plus = 2.75,
+	dot = 4.5,
+	info = 1.25,
+	warning = 1.25,
+}
+
 -- The names of the glyphs, sorted.
 look.GLYPHS = {}
 for name in GLYPHS do
@@ -106,6 +122,16 @@ function look.glyph(name, size, color)
 	end
 	local s = size / 16
 	return pencere.canvas(GLYPHS[name](s, math.max(1.5 * s, 1.2), color)):size(size, size):no_shrink()
+end
+
+-- How many points of the left of the box of `icon` (`size` points square) are empty: what a glyph does
+-- not draw there, and none for a picture or an element, which are the page's, or on cells, where a glyph
+-- is a character.
+function look.bearing(icon, size)
+	if type(icon) ~= "string" or look.in_cells() then
+		return 0
+	end
+	return (BEARING[icon] or 0) * size / 16
 end
 
 -- Why `icon` is no icon, or nil: an icon is an element, the name of a glyph, or the path of a file

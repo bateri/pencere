@@ -107,39 +107,58 @@ local Bar = core.component("find_bar", {
 				u:toggle(u:part(id, "regex"), { on = state.regex, glyph = ".*", label = "Regular expression", keys = "alt+mod+r" }),
 			},
 		})
-		local row = pencere.div():row():items_center():gap(6):px(t.size.pad):py(6)
-		if not props.compact then
-			row:child(u:icon_button(u:part(id, "replacing"), {
+		-- The bar's rows are one grid, so that what is in one stands over what is in the other: the toggle
+		-- of the replace row in the first column, the fields in the second (as wide as the bar lets them
+		-- be) and the buttons in the third, which are as wide as the wider row of them and stand at its
+		-- end. A compact bar has no toggle and no column for it.
+		local compact = props.compact
+		local grid = pencere.div()
+			:grid(compact and { pencere.fr(1), "auto" } or { "auto", pencere.fr(1), "auto" })
+			:gap(6)
+			:items_center()
+			:px(t.size.pad)
+			:py(6)
+		local function field(element)
+			return pencere.div():min_w(120):child(element)
+		end
+		local function buttons()
+			return pencere.div():row():items_center():gap(6):justify_end()
+		end
+		if not compact then
+			grid:child(u:icon_button(u:part(id, "replacing"), {
 				icon = state.replacing and "chevron_down" or "chevron_right",
 				label = "Toggle replace",
 				on = state.replacing,
 				size = t.size.control - 4,
 			}))
 		end
-		row:child(pencere.div():grow(1):min_w(120):max_w(360):child(query))
-		row:child(
-			pencere.div():min_w(78):no_shrink():child(
-				pencere.text(count_words(state)):role("status"):text_size(t.text.small):color(state.invalid and "error" or t.ink_dim)
-			)
+		grid:child(field(query))
+		grid:child(
+			buttons()
+				:child(
+					pencere.div():min_w(78):no_shrink():child(
+						pencere.text(count_words(state)):role("status"):text_size(t.text.small):color(state.invalid and "error" or t.ink_dim)
+					)
+				)
+				:child(u:icon_button(u:part(id, "previous"), { icon = "chevron_up", label = "Previous match", keys = "shift+enter", size = t.size.control - 4 }))
+				:child(u:icon_button(u:part(id, "next"), { icon = "chevron_down", label = "Next match", keys = "enter", size = t.size.control - 4 }))
+				:child(u:icon_button(u:part(id, "close"), { icon = "close", label = "Close find", keys = "escape", size = t.size.control - 4 }))
 		)
-		row:child(u:icon_button(u:part(id, "previous"), { icon = "chevron_up", label = "Previous match", keys = "shift+enter", size = t.size.control - 4 }))
-		row:child(u:icon_button(u:part(id, "next"), { icon = "chevron_down", label = "Next match", keys = "enter", size = t.size.control - 4 }))
-		row:child(u:icon_button(u:part(id, "close"), { icon = "close", label = "Close find", keys = "escape", size = t.size.control - 4 }))
-		local bar = pencere.div():bg(t.surface):child(row)
-		if state.replacing and not props.compact then
-			local second = pencere.div():row():items_center():gap(6):px(t.size.pad):pb(6):pl(t.size.pad + t.size.control)
-			second:child(
-				pencere.div():grow(1):min_w(120):max_w(360):child(u:input(u:part(id, "replace"), {
-					state = state.fields.replace,
-					hint = "Replace",
-					label = "Replace with",
-					escape = true,
-				}))
+		if state.replacing and not compact then
+			grid:child(pencere.div())
+			grid:child(field(u:input(u:part(id, "replace"), {
+				state = state.fields.replace,
+				hint = "Replace",
+				label = "Replace with",
+				escape = true,
+			})))
+			grid:child(
+				buttons()
+					:child(u:button(u:part(id, "replace_one"), { title = "Replace", disabled = props.read_only }))
+					:child(u:button(u:part(id, "replace_all"), { title = "All", disabled = props.read_only }))
 			)
-			second:child(u:button(u:part(id, "replace_one"), { title = "Replace", disabled = props.read_only }))
-			second:child(u:button(u:part(id, "replace_all"), { title = "All", disabled = props.read_only }))
-			bar:child(second)
 		end
+		local bar = pencere.div():bg(t.surface):child(grid)
 		return bar:child(u:rule("x"))
 	end,
 	action = function(u, id, props, state, act)

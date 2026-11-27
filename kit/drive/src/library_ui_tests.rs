@@ -3951,3 +3951,375 @@ end
     );
     Ok(())
 }
+
+// --- Where the parts of a component stand: what is aligned in a style sheet is aligned here -----------
+
+/// Where the line of words `text` is drawn: its top-left corner, and as wide and as tall as a line of
+/// that many characters is where text is measured with no fonts (7 across a character, a line 16
+/// high).
+fn words_at(page: &Headless, text: &str) -> pencere_view::Rect {
+    page.list()
+        .items
+        .iter()
+        .find_map(|item| match item {
+            pencere_view::Paint::Text(run) if run.text == text => {
+                #[allow(clippy::cast_precision_loss)]
+                let width = text.chars().count() as f32 * 7.0;
+                Some(pencere_view::Rect::new(
+                    run.origin.x,
+                    run.origin.y,
+                    width,
+                    16.0,
+                ))
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no words {text:?} drawn: {:?}", page.words()))
+}
+
+fn bounds_of(page: &Headless, name: &str) -> pencere_view::Rect {
+    page.bounds(name)
+        .unwrap_or_else(|| panic!("nothing named {name} is laid out"))
+}
+
+fn middle(rect: pencere_view::Rect) -> (f32, f32) {
+    (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0)
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_replace_row_of_a_find_bar_stands_under_the_find_row_at_both_edges() -> Result<(), Error> {
+    let page = open(
+        r#"
+S.find = { query = "foo", replacement = "", replacing = true }
+view = function(u)
+    return pencere.div():col():gap(8)
+        :child(u:find_bar("find", { editor = "doc", state = S.find }))
+        :child(pencere.editor("doc", {}):w_full():h(60))
+end
+"#,
+    )?;
+    let (find, replace) = (
+        bounds_of(&page, "find/query"),
+        bounds_of(&page, "find/replace"),
+    );
+    // The fields are one column: the same left edge and the same right edge, one above the other.
+    assert_eq!(find.x, replace.x, "{find:?} {replace:?}");
+    assert_eq!(find.right(), replace.right(), "{find:?} {replace:?}");
+    assert!(replace.y > find.bottom());
+    // The buttons are one column too, and stand at its end: the cross and the last button end together.
+    let (close, all, one) = (
+        bounds_of(&page, "find/close"),
+        bounds_of(&page, "find/replace_all"),
+        bounds_of(&page, "find/replace_one"),
+    );
+    assert_eq!(close.right(), all.right());
+    assert!(one.right() <= all.x, "{one:?} {all:?}");
+    // The toggle of the replace row is the first column: the fields start after it, with a gap.
+    let toggle = bounds_of(&page, "find/replacing");
+    assert!(find.x > toggle.right() && find.x - toggle.right() <= 8.0);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_number_of_a_row_of_a_grid_is_in_the_middle_of_it_and_a_column_that_ends_at_the_end_ends_there()
+-> Result<(), Error> {
+    let page = open(
+        r#"
+S.state = { cursor = nil, widths = {}, sort = nil }
+view = function(u)
+    local columns = {
+        { key = "name", title = "name" },
+        { key = "qty", title = "quantity", type = "int", align = "end" },
+    }
+    return pencere.div():size_full():child(u:grid("g", { columns = columns, count = 3, state = S.state,
+        numbers = true,
+        cell = function(row, column)
+            if column.key == "name" then return "item" .. row end
+            return ({ "7", "14", "300" })[row]
+        end }))
+end
+"#,
+    )?;
+    // The head and the rows put the number in the middle of their height, as their cells' words are.
+    let hash = words_at(&page, "#");
+    assert_eq!(middle(hash).1, middle(words_at(&page, "name")).1);
+    for (number, cell) in [("1", "item1"), ("2", "item2"), ("3", "item3")] {
+        assert_eq!(
+            middle(words_at(&page, number)).1,
+            middle(words_at(&page, cell)).1,
+            "row {number}"
+        );
+        // And at its right, whatever is on its left: all the same right edge as the head's.
+        assert_eq!(words_at(&page, number).right(), hash.right());
+    }
+    // The values of a column that ends at the end end together, and so do the words of its head.
+    let (seven, fourteen, three_hundred) = (
+        words_at(&page, "7"),
+        words_at(&page, "14"),
+        words_at(&page, "300"),
+    );
+    assert_eq!(seven.right(), fourteen.right());
+    assert_eq!(seven.right(), three_hundred.right());
+    assert_eq!(
+        words_at(&page, "quantity").right(),
+        words_at(&page, "int").right()
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_row_chosen_in_a_plain_list_is_as_wide_as_the_list_and_in_a_card_it_is_inside_its_inset()
+-> Result<(), Error> {
+    let page = open(
+        r#"
+S.items = { { key = "a", title = "alpha" }, { key = "b", title = "beta" } }
+view = function(u)
+    return pencere.div():row():gap(8):size_full()
+        :child(pencere.div():w(200):h(120):child(u:list("plain", { items = S.items, state = { cursor = "a" }, inset = 4 })))
+        :child(pencere.div():w(200):h(120):child(u:list("round", { items = S.items, state = { cursor = "a" }, inset = 4, radius = 3 })))
+end
+"#,
+    )?;
+    let (plain, round) = (bounds_of(&page, "plain"), bounds_of(&page, "round"));
+    let (plain_row, round_row) = (
+        bounds_of(&page, "plain/row/a"),
+        bounds_of(&page, "round/row/a"),
+    );
+    assert_eq!((plain_row.x, plain_row.w), (plain.x, plain.w));
+    // A list of rows with rounded corners keeps the ground of its rows inside the inset on every side.
+    assert_eq!(round_row.x, round.x + 4.0);
+    assert_eq!(round_row.right(), round.right() - 4.0);
+    // Above the first row there is the inset in both.
+    assert_eq!(plain_row.y, plain.y + 4.0);
+    assert_eq!(round_row.y, round.y + 4.0);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_list_row_with_nothing_said_of_it_draws_its_icon_title_and_detail() -> Result<(), Error> {
+    let page = open(
+        r#"
+S.items = { { key = "a", title = "button", detail = "(id, props)", icon = "dot" } }
+view = function(u)
+    return pencere.div():w(300):h(60):child(u:list("l", { items = S.items, state = { cursor = "a" } }))
+end
+"#,
+    )?;
+    let (title, detail) = (words_at(&page, "button"), words_at(&page, "(id, props)"));
+    assert!(detail.x > title.right(), "{title:?} {detail:?}");
+    // The icon is before the title, in the row's padding.
+    let row = bounds_of(&page, "l/row/a");
+    assert!(title.x >= row.x + 8.0 + 15.0, "{title:?} {row:?}");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_edge_of_a_split_is_a_line_the_panes_touch_with_its_grip_laid_over_it() -> Result<(), Error> {
+    let page = open(SPLIT)?;
+    let first = bounds_of(&page, "first");
+    let second = bounds_of(&page, "second");
+    let handle = bounds_of(&page, "side/handle");
+    // Between the panes there is one point, the line, and no room beside it: the ground of the pane
+    // touches it, and so does the other's.
+    assert_eq!(second.x, first.right() + 1.0);
+    // The grip is as wide as a finger and stands on the line, over both panes, taking no room.
+    assert_eq!(handle.w, 7.0);
+    assert_eq!(middle(handle).0, first.right() + 0.5);
+    assert_eq!(handle.y, first.y);
+    assert_eq!(handle.h, first.h);
+    // The same when the sized pane is the last.
+    let at_end = open(&format!("S.edge = \"end\"\n{SPLIT}"))?;
+    let (first, second, handle) = (
+        bounds_of(&at_end, "first"),
+        bounds_of(&at_end, "second"),
+        bounds_of(&at_end, "side/handle"),
+    );
+    // (The pane that is sized is the second, at the end: the line is on its near side.)
+    assert_eq!(second.x, first.right() + 1.0);
+    assert_eq!(middle(handle).0, second.x - 0.5);
+    // And the grip takes a press at either side of the line: the first of its seven points is one.
+    let mut page = at_end;
+    page.drag_between(
+        pencere_view::Point::new(handle.x + 0.5, 200.0),
+        pencere_view::Point::new(handle.x - 19.5, 200.0),
+    )?;
+    assert_eq!(bounds_of(&page, "second").w, 260.0);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_vertical_rule_in_a_row_is_as_tall_as_the_row() -> Result<(), Error> {
+    let page = open(
+        r#"
+view = function(u)
+    return pencere.div():row():items_center():gap(10):h(24)
+        :child(pencere.text("main"))
+        :child(u:rule("y"):id("down"))
+        :child(pencere.text("3 changed"))
+end
+"#,
+    )?;
+    let rule = bounds_of(&page, "down");
+    assert_eq!((rule.w, rule.h), (1.0, 24.0));
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_middle_of_a_status_bar_is_the_middle_of_the_bar_whatever_stands_at_its_sides()
+-> Result<(), Error> {
+    let page = open(
+        r#"
+view = function(u)
+    return u:status("status", {
+        start = { { key = "branch", words = "main", press = true } },
+        center = { { key = "saved", words = "Saved", press = true } },
+        finish = {
+            { key = "pos", words = "Ln 12, Col 4", press = true },
+            { key = "lang", words = "Lua", press = true },
+        },
+    })
+end
+"#,
+    )?;
+    let bar = bounds_of(&page, "status");
+    let saved = bounds_of(&page, "status/item/saved");
+    // (A box is laid out on whole pixels: half a point is the least the middle can be off.)
+    assert!(
+        (middle(saved).0 - middle(bar).0).abs() <= 0.5,
+        "{bar:?} {saved:?}"
+    );
+    // The first group is at the start and the last at the end of the bar (inside its padding of 4).
+    let (branch, lang) = (
+        bounds_of(&page, "status/item/branch"),
+        bounds_of(&page, "status/item/lang"),
+    );
+    assert_eq!(branch.x, bar.x + 4.0);
+    assert_eq!(lang.right(), bar.right() - 4.0);
+    // Each is as tall as the bar, as the items of a bar are.
+    assert_eq!(saved.h, bar.h);
+    Ok(())
+}
+
+/// The first two lines of the guides of a level of a tree go through the middle of the arrow of the
+/// node above: the guide of level k is a point wide in the middle of the arrow cell that starts there.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_guide_of_a_tree_goes_through_the_middle_of_the_arrow_of_the_node_above() -> Result<(), Error> {
+    let page = open(
+        r#"
+S.kids = {
+    src = { "src/a.lua", "src/lib" },
+    ["src/lib"] = { "src/lib/x.lua" },
+}
+S.state = { expanded = { src = true, ["src/lib"] = true }, cursor = nil }
+view = function(u)
+    return pencere.div():size_full()
+        :child(u:tree("files", { roots = { "src" }, state = S.state, height = 24,
+            children = function(key) return S.kids[key] end,
+            item = function(key) return { title = string.match(key, "[^/]+$") } end }))
+end
+"#,
+    )?;
+    let row = bounds_of(&page, "files/list/row/src/lib/x.lua");
+    // What the row's own padding leaves, from where its levels start.
+    let start = row.x + 8.0;
+    let mut guides: Vec<f32> = page
+        .list()
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            pencere_view::Paint::Quad(quad)
+                if quad.rect.w == 1.0 && quad.rect.y == row.y && quad.rect.h == row.h =>
+            {
+                Some(quad.rect.x + 0.5)
+            }
+            _ => None,
+        })
+        .collect();
+    guides.sort_by(f32::total_cmp);
+    // A node of depth 2 has two guides: through the arrows (16 across, the middle 8 in) of the nodes of
+    // depths 0 and 1, which stand a level (12) apart. (A box is laid out on whole pixels: at a scale of 1
+    // the point's line is half a point past the middle at the most.)
+    assert_eq!(guides.len(), 2, "{guides:?}");
+    for (guide, middle) in guides.iter().zip([start + 8.0, start + 12.0 + 8.0]) {
+        assert!((guide - middle).abs() <= 0.5, "{guides:?} from {start}");
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_button_with_an_icon_has_as_much_of_its_padding_seen_on_the_left_as_on_the_right()
+-> Result<(), Error> {
+    let page = open(
+        r#"
+view = function(u)
+    return pencere.div():row():gap(8)
+        :child(u:button("with", { title = "Revert", icon = "chevron_left" }))
+        :child(u:button("without", { title = "Revert" }))
+end
+"#,
+    )?;
+    let (with, without) = (bounds_of(&page, "with"), bounds_of(&page, "without"));
+    // The icon (15), the gap (6) and the glyph's empty left side (5.25 of 16 of 15) are what the icon
+    // adds: a chevron draws from a third of its box in, and the button's padding takes that off, so
+    // that what is seen of it on the left is the padding the right has.
+    let added = with.w - without.w;
+    let expected = 15.0 + 6.0 - 5.25 * 15.0 / 16.0;
+    // (A width is whole pixels.)
+    assert!((added - expected).abs() <= 0.5, "{added} {expected}");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_rows_of_a_palette_and_a_picker_start_their_words_where_the_words_of_the_field_start()
+-> Result<(), Error> {
+    let field_text = |page: &Headless, name: &str| {
+        page.outline()
+            .fields
+            .iter()
+            .find(|field| field.id == pencere_view::Id::named(name))
+            .unwrap_or_else(|| panic!("no field {name}"))
+            .text
+            .x
+    };
+    let mut palette = open(
+        r#"
+S.items = { { key = "save", title = "Save File" }, { key = "close", title = "Close Tab" } }
+S.state = { query = "", cursor = nil }
+view = function(u)
+    return u:palette("palette", { items = S.items, state = S.state, label = "Command palette", hint = "Type a command" })
+end
+"#,
+    )?;
+    palette.advance(0.3)?;
+    assert_eq!(
+        words_at(&palette, "Save File").x,
+        field_text(&palette, "palette/input/field")
+    );
+    let mut picker = open(
+        r#"
+S.items = { { key = "bug", title = "Bug" }, { key = "api", title = "API" } }
+S.state = { query = "" }
+view = function(u)
+    return pencere.div():p(20):gap(8)
+        :child(u:button("labels", { title = "Labels" }))
+        :child(u:picker("picker", { anchor = "labels", items = S.items, state = S.state, label = "Labels", hint = "Change labels" }))
+end
+"#,
+    )?;
+    picker.advance(0.3)?;
+    assert_eq!(
+        words_at(&picker, "Bug").x,
+        field_text(&picker, "picker/input/field")
+    );
+    Ok(())
+}

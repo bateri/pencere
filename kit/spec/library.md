@@ -590,9 +590,9 @@ A press of the right button on a tab, a row, a cell or a line of a tree is the a
 
 `list` and `tree` take `key_map = { j = "down" }` for keys of their own. A list with `multi` says `mark { marked }`.
 
-A `list`'s `inset` is the room around its rows: above the first, below the last and on each side of the ground of every row. Its `radius` rounds the corners of that ground (none by default). The `picker`, the `palette` and the `completions` keep the ground of the row chosen inside their card: their rows are inset on every side, and the corners of the ground are the card's less the inset.
+A `list`'s `inset` is the room around its rows: above the first and below the last, and, where its `radius` rounds the corners of the ground of its rows (none by default), on each side of that ground too: a plain list's row chosen is as wide as the list. The `picker`, the `palette` and the `completions` keep the ground of the row chosen inside their card: their rows are inset on every side, and the corners of the ground are the card's less the inset. The words of a row of a `picker` or a `palette` start where the words of its field do. A row that a list draws on its own says its `icon` (a glyph's name), `title`, `detail` and `hint`.
 
-A `split`'s edge and a `grid`'s column say `resize { size, final }` (`{ column, width, final }`):
+Between the panes of a `split` there is a line of one point, which both panes touch; the edge that is dragged is a box seven points across laid over it. A `grid`'s column has its edge as a box laid over the cell's right edge. A `split`'s edge and a `grid`'s column say `resize { size, final }` (`{ column, width, final }`):
 
 - `final = false` while it is dragged;
 - and `true` when it is let go after it moved and at each step of the keys.

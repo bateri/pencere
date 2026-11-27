@@ -65,6 +65,16 @@ local function concentric(t, inset)
 	return math.max(t.radius.card - 1 - inset, 0)
 end
 
+-- How far the words of a field stand from the edge of its box: its border (1) and its padding (7), as
+-- `controls.luau` gives them.
+local FIELD_TEXT = 8
+
+-- The padding of a row so that its words stand where those of the field above it do: the padding round the
+-- field (`around`) and the field's own take what the inset of the rows has not.
+local function aligned_pad(around, inset)
+	return around + FIELD_TEXT - inset
+end
+
 -- Scrolls the list `id` to show row `index`.
 local function reveal(u, id, props, index)
 	local rows = rows_of(u, props)
@@ -129,12 +139,14 @@ lists.move = move
 -- --- A list -----------------------------------------------------------------------------------------------------
 
 -- A long list of rows, built as the person scrolls (`pencere.Rows`: every row of one `height`, the
--- theme's `row` by default, and `inset` points around them: above the first, below the last and on
--- each side of every row's ground; `radius` rounds the corners of that ground, none by default). `items` are the rows' data, each with a
+-- theme's `row` by default, and `inset` points around them: above the first and below the last, and, in
+-- a list whose rows are rounded (`radius`, none by default), on each side of every row's ground too, so
+-- that the ground keeps inside the corners of what holds the list; in a plain list it is the list's whole
+-- width). `items` are the rows' data, each with a
 -- stable `key` (or `props.key(item)` says it); `row(item, index, look)` makes what is in a row, where
 -- `look` is `{ selected, hovered, marked, focused }` (the list draws the ground of the row, the
--- host-friendly role and the pointer's answers), and with no `row` a row says the item's `title` and
--- its `hint`. `state.cursor` is the key of the row chosen and `state.marks` a set of the keys marked
+-- host-friendly role and the pointer's answers), and with no `row` a row says the item's `icon` (a
+-- glyph's name), `title`, `detail` and `hint`. `state.cursor` is the key of the row chosen and `state.marks` a set of the keys marked
 -- (with `multi`): both are the page's where it gives `state`.
 --
 -- The pointer chooses a row as it goes down on it (`select`), a second press opens it (`open`) and
@@ -186,7 +198,14 @@ local List = core.component("list", {
 			if props.row ~= nil then
 				content = props.row(item, index, look)
 			else
-				content = pencere.div():row():items_center():gap(8):w_full():child(pencere.text(item.title or tostring(key)):truncate():grow(1):min_w(0))
+				content = pencere.div():row():items_center():gap(8):w_full()
+				if item.icon ~= nil then
+					content:child(glyphs.icon(item.icon, t.size.icon - 2, t.ink))
+				end
+				content:child(pencere.text(item.title or tostring(key)):truncate():grow(1):min_w(0))
+				if item.detail ~= nil then
+					content:child(pencere.text(item.detail):text_size(t.text.small):color(t.ink_quiet):no_shrink())
+				end
 				if item.hint ~= nil then
 					content:child(pencere.text(item.hint):text_size(t.text.small):color(t.ink_quiet):no_shrink())
 				end
@@ -211,12 +230,13 @@ local List = core.component("list", {
 				:items_center()
 				:bg(ground)
 				:child(content)
-			-- The ground of a row stands inside the inset on its sides too, as the rows do above and
-			-- below, so that a list in a card with round corners keeps it inside them.
-			if (props.inset or 0) > 0 then
-				row:ml(props.inset):mr(props.inset)
-			end
+			-- The ground of a row of rounded corners stands inside the inset on its sides too, as the rows
+			-- do above and below, so that a list in a card with round corners keeps it inside them; one of
+			-- square corners is as wide as the list.
 			if props.radius ~= nil then
+				if (props.inset or 0) > 0 then
+					row:ml(props.inset):mr(props.inset)
+				end
 				row:rounded(props.radius)
 			end
 			if props.positions ~= false then
@@ -504,7 +524,7 @@ local Palette = core.component("palette", {
 				height = row_height,
 				inset = inset,
 				radius = concentric(t, inset),
-				pad = 10,
+				pad = cells and 10 or aligned_pad(8, inset),
 				label = props.label,
 				row = function(item, _, look)
 					local source = item.source
@@ -754,7 +774,7 @@ local Picker = core.component("picker", {
 				height = row_height,
 				inset = inset,
 				radius = concentric(t, inset),
-				pad = 8,
+				pad = (cells or not search) and 8 or aligned_pad(6, inset),
 				role = props.multi and "checkbox" or nil,
 				label = props.label,
 				row = function(item)

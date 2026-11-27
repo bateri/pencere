@@ -268,7 +268,7 @@ local Grid = core.component("grid", {
 		-- padding, and would put every head of a column that far to the right of its cells.
 		if number > 0 then
 			header:child(
-				pencere.div():w(number):h_full():no_shrink():items_center():justify_end():pr(10):child(
+				pencere.div():w(number):h_full():no_shrink():row():items_center():justify_end():pr(10):child(
 					pencere.text("#"):text_size(t.text.tiny):color(t.ink_quiet)
 				)
 			)
@@ -303,6 +303,10 @@ local Grid = core.component("grid", {
 			)
 			if column.type ~= nil and column.type ~= "" then
 				title:child(pencere.text(column.type):text_size(t.text.tiny):color(t.ink_quiet):truncate())
+			end
+			-- The title and the type of a column that is set to the end stand at its end, as its cells' words do.
+			if column.align == "end" then
+				title:items_end()
 			end
 			cell:child(title)
 			if sorted then
@@ -368,7 +372,7 @@ local Grid = core.component("grid", {
 			end
 			if number > 0 then
 				line:child(
-					pencere.div():w(number):h_full():no_shrink():items_center():justify_end():pr(10):child(
+					pencere.div():w(number):h_full():no_shrink():row():items_center():justify_end():pr(10):child(
 						pencere.text(tostring(place)):text_size(t.text.small):color(t.ink_quiet)
 					)
 				)
@@ -396,12 +400,25 @@ local Grid = core.component("grid", {
 					-- Nothing to say yet: the dot is drawn, the cell is read empty (its row says it is
 					-- loading).
 					cell:label("")
-					cell:child(pencere.text("·"):color(t.ink_quiet):grow(1):min_w(0):truncate())
+					local dot = pencere.text("·"):color(t.ink_quiet):grow(1):min_w(0):truncate()
+					if column.align == "end" then
+						dot:align("end")
+					end
+					cell:child(dot)
 				elseif type(value) == "string" or type(value) == "number" then
 					-- The words fill the cell and are cut at its edge: no box between them and the cell.
-					cell:child(pencere.text(value):grow(1):min_w(0):truncate())
+					local words = pencere.text(value):grow(1):min_w(0):truncate()
+					-- The words fill the cell, so it is they that stand at its end, not the cell's content.
+					if column.align == "end" then
+						words:align("end")
+					end
+					cell:child(words)
 				else
-					cell:child(pencere.div():grow(1):min_w(0):row():items_center():child(value))
+					local held = pencere.div():grow(1):min_w(0):row():items_center():child(value)
+					if column.align == "end" then
+						held:justify_end()
+					end
+					cell:child(held)
 				end
 				if column.align == "end" then
 					cell:justify_end()
