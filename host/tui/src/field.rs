@@ -5,7 +5,9 @@
 //! ([`FieldState::takes`]); this keeps the text, the caret and the selection and edits them (the
 //! drawing is `chrome`'s).
 
-use pencere_view::{FieldKind, FieldState, Fill, Key, Mods};
+use std::cell::Cell;
+
+use pencere_view::{FieldKind, FieldState, Fill, Key, Mods, break_rows};
 use unicode_width::UnicodeWidthChar;
 
 /// The most a field remembers to undo.
@@ -35,6 +37,37 @@ pub(crate) struct Slice {
     pub caret: usize,
 }
 
+/// One row of a field of lines in its room: the characters of it that are shown and the cells the
+/// selection covers in it, counted from the start of the row.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Row {
+    pub text: String,
+    pub selected: Option<std::ops::Range<usize>>,
+}
+
+/// What of a field of lines is in its room: the rows that are shown, from the first the room has
+/// the caret in view from, and where the caret is among them (row, cell).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Block {
+    pub rows: Vec<Row>,
+    pub caret: (usize, usize),
+}
+
+/// How many cells `text` takes.
+fn cells_of(text: &str) -> usize {
+    text.chars()
+        .map(|c| UnicodeWidthChar::width(c).unwrap_or(0))
+        .sum()
+}
+
+/// The rows `text` is broken into in a room `cols` cells across (the rows of
+/// [`pencere_view::break_rows`], measured in cells): each a range of bytes, and at least one.
+pub(crate) fn rows_of(text: &str, cols: u16) -> Vec<std::ops::Range<usize>> {
+    #[allow(clippy::cast_precision_loss)]
+    let cells = |run: &str| cells_of(run) as f32;
+    break_rows(text, f32::from(cols.max(1)), &mut |run| cells(run))
+}
+
 /// One field.
 #[derive(Clone, Debug)]
 pub struct TextField {
@@ -45,6 +78,12 @@ pub struct TextField {
     head: usize,
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
+    /// How a field of lines was last drawn: the first row it showed, and the cells across and the rows
+    /// high the room was. A room that shows less than the text keeps the row it showed until the
+    /// caret leaves it, and the keys that go by rows go as far as the room it was drawn in.
+    top: Cell<usize>,
+    cols: Cell<u16>,
+    shown: Cell<usize>,
 }
 
 impl TextField {
@@ -56,6 +95,9 @@ impl TextField {
             head: 0,
             undo: Vec::new(),
             redo: Vec::new(),
+            top: Cell::new(0),
+            cols: Cell::new(0),
+            shown: Cell::new(1),
         }
     }
 
@@ -168,8 +210,18 @@ impl TextField {
                     me.after(at)
                 }
             }),
-            Key::Home | Key::Up | Key::PageUp => self.travel(mods, |_, _| 0),
-            Key::End | Key::Down | Key::PageDown => self.travel(mods, |me, _| me.text.len()),
+            Key::Home => self.travel(mods, |_, _| 0),
+            Key::End => self.travel(mods, |me, _| me.text.len()),
+            Key::Up => self.travel(mods, |me, at| me.vertical(at, 1, true)),
+            Key::Down => self.travel(mods, |me, at| me.vertical(at, 1, false)),
+            Key::PageUp => {
+                let by = self.shown.get();
+                self.travel(mods, |me, at| me.vertical(at, by, true));
+            }
+            Key::PageDown => {
+                let by = self.shown.get();
+                self.travel(mods, |me, at| me.vertical(at, by, false));
+            }
             _ => {}
         }
         edited
@@ -335,6 +387,147 @@ impl TextField {
         }
     }
 
+    /// The rows the text is broken into in a room `cols` cells across: each a range of bytes, and
+    /// at least one (an empty text is one row of nothing).
+    pub(crate) fn rows(&self, cols: u16) -> Vec<std::ops::Range<usize>> {
+        rows_of(&self.text, cols)
+    }
+
+    /// The bytes `from` to `to` of the text, none where they are not a part of it.
+    fn part(&self, from: usize, to: usize) -> &str {
+        self.text.get(from..to).unwrap_or("")
+    }
+
+    /// The row of `rows` the byte `at` is in: the last that starts at or before it.
+    fn row_at(rows: &[std::ops::Range<usize>], at: usize) -> usize {
+        rows.iter().rposition(|row| row.start <= at).unwrap_or(0)
+    }
+
+    /// The first row of `rows` a room `shown` rows high shows: the one it showed, until the caret's
+    /// row is not in the room, and then as far as keeps it in.
+    fn first_row(&self, rows: &[std::ops::Range<usize>], shown: usize) -> usize {
+        let shown = shown.max(1);
+        let caret = Self::row_at(rows, self.head);
+        let mut top = self.top.get();
+        if caret < top {
+            top = caret;
+        } else if caret >= top + shown {
+            top = caret + 1 - shown;
+        }
+        top = top.min(rows.len().saturating_sub(shown));
+        self.top.set(top);
+        top
+    }
+
+    /// What of a field of lines is in a room `cols` cells across and `shown` rows high, as it is
+    /// drawn there: the rows from the first that keeps the caret in the room, each with the
+    /// cells the selection covers in it, and the caret's row and cell among them.
+    pub(crate) fn block(&self, cols: u16, shown: usize) -> Block {
+        let rows = self.rows(cols);
+        self.cols.set(cols);
+        self.shown.set(shown.max(1));
+        let first = self.first_row(&rows, shown);
+        let (from, to) = (self.anchor.min(self.head), self.anchor.max(self.head));
+        let mut block = Block::default();
+        for row in rows.iter().skip(first).take(shown.max(1)) {
+            let text = self.part(row.start, row.end);
+            let (lo, hi) = (from.max(row.start), to.min(row.end));
+            let selected = (lo < hi).then(|| {
+                let before = cells_of(self.part(row.start, lo));
+                before..before + cells_of(self.part(lo, hi))
+            });
+            block.rows.push(Row {
+                text: text.to_owned(),
+                selected,
+            });
+        }
+        let at = Self::row_at(&rows, self.head);
+        let start = rows.get(at).map_or(0, |row| row.start);
+        let cell = cells_of(self.text.get(start..self.head).unwrap_or(""));
+        // A caret after the last cell of a full row is just past the box's edge.
+        block.caret = (at.saturating_sub(first), cell.min(usize::from(cols)));
+        block
+    }
+
+    /// The byte of the row `row` of `rows` that is nearest the cell `cell` of it: the edge of a
+    /// character that the cell is nearer to, and the end of the row where it is past its characters
+    /// (where the row was broken at a space, before the space: the end of the row is the start of the
+    /// next, and the caret stays on this one).
+    fn byte_in_row(&self, rows: &[std::ops::Range<usize>], row: usize, cell: usize) -> usize {
+        let Some(range) = rows.get(row) else {
+            return self.text.len();
+        };
+        let words = self.part(range.start, range.end);
+        let broken_here = words.ends_with(' ')
+            && rows
+                .get(row + 1)
+                .is_some_and(|next| next.start == range.end);
+        let mut at = if broken_here {
+            range.end - 1
+        } else {
+            range.end
+        };
+        let mut x = 0_usize;
+        for (index, c) in words.char_indices() {
+            let w = UnicodeWidthChar::width(c).unwrap_or(0);
+            if cell < x + w.div_ceil(2) {
+                at = range.start + index;
+                break;
+            }
+            x += w;
+        }
+        at
+    }
+
+    /// The person pressed the cell `cell` of the row `line` of a room `cols` cells across and
+    /// `shown` rows high: the caret goes to the nearest edge of a character of that row (the last row
+    /// the room shows where it is pressed below them), with the selection's other end left where it
+    /// is where `extend`.
+    pub fn place_in_rows(
+        &mut self,
+        cell: usize,
+        line: usize,
+        cols: u16,
+        shown: usize,
+        extend: bool,
+    ) {
+        let rows = self.rows(cols);
+        let line = line.min(shown.max(1) - 1);
+        let row = (self.first_row(&rows, shown) + line).min(rows.len().saturating_sub(1));
+        let at = self.byte_in_row(&rows, row, cell);
+        self.head = at;
+        if !extend {
+            self.anchor = at;
+        }
+    }
+
+    /// Where the caret goes moving `by` rows up or down from `at`, to the same cell of the row where
+    /// it has one: the start of the text from the first row, its end from the last, and where the field
+    /// was not drawn as lines (no rows to go by) the same.
+    fn vertical(&self, at: usize, by: usize, up: bool) -> usize {
+        let cols = self.cols.get();
+        if cols == 0 || !matches!(self.kind, FieldKind::Lines) {
+            return if up { 0 } else { self.text.len() };
+        }
+        let rows = self.rows(cols);
+        let row = Self::row_at(&rows, at);
+        let start = rows.get(row).map_or(0, |range| range.start);
+        let cell = cells_of(self.part(start, at));
+        let target = if up {
+            let Some(target) = row.checked_sub(by) else {
+                return 0;
+            };
+            target
+        } else {
+            let target = row + by;
+            if target >= rows.len() {
+                return self.text.len();
+            }
+            target
+        };
+        self.byte_in_row(&rows, target, cell)
+    }
+
     /// What of the field is in a room `cols` cells across, as it is drawn there in pixels: the
     /// characters that are in it (a secret as dots), the cells the selection covers and the cell the
     /// caret is in, counted from the start of the room.
@@ -441,6 +634,100 @@ mod tests {
         assert_eq!(field.text(), "a");
         field.key(Key::Character('y'), control, None);
         assert_eq!(field.text(), "ab");
+    }
+
+    #[test]
+    fn a_text_is_broken_at_a_word_where_a_row_is_full_and_a_space_that_does_not_fit_hangs() {
+        let mut field = TextField::new(FieldKind::Lines);
+        field.fill(&Fill::text("aaa bbb ccc"));
+        // "aaa bbb" is the seven cells of a row, and the space after it stays on it.
+        assert_eq!(field.rows(7), [0..8, 8..11]);
+        // A word that is longer than a row is broken where it must be, and a paragraph has its own rows.
+        field.fill(&Fill::text("abcdefghij\nxy"));
+        assert_eq!(field.rows(4), [0..4, 4..8, 8..10, 11..13]);
+        field.fill(&Fill::text(""));
+        assert_eq!(field.rows(4), std::iter::once(0..0).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn the_caret_and_the_selection_of_lines_are_on_their_rows_and_a_press_goes_to_a_row() {
+        let mut field = TextField::new(FieldKind::Lines);
+        field.fill(&Fill::text("aaa bbb ccc").select(4..10));
+        let block = field.block(7, 2);
+        let words: Vec<&str> = block.rows.iter().map(|row| row.text.as_str()).collect();
+        assert_eq!(words, ["aaa bbb ", "ccc"]);
+        // "bbb " of the first row (cells 4 to 8) and "cc" of the second (0 to 2).
+        assert_eq!(block.rows[0].selected, Some(4..8));
+        assert_eq!(block.rows[1].selected, Some(0..2));
+        assert_eq!(block.caret, (1, 2));
+        // A room of one row shows the row the caret is on.
+        let block = field.block(7, 1);
+        assert_eq!(block.rows.len(), 1);
+        assert_eq!(block.rows[0].text, "ccc");
+        assert_eq!(block.caret, (0, 2));
+        field.place_in_rows(2, 0, 7, 2, false);
+        assert_eq!(field.state().selection, 2..2);
+        // Past the end of a row that was broken at a space the caret stays on the row, before it.
+        field.place_in_rows(20, 0, 7, 2, false);
+        assert_eq!(field.state().selection, 7..7);
+        // Under the last row is the end of the text.
+        field.place_in_rows(20, 5, 7, 2, false);
+        assert_eq!(field.state().selection, 11..11);
+    }
+
+    #[test]
+    fn a_room_that_shows_less_than_the_text_keeps_its_first_row_until_the_caret_leaves_it() {
+        let mut field = TextField::new(FieldKind::Lines);
+        field.fill(&Fill::text("aaa\nbbb\nccc\nddd\neee"));
+        // The caret is at the end: the last two rows are in a room of two.
+        assert_eq!(field.block(5, 2).rows[0].text, "ddd");
+        // A press in its first row puts the caret there and the rows stay where they were.
+        field.place_in_rows(1, 0, 5, 2, false);
+        assert_eq!(field.state().selection, 13..13);
+        assert_eq!(field.block(5, 2).rows[0].text, "ddd");
+        // The caret goes above the room: the room goes up with it, to as many rows as keep it in.
+        field.key(Key::Up, NONE, None);
+        assert_eq!(field.block(5, 2).rows[0].text, "ccc");
+        // A press below the rows is on the last of them, not on one that is not shown.
+        field.place_in_rows(0, 9, 5, 2, false);
+        assert_eq!(field.state().selection, 12..12);
+    }
+
+    #[test]
+    fn a_caret_after_the_last_cell_of_a_full_row_is_at_the_edge_and_up_and_down_go_by_rows() {
+        let mut field = TextField::new(FieldKind::Lines);
+        field.fill(&Fill::text("abcd efgh"));
+        // "abcd " and "efgh": the caret at the end is after the fourth cell of a row of four.
+        assert_eq!(field.block(4, 2).caret, (1, 4));
+        // Up goes to the same cell of the row above, and the start of the text from the first row.
+        field.key(Key::Up, NONE, None);
+        assert_eq!(field.state().selection, 4..4);
+        field.key(Key::Up, NONE, None);
+        assert_eq!(field.state().selection, 0..0);
+        // Down from the first row goes to its cell in the second, and the end of the text from the last.
+        field.place_in_rows(2, 0, 4, 2, false);
+        field.key(Key::Down, NONE, None);
+        assert_eq!(field.state().selection, 7..7);
+        field.key(Key::Down, NONE, None);
+        assert_eq!(field.state().selection, 9..9);
+        // A page goes by as many rows as the room shows.
+        field.fill(&Fill::text("a\nb\nc\nd\ne").select(0..0));
+        field.block(4, 2);
+        field.key(Key::PageDown, NONE, None);
+        assert_eq!(field.state().selection, 4..4);
+        // A field that was not drawn as rows has none to go by: its start and its end.
+        let mut field = TextField::new(FieldKind::Lines);
+        field.fill(&Fill::text("a\nb\nc").select(2..2));
+        field.key(Key::Up, NONE, None);
+        assert_eq!(field.state().selection, 0..0);
+    }
+
+    #[test]
+    fn a_press_past_the_end_of_a_row_broken_inside_a_word_is_at_the_start_of_the_next() {
+        let mut field = TextField::new(FieldKind::Lines);
+        field.fill(&Fill::text("abcdefghij"));
+        field.place_in_rows(9, 0, 4, 3, false);
+        assert_eq!(field.state().selection, 4..4);
     }
 
     #[test]

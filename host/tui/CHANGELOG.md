@@ -8,6 +8,7 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
 
 ### Added
 
+- **A field of lines** is drawn in the box of its text, broken at a word, with its selection and its caret on the rows they are in, and a press puts the caret on the row pressed; up and down go by rows. A field of one line stands in the box of its text, inside the padding of its element.
 - **`palette_wavs`**: the kit's own sounds as WAV files, each with the name a page asks for it by (what `pencere sounds` writes).
 - **A browser's room** shows a placeholder, "This terminal cannot show a browser.", where a page asks for
   one.

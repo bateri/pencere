@@ -8,6 +8,7 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Added
 
+- **A text field in a picture** (`Headless::shot`, the example `shots`) stands in the box of its text, inside the padding of its element, and a field of lines breaks its text and its hint at a word where that box is full.
 - **`Field::text` of the outline**: where a text field's text stands in the host's points, its room less its element's padding and border (`rect` is the whole room, the pointer's). A `Field { .. }` written out in full needs `text`. The measure the drive wraps passes on the host's `Measure::field_line`.
 - **`InProcess::welcome`**: the terminal's `welcome` names the host `name` and `version` to a program served in the test's process (specification §5.2), as the first `welcome` of a terminal does.
 - **`Host::sound`**: a sound the page asked for (the samples of one of the kit's own at the pitch asked for, or of a file of the page's bundle decoded) or the end of every sound, told after the vibration; one that was not decoded then is told when it is (`Drained::sounds`), and one not decoded within `Setup::sounds`' wait (a second) is dropped and the author told (`Host::diagnostic`). `Page::sounds_waiting` and `Page::sounds_deadline` say when a host is to look again. `Headless::sounds` keeps every ask in order.

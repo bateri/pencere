@@ -824,7 +824,7 @@ impl PanelBar {
             &mut items,
             &self.field,
             Some(hint),
-            text,
+            (text, text),
             true,
             Role::Foreground,
         );

@@ -1338,28 +1338,45 @@ impl Live<'_> {
 
     /// The caret of the field `id` goes to the edge of a character the pointer is nearest to.
     fn place_caret(&mut self, id: Id, mouse: &Mouse, extend: bool) {
-        let Some(room) = self
+        let Some((room, kind)) = self
             .page
             .fields()
             .iter()
             .find(|field| field.id == id)
-            .map(|field| field.rect)
+            .map(|field| (field.text, field.kind))
         else {
             return;
         };
-        // The room is as many whole cells as fit in it, from its left edge, and the nearer edge of a
-        // cell is the one the caret goes to.
+        // The text's box is as many whole cells as fit in it, from its left edge, and the nearer edge
+        // of a cell is the one the caret goes to. A field of lines is as many rows as the box shows,
+        // and the row pressed is the one the pointer is on.
         let scale = self.pixel.scale();
         #[allow(clippy::cast_precision_loss)]
         let across = self.pixel.cell().0.max(1) as f32;
-        let x = self.point(mouse).x * scale;
+        let at = self.point(mouse);
         let from = room.x * scale;
         let (cell, width) = (
-            ((x - from) / across + 0.5).floor().max(0.0) as usize,
+            ((at.x * scale - from) / across + 0.5).floor().max(0.0) as usize,
             (room.w * scale / across).floor().max(1.0) as u16,
         );
+        let rows = (kind == FieldKind::Lines).then(|| {
+            #[allow(clippy::cast_precision_loss)]
+            let paper = Paper {
+                fonts: self.pixel.fonts(),
+                scale,
+                cell: (across, self.pixel.cell().1.max(1) as f32),
+                window: Rect::new(0.0, 0.0, 0.0, 0.0),
+                foot: 0.0,
+            };
+            let line = paper.line(&paper.face(false));
+            let row = ((at.y - room.y) * scale / line).floor().max(0.0) as usize;
+            (row, chrome::shown_in(&paper, room.h * scale))
+        });
         if let Some(field) = self.fields.get_mut(&id) {
-            field.place(cell, width, extend);
+            match rows {
+                Some((row, shown)) => field.place_in_rows(cell, row, width, shown, extend),
+                None => field.place(cell, width, extend),
+            }
             self.dirty = true;
         }
     }

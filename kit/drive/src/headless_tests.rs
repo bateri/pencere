@@ -955,6 +955,18 @@ fn rows_of_a_field_that_are_not_a_count_of_lines_or_come_with_a_height_are_the_p
             r#"pencere.div():text_field("q", "lines", { rows = 3 }):h_pct(50)"#,
             "rows or a height",
         ),
+        (
+            r#"pencere.div():text_field("q", "lines", { rows = 3 }):h_full()"#,
+            "rows or a height",
+        ),
+        (
+            r#"pencere.div():text_field("q", "lines", { rows = 3 }):size_full()"#,
+            "rows or a height",
+        ),
+        (
+            r#"pencere.div():h_full():text_field("q", "lines", { rows = 3 })"#,
+            "rows or a height",
+        ),
     ];
     for (line, said) in cases {
         let source =
@@ -965,12 +977,12 @@ fn rows_of_a_field_that_are_not_a_count_of_lines_or_come_with_a_height_are_the_p
             "{line}: {failed:?}"
         );
     }
-    // A least and a most height go with rows, either way round.
+    // A width alone goes with rows (`size` with no height is a width), and a least and a most height too.
     let page = Headless::script(
         r#"
 return { render = function()
     return pencere.div():size_full()
-        :child(pencere.div():id("a"):min_h(100):text_field("a", "lines", { rows = 2 }):w(100))
+        :child(pencere.div():id("a"):min_h(100):text_field("a", "lines", { rows = 2 }):size(100))
         :child(pencere.div():id("b"):text_field("b", "lines", { rows = 9 }):max_h(40):w(100))
 end }
 "#,

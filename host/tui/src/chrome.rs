@@ -12,9 +12,9 @@ use std::collections::HashMap;
 
 use pencere_drive::Field;
 use pencere_drive::shot::Fonts;
-use pencere_view::{Color, Family, Font, Id, Measure, Paint, Quad, Rect, Role, Run};
+use pencere_view::{Color, Family, FieldKind, Font, Id, Measure, Paint, Quad, Rect, Role, Run};
 
-use crate::field::TextField;
+use crate::field::{TextField, rows_of};
 use crate::pixel::COLUMN_POINTS;
 
 /// What the items are drawn in and on: the faces, the scale of the page, how many pixels a cell of the
@@ -41,7 +41,7 @@ impl Paper<'_> {
     }
 
     /// How high a line of `font` is, pixels.
-    fn line(&self, font: &Font) -> f32 {
+    pub(crate) fn line(&self, font: &Font) -> f32 {
         self.fonts.clone().measure(font, "M").height
     }
 
@@ -154,11 +154,12 @@ pub(crate) fn fields(
         if field.covered {
             continue;
         }
+        // The text stands in its box, inside the element's padding; the room is the pointer's.
         let room = Rect::new(
-            field.rect.x * paper.scale,
-            field.rect.y * paper.scale,
-            field.rect.w * paper.scale,
-            field.rect.h * paper.scale,
+            field.text.x * paper.scale,
+            field.text.y * paper.scale,
+            field.text.w * paper.scale,
+            field.text.h * paper.scale,
         );
         let untouched;
         let text = match texts.get(&field.id) {
@@ -168,27 +169,109 @@ pub(crate) fn fields(
                 &untouched
             }
         };
-        line(
-            paper,
-            &mut items,
-            text,
-            field.hint.as_deref(),
-            room,
-            focus == Some(field.id),
-            Role::Foreground,
-        );
+        let (hint, has) = (field.hint.as_deref(), focus == Some(field.id));
+        if field.kind == FieldKind::Lines {
+            lines(paper, &mut items, text, hint, room, has, Role::Foreground);
+        } else {
+            // A line is cut at the sides of its box and the top and bottom of its room, which its
+            // element made at least a line high.
+            let whole = Rect::new(
+                room.x,
+                field.rect.y * paper.scale,
+                room.w,
+                field.rect.h * paper.scale,
+            );
+            line(
+                paper,
+                &mut items,
+                text,
+                hint,
+                (room, whole),
+                has,
+                Role::Foreground,
+            );
+        }
     }
     items
 }
 
-/// One line of a field in `room`, whole cells across from its left edge: the selection, the words (or
-/// `hint`, dim, where there are none) and, where it `has` the keyboard, the caret.
-pub(crate) fn line(
+/// How many rows of a field of lines a box `height` high shows: at least one, and the room for a row
+/// is a little more than it is where the box was made of whole rows and came out a hair short.
+pub(crate) fn shown_in(paper: &Paper<'_>, height: f32) -> usize {
+    let line = paper.line(&paper.face(false));
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let rows = ((height + 1.0 / 64.0) / line).floor().max(1.0) as usize;
+    rows
+}
+
+/// A field of lines in `room`, the box of its text: its text broken at a word where a row of cells is
+/// full, row under row from the top, each with the selection under it; `hint`, dim and broken as
+/// the text is, where there is none; and the caret, where it `has` the keyboard.
+pub(crate) fn lines(
     paper: &Paper<'_>,
     items: &mut Vec<Paint>,
     text: &TextField,
     hint: Option<&str>,
     room: Rect,
+    has: bool,
+    ink: Role,
+) {
+    let font = paper.face(false);
+    let line = paper.line(&font);
+    let cols = (room.w / paper.cell.0).floor().max(1.0);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let cols = cols as u16;
+    let shown = shown_in(paper, room.h);
+    let block = text.block(cols, shown);
+    #[allow(clippy::cast_precision_loss)]
+    let top = |row: usize| room.y + row as f32 * line;
+    for (index, row) in block.rows.iter().enumerate() {
+        if let Some(selected) = &row.selected {
+            #[allow(clippy::cast_precision_loss)]
+            let rect = Rect::new(
+                room.x + selected.start as f32 * paper.cell.0,
+                top(index),
+                (selected.end - selected.start) as f32 * paper.cell.0,
+                line,
+            );
+            items.push(paper.quad(rect, Role::Selection, room));
+        }
+        if !text.text().is_empty() && !row.text.is_empty() {
+            items.push(paper.text((room.x, top(index)), &row.text, font, ink, room));
+        }
+    }
+    if let (true, Some(hint)) = (text.text().is_empty(), hint) {
+        for (index, span) in rows_of(hint, cols).into_iter().take(shown).enumerate() {
+            let words = &hint[span];
+            if !words.is_empty() {
+                items.push(paper.text((room.x, top(index)), words, font, Role::Dim, room));
+            }
+        }
+    }
+    if has {
+        let width = paper.scale.ceil().max(1.0);
+        #[allow(clippy::cast_precision_loss)]
+        let rect = Rect::new(
+            room.x + block.caret.1 as f32 * paper.cell.0,
+            top(block.caret.0),
+            width,
+            line,
+        );
+        // After the last cell of a full row the caret is at the box's edge: it is drawn there.
+        let reach = Rect::new(room.x, room.y, room.w + width, room.h);
+        items.push(paper.quad(rect, Role::Cursor, reach));
+    }
+}
+
+/// One line of a field in `room`, the box of its text, whole cells across from its left edge, and cut at
+/// the second box (the whole room of the field): the selection, the words (or `hint`, dim, where there
+/// are none) and, where it `has` the keyboard, the caret.
+pub(crate) fn line(
+    paper: &Paper<'_>,
+    items: &mut Vec<Paint>,
+    text: &TextField,
+    hint: Option<&str>,
+    (room, clip): (Rect, Rect),
     has: bool,
     ink: Role,
 ) {
@@ -206,17 +289,17 @@ pub(crate) fn line(
             (selected.end - selected.start) as f32 * paper.cell.0,
             height,
         );
-        items.push(paper.quad(rect, Role::Selection, room));
+        items.push(paper.quad(rect, Role::Selection, clip));
     }
     if text.text().is_empty() {
         if let Some(hint) = hint {
             let shown = fit(hint, cols);
             if !shown.is_empty() {
-                items.push(paper.text((room.x, top), &shown, font, Role::Dim, room));
+                items.push(paper.text((room.x, top), &shown, font, Role::Dim, clip));
             }
         }
     } else if !slice.text.is_empty() {
-        items.push(paper.text((room.x, top), &slice.text, font, ink, room));
+        items.push(paper.text((room.x, top), &slice.text, font, ink, clip));
     }
     if has {
         #[allow(clippy::cast_precision_loss)]
@@ -226,7 +309,7 @@ pub(crate) fn line(
             paper.scale.ceil().max(1.0),
             height,
         );
-        items.push(paper.quad(rect, Role::Cursor, room));
+        items.push(paper.quad(rect, Role::Cursor, clip));
     }
 }
 

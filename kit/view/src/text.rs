@@ -70,6 +70,75 @@ pub fn field_line_height(measure: &mut dyn Measure, scale: f32) -> f32 {
         .unwrap_or_else(|| measure.measure(&font, "M").height)
 }
 
+/// The rows `text` is broken into where a room is `budget` across (in the unit of `width`, which is
+/// the width of a run of text set in one line), as a field of lines breaks its text: at its line
+/// breaks, and where a word does not fit on a row at its start, so that each row is as many words as
+/// fit and a word wider than a row is broken where it must be (one character, at the least, to a
+/// row). A space is kept where it stands and ends its row where the row is broken there (it hangs
+/// past the edge, it does not break a row of its own); the line breaks are between the rows. Each row is
+/// a range of bytes of `text`, and there is at least one (an empty text is a row of nothing).
+pub fn break_rows(
+    text: &str,
+    budget: f32,
+    width: &mut dyn FnMut(&str) -> f32,
+) -> Vec<std::ops::Range<usize>> {
+    let budget = budget + FITS;
+    let mut rows = Vec::new();
+    let mut start = 0;
+    for paragraph in text.split('\n') {
+        let end = start + paragraph.len();
+        break_paragraph(text, start..end, budget, width, &mut rows);
+        start = end + 1;
+    }
+    rows
+}
+
+/// The rows of one paragraph (no line break in it) of `text`, put in `rows`.
+fn break_paragraph(
+    text: &str,
+    span: std::ops::Range<usize>,
+    budget: f32,
+    width: &mut dyn FnMut(&str) -> f32,
+    rows: &mut Vec<std::ops::Range<usize>>,
+) {
+    let part = |from: usize, to: usize| text.get(from..to).unwrap_or("");
+    let before = rows.len();
+    let mut from = span.start;
+    let mut at = span.start;
+    while at < span.end {
+        // The word at `at` and the spaces after it, which go with it.
+        let rest = part(at, span.end);
+        let word_end = at + rest.find(' ').unwrap_or(rest.len());
+        let tail = part(word_end, span.end);
+        let token_end = word_end + (tail.len() - tail.trim_start_matches(' ').len());
+        if width(part(from, word_end)) <= budget {
+            at = token_end;
+            continue;
+        }
+        if from < at {
+            // The word goes to the next row.
+            rows.push(from..at);
+            from = at;
+            continue;
+        }
+        // The word alone is wider than a row: broken where it must be.
+        let mut cut = from;
+        for (index, c) in part(from, word_end).char_indices() {
+            let next = from + index + c.len_utf8();
+            if cut > from && width(part(from, next)) > budget {
+                break;
+            }
+            cut = next;
+        }
+        rows.push(from..cut);
+        from = cut;
+        at = cut;
+    }
+    if from < span.end || rows.len() == before {
+        rows.push(from..span.end);
+    }
+}
+
 /// The host's side of text: how large one line is.
 ///
 /// A host with no proportional text answers [`Metrics::default`] (nothing): the boxes of the

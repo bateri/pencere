@@ -149,6 +149,90 @@ fn a_field_with_no_text_says_its_hint_dimmed_in_its_room() {
 }
 
 #[test]
+fn a_field_of_lines_is_broken_in_the_box_of_its_text_and_drawn_row_under_row_from_its_top() {
+    let (fonts, scale) = faces();
+    let paper = paper(&fonts, scale);
+    let line = paper.line(&paper.face(false));
+    // The room is the pointer's; the text is in it, eight cells across and three rows high, in from its
+    // top-left corner.
+    let text = Rect::new(
+        30.0,
+        40.0,
+        (8.0 * CELL.0 as f32 + 0.5) / scale,
+        3.0 * line / scale,
+    );
+    let field = Field {
+        id: Id::named("reply"),
+        kind: FieldKind::Lines,
+        rect: Rect::new(20.0, 30.0, 200.0, 100.0),
+        text,
+        hint: Some("Reply to this message".to_owned()),
+        label: None,
+        covered: false,
+    };
+    let rows = |held: TextField| -> Vec<(String, f32, f32)> {
+        let texts_by = HashMap::from([(field.id, held)]);
+        chrome::fields(&paper, std::slice::from_ref(&field), &texts_by, None)
+            .iter()
+            .filter_map(|item| match item {
+                Paint::Text(run) => Some((run.text.clone(), run.origin.x, run.origin.y)),
+                _ => None,
+            })
+            .collect()
+    };
+    let (x, y) = (text.x * scale, text.y * scale);
+    // Three rows: the box is exactly as high as they are, and all three are in it.
+    let mut held = TextField::new(FieldKind::Lines);
+    held.fill(&Fill::text("aaa bbb ccc ddd eee fff"));
+    let said: Vec<_> = rows(held)
+        .into_iter()
+        .map(|row| (row.0, row.1, row.2))
+        .collect();
+    assert_eq!(
+        said,
+        [
+            ("aaa bbb ".to_owned(), x, y),
+            ("ccc ddd ".to_owned(), x, y + line),
+            ("eee fff".to_owned(), x, y + 2.0 * line),
+        ]
+    );
+    // And the hint is broken as the text is.
+    let said: Vec<String> = rows(TextField::new(FieldKind::Lines))
+        .into_iter()
+        .map(|row| row.0)
+        .collect();
+    assert_eq!(said, ["Reply to ", "this ", "message"]);
+}
+
+#[test]
+fn a_line_of_a_field_is_in_the_box_of_its_text_and_not_in_its_room() {
+    let (fonts, scale) = faces();
+    let paper = paper(&fonts, scale);
+    // The element has padding: its text is in from the room on every side.
+    let padded = Field {
+        text: Rect::new(30.0, 40.0, 60.0, 10.0),
+        ..room()
+    };
+    let mut held = TextField::new(FieldKind::Line);
+    held.fill(&Fill::text("abc"));
+    let texts_by = HashMap::from([(padded.id, held)]);
+    let items = chrome::fields(&paper, std::slice::from_ref(&padded), &texts_by, None);
+    let [Paint::Text(run)] = &items[..] else {
+        panic!("one run: {items:?}")
+    };
+    let text = Rect::new(30.0 * scale, 40.0 * scale, 60.0 * scale, 10.0 * scale);
+    // Cut at the sides of the box and the top and bottom of the room, which is taller than the box: a
+    // letter of the line is not cut.
+    let room = room_px(scale);
+    assert_eq!(run.clip, Rect::new(text.x, room.y, text.w, room.h));
+    assert_eq!(run.origin.x, text.x);
+    assert_eq!(
+        run.origin.y,
+        paper.centred(&paper.face(false), text.y, text.h)
+    );
+}
+
+#[test]
 fn a_field_with_text_says_the_text_and_not_the_hint_and_the_caret_is_at_its_end() {
     let (fonts, scale) = faces();
     let mut text = TextField::new(FieldKind::Line);

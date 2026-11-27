@@ -1070,6 +1070,8 @@ fn build(
         let height =
             f32::from(rows.clamp(MOST_FIELD_ROWS.0, MOST_FIELD_ROWS.1)) * line + room - FITS;
         taffy_style.size.height = Dimension::length(height.ceil());
+        // Its rows are what it is as tall as: no parent takes a row of them away.
+        taffy_style.flex_shrink = 0.0;
     }
     let id = match kind {
         Kind::Text(content) => {

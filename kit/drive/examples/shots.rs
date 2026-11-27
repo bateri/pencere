@@ -24,7 +24,9 @@ use std::process::ExitCode;
 
 use pencere_drive::headless::{Calls, Files, Headless};
 use pencere_drive::shot::{Fonts, Palette, png};
-use pencere_view::{DrawList, Family, FieldKind, Font, Measure, Paint, Point, Rect, Role, Run};
+use pencere_view::{
+    DrawList, Family, FieldKind, Font, Measure, Paint, Point, Rect, Role, Run, break_rows,
+};
 use tiny_skia::{IntRect, Pixmap};
 
 /// Pixels to a point.
@@ -219,7 +221,8 @@ fn picture(root: &Path, entry: &str, fonts: &Fonts) -> Result<Shot, String> {
 }
 
 /// The last frame's draw list with the host's fields drawn over it: what each holds, or what it
-/// says while it is empty, in the size of the page's words.
+/// says while it is empty, in the size of the page's words (a picture of a page reads as one: the
+/// host's own field is the kit's text size, which the pictures leave to the page's).
 fn with_fields(page: &Headless<Calls>, fonts: &Fonts) -> DrawList {
     let mut list = page.list().clone();
     let font = Font {
@@ -228,7 +231,8 @@ fn with_fields(page: &Headless<Calls>, fonts: &Fonts) -> DrawList {
         weight: 400,
         italic: false,
     };
-    let line = fonts.clone().measure(&font, "Hg").height.max(font.size);
+    let mut measure = fonts.clone();
+    let line = measure.measure(&font, "Hg").height.max(font.size);
     for field in &page.outline().fields {
         if field.covered {
             continue;
@@ -242,18 +246,34 @@ fn with_fields(page: &Headless<Calls>, fonts: &Fonts) -> DrawList {
             (None, Some(hint)) => (hint.clone(), Role::Quiet),
             (None, None) => continue,
         };
+        // The text stands in its box, inside the padding of the element; the room is the pointer's.
         let room = Rect::new(
-            field.rect.x * SCALE,
-            field.rect.y * SCALE,
-            field.rect.w * SCALE,
-            field.rect.h * SCALE,
+            field.text.x * SCALE,
+            field.text.y * SCALE,
+            field.text.w * SCALE,
+            field.text.h * SCALE,
         );
-        let top = if field.kind == FieldKind::Lines {
-            room.y
+        // One line is cut at the sides of its box and the top and bottom of its room, which is at
+        // least a line high; lines at their box.
+        let (top, clip) = if field.kind == FieldKind::Lines {
+            (room.y, room)
         } else {
-            room.y + ((room.h - line) / 2.0).max(0.0)
+            (
+                room.y + (room.h - line) / 2.0,
+                Rect::new(room.x, field.rect.y * SCALE, room.w, field.rect.h * SCALE),
+            )
         };
-        for (index, text) in words.lines().enumerate() {
+        // A field of lines is broken at a word where its box is full, as the host's own is.
+        let rows: Vec<&str> = if field.kind == FieldKind::Lines {
+            break_rows(&words, room.w, &mut |run| measure.measure(&font, run).width)
+                .into_iter()
+                .filter_map(|span| words.get(span))
+                .map(|row| row.trim_end_matches(' '))
+                .collect()
+        } else {
+            words.lines().collect()
+        };
+        for (index, text) in rows.into_iter().enumerate() {
             #[allow(clippy::cast_precision_loss)]
             let y = top + line * index as f32;
             list.items.push(Paint::Text(Run {
@@ -263,7 +283,7 @@ fn with_fields(page: &Headless<Calls>, fonts: &Fonts) -> DrawList {
                 color: role.solid(),
                 opacity: 1.0,
                 grounds: Vec::new(),
-                clip: room,
+                clip,
                 underline: false,
                 strike: false,
             }));

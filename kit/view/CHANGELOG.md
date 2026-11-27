@@ -17,6 +17,7 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Added
 
+- **`break_rows`**: the rows a text is broken into in a width, as a field of lines breaks it (at its words, every space kept where it was typed), which a host that draws such a field breaks its text with.
 - **`Element::field_rows`**: a field of lines is as tall as that many lines of the host's field (1 to 100) and its padding and border, in the place of its height. The host says its line with **`Measure::field_line`**; where it says nothing the engine measures one in `field_font` (`field_line_height`).
 - **`ZOOM_TEXT`**, the kit's text size (12.5 points), which `pencere-drive` had.
 - **`Element::m`, `mx`, `my` and `h_pct`**: the margin of every side and of each axis at once, as `p`, `px` and `py` are of the padding, and a share of the parent's height, as `w_pct` is of its width.

@@ -14,11 +14,14 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 #[cfg(feature = "shot")]
-use pencere_view::{Color, Family, Font, Id, Measure, Paint, Point, Quad, Rect, Role, Run};
+use pencere_view::{
+    Color, Font, Id, Measure, Paint, Point, Quad, Rect, Role, Run, break_rows, field_font,
+    field_line_height,
+};
 use pencere_view::{FieldKind, FieldState, Fill, Key, Mods};
 
 #[cfg(feature = "shot")]
-use crate::{Field, ZOOM_TEXT};
+use crate::Field;
 
 /// What one field holds: its text, and where its selection starts and where its caret is.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -208,12 +211,16 @@ fn byte_at(text: &str, at: usize) -> usize {
 
 /// The host's fields over a picture of the page ([`super::Headless::shot`]), as a system's are over
 /// the page: each says what it holds, in the terminal's face at the kit's text size (a secret a dot
-/// for each character), or its hint, quiet, where it holds nothing. One line stands in the middle of
-/// its room, with what is selected under its words and, in the field that has the keyboard, the
-/// caret where nothing is selected, and it scrolls as a field does to keep the caret in its room; lines stand
-/// from the room's top, a line of the text to a line, with no selection or caret. A field the page
-/// covers is not drawn. `fields` are the last frame's (the host's points), `held` what they hold,
-/// `focus` the one with the keyboard, `zoom` the page's and `scale` the view's pixels to a point.
+/// for each character), or its hint, quiet, where it holds nothing. The text stands in its box
+/// (`Field::text`), inside the padding of the element. One line stands in the middle of its box, with
+/// what is selected under its words and, in the field that has the keyboard, the caret where nothing
+/// is selected, and it scrolls as a field does to keep the caret in its box (and is cut at the room, so
+/// that a box shorter than a line does not cut the letters, and not at the sides of the padding); lines are broken at a word where the box
+/// is full and stand from its top, a line of the text to a row, with no selection or caret. The page is
+/// laid out with the same `fonts` ([`super::Opening::measure`]), so that the line is the one its boxes
+/// were made of. A field the page covers is not drawn. `fields` are the last frame's (the host's
+/// points), `held` what they hold, `focus` the one with the keyboard, `zoom` the page's and `scale` the
+/// view's pixels to a point.
 #[cfg(feature = "shot")]
 pub(super) fn drawn(
     fields: &[Field],
@@ -224,21 +231,21 @@ pub(super) fn drawn(
     fonts: &crate::shot::Fonts,
 ) -> Vec<Paint> {
     let mut measure = fonts.clone();
-    let font = Font {
-        family: Family::Terminal,
-        size: ZOOM_TEXT * zoom * scale,
-        weight: 400,
-        italic: false,
-    };
-    let line = measure.measure(&font, "M").height;
+    // The field's face and line as the page was laid out with them, from the same two places.
+    let font = field_font(zoom * scale);
+    let line = field_line_height(&mut measure, zoom * scale);
     let mut items = Vec::new();
     for field in fields.iter().filter(|field| !field.covered) {
+        // The text stands in its box, inside the padding of the element; the room is the pointer's.
         let room = Rect::new(
-            field.rect.x * scale,
-            field.rect.y * scale,
-            field.rect.w * scale,
-            field.rect.h * scale,
+            field.text.x * scale,
+            field.text.y * scale,
+            field.text.w * scale,
+            field.text.h * scale,
         );
+        // A line is cut at the sides of its box (the padding is not for words) and the top and bottom
+        // of its room, which its element made at least a line high.
+        let whole = Rect::new(room.x, field.rect.y * scale, room.w, field.rect.h * scale);
         let none = Held::default();
         let held = held.get(&field.id).unwrap_or(&none);
         let text = if field.kind == FieldKind::Secret {
@@ -251,7 +258,10 @@ pub(super) fn drawn(
             let (words, ink) = hint.map_or((text.as_str(), Role::Foreground), |hint| {
                 (hint, Role::Quiet)
             });
-            for (row, words) in words.split('\n').enumerate() {
+            // Broken at a word where the box is full, as the host's own field breaks it.
+            let rows = break_rows(words, room.w, &mut |run| measure.measure(&font, run).width);
+            for (row, span) in rows.iter().enumerate() {
+                let words = words.get(span.clone()).unwrap_or("").trim_end_matches(' ');
                 if words.is_empty() {
                     continue;
                 }
@@ -283,16 +293,16 @@ pub(super) fn drawn(
             };
         if !selection.is_empty() {
             let rect = Rect::new(left + start, top, end - start, line);
-            items.push(ground(rect, Role::Selection, room));
+            items.push(ground(rect, Role::Selection, whole));
         }
         if let Some(hint) = hint {
-            items.push(words_at((room.x, top), hint, font, Role::Quiet, room));
+            items.push(words_at((room.x, top), hint, font, Role::Quiet, whole));
         } else if !text.is_empty() {
-            items.push(words_at((left, top), &text, font, Role::Foreground, room));
+            items.push(words_at((left, top), &text, font, Role::Foreground, whole));
         }
         if has && selection.is_empty() {
             let rect = Rect::new(left + head, top, caret, line);
-            items.push(ground(rect, Role::Cursor, room));
+            items.push(ground(rect, Role::Cursor, whole));
         }
     }
     items
@@ -384,7 +394,9 @@ mod tests {
     #[cfg(feature = "shot")]
     mod drawn {
         use super::super::*;
+        use crate::ZOOM_TEXT;
         use crate::shot::Fonts;
+        use pencere_view::Family;
 
         const NAME: Id = Id::new(7);
 
@@ -573,7 +585,72 @@ mod tests {
         }
 
         #[test]
-        fn lines_stand_from_the_top_of_their_room_a_line_of_the_text_to_a_line() {
+        fn lines_are_broken_at_a_word_in_the_width_of_the_text_box_and_stand_from_its_top() {
+            // The room is the pointer's; the text is in it, inside the element's padding: 5 points in
+            // from the left and 6 down, and as wide as the first two words of the text (and a hair).
+            let mut padded = field(FieldKind::Lines, None);
+            padded.text = Rect::new(15.0, 26.0, (wide("aaaa bbbb", 1.0) + 1.0) / 2.0, 40.0);
+            let items = draw(&padded, &holding("aaaa bbbb cccc"), false, 1.0);
+            let line = Fonts::none().measure(&face(1.0), "M").height;
+            let drawn: Vec<(&str, Point)> = runs(&items)
+                .iter()
+                .map(|run| (run.text.as_str(), run.origin))
+                .collect();
+            assert_eq!(
+                drawn,
+                [
+                    ("aaaa bbbb", Point::new(30.0, 52.0)),
+                    ("cccc", Point::new(30.0, 52.0 + line))
+                ]
+            );
+            assert_eq!(runs(&items)[0].clip.x, 30.0, "cut at the box of the text");
+        }
+
+        #[test]
+        fn the_hint_of_lines_is_broken_as_their_text_is() {
+            let mut padded = field(FieldKind::Lines, Some("aaaa bbbb cccc"));
+            padded.text = Rect::new(10.0, 20.0, (wide("aaaa bbbb", 1.0) + 1.0) / 2.0, 40.0);
+            let items = draw(&padded, &holding(""), false, 1.0);
+            let words: Vec<&str> = runs(&items).iter().map(|run| run.text.as_str()).collect();
+            assert_eq!(words, ["aaaa bbbb", "cccc"]);
+        }
+
+        #[test]
+        fn a_line_is_in_the_middle_of_the_box_of_its_text_and_not_of_its_room() {
+            // One row of a field of rows, with 4 points of padding above and 6 below: the room is
+            // taller than the line, the box is the line.
+            let line = Fonts::none().measure(&face(1.0), "M").height;
+            let mut padded = field(FieldKind::Line, None);
+            padded.rect = Rect::new(10.0, 20.0, 100.0, line / 2.0 + 10.0);
+            padded.text = Rect::new(18.0, 24.0, 84.0, line / 2.0);
+            let items = draw(&padded, &holding("Fix it"), false, 1.0);
+            let [run] = runs(&items)[..] else {
+                panic!("one run: {items:?}")
+            };
+            assert_eq!(run.origin, Point::new(36.0, 48.0));
+            // Cut at the sides of the box and the top and bottom of the room, which is taller than the
+            // box: a letter of the line is not cut, and a long one does not run into the padding.
+            assert_eq!(run.clip, Rect::new(36.0, 40.0, 168.0, line + 20.0));
+            let long = "a title much longer than the box it is typed in, with room around it";
+            for focus in [false, true] {
+                let items = draw(&padded, &holding(long), focus, 1.0);
+                assert!(
+                    runs(&items)
+                        .iter()
+                        .all(|run| run.clip.x == 36.0 && run.clip.w == 168.0),
+                    "{items:?}"
+                );
+                assert!(
+                    grounds(&items)
+                        .iter()
+                        .all(|quad| quad.clip.x == 36.0 && quad.clip.w == 168.0),
+                    "{items:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn lines_stand_from_the_top_of_their_box_a_line_of_the_text_to_a_row() {
             let items = draw(
                 &field(FieldKind::Lines, None),
                 &holding("one\ntwo"),

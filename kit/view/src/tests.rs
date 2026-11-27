@@ -459,7 +459,29 @@ fn a_field_of_rows_says_the_height_and_a_least_and_a_most_still_hold() {
     assert_eq!(at(one), 18.0);
     // And a number that is not a count of lines is taken as the nearest.
     assert_eq!(at(lines_field(0)), 20.0);
-    assert_eq!(at(lines_field(200).no_shrink()), 2000.0);
+    assert_eq!(at(lines_field(200)), 2000.0);
+}
+
+#[test]
+fn a_field_breaks_its_text_at_the_words_that_do_not_fit_and_keeps_every_space() {
+    // One cell to a character.
+    let rows = |text: &str, budget: f32| {
+        crate::break_rows(text, budget, &mut |run| run.chars().count() as f32)
+    };
+    // A space that does not fit hangs on the row, the next word starts the next.
+    assert_eq!(rows("aaa bbb ccc", 7.0), [0..8, 8..11]);
+    // Nothing is collapsed: the spaces of the text are where they were typed.
+    assert_eq!(
+        rows("a  b", 100.0),
+        std::iter::once(0..4).collect::<Vec<_>>()
+    );
+    assert_eq!(rows("  ab cd", 4.0), [0..5, 5..7]);
+    // A word wider than a row is broken where it must be; a line break is a row's end.
+    assert_eq!(rows("abcdefghij", 4.0), [0..4, 4..8, 8..10]);
+    assert_eq!(rows("ab\n\ncd", 10.0), [0..2, 3..3, 4..6]);
+    assert_eq!(rows("", 10.0), std::iter::once(0..0).collect::<Vec<_>>());
+    // A character wider than the room has a row of its own, and no row is left over.
+    assert_eq!(rows("ab", 0.5), [0..1, 1..2]);
 }
 
 #[test]

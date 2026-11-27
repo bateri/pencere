@@ -557,6 +557,7 @@ function Element:focusable(...)
 end
 
 local FIELD_KINDS = { line = true, lines = true, secret = true }
+local ROWS_OR_HEIGHT = "a field of rows is as tall as they say: give it rows or a height, not both"
 
 -- The box is the room of a text field the host puts over the page, named `id` (the element's own
 -- name when `id` is nil): a page has as many as it names. `kind` is "line" (the default), "lines"
@@ -594,7 +595,7 @@ function Element:text_field(id, kind, options)
 				refuse("rows takes a whole number from 1 to 100, not " .. tostring(rows))
 			end
 			if self.style.height ~= nil then
-				refuse("a field of rows is as tall as they say: give it rows or a height, not both")
+				refuse(ROWS_OR_HEIGHT)
 			end
 			self.meta.field_rows = rows
 		end
@@ -1651,7 +1652,13 @@ function Element:no_shrink(...)
 	return self
 end
 function Element:w_full() self.style.width = { percent = 100 } return self end
-function Element:h_full() self.style.height = { percent = 100 } return self end
+function Element:h_full()
+	if self.meta.field_rows ~= nil then
+		refuse(ROWS_OR_HEIGHT)
+	end
+	self.style.height = { percent = 100 }
+	return self
+end
 
 function Element:size_full()
 	return self:w_full():h_full()
@@ -1660,15 +1667,15 @@ end
 function Element:w(points) self.style.width = points return self end
 function Element:w_pct(percent) self.style.width = { percent = percent } return self end
 function Element:h(points)
-	if self.meta.field_rows ~= nil then
-		refuse("a field of rows is as tall as they say: give it rows or a height, not both")
+	if points ~= nil and self.meta.field_rows ~= nil then
+		refuse(ROWS_OR_HEIGHT)
 	end
 	self.style.height = points
 	return self
 end
 function Element:h_pct(percent)
-	if self.meta.field_rows ~= nil then
-		refuse("a field of rows is as tall as they say: give it rows or a height, not both")
+	if percent ~= nil and self.meta.field_rows ~= nil then
+		refuse(ROWS_OR_HEIGHT)
 	end
 	self.style.height = { percent = percent }
 	return self
