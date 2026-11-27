@@ -1045,4 +1045,25 @@ function Ctx:handle(event)
 	return out.reply, out.actions, out.taken
 end
 
+-- What an edge that the pointer drags says as it reaches a limit of its size (`at_limit`: the pointer asks
+-- for the limit or for what is past it): the vibration `haptic` names (a ready pattern's name or a pattern; a
+-- "tick" where the component's page says nothing, none where it says `false`), the once it gets there, and
+-- none while it stays or goes on past the limit; it vibrates again as it leaves and reaches the limit again.
+-- `held` is what the last move of the drag returned (nil at its first); it returns the new one and the
+-- reply, or nil.
+function core.limit_touch(held, at_limit, haptic)
+	if at_limit and not held and haptic ~= false then
+		return true, { haptic = haptic or "tick" }
+	end
+	return at_limit, nil
+end
+
+-- Why the `haptic` of `what` (a component, in words) is none of the vibrations, or nil.
+function core.haptic_check(haptic, what)
+	if haptic == nil or haptic == false or type(haptic) == "string" or type(haptic) == "table" then
+		return nil
+	end
+	return what .. "'s haptic is a ready pattern's name, a pattern of the page's own or false, not " .. tostring(haptic)
+end
+
 return core

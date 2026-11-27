@@ -227,7 +227,9 @@ local STEP = 16
 -- that does not move it says nothing. The arrow keys on the edge size it by sixteen points, as a window splitter does. Under
 -- `narrow_below` points of page the sized pane leaves the row: `second` has all of it, and the sized
 -- pane comes over it with a scrim behind it while `state.drawer` is true (the page opens it, the scrim
--- and escape say `drawer { open = false }`).
+-- and escape say `drawer { open = false }`). As the pointer takes the edge to `min` or `max` the reply
+-- carries a vibration, once as it gets there (not while it stays, nor from the keys): `haptic` is a
+-- ready pattern's name or a pattern of the page's own ("tick" where it says nothing), `false` for none.
 local Split = core.component("split", {
 	state = function(props)
 		return { size = props.default or 240, drawer = false }
@@ -239,7 +241,7 @@ local Split = core.component("split", {
 		if type(props.label) ~= "string" then
 			return "the edge of a split says what it sizes in words: split(id, { label = \"Sidebar width\" })"
 		end
-		return nil
+		return core.haptic_check(props.haptic, "a split")
 	end,
 	view = function(u, id, props, state)
 		local t = u.theme
@@ -312,6 +314,8 @@ local Split = core.component("split", {
 		if part == "handle" and event.button == "left" then
 			state.origin = state.size
 			state.moved = nil
+			-- An edge pressed at a limit has not reached it by being dragged: no vibration for the push.
+			state.limited = state.size <= (props.min or 120) or state.size >= (props.max or 640)
 			return false, nil, true
 		elseif part == "handle" then
 			return false
@@ -322,20 +326,24 @@ local Split = core.component("split", {
 		if part ~= "handle" or state.origin == nil then
 			return nil
 		end
-		local size = state.origin + (props.side == "end" and -at.dx or at.dx)
-		size = math.min(math.max(size, props.min or 120), props.max or 640)
+		local min, max = props.min or 120, props.max or 640
+		local wanted = state.origin + (props.side == "end" and -at.dx or at.dx)
+		local size = math.min(math.max(wanted, min), max)
+		local touch
+		state.limited, touch = core.limit_touch(state.limited, wanted <= min or wanted >= max, props.haptic)
 		if size == state.size then
-			return false
+			return touch or false
 		end
 		state.size = size
 		state.moved = true
-		return true, { kind = "resize", size = size, final = false }
+		return touch and pencere.merge(touch, true) or true, { kind = "resize", size = size, final = false }
 	end,
 	release = function(u, id, props, state, part)
 		if part ~= "handle" or state.origin == nil then
 			return nil
 		end
 		state.origin = nil
+		state.limited = nil
 		if not state.moved then
 			return false
 		end

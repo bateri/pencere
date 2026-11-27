@@ -599,6 +599,8 @@ Between the panes of a `split` there is a line of one point, which both panes to
 
 A press that does not move one of them says nothing.
 
+As the pointer takes one of them to the limit of its size (a `split`'s `min` or `max`, the narrowest or the widest a `grid`'s column goes), the reply carries a vibration, `haptic`, once as it gets there: not while it is held there or taken past it, and not for the keys; it vibrates again if the pointer leaves the limit and comes back. A press that begins at the limit and pushes on does not. The option `haptic` of the `split` and the `grid` is a ready pattern's name or a pattern of the page's own ([Haptics](haptics.md)); `"tick"` where it says nothing, `false` for none. A kit that has it says so: `pencere.has("ui.split.haptic")` and `pencere.has("ui.grid.haptic")`.
+
 ### A grid and a tree to a screen reader
 
 - A `grid`'s row is read by the words of its cells (its number first, no column's title; "Row N, loading" where none is read yet). Each cell is also read apart from the row, in its column (`cell`, with the controls in it under it), so that a screen reader goes from cell to cell.

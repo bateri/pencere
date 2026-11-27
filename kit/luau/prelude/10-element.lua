@@ -1203,8 +1203,10 @@ local HAS = {
 	["event.reveal"] = true, ["event.command"] = true, ["command.target"] = true,
 	["event.link_dropped"] = true,
 	-- What the library's components took after the first kit, as `ui.<component>.<option>`: the `reveal`
-	-- of a list and of a grid, and the round corners of a list's rows.
+	-- of a list and of a grid, the round corners of a list's rows, and the `haptic` of an edge that is
+	-- dragged to its limit (a split's, a grid's column's).
 	["ui.list.reveal"] = true, ["ui.grid.reveal"] = true, ["ui.list.radius"] = true,
+	["ui.split.haptic"] = true, ["ui.grid.haptic"] = true,
 	-- The `rows` of an input of lines.
 	["ui.input.rows"] = true,
 	-- The modules of the library that a page asks for before it requires them.

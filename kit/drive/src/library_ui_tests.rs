@@ -3404,6 +3404,186 @@ fn an_icon_of_an_item_that_is_no_icon_is_refused_by_the_components_that_draw_it(
         .expect("the page's own row");
 }
 
+/// The person presses at (`x`, `y`), moves to each of `xs` in turn (one move each), and lets go there.
+fn drag_through(page: &mut Headless, x: f32, y: f32, xs: &[f32]) -> Result<(), Error> {
+    use pencere_view::{Button, Input, Point};
+    page.pointer(Input::Press {
+        at: Point::new(x, y),
+        button: Button::Left,
+        mods: Mods::default(),
+        count: 1,
+    })?;
+    for to in xs {
+        page.pointer(Input::Move {
+            at: Point::new(*to, y),
+            mods: Mods::default(),
+        })?;
+    }
+    let at = Point::new(xs.last().copied().unwrap_or(x), y);
+    page.pointer(Input::Release {
+        at,
+        button: Button::Left,
+        mods: Mods::default(),
+    })
+}
+
+/// How many times the page asked the trackpad for the ready pattern `name`.
+fn taps(page: &Headless, name: &str) -> usize {
+    use pencere_view::haptic::{self, Haptic};
+    let pattern = Haptic::Play(haptic::preset(name).expect("a name"));
+    page.haptics().iter().filter(|ask| **ask == pattern).count()
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_edge_of_a_split_ticks_once_as_the_pointer_takes_it_to_a_limit_and_not_for_the_keys()
+-> Result<(), Error> {
+    let mut page = open(SPLIT)?;
+    let handle = page.bounds("side/handle").expect("the edge");
+    let (x, y) = (handle.x + 3.0, 200.0);
+    assert_eq!(page.haptics(), []);
+    // Inside its limits (160 to 400, from 240): nothing. At the limit: one. Past it, and held there: none.
+    // Back inside and to the limit again: one more.
+    drag_through(&mut page, x, y, &[x + 40.0, x + 100.0])?;
+    assert_eq!(page.haptics(), [], "inside the limits");
+    let again = page.bounds("side/handle").expect("the edge").x + 3.0;
+    drag_through(
+        &mut page,
+        again,
+        y,
+        &[x + 100.0, x + 200.0, x + 260.0, x + 300.0],
+    )?;
+    assert_eq!(page.bounds("first").expect("pane").w, 400.0);
+    assert_eq!(
+        taps(&page, "tick"),
+        1,
+        "once, as it got there: {:?}",
+        page.haptics()
+    );
+    assert_eq!(page.haptics().len(), 1);
+    // Pressed at the limit: pushing on does not tick, leaving it and coming back does.
+    let edge = page.bounds("side/handle").expect("the edge").x + 3.0;
+    drag_through(&mut page, edge, y, &[edge + 50.0, edge + 90.0])?;
+    assert_eq!(
+        page.haptics().len(),
+        1,
+        "pressed at the limit and pushed on"
+    );
+    drag_through(
+        &mut page,
+        edge,
+        y,
+        &[edge - 100.0, edge - 40.0, edge + 40.0, edge + 80.0],
+    )?;
+    assert_eq!(taps(&page, "tick"), 2, "left it and came back");
+    // The keys size it and say nothing to the trackpad.
+    page.press("left")?;
+    page.press("right")?;
+    page.press("right")?;
+    assert_eq!(page.haptics().len(), 2, "not for the keys");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_haptic_of_a_split_is_the_pages_to_name_or_to_switch_off() -> Result<(), Error> {
+    let go = |page: &mut Headless| -> Result<(), Error> {
+        let handle = page.bounds("side/handle").expect("the edge");
+        drag_through(
+            page,
+            handle.x + 3.0,
+            200.0,
+            &[handle.x + 100.0, handle.x + 300.0],
+        )
+    };
+    let mut off = open(&SPLIT.replace(
+        "label = \"Sidebar width\",",
+        "label = \"Sidebar width\", haptic = false,",
+    ))?;
+    go(&mut off)?;
+    assert_eq!(off.bounds("first").expect("pane").w, 400.0);
+    assert_eq!(off.haptics(), [], "false is none");
+    let mut thud = open(&SPLIT.replace(
+        "label = \"Sidebar width\",",
+        "label = \"Sidebar width\", haptic = \"thud\",",
+    ))?;
+    go(&mut thud)?;
+    assert_eq!(taps(&thud, "thud"), 1);
+    assert_eq!(thud.haptics().len(), 1);
+    let why = failing(&SPLIT.replace(
+        "label = \"Sidebar width\",",
+        "label = \"Sidebar width\", haptic = true,",
+    ));
+    assert!(why.contains("a split's haptic is"), "{why}");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_edge_of_a_column_ticks_once_as_the_pointer_takes_it_to_a_limit() -> Result<(), Error> {
+    let mut page = open(GRID)?;
+    let edge = page.bounds("g/edge/id").expect("an edge");
+    let (x, y) = (edge.x + 3.0, edge.y + 8.0);
+    // Wider, and back: inside the limits, nothing.
+    drag_through(&mut page, x, y, &[x + 40.0, x + 80.0, x - 10.0])?;
+    assert_eq!(page.haptics(), [], "inside the limits");
+    // To the narrowest and past it, and held there: one tick.
+    let x = page.bounds("g/edge/id").expect("an edge").x + 3.0;
+    drag_through(&mut page, x, y, &[x - 20.0, x - 400.0, x - 450.0])?;
+    assert_eq!(taps(&page, "tick"), 1, "{:?}", page.haptics());
+    assert_eq!(page.haptics().len(), 1);
+    // Pressed at the limit and pushed on: none.
+    let x = page.bounds("g/edge/id").expect("an edge").x + 3.0;
+    drag_through(&mut page, x, y, &[x - 20.0, x - 40.0])?;
+    assert_eq!(
+        page.haptics().len(),
+        1,
+        "pressed at the limit and pushed on"
+    );
+    // Out and in again: one for each time it gets there.
+    drag_through(
+        &mut page,
+        x,
+        y,
+        &[
+            x + 60.0,
+            x + 120.0,
+            x - 400.0,
+            x - 450.0,
+            x + 30.0,
+            x - 400.0,
+        ],
+    )?;
+    assert_eq!(taps(&page, "tick"), 3, "{:?}", page.haptics());
+    assert_eq!(page.haptics().len(), 3);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_haptic_of_a_grid_is_the_pages_to_name_or_to_switch_off() -> Result<(), Error> {
+    let go = |page: &mut Headless| -> Result<(), Error> {
+        let edge = page.bounds("g/edge/id").expect("an edge");
+        let x = edge.x + 3.0;
+        drag_through(page, x, edge.y + 8.0, &[x + 80.0, x - 300.0])
+    };
+    let mut off = open(&GRID.replace(
+        "numbers = S.numbers,",
+        "numbers = S.numbers, haptic = false,",
+    ))?;
+    go(&mut off)?;
+    assert_eq!(off.haptics(), []);
+    let mut snap = open(&GRID.replace(
+        "numbers = S.numbers,",
+        "numbers = S.numbers, haptic = \"snap\",",
+    ))?;
+    go(&mut snap)?;
+    assert_eq!(taps(&snap, "snap"), 1);
+    let why = failing(&GRID.replace("numbers = S.numbers,", "numbers = S.numbers, haptic = 3,"));
+    assert!(why.contains("a grid's haptic is"), "{why}");
+    Ok(())
+}
+
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_grid_is_read_whole_by_its_heads_edges_and_rows() -> Result<(), Error> {

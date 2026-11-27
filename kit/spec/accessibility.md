@@ -109,7 +109,7 @@ A host asks a page to **show** something (a screen reader moved to a row that is
 - `"event.reveal"`;
 - `"event.command"` (a command done on an element);
 - `"command.target"`;
-- `"ui.<component>.<option>"` for the options and abilities of the library's components that came after the first kit (`"ui.list.reveal"`, `"ui.grid.reveal"`, `"ui.list.radius"`);
+- `"ui.<component>.<option>"` for the options and abilities of the library's components that came after the first kit (`"ui.list.reveal"`, `"ui.grid.reveal"`, `"ui.list.radius"`, `"ui.split.haptic"`, `"ui.grid.haptic"`);
 - `"library.<module>"` for a module of the [kit's library](library.md) that is named so (`"library.query"`), and `"query.<option>"` for an option of `@pencere/query` that came after the module's first kit (it has none yet). A page asks for such a module before it requires it ([the query module's example](library.md#a-kit-that-has-no-query-module) does).
 
 `pencere.roles` is the set of the roles.

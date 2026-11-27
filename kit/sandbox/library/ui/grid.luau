@@ -214,7 +214,10 @@ end
 -- said by the words drawn in it, as an element's are. `row_label(row)` is the words to say a row by
 -- where the page has better than its cells' (nil leaves it to them); the words in its cells that no
 -- control holds and the label does not say are then read apart, after it. A column's edge is a slider
--- of the column's width, said "<title> column width", in points.
+-- of the column's width, said "<title> column width", in points. As the pointer takes an edge to the
+-- narrowest or the widest a column goes the reply carries a vibration, once as it gets there (not while it
+-- stays): `haptic` is a ready pattern's name or a pattern of the page's own ("tick" where it says nothing),
+-- `false` for none.
 local Grid = core.component("grid", {
 	state = function()
 		return { cursor = nil, widths = {}, sort = nil }
@@ -235,7 +238,7 @@ local Grid = core.component("grid", {
 		if props.row_label ~= nil and type(props.row_label) ~= "function" then
 			return "a grid's row_label is a function (row) → the words to say the row by, or nil"
 		end
-		return nil
+		return core.haptic_check(props.haptic, "a grid")
 	end,
 	view = function(u, id, props, state)
 		local t = u.theme
@@ -445,7 +448,9 @@ local Grid = core.component("grid", {
 			local widths = widths_of(props, state)
 			for index, column in props.columns do
 				if column.key == key then
-					state.origin = { key = key, width = widths[index], moved = false }
+					-- An edge pressed at a limit has not reached it by being dragged: no vibration for the push.
+					local at = widths[index] <= MIN_WIDTH or widths[index] >= MAX_WIDTH * 2
+					state.origin = { key = key, width = widths[index], moved = false, limited = at }
 				end
 			end
 			return false, nil, true
@@ -484,13 +489,16 @@ local Grid = core.component("grid", {
 		if part ~= "edge" or state.origin == nil then
 			return nil
 		end
-		local width = math.min(math.max(state.origin.width + at.dx, MIN_WIDTH), MAX_WIDTH * 2)
+		local wanted = state.origin.width + at.dx
+		local width = math.min(math.max(wanted, MIN_WIDTH), MAX_WIDTH * 2)
+		local touch
+		state.origin.limited, touch = core.limit_touch(state.origin.limited, wanted <= MIN_WIDTH or wanted >= MAX_WIDTH * 2, props.haptic)
 		if state.widths[key] == width then
-			return false
+			return touch or false
 		end
 		state.widths[key] = width
 		state.origin.moved = true
-		return true, { kind = "resize", column = key, width = width, final = false }
+		return touch and pencere.merge(touch, true) or true, { kind = "resize", column = key, width = width, final = false }
 	end,
 	release = function(_, _, _, state, part, key)
 		if part ~= "edge" or state.origin == nil then
