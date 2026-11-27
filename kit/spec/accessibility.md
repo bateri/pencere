@@ -104,6 +104,7 @@ A host asks a page to **show** something (a screen reader moved to a row that is
 
 - `"role.<role>"`;
 - `"element.<method>"` for each method that came after the first kit (`layer`, `fallback_name`, `mixed`, `level`, `position`, `table_size`, `cell_at`, `sorted`, `role_description`, `m`, `mx`, `my`, `h_pct`);
+- `"text_field.<option>"` for each option of `text_field` that came after the first kit (`rows`);
 - `"event.reveal"`;
 - `"event.command"` (a command done on an element);
 - `"command.target"`;

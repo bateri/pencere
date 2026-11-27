@@ -394,6 +394,7 @@ mod tests {
                 id: NAME,
                 kind,
                 rect: Rect::new(10.0, 20.0, 100.0, 24.0),
+                text: Rect::new(10.0, 20.0, 100.0, 24.0),
                 hint: hint.map(str::to_owned),
                 label: None,
                 covered: false,

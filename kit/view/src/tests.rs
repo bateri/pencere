@@ -394,6 +394,97 @@ fn a_field_with_no_text_in_its_room_has_no_hint() {
     assert_eq!(fields[0].hint, None);
 }
 
+/// Fixed, except that it says how tall a line of a text field is: the host knows it, the engine
+/// does not work it out.
+struct Lined(f32);
+
+impl Measure for Lined {
+    fn measure(&mut self, font: &Font, text: &str) -> Metrics {
+        Fixed.measure(font, text)
+    }
+
+    fn field_line(&mut self, _font: &Font) -> Option<f32> {
+        Some(self.0)
+    }
+}
+
+fn lines_field(rows: u16) -> crate::Element {
+    div()
+        .field(Id::new(1), FieldKind::Lines)
+        .field_rows(rows)
+        .w(100.0)
+}
+
+#[test]
+fn a_field_of_rows_is_as_tall_as_the_lines_the_host_says_and_its_padding_and_border() {
+    // The host's line is 20 px: three of them, 4 above and 4 below, and a border of 1 around.
+    let root = div().child(lines_field(3).py(4.0).border(1.0, Role::Accent));
+    let laid = layout(root, Size::new(200.0, 200.0), 1.0, &mut Lined(20.0));
+    let fields = laid.fields();
+    assert_eq!(fields[0].rect, Rect::new(0.0, 0.0, 100.0, 70.0));
+    // The room is the pointer's, the text stands inside the padding and the border.
+    assert_eq!(fields[0].text, Rect::new(1.0, 5.0, 98.0, 60.0));
+    // One row, and the same at twice the scale: the line is the host's at that size.
+    let root = div().child(lines_field(1).py(4.0));
+    let laid = layout(root, Size::new(200.0, 200.0), 2.0, &mut Lined(40.0));
+    assert_eq!(laid.fields()[0].rect, Rect::new(0.0, 0.0, 100.0, 28.0));
+    assert_eq!(laid.fields()[0].text, Rect::new(0.0, 4.0, 100.0, 20.0));
+}
+
+#[test]
+fn a_field_of_rows_says_the_height_and_a_least_and_a_most_still_hold() {
+    let at = |field: crate::Element| {
+        let laid = layout(
+            div().child(field),
+            Size::new(200.0, 400.0),
+            1.0,
+            &mut Lined(20.0),
+        );
+        laid.fields()[0].rect.h
+    };
+    // The rows take the place of a height the element was given.
+    assert_eq!(at(lines_field(2).h(500.0)), 40.0);
+    assert_eq!(at(lines_field(2).h_pct(100.0)), 40.0);
+    assert_eq!(at(lines_field(2).min_h(100.0)), 100.0);
+    assert_eq!(at(lines_field(10).max_h(60.0)), 60.0);
+    // Without rows a field has the room its style gives it, as ever.
+    let plain = div().field(Id::new(1), FieldKind::Lines).w(100.0).h(33.0);
+    assert_eq!(at(plain), 33.0);
+    // Rows are for the field of lines: one line stays as tall as it was said to be.
+    let one = div()
+        .field(Id::new(1), FieldKind::Line)
+        .field_rows(3)
+        .w(100.0)
+        .h(18.0);
+    assert_eq!(at(one), 18.0);
+    // And a number that is not a count of lines is taken as the nearest.
+    assert_eq!(at(lines_field(0)), 20.0);
+    assert_eq!(at(lines_field(200).no_shrink()), 2000.0);
+}
+
+#[test]
+fn a_field_of_rows_is_never_shorter_than_its_lines() {
+    // Two lines of 15.625 px are 31.25: a box of 31 would cut the second.
+    let root = div().child(lines_field(2));
+    let laid = layout(root, Size::new(200.0, 200.0), 1.0, &mut Lined(15.625));
+    assert_eq!(laid.fields()[0].rect.h, 32.0);
+    // And a whole number of pixels is that number, not one more.
+    let root = div().child(lines_field(2));
+    let laid = layout(root, Size::new(200.0, 200.0), 1.0, &mut Lined(16.0));
+    assert_eq!(laid.fields()[0].rect.h, 32.0);
+}
+
+#[test]
+fn a_host_that_does_not_say_its_line_has_the_line_the_engine_measures_for_the_fields_font() {
+    // `Fixed` is 1.25 × size tall, and the field's face is the terminal's at the kit's text size.
+    let root = div().child(lines_field(2));
+    let laid = layout(root, Size::new(200.0, 200.0), 2.0, &mut Fixed);
+    assert_eq!(
+        laid.fields()[0].rect.h,
+        (2.0_f32 * 12.5 * 2.0 * 1.25).round() / 2.0
+    );
+}
+
 #[test]
 fn a_page_has_as_many_fields_as_it_names_each_of_its_kind_and_where_it_stands() {
     let root = div()

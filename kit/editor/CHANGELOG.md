@@ -8,6 +8,7 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
 
 ### Added
 
+- **`Measured` passes on `Measure::field_line`** of the host's measure it wraps, so that a page's field of rows is as tall as the host's line.
 - `Editors::set_keyboard`: how the host's system makes its shortcuts (`KeyConvention`, a Mac's until it
   is said). For Windows and Linux ⌃ has the keys ⌘ has on a Mac that a terminal can send: ⌃A selects
   all, ⌃Z and ⌃Y undo and redo, ⌃← and ⌃→ go by words and ⌃Home and ⌃End to the document's ends (with

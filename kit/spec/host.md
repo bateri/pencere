@@ -29,6 +29,10 @@ The host:
 - takes the texts a reply fills the fields with, and what it selects in them;
 - and, while a field has the keyboard, gives the page the keys it has no use for there, as the kit's rule says with the field's text and selection (`FieldState::takes`, [Elements](elements.md#text-field)).
 
+A field's text is set in the terminal's face at the kit's text size (`ZOOM_TEXT`) times the host's zoom, in the box the kit says (`Field::text`: the room less the element's padding and border), while the whole room (`Field::rect`) is what the pointer reaches. A field of lines starts at the top of that box and breaks a line that is too long at a word; a field of one line has its line in the middle of it.
+
+The host says how tall one line of its field is, in the field's font, with the unit of its measure (`Measure::field_line`): a page that gives a field `rows` is laid out with that many of them, so that a host measures it in the very face that draws it, and the last line is not cut. Where it says nothing, the kit takes the height of a line of the same font that the host's measure gives.
+
 The host takes what a reply asks of a field (its text, its selection, the keyboard) only of a field it has put over the page. It holds what a reply asks of a field it has not put over the page until the next frame that lays the page out has been laid and its fields put over the page, then takes it in the order it was asked ([Replies](replies.md): a reply that opens a field and fills it and sends the keyboard to it in one is done as it says). It passes over a name that frame does not have either.
 
 ### Words and the pointer's shape

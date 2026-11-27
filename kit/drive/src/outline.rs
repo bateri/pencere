@@ -26,9 +26,9 @@ impl Default for Placement {
     }
 }
 
-/// The size of the kit's text where a page does not say one (`pencere-view`'s default, 12.5
-/// points): a host whose text is this size draws a page at its own size.
-pub const ZOOM_TEXT: f32 = 12.5;
+/// The size of the kit's text where a page does not say one (12.5 points, `pencere-view`'s): a
+/// host whose text is this size draws a page at its own size, and its text fields are set in it.
+pub use pencere_view::ZOOM_TEXT;
 
 /// The least and the most a page is drawn at, against its own size: a terminal set in a tiny or a
 /// huge face keeps a page that can still be laid out in its view.
@@ -65,13 +65,18 @@ impl Placement {
 }
 
 /// A text field the host puts over a page: its name (the id of the element that is its room), its
-/// kind, where its room stands in the host's points, what it says while it is empty — the words
-/// the page put in that room — and what it is to a screen reader.
+/// kind, where its room stands in the host's points, where its text stands in it, what it says
+/// while it is empty — the words the page put in that room — and what it is to a screen reader.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Field {
     pub id: Id,
     pub kind: FieldKind,
+    /// Its room: all of it is the field's for the pointer.
     pub rect: Rect,
+    /// Where its text stands: the room less the padding of the element and its border
+    /// ([`pencere_view::Field::text`]). Set in the host's field font, and in a field of lines
+    /// broken at its width, from its top.
+    pub text: Rect,
     pub hint: Option<String>,
     pub label: Option<String>,
     /// Something the page draws lies over it (a popover, a dialog): the host does not show it.
@@ -142,6 +147,7 @@ impl Outline {
                     id: field.id,
                     kind: field.kind,
                     rect: at.to_host(field.rect),
+                    text: at.to_host(field.text),
                     hint: field.hint,
                     label: field.label,
                     covered: field.covered,

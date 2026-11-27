@@ -561,8 +561,11 @@ local FIELD_KINDS = { line = true, lines = true, secret = true }
 -- The box is the room of a text field the host puts over the page, named `id` (the element's own
 -- name when `id` is nil): a page has as many as it names. `kind` is "line" (the default), "lines"
 -- (enter breaks the line) or "secret" (a password). The first text inside is what the field says
--- while it is empty.
-function Element:text_field(id, kind)
+-- while it is empty. `options.rows` (a field of "lines" only; a page asks `pencere.has("text_field.rows")`
+-- first) is the number of lines, from 1 to 100, that the box is as tall as: the host says how tall its
+-- line is, and the box is that many of them and the element's padding and border besides, in the place
+-- of a height.
+function Element:text_field(id, kind, options)
 	if id ~= nil then
 		self.meta.id = id
 	end
@@ -572,6 +575,29 @@ function Element:text_field(id, kind)
 	kind = kind or "line"
 	if not FIELD_KINDS[kind] then
 		refuse('a text field is "line", "lines" or "secret", not ' .. tostring(kind))
+	end
+	if options ~= nil then
+		if type(options) ~= "table" then
+			refuse("the options of a text field are a table, as { rows = 3 }, not " .. type(options))
+		end
+		for key in options do
+			if key ~= "rows" then
+				refuse("a text field takes the option rows, not " .. tostring(key))
+			end
+		end
+		local rows = options.rows
+		if rows ~= nil then
+			if kind ~= "lines" then
+				refuse('only a field of "lines" has rows, not one of "' .. kind .. '"')
+			end
+			if type(rows) ~= "number" or rows ~= math.floor(rows) or rows < 1 or rows > 100 then
+				refuse("rows takes a whole number from 1 to 100, not " .. tostring(rows))
+			end
+			if self.style.height ~= nil then
+				refuse("a field of rows is as tall as they say: give it rows or a height, not both")
+			end
+			self.meta.field_rows = rows
+		end
 	end
 	self.meta.field = kind
 	return self
@@ -1168,6 +1194,8 @@ local HAS = {
 	-- The room outside a box on every side and on each axis, as its padding has them, and a share of
 	-- the parent's height, as of its width.
 	["element.m"] = true, ["element.mx"] = true, ["element.my"] = true, ["element.h_pct"] = true,
+	-- The lines a field of lines is as tall as: `text_field(id, "lines", { rows = 3 })`.
+	["text_field.rows"] = true,
 	["event.reveal"] = true, ["event.command"] = true, ["command.target"] = true,
 	["event.link_dropped"] = true,
 	-- What the library's components took after the first kit, as `ui.<component>.<option>`: the `reveal`
@@ -1631,8 +1659,20 @@ end
 
 function Element:w(points) self.style.width = points return self end
 function Element:w_pct(percent) self.style.width = { percent = percent } return self end
-function Element:h(points) self.style.height = points return self end
-function Element:h_pct(percent) self.style.height = { percent = percent } return self end
+function Element:h(points)
+	if self.meta.field_rows ~= nil then
+		refuse("a field of rows is as tall as they say: give it rows or a height, not both")
+	end
+	self.style.height = points
+	return self
+end
+function Element:h_pct(percent)
+	if self.meta.field_rows ~= nil then
+		refuse("a field of rows is as tall as they say: give it rows or a height, not both")
+	end
+	self.style.height = { percent = percent }
+	return self
+end
 
 function Element:size(width, height)
 	return self:w(width):h(height)

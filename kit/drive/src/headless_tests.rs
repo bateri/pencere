@@ -10,8 +10,8 @@ use pencere_editor::UNDO_PAUSE;
 use pencere_sandbox::Fault;
 use pencere_view::edit::EditCommand;
 use pencere_view::{
-    Button, Carry, Cursor, Event, Id, Input, Key, MenuEntry, Mods, Paint, Point, Rect, Reply, Size,
-    div,
+    Button, Carry, Cursor, Event, Font, Id, Input, Key, Measure, MenuEntry, Metrics, Mods, Paint,
+    Point, Rect, Reply, Size, div,
 };
 use serde_json::json;
 
@@ -782,6 +782,203 @@ return {
         Some("focus q|q=a|q=ab|q=a|q=ac|focus nil|cleared|focus q|q=whole")
     );
     Ok(())
+}
+
+/// A page says how many lines a field of lines is as tall as and the host's line, the padding and the
+/// border make its height; the field's text stands inside them.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_field_of_rows_is_as_tall_as_its_lines_and_its_padding_and_keeps_its_text_inside()
+-> Result<(), Error> {
+    let page = Headless::script(
+        r#"
+return {
+    render = function()
+        return pencere.div():size_full()
+            :child(pencere.div():id("one"):text_field("one", "lines", { rows = 1 }):w(200):py(6))
+            :child(pencere.div():id("three"):text_field("three", "lines", { rows = 3 }):w(200):py(6):px(10))
+            :child(pencere.div():id("open"):text_field("open", "lines"):w(200):h(33))
+    end,
+}
+"#,
+    )
+    .open()?;
+    // The headless host's line is 16 points.
+    let high = |name: &str| page.bounds(name).map(|room| room.h);
+    assert_eq!(high("one"), Some(16.0 + 12.0));
+    assert_eq!(high("three"), Some(48.0 + 12.0));
+    assert_eq!(
+        high("open"),
+        Some(33.0),
+        "a field with no rows has the room its style gives it"
+    );
+    let fields = &page.outline().fields;
+    let text = |name: &str| {
+        fields
+            .iter()
+            .find(|field| field.id == Id::named(name))
+            .map(|field| field.text)
+    };
+    // The first field's room is 28 high: the second's text starts under it, inside its padding.
+    assert_eq!(
+        text("three"),
+        Some(Rect::new(10.0, 28.0 + 6.0, 180.0, 48.0))
+    );
+    Ok(())
+}
+
+/// The host that draws the fields says how tall its line is, and it is that line, not the one of the
+/// page's own measure, that a field of rows is as tall as: the answer reaches the layout through
+/// what the drive and the editors wrap the measure in.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_field_of_rows_is_as_tall_as_the_line_the_host_says_for_its_fields() -> Result<(), Error> {
+    struct Hosts;
+    impl Measure for Hosts {
+        fn measure(&mut self, _: &Font, text: &str) -> Metrics {
+            #[allow(clippy::cast_precision_loss)]
+            let width = text.chars().count() as f32 * 7.0;
+            Metrics {
+                width,
+                height: 16.0,
+            }
+        }
+
+        fn field_line(&mut self, _: &Font) -> Option<f32> {
+            Some(20.0)
+        }
+    }
+    let page = Headless::script(
+        r#"return { render = function()
+            return pencere.div():size_full()
+                :child(pencere.div():id("two"):text_field("two", "lines", { rows = 2 }):w(100))
+        end }"#,
+    )
+    .measure(Hosts)
+    .open()?;
+    assert_eq!(page.bounds("two").map(|room| room.h), Some(40.0));
+    Ok(())
+}
+
+/// A host's line is not in proportion to its size (a face at 25 points is 31 tall, not 32): the page
+/// zoomed to twice its size asks the host for the field's font at that size and is as tall as that
+/// many of what it says.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_field_of_rows_at_a_zoom_is_as_tall_as_the_line_of_the_hosts_face_at_that_size()
+-> Result<(), Error> {
+    struct Hosts;
+    impl Measure for Hosts {
+        fn measure(&mut self, font: &Font, text: &str) -> Metrics {
+            #[allow(clippy::cast_precision_loss)]
+            let width = text.chars().count() as f32 * font.size / 2.0;
+            Metrics {
+                width,
+                height: if font.size > 20.0 { 31.0 } else { 16.0 },
+            }
+        }
+    }
+    let mut page = Headless::script(
+        r#"return { render = function()
+            return pencere.div():size_full()
+                :child(pencere.div():text_field("two", "lines", { rows = 2 }):w(100):py(4))
+        end }"#,
+    )
+    .measure(Hosts)
+    .open()?;
+    let two = |page: &Headless| {
+        let fields = &page.outline().fields;
+        (fields[0].rect.h, fields[0].text.h)
+    };
+    assert_eq!(two(&page), (32.0 + 8.0, 32.0));
+    page.zoom(2.0)?;
+    // In the host's points: two lines of 31, and the padding of 4 points as 8.
+    assert_eq!(two(&page), (62.0 + 16.0, 62.0));
+    Ok(())
+}
+
+/// What is not a count of lines, a field that is not of lines, and a height besides the lines are
+/// the page's fault, said where the page said it, whichever it said first.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn rows_of_a_field_that_are_not_a_count_of_lines_or_come_with_a_height_are_the_pages_fault() {
+    let cases = [
+        (
+            r#"pencere.div():text_field("q", "line", { rows = 2 })"#,
+            "only a field of \"lines\"",
+        ),
+        (
+            r#"pencere.div():text_field("q", "secret", { rows = 2 })"#,
+            "only a field of \"lines\"",
+        ),
+        (
+            r#"pencere.div():text_field("q", "lines", { rows = 0 })"#,
+            "from 1 to 100, not 0",
+        ),
+        (
+            r#"pencere.div():text_field("q", "lines", { rows = 101 })"#,
+            "from 1 to 100, not 101",
+        ),
+        (
+            r#"pencere.div():text_field("q", "lines", { rows = 2.5 })"#,
+            "from 1 to 100, not 2.5",
+        ),
+        (
+            r#"pencere.div():text_field("q", "lines", { rows = "3" })"#,
+            "from 1 to 100, not 3",
+        ),
+        (
+            r#"pencere.div():text_field("q", "lines", { row = 3 })"#,
+            "takes the option rows, not row",
+        ),
+        (
+            r#"pencere.div():text_field("q", "lines", 3)"#,
+            "are a table",
+        ),
+        (
+            r#"pencere.div():h(28):text_field("q", "lines", { rows = 3 })"#,
+            "rows or a height",
+        ),
+        (
+            r#"pencere.div():h_pct(50):text_field("q", "lines", { rows = 3 })"#,
+            "rows or a height",
+        ),
+        (
+            r#"pencere.div():text_field("q", "lines", { rows = 3 }):h(28)"#,
+            "rows or a height",
+        ),
+        (
+            r#"pencere.div():text_field("q", "lines", { rows = 3 }):size(100, 28)"#,
+            "rows or a height",
+        ),
+        (
+            r#"pencere.div():text_field("q", "lines", { rows = 3 }):h_pct(50)"#,
+            "rows or a height",
+        ),
+    ];
+    for (line, said) in cases {
+        let source =
+            format!("local field = {line}\nreturn {{ render = function() return field end }}");
+        let failed = Headless::script(source).open().map(drop);
+        assert!(
+            matches!(&failed, Err(Error::Ended(Fault::Failed(why))) if why.starts_with("page.lua:1:") && why.contains(said)),
+            "{line}: {failed:?}"
+        );
+    }
+    // A least and a most height go with rows, either way round.
+    let page = Headless::script(
+        r#"
+return { render = function()
+    return pencere.div():size_full()
+        :child(pencere.div():id("a"):min_h(100):text_field("a", "lines", { rows = 2 }):w(100))
+        :child(pencere.div():id("b"):text_field("b", "lines", { rows = 9 }):max_h(40):w(100))
+end }
+"#,
+    )
+    .open();
+    let page = page.expect("a least and a most height are allowed");
+    assert_eq!(page.bounds("a").map(|room| room.h), Some(100.0));
+    assert_eq!(page.bounds("b").map(|room| room.h), Some(40.0));
 }
 
 /// A reply fills a field and selects in it (a name to rename, its stem selected), what is typed

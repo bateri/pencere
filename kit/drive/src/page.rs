@@ -391,6 +391,10 @@ impl Measure for Measured<'_> {
         self.text.offsets(font, text, at)
     }
 
+    fn field_line(&mut self, font: &Font) -> Option<f32> {
+        self.text.field_line(font)
+    }
+
     fn editor(&mut self, id: Id) -> Option<EditorMetrics> {
         self.text.editor(id)
     }

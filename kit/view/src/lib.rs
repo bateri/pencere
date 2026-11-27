@@ -107,7 +107,9 @@ pub use style::{
 pub use system::{
     Drawing, KeyConvention, TerminalCaret, TerminalLook, TerminalSelection, WallTime,
 };
-pub use text::{Align, EditorMetrics, Family, Font, Measure, Metrics};
+pub use text::{
+    Align, EditorMetrics, Family, Font, Measure, Metrics, ZOOM_TEXT, field_font, field_line_height,
+};
 pub use ui::{DRAG_START, Drag, Dropped, Ui};
 
 #[cfg(test)]

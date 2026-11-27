@@ -44,6 +44,32 @@ pub struct Metrics {
     pub height: f32,
 }
 
+/// The size of the kit's text where a page does not say one, points: the size of a text field of
+/// the host's too, at the page's own size (a host whose text is this large draws a page at its
+/// size).
+pub const ZOOM_TEXT: f32 = 12.5;
+
+/// The font of a text field of the host's where a page is laid out at `scale`: the terminal's
+/// face, regular, at [`ZOOM_TEXT`] points. What [`field_line_height`] asks the host for.
+pub fn field_font(scale: f32) -> Font {
+    Font {
+        family: Family::Terminal,
+        size: ZOOM_TEXT * scale,
+        weight: 400,
+        italic: false,
+    }
+}
+
+/// How tall one line of a text field of the host's is where a page is laid out at `scale`,
+/// pixels: what the host says ([`Measure::field_line`]), or the height of a line it measures in
+/// the field's font where it says nothing.
+pub fn field_line_height(measure: &mut dyn Measure, scale: f32) -> f32 {
+    let font = field_font(scale);
+    measure
+        .field_line(&font)
+        .unwrap_or_else(|| measure.measure(&font, "M").height)
+}
+
 /// The host's side of text: how large one line is.
 ///
 /// A host with no proportional text answers [`Metrics::default`] (nothing): the boxes of the
@@ -63,6 +89,17 @@ pub trait Measure {
     ///
     /// A host with no images answers `None` (the default).
     fn image(&mut self, _src: &str, _page: u32) -> Option<Size> {
+        None
+    }
+
+    /// How tall one line of a text field of the host's is, set in `font` (the field's, which the
+    /// engine names: [`field_font`]), in the unit of [`Measure::measure`]; `None` where the host
+    /// has not said, and the engine takes the height of a line it measures in `font`. A page
+    /// that says how many lines a field is as tall as ([`crate::Element::field_rows`]) gets a box
+    /// of that many of these: the host that draws the field is the one that knows what its line
+    /// is, and a line measured by the engine's own measure (the page's) can differ from it, by
+    /// a little that adds up with every line and cuts the last.
+    fn field_line(&mut self, _font: &Font) -> Option<f32> {
         None
     }
 

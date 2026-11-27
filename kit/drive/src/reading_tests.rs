@@ -1420,7 +1420,9 @@ return {{
             .. " wav=" .. tostring(pencere.has("sound.wav"))
             .. " ogg=" .. tostring(pencere.has("sound.ogg"))
             .. " success=" .. tostring(pencere.has("sound.success"))
-            .. " nosound=" .. tostring(pencere.has("sound.nope"))))
+            .. " nosound=" .. tostring(pencere.has("sound.nope")))):child(pencere.text(
+            "fieldrows=" .. tostring(pencere.has("text_field.rows"))
+            .. " nofieldrows=" .. tostring(pencere.has("text_field.nope"))))
     end,
 }}
 "#
@@ -1438,5 +1440,6 @@ return {{
         text.contains("sound=true wav=true ogg=true success=true nosound=false"),
         "{text}"
     );
+    assert!(text.contains("fieldrows=true nofieldrows=false"), "{text}");
     Ok(())
 }

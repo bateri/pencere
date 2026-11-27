@@ -1735,6 +1735,8 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
         static const char* const kFieldKinds[] = {"line", "lines", "secret"};
         int field = word(L, meta, "field", kFieldKinds, 3, -1);
         if (field >= 0) nodes.ptr[at].field = {true, (uint8_t)field};
+        view_option_u32_t field_rows = optional_count(L, meta, "field_rows");
+        if (field_rows.is_some) nodes.ptr[at].field_rows = {true, (uint16_t)(field_rows.val > 65535 ? 65535 : field_rows.val)};
         get(L, meta, "editor");
         if (lua_type(L, -1) == LUA_TTABLE) {
             pencere_view_types_editor_options_t options = editor_options_at(L, lua_gettop(L), flat.arenas);

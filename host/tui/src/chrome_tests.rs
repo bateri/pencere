@@ -107,6 +107,7 @@ fn room() -> Field {
         id: Id::named("find"),
         kind: FieldKind::Line,
         rect: Rect::new(20.0, 30.0, 150.0, 18.0),
+        text: Rect::new(20.0, 30.0, 150.0, 18.0),
         hint: Some("Find".to_owned()),
         label: None,
         covered: false,

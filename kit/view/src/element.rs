@@ -130,6 +130,8 @@ pub struct Meta {
     pub focusable: bool,
     /// The host puts a text field of its own, of this kind, over this box ([`Element::field`]).
     pub field: Option<FieldKind>,
+    /// How many lines the box of a field of lines is as tall as ([`Element::field_rows`]).
+    pub field_rows: Option<u16>,
     /// The box is the room of an editor of the host's, set up so ([`Element::editor`]). Kept
     /// apart from the element: an editor's options are several times what the rest of an element
     /// is, and nearly no element of a page is an editor.
@@ -366,6 +368,19 @@ impl Element {
     #[must_use]
     pub fn text_field(self, id: Id) -> Self {
         self.field(id, FieldKind::Line)
+    }
+
+    /// The box of a field of lines ([`FieldKind::Lines`]) is as tall as `rows` lines of the host's
+    /// field, and what is between the box and its text (the padding, the border): the page says how
+    /// many lines it wants and the host's own line decides the height, whatever the size of the
+    /// text and the host's zoom. **It takes the place of the height** (`h`, `h_pct`); the least and
+    /// the most height still hold. A count is from 1 to 100, and a number outside it is the
+    /// nearest. A field that is not of lines has no use for it. The text of the field stands in the
+    /// box less its padding and border ([`crate::Field::text`]).
+    #[must_use]
+    pub fn field_rows(mut self, rows: u16) -> Self {
+        self.meta.field_rows = Some(rows);
+        self
     }
 
     /// The box is the room of an editor of text the host puts there, named `id`, set up as

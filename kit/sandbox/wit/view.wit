@@ -1234,6 +1234,11 @@ interface types {
         /// field; a page has as many as it names. The first text inside the element is what the
         /// field says while it is empty: the application draws it, the page does not.
         field: option<field-kind>,
+        /// How many lines a field of lines is as tall as (1 to 100; the nearest otherwise): the
+        /// element's height is that many lines of the application's field, as the application
+        /// says one line is, and the element's padding and border besides, and the `height` of its
+        /// style is not used. An element that is not a field of lines has no use for it.
+        field-rows: option<u16>,
         /// What the element is in words, for a person who does not see it (a screen reader says
         /// it): a part of the frame's `text`. A button that is an icon alone says what it does;
         /// an element with none is read by the words inside it.

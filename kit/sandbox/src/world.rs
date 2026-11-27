@@ -1822,6 +1822,7 @@ fn node_out(node: &wit::Node, limits: &ModuleLimits, lists: &mut Lists<'_>) -> R
                 wit::FieldKind::Lines => FieldKind::Lines,
                 wit::FieldKind::Secret => FieldKind::Secret,
             }),
+            field_rows: node.field_rows,
             editor: node
                 .editor
                 .map(|index| {
@@ -3526,6 +3527,7 @@ mod tests {
             pressable: false,
             focusable: false,
             field: None,
+            field_rows: None,
             editor: None,
             browser: None,
             label: None,

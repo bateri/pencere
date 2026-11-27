@@ -22,17 +22,20 @@ use crate::style::{
     Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Shadow, Side,
     Style, TextStyle, Track, Zoom,
 };
-use crate::text::wrap_lines;
+use crate::text::{FITS, ZOOM_TEXT, field_line_height, wrap_lines};
 use crate::{
     Align, Color, Command, Element, Family, Font, Id, Key, Measure, Metrics, Mods, Path, Point,
     Rect, Role, Size, Span,
 };
 
+/// The fewest and the most lines a field of lines is as tall as ([`Element::field_rows`]).
+const MOST_FIELD_ROWS: (u16, u16) = (1, 100);
+
 /// The text a page is written in until a box says otherwise: the terminal's face at 12.5
 /// points, regular, in the foreground, at the start of its box.
 pub(crate) const DEFAULT_TEXT: TextStyle = TextStyle {
     family: Some(Family::Terminal),
-    size: Some(12.5),
+    size: Some(ZOOM_TEXT),
     weight: Some(400),
     italic: Some(false),
     underline: Some(false),
@@ -996,12 +999,17 @@ fn build(
     let text = style.text.over(outer);
     let font = Font {
         family: text.family.unwrap_or(Family::Terminal),
-        size: text.size.unwrap_or(12.5) * scale,
+        size: text.size.unwrap_or(ZOOM_TEXT) * scale,
         weight: text.weight.unwrap_or(400),
         italic: text.italic.unwrap_or(false),
     };
     let color = text.color.unwrap_or(Role::Foreground.solid());
 
+    // A field of lines whose page says how many lines it is as tall as ([`Element::field_rows`]).
+    let rows = meta
+        .field
+        .filter(|kind| *kind == FieldKind::Lines)
+        .and(meta.field_rows);
     let index = pending.len();
     let px = |points: f32| snap(points, scale);
     pending.push(Pending {
@@ -1049,6 +1057,20 @@ fn build(
     });
 
     let mut taffy_style = convert(&style, scale, matches!(kind, Kind::Text(_) | Kind::Rich(_)));
+    if let Some(rows) = rows {
+        // The box is the lines, the padding and the border (which takes no room of its own, it is
+        // drawn over the box): the height the page gave is not used, the least and the most are.
+        let border = style
+            .border
+            .map_or(0.0, |b| (b.width * scale).round().max(1.0));
+        let line = field_line_height(measure, scale);
+        let room = px(style.padding[0]) + px(style.padding[2]) + 2.0 * border;
+        // Whole pixels, upward: a box rounded down is shorter than the lines it holds, and the
+        // host cuts the last.
+        let height =
+            f32::from(rows.clamp(MOST_FIELD_ROWS.0, MOST_FIELD_ROWS.1)) * line + room - FITS;
+        taffy_style.size.height = Dimension::length(height.ceil());
+    }
     let id = match kind {
         Kind::Text(content) => {
             let leaf = Leaf::Text {
@@ -1991,8 +2013,8 @@ impl Laid {
     }
 
     /// The text fields the host puts over the page ([`crate::Element::field`]), in the order they
-    /// are written: each named, of its kind, where it stands (points), what it says while it is
-    /// empty, and what it is to a screen reader. An element that says it is a field and has no
+    /// are written: each named, of its kind, where its room stands and where its text stands
+    /// (points), what it says while it is empty, and what it is to a screen reader. An element that says it is a field and has no
     /// name, or is hidden, is not one.
     pub fn fields(&self) -> Vec<Field> {
         let s = self.scale;
@@ -2013,6 +2035,17 @@ impl Laid {
                         node.rect.w / s,
                         node.rect.h / s,
                     ),
+                    text: {
+                        // The padding and the border are the room between the box and its text.
+                        let [left, top, right, bottom] = node.pad;
+                        let border = node.border.map_or(0.0, |border| border.width);
+                        Rect::new(
+                            (node.rect.x + left + border) / s,
+                            (node.rect.y + top + border) / s,
+                            (node.rect.w - left - right - 2.0 * border).max(0.0) / s,
+                            (node.rect.h - top - bottom - 2.0 * border).max(0.0) / s,
+                        )
+                    },
                     hint: self.hint_of(index).map(str::to_owned),
                     label: node.meta.label.clone(),
                     covered: !self.covering(index).is_empty(),
@@ -3089,8 +3122,11 @@ pub struct Field {
     /// Its name: the id of the element that is its room.
     pub id: Id,
     pub kind: FieldKind,
-    /// Where it stands, points.
+    /// Where its room stands, points: all of it is the field's for the pointer.
     pub rect: Rect,
+    /// Where its text stands, points: the room less the padding of the element and its border. A
+    /// field of lines keeps its text in this box, from its top, and breaks its lines at its width.
+    pub text: Rect,
     /// What it says while it is empty: the first text inside its room.
     pub hint: Option<String>,
     /// What it is to a screen reader, where the page said ([`crate::Element::label`]).

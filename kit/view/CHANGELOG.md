@@ -8,6 +8,8 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Changed
 
+- **`Field` has a `text` field**: where the text of a text field stands, its room less its element's padding and border (`rect` stays the whole room, the pointer's). A `Field { .. }` written out in full needs `text`.
+- **`Meta` has a `field_rows` field.** A `Meta { .. }` written out in full needs `field_rows: None`.
 - **`BrowserError` has a `certificate` field and `BrowserAsk` three more variants.** A `BrowserError { .. }`
   written out in full needs `certificate: None`, and a `match` on every `BrowserAsk` needs the arms for
   `ClearCache`, `ClearSiteData` and `Proceed` (or a catch-all).
@@ -15,6 +17,8 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Added
 
+- **`Element::field_rows`**: a field of lines is as tall as that many lines of the host's field (1 to 100) and its padding and border, in the place of its height. The host says its line with **`Measure::field_line`**; where it says nothing the engine measures one in `field_font` (`field_line_height`).
+- **`ZOOM_TEXT`**, the kit's text size (12.5 points), which `pencere-drive` had.
 - **`Element::m`, `mx`, `my` and `h_pct`**: the margin of every side and of each axis at once, as `p`, `px` and `py` are of the padding, and a share of the parent's height, as `w_pct` is of its width.
 - **`pencere_view::sound::{Sound, Source, Play, Ask, Voices}` and `Reply::sound`**: what a page asks of the sounds of its view (a sound of the kit's by its name, a file of the page's, as loud and as fast as it says, or the end of every sound) and the samples a host is given to play. `Sound` moved here from `pencere-sandbox` so that a reply can carry it (`pencere_sandbox::sounds::Sound` is the same type). `Voices` keeps the rule that a view plays eight sounds at once and the ninth silences the one that has played longest.
 - **`pencere_view::sound::NAMES`**: the names of the twenty sounds of the kit's palette (`tap`, `select`, `toggle_on`, `toggle_off`, `type`, `open`, `close`, `snap`, `copy`, `delete`, `success`, `warning`, `error`, `send`, `receive`, `notify`, `attention`, `start`, `complete`, `celebrate`) and `is_name`.
