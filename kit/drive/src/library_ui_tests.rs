@@ -4071,30 +4071,47 @@ end
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
-fn the_row_chosen_in_a_plain_list_is_as_wide_as_the_list_and_in_a_card_it_is_inside_its_inset()
+fn the_row_chosen_in_a_list_is_inside_its_inset_with_round_corners_and_with_no_inset_it_is_as_wide_as_the_list()
 -> Result<(), Error> {
     let page = open(
         r#"
 S.items = { { key = "a", title = "alpha" }, { key = "b", title = "beta" } }
 view = function(u)
     return pencere.div():row():gap(8):size_full()
-        :child(pencere.div():w(200):h(120):child(u:list("plain", { items = S.items, state = { cursor = "a" }, inset = 4 })))
-        :child(pencere.div():w(200):h(120):child(u:list("round", { items = S.items, state = { cursor = "a" }, inset = 4, radius = 3 })))
+        :child(pencere.div():w(160):h(120):child(u:list("plain", { items = S.items, state = { cursor = "a" }, inset = 4 })))
+        :child(pencere.div():w(160):h(120):child(u:list("round", { items = S.items, state = { cursor = "a" }, inset = 4, radius = 3 })))
+        :child(pencere.div():w(160):h(120):child(u:list("flat", { items = S.items, state = { cursor = "a" } })))
 end
 "#,
     )?;
-    let (plain, round) = (bounds_of(&page, "plain"), bounds_of(&page, "round"));
-    let (plain_row, round_row) = (
-        bounds_of(&page, "plain/row/a"),
-        bounds_of(&page, "round/row/a"),
-    );
-    assert_eq!((plain_row.x, plain_row.w), (plain.x, plain.w));
-    // A list of rows with rounded corners keeps the ground of its rows inside the inset on every side.
-    assert_eq!(round_row.x, round.x + 4.0);
-    assert_eq!(round_row.right(), round.right() - 4.0);
-    // Above the first row there is the inset in both.
-    assert_eq!(plain_row.y, plain.y + 4.0);
-    assert_eq!(round_row.y, round.y + 4.0);
+    let ground = |name: &str| {
+        let row = bounds_of(&page, name);
+        let quad = page.list().items.iter().find_map(|item| match item {
+            pencere_view::Paint::Quad(quad) if quad.rect == row && quad.fill.is_some() => {
+                Some(quad)
+            }
+            _ => None,
+        });
+        (
+            row,
+            quad.unwrap_or_else(|| panic!("no ground of {name}")).radii,
+        )
+    };
+    // A list with an inset keeps the ground of its rows inside it on every side, with the corners of the
+    // theme's chip (4) unless the page says another.
+    for (name, radius) in [("plain", 4.0), ("round", 3.0)] {
+        let list = bounds_of(&page, name);
+        let (row, radii) = ground(&format!("{name}/row/a"));
+        assert_eq!(row.x, list.x + 4.0, "{name}");
+        assert_eq!(row.right(), list.right() - 4.0, "{name}");
+        assert_eq!(row.y, list.y + 4.0, "{name}");
+        assert_eq!(radii, [radius; 4], "{name}");
+    }
+    // A list with none is as wide as it is and its rows are square.
+    let list = bounds_of(&page, "flat");
+    let (row, radii) = ground("flat/row/a");
+    assert_eq!((row.x, row.w, row.y), (list.x, list.w, list.y));
+    assert_eq!(radii, [0.0; 4]);
     Ok(())
 }
 

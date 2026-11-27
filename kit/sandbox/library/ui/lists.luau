@@ -139,10 +139,9 @@ lists.move = move
 -- --- A list -----------------------------------------------------------------------------------------------------
 
 -- A long list of rows, built as the person scrolls (`pencere.Rows`: every row of one `height`, the
--- theme's `row` by default, and `inset` points around them: above the first and below the last, and, in
--- a list whose rows are rounded (`radius`, none by default), on each side of every row's ground too, so
--- that the ground keeps inside the corners of what holds the list; in a plain list it is the list's whole
--- width). `items` are the rows' data, each with a
+-- theme's `row` by default, and `inset` points around them: above the first and below the last and on
+-- each side of every row's ground, which has round corners (`radius`, the theme's `chip` by default)
+-- where there is an inset; a list with none is as wide as it is and its rows are square). `items` are the rows' data, each with a
 -- stable `key` (or `props.key(item)` says it); `row(item, index, look)` makes what is in a row, where
 -- `look` is `{ selected, hovered, marked, focused }` (the list draws the ground of the row, the
 -- host-friendly role and the pointer's answers), and with no `row` a row says the item's `icon` (a
@@ -230,14 +229,20 @@ local List = core.component("list", {
 				:items_center()
 				:bg(ground)
 				:child(content)
-			-- The ground of a row of rounded corners stands inside the inset on its sides too, as the rows
-			-- do above and below, so that a list in a card with round corners keeps it inside them; one of
-			-- square corners is as wide as the list.
-			if props.radius ~= nil then
-				if (props.inset or 0) > 0 then
-					row:ml(props.inset):mr(props.inset)
-				end
-				row:rounded(props.radius)
+			-- The ground of a row stands inside the inset on its sides too, as the rows do above and below,
+			-- and its corners are round (the theme's `chip`'s unless `radius` says): a row chosen is a
+			-- pill in the list, and in a card with round corners it stays inside them. A list with no
+			-- inset is as wide as it is and its rows are square, as those of a tree or a sidebar are.
+			local inset = props.inset or 0
+			if inset > 0 then
+				row:ml(inset):mr(inset)
+			end
+			local radius = props.radius
+			if radius == nil and inset > 0 then
+				radius = t.radius.chip
+			end
+			if radius ~= nil then
+				row:rounded(radius)
 			end
 			if props.positions ~= false then
 				row:position(index, count_of(props))

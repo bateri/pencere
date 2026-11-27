@@ -10,5 +10,5 @@ local state = { cursor = "r3", marks = {} }
 
 return page(function(u)
 	return pencere.div():h(200):border(1, "border"):rounded(6):clip():child(
-		u:list("results", { items = rows, state = state, height = 24, inset = 2 }))
+		u:list("results", { items = rows, state = state, height = 24, inset = 4 }))
 end, { width = 400 })
