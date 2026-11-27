@@ -224,7 +224,8 @@ local STEP = 16
 -- `state.size` points (240 unless `default` says), between `min` and `max`. It says `resize { size, final }`:
 -- `final = false` as the edge goes, `final = true` when it is let go after it went, and for each step of
 -- the arrow keys (the page keeps the size where it keeps its settings, when `final`); a press on the edge
--- that does not move it says nothing. The arrow keys on the edge size it by sixteen points, as a window splitter does. Under
+-- that does not move it says nothing; a press within three points of the line holds the edge on either side of
+-- it, whichever pane is the sized one. The arrow keys on the edge size it by sixteen points, as a window splitter does. Under
 -- `narrow_below` points of page the sized pane leaves the row: `second` has all of it, and the sized
 -- pane comes over it with a scrim behind it while `state.drawer` is true (the page opens it, the scrim
 -- and escape say `drawer { open = false }`). As the pointer takes the edge to `min` or `max` the reply
@@ -277,7 +278,7 @@ local Split = core.component("split", {
 		end
 		local pane = pencere.div():w(state.size):h_full():no_shrink():min_h(0):clip():child(sized)
 		local held = u.capture ~= nil and u.capture.mount == id
-		local over = u:hovered(u:name(id, "handle")) or held
+		local over = u:hovered(u:name(id, "handle")) or u:hovered(u:name(id, "grip")) or held
 		-- What is between the panes is a line of a point and no more: the panes touch it. The edge that is
 		-- pressed is a box of GRIP points laid over the line (in it, by the side of both panes, taking no
 		-- room), as the edge of a column of a grid is; it is in the line, so that a screen reader and the
@@ -302,28 +303,43 @@ local Split = core.component("split", {
 			handle:bg(alpha("accent", 0.2))
 		end
 		line:child(handle)
+		-- The grip is in the line, between the panes, where a screen reader and the keyboard find it; the
+		-- pane after the line is drawn over the part of it that lies on that pane. A box that is there
+		-- for the pointer alone, last in that pane so that nothing is over it, holds that part (the rest
+		-- of the grip is in front of the pane before the line, and of the line): a press within the grip's
+		-- reach of the line holds the edge, whichever of the panes is the sized one, and does not go to what
+		-- the pane has there. It is read by no one and is not on the keyboard's way.
+		local strip = pencere.div()
+			:absolute()
+			:inset(0, nil, 0, 0)
+			:w((GRIP - 1) / 2)
+			:role("none")
+			:press(u:part(id, "grip"))
 		local rest = pencere.div():grow(1):min_w(0):h_full():min_h(0):child(other)
 		if at_start then
+			rest:child(strip)
 			root:child(pane):child(line):child(rest)
 		else
+			pane:child(strip)
 			root:child(rest):child(line):child(pane)
 		end
 		return root
 	end,
 	press = function(u, id, props, state, part, _, event)
-		if part == "handle" and event.button == "left" then
+		if (part == "handle" or part == "grip") and event.button == "left" then
 			state.origin = state.size
 			state.moved = nil
 			-- An edge pressed at a limit has not reached it by being dragged: no vibration for the push.
 			state.limited = state.size <= (props.min or 120) or state.size >= (props.max or 640)
-			return false, nil, true
-		elseif part == "handle" then
+			-- The box that is there for the pointer alone is not what the keyboard goes to: the edge is.
+			return part == "grip" and u:focus(u:name(id, "handle")) or false, nil, true
+		elseif part == "handle" or part == "grip" then
 			return false
 		end
 		return nil
 	end,
 	drag = function(u, id, props, state, part, _, at)
-		if part ~= "handle" or state.origin == nil then
+		if (part ~= "handle" and part ~= "grip") or state.origin == nil then
 			return nil
 		end
 		local min, max = props.min or 120, props.max or 640
@@ -339,7 +355,7 @@ local Split = core.component("split", {
 		return touch and pencere.merge(touch, true) or true, { kind = "resize", size = size, final = false }
 	end,
 	release = function(u, id, props, state, part)
-		if part ~= "handle" or state.origin == nil then
+		if (part ~= "handle" and part ~= "grip") or state.origin == nil then
 			return nil
 		end
 		state.origin = nil
@@ -351,7 +367,7 @@ local Split = core.component("split", {
 		return true, { kind = "resize", size = state.size, final = true }
 	end,
 	cursor = function(_, _, _, _, part)
-		if part == "handle" then
+		if part == "handle" or part == "grip" then
 			return "resize_horizontal"
 		end
 		return nil
@@ -492,8 +508,8 @@ local Status = core.component("status", {
 			return row
 		end
 		-- Three columns, the middle as wide as its group and the other two sharing what is left: the
-		-- middle group is in the middle of the bar, whatever the groups at its sides say, and the last
-		-- stands at the end.
+		-- middle group is in the middle of the bar where there is room for it (a wide group at a side
+		-- pushes it, as `1fr auto 1fr` does in a style sheet), and the last stands at the end.
 		return pencere.div()
 			:grid({ pencere.fr(1), "auto", pencere.fr(1) })
 			:grid_rows({ pencere.fr(1) })

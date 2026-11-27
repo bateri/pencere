@@ -3436,6 +3436,80 @@ fn taps(page: &Headless, name: &str) -> usize {
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_press_within_three_points_of_the_line_of_a_split_holds_the_edge_and_not_what_the_pane_has_there()
+-> Result<(), Error> {
+    // A button that fills the pane after the line, whichever pane is the sized one.
+    let page_of = |edge: &str| {
+        SPLIT
+            .replace("side = S.edge,", &format!("side = {edge},"))
+            .replace(
+                r#"pencere.div():id("second"):size_full():child(pencere.text("Main"))"#,
+                r#"pencere.div():id("second"):size_full():child(u:button("target", { title = "Target" }):w_full():h_full())"#,
+            )
+    };
+    for edge in ["nil", "\"end\""] {
+        let mut page = open(&page_of(edge))?;
+        let mut sized = page.bounds("first").expect("pane").w;
+        let mut done = 0;
+        // On the pane before the line, on the line, and on the pane after it: its first, middle and last
+        // point of the grip's reach.
+        for across in [0.5, 2.5, 3.5, 5.0, 6.5] {
+            let grip = page.bounds("side/handle").expect("the edge");
+            let (x, y) = (grip.x + across, grip.y + 10.0);
+            // The sized pane grows, and has room to, as the pointer goes toward the other pane.
+            let way = if edge == "nil" { 1.0 } else { -1.0 };
+            drag_through(
+                &mut page,
+                x,
+                y,
+                &[x + way * 10.0, x + way * 20.0, x + way * 30.0],
+            )?;
+            let now = page.bounds("first").expect("pane").w;
+            assert_ne!(
+                now, sized,
+                "{edge}: a press {across} points into the grip holds the edge"
+            );
+            sized = now;
+            done += 1;
+            assert!(
+                !log(&page).iter().any(|line| line.starts_with("target")),
+                "{edge}: {across}: {:?}",
+                log(&page)
+            );
+        }
+        assert_eq!(done, 5);
+        // Where the grip does not reach, the pane's own is pressed.
+        page.click("target")?;
+        assert!(
+            log(&page).iter().any(|line| line.starts_with("target")),
+            "{edge}: {:?}",
+            log(&page)
+        );
+        // A press that holds the edge puts the keyboard on it: the arrow keys size it.
+        let grip = page.bounds("side/handle").expect("the edge");
+        let (x, y) = (grip.x + 5.0, grip.y + 10.0);
+        let before = page.bounds("first").expect("pane").w;
+        drag_through(&mut page, x, y, &[])?;
+        // The sized pane is near its limit: the key that makes it smaller.
+        page.press(if edge == "nil" { "left" } else { "right" })?;
+        assert_eq!(
+            (page.bounds("first").expect("pane").w - before).abs(),
+            16.0,
+            "{edge}: the keyboard is on the edge"
+        );
+        // The box that is there for the pointer alone is not read, and covers nothing that is.
+        assert_eq!(
+            page.audit(),
+            [],
+            "{edge}: {}",
+            crate::audit::report(&page.audit())
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn the_edge_of_a_split_ticks_once_as_the_pointer_takes_it_to_a_limit_and_not_for_the_keys()
 -> Result<(), Error> {
     let mut page = open(SPLIT)?;

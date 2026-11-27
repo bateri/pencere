@@ -592,12 +592,14 @@ A press of the right button on a tab, a row, a cell or a line of a tree is the a
 
 A `list`'s `inset` is the room around its rows: above the first, below the last and on each side of the ground of every row. Its `radius` rounds the corners of that ground (the theme's `chip` by default where there is an inset). A list with no inset is as wide as it is and its rows are square, as those of a `tree` are. The `picker`, the `palette` and the `completions` keep the ground of the row chosen inside their card: their rows are inset on every side, and the corners of the ground are the card's less the inset. The words of a row of a `picker` or a `palette` start where the words of its field do. A row that a list draws on its own says its `icon` (a glyph's name), `title`, `detail` and `hint`.
 
-Between the panes of a `split` there is a line of one point, which both panes touch; the edge that is dragged is a box seven points across laid over it. A `grid`'s column has its edge as a box laid over the cell's right edge. A `split`'s edge and a `grid`'s column say `resize { size, final }` (`{ column, width, final }`):
+Between the panes of a `split` there is a line of one point, which both panes touch; the edge that is dragged is a box seven points across laid over it, so that a press within three points of the line holds the edge on either side of it, whichever pane is the sized one, and does not go to what the pane has there. It is read, and the keyboard comes to it, between the panes. A `grid`'s column has its edge as a box laid over the cell's right edge. A `split`'s edge and a `grid`'s column say `resize { size, final }` (`{ column, width, final }`):
 
 - `final = false` while it is dragged;
 - and `true` when it is let go after it moved and at each step of the keys.
 
 A press that does not move one of them says nothing.
+
+The middle group of a `status` is in the middle of the bar where there is room for it: a group at a side that is wider than the room it has pushes it, as the middle track of `1fr auto 1fr` is pushed in a style sheet. The last group stands at the end.
 
 As the pointer takes one of them to the limit of its size (a `split`'s `min` or `max`, the narrowest or the widest a `grid`'s column goes), the reply carries a vibration, `haptic`, once as it gets there: not while it is held there or taken past it, and not for the keys; it vibrates again if the pointer leaves the limit and comes back. A press that begins at the limit and pushes on does not. The option `haptic` of the `split` and the `grid` is a ready pattern's name or a pattern of the page's own ([Haptics](haptics.md)); `"tick"` where it says nothing, `false` for none. A kit that has it says so: `pencere.has("ui.split.haptic")` and `pencere.has("ui.grid.haptic")`.
 
