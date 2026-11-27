@@ -215,8 +215,10 @@ fn byte_at(text: &str, at: usize) -> usize {
 /// (`Field::text`), inside the padding of the element. One line stands in the middle of its box, with
 /// what is selected under its words and, in the field that has the keyboard, the caret where nothing
 /// is selected, and it scrolls as a field does to keep the caret in its box (and is cut at the room, so
-/// that a box shorter than a line does not cut the letters, and not at the sides of the padding); lines are broken at a word where the box
-/// is full and stand from its top, a line of the text to a row, with no selection or caret. The page is
+/// that a box shorter than a line does not cut the letters, and not at the sides of the padding);
+/// lines are broken at a word where the box is full and stand from its top, a line of the text to a
+/// row, with no selection or caret, and the rows past the box run on into the padding and are cut at
+/// the padding box (`Field::padding_box`: the room less the border). The page is
 /// laid out with the same `fonts` ([`super::Opening::measure`]), so that the line is the one its boxes
 /// were made of. A field the page covers is not drawn. `fields` are the last frame's (the host's
 /// points), `held` what they hold, `focus` the one with the keyboard, `zoom` the page's and `scale` the
@@ -244,8 +246,15 @@ pub(super) fn drawn(
             field.text.h * scale,
         );
         // A line is cut at the sides of its box (the padding is not for words) and the top and bottom
-        // of its room, which its element made at least a line high.
+        // of its room, which its element made at least a line high; lines at the padding box, which
+        // the rows past their box run on into, and the border is not theirs.
         let whole = Rect::new(room.x, field.rect.y * scale, room.w, field.rect.h * scale);
+        let padding_box = Rect::new(
+            field.padding_box.x * scale,
+            field.padding_box.y * scale,
+            field.padding_box.w * scale,
+            field.padding_box.h * scale,
+        );
         let none = Held::default();
         let held = held.get(&field.id).unwrap_or(&none);
         let text = if field.kind == FieldKind::Secret {
@@ -267,7 +276,7 @@ pub(super) fn drawn(
                 }
                 #[allow(clippy::cast_precision_loss)]
                 let top = room.y + row as f32 * line;
-                items.push(words_at((room.x, top), words, font, ink, room));
+                items.push(words_at((room.x, top), words, font, ink, padding_box));
             }
             continue;
         }
@@ -406,6 +415,7 @@ mod tests {
                 id: NAME,
                 kind,
                 rect: Rect::new(10.0, 20.0, 100.0, 24.0),
+                padding_box: Rect::new(10.0, 20.0, 100.0, 24.0),
                 text: Rect::new(10.0, 20.0, 100.0, 24.0),
                 hint: hint.map(str::to_owned),
                 label: None,
@@ -603,7 +613,31 @@ mod tests {
                     ("cccc", Point::new(30.0, 52.0 + line))
                 ]
             );
-            assert_eq!(runs(&items)[0].clip.x, 30.0, "cut at the box of the text");
+            // The room has no border here: lines are cut at it, and the padding is inside it.
+            assert_eq!(runs(&items)[0].clip.x, 20.0, "cut at the padding box");
+        }
+
+        #[test]
+        fn lines_past_their_box_run_on_into_the_padding_and_are_cut_at_the_padding_box() {
+            // A room of 100 across and 70 down with a border of 1, 4 points of padding above and 26
+            // below: its text stands in 38 points of it, which is not as many rows as there are.
+            let mut field = field(FieldKind::Lines, None);
+            field.rect = Rect::new(10.0, 20.0, 100.0, 70.0);
+            field.padding_box = Rect::new(11.0, 21.0, 98.0, 68.0);
+            field.text = Rect::new(14.0, 25.0, 92.0, 38.0);
+            let items = draw(&field, &holding("a\nb\nc\nd\ne\nf"), true, 1.0);
+            let line = Fonts::none().measure(&face(1.0), "M").height;
+            let runs = runs(&items);
+            assert_eq!(runs.len(), 6);
+            // From the top of the text box, a row to a line of the text.
+            assert_eq!(runs[0].origin, Point::new(28.0, 50.0));
+            assert_eq!(runs[5].origin, Point::new(28.0, 50.0 + 5.0 * line));
+            // Cut at the room less its border, whose bottom is below the text box's: the rows that
+            // run over the box show in the padding, and none shows over the border.
+            let cut = Rect::new(22.0, 42.0, 196.0, 136.0);
+            assert!(runs.iter().all(|run| run.clip == cut), "{items:?}");
+            assert!(cut.bottom() > 2.0 * field.text.bottom());
+            assert!(cut.bottom() < 2.0 * field.rect.bottom());
         }
 
         #[test]

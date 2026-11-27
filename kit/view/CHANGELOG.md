@@ -8,7 +8,7 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Changed
 
-- **`Field` has a `text` field**: where the text of a text field stands, its room less its element's padding and border (`rect` stays the whole room, the pointer's). A `Field { .. }` written out in full needs `text`.
+- **`Field` has a `padding_box` and a `text` field**: the room less its border, where a field of lines cuts its text and scrolls it, and where the text stands, the padding box less its element's padding (`rect` stays the whole room, the pointer's). A `Field { .. }` written out in full needs both.
 - **`Meta` has a `field_rows` field.** A `Meta { .. }` written out in full needs `field_rows: None`.
 - **`BrowserError` has a `certificate` field and `BrowserAsk` three more variants.** A `BrowserError { .. }`
   written out in full needs `certificate: None`, and a `match` on every `BrowserAsk` needs the arms for

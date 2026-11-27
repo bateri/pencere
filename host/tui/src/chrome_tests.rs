@@ -107,6 +107,7 @@ fn room() -> Field {
         id: Id::named("find"),
         kind: FieldKind::Line,
         rect: Rect::new(20.0, 30.0, 150.0, 18.0),
+        padding_box: Rect::new(20.0, 30.0, 150.0, 18.0),
         text: Rect::new(20.0, 30.0, 150.0, 18.0),
         hint: Some("Find".to_owned()),
         label: None,
@@ -165,6 +166,7 @@ fn a_field_of_lines_is_broken_in_the_box_of_its_text_and_drawn_row_under_row_fro
         id: Id::named("reply"),
         kind: FieldKind::Lines,
         rect: Rect::new(20.0, 30.0, 200.0, 100.0),
+        padding_box: Rect::new(20.0, 30.0, 200.0, 100.0),
         text,
         hint: Some("Reply to this message".to_owned()),
         label: None,
@@ -202,6 +204,222 @@ fn a_field_of_lines_is_broken_in_the_box_of_its_text_and_drawn_row_under_row_fro
         .map(|row| row.0)
         .collect();
     assert_eq!(said, ["Reply to ", "this ", "message"]);
+}
+
+#[test]
+fn a_field_of_lines_shows_the_rows_beside_the_ones_in_its_box_in_its_padding_and_no_further() {
+    let (fonts, scale) = faces();
+    let paper = paper(&fonts, scale);
+    let line = paper.line(&paper.face(false));
+    // Three rows of eight cells in the box of the text, 6 points of padding above it and 9 below, a
+    // border of 1 round the whole: the room, the padding box and the box of the text all differ.
+    let text = Rect::new(
+        30.0,
+        40.0,
+        (8.0 * CELL.0 as f32 + 0.5) / scale,
+        3.0 * line / scale,
+    );
+    let field = Field {
+        id: Id::named("reply"),
+        kind: FieldKind::Lines,
+        rect: Rect::new(20.0, 33.0, 200.0, text.bottom() + 9.0 + 1.0 - 33.0),
+        padding_box: Rect::new(21.0, 34.0, 198.0, text.bottom() + 9.0 - 34.0),
+        text,
+        hint: None,
+        label: None,
+        covered: false,
+    };
+    // Twelve words, two to a row of eight cells: six rows, and the caret in the fourth, so that the
+    // room shows the second to the fourth and the first and the fifth are beside them.
+    let mut held = TextField::new(FieldKind::Lines);
+    held.fill(&Fill::text("aaa bbb ccc ddd eee fff ggg hhh iii jjj kkk lll").select(25..25));
+    let texts_by = HashMap::from([(field.id, held)]);
+    let items = chrome::fields(
+        &paper,
+        std::slice::from_ref(&field),
+        &texts_by,
+        Some(field.id),
+    );
+    let (x, y) = (text.x * scale, text.y * scale);
+    let rows: Vec<(String, f32, f32)> = items
+        .iter()
+        .filter_map(|item| match item {
+            Paint::Text(run) => Some((run.text.clone(), run.origin.x, run.origin.y)),
+            _ => None,
+        })
+        .collect();
+    let row = |n: f32, words: &str| (words.to_owned(), x, y + n * line);
+    assert_eq!(
+        rows.iter()
+            .map(|(words, ..)| words.as_str())
+            .collect::<Vec<_>>(),
+        ["aaa bbb ", "ccc ddd ", "eee fff ", "ggg hhh ", "iii jjj "],
+        "{rows:?}"
+    );
+    assert_eq!(rows[0], row(-1.0, "aaa bbb "));
+    assert_eq!(rows[1], row(0.0, "ccc ddd "));
+    assert_eq!(rows[4], row(3.0, "iii jjj "));
+    // Every one is cut at the padding box and not at the box of the text.
+    let padding_box = Rect::new(
+        21.0 * scale,
+        34.0 * scale,
+        198.0 * scale,
+        (text.bottom() + 9.0 - 34.0) * scale,
+    );
+    for item in &items {
+        if let Paint::Text(run) = item {
+            assert_eq!(run.clip, padding_box);
+        }
+    }
+    // What of the rows beside is in the picture is in the padding: ink above the box of the text and
+    // below it, none past the padding box.
+    let ground = drawn(&[], &fonts);
+    let rgba = drawn(&items, &fonts);
+    let above = Rect::new(x, padding_box.y, 8.0 * CELL.0 as f32, y - padding_box.y);
+    let below = Rect::new(
+        x,
+        y + 3.0 * line,
+        8.0 * CELL.0 as f32,
+        padding_box.bottom() - (y + 3.0 * line),
+    );
+    assert!(ink_in(&rgba, &ground, above) > 0, "above");
+    assert!(ink_in(&rgba, &ground, below) > 0, "below");
+    assert_eq!(ink_outside(&rgba, &ground, padding_box, 0.0), 0);
+    // A field with no padding shows none of them.
+    let bare = Field {
+        padding_box: text,
+        ..field.clone()
+    };
+    let items = chrome::fields(&paper, &[bare], &texts_by, Some(field.id));
+    assert_eq!(texts(&items), ["ccc ddd ", "eee fff ", "ggg hhh "]);
+}
+
+#[test]
+fn what_is_selected_of_a_row_is_cut_at_the_sides_of_the_box_and_a_hint_runs_into_the_padding_below()
+{
+    let (fonts, scale) = faces();
+    let paper = paper(&fonts, scale);
+    let line = paper.line(&paper.face(false));
+    // Two rows in the box of eight cells, with padding on every side: 5 points on the sides, and the
+    // third row of a hint stands in the padding below.
+    let text = Rect::new(
+        30.0,
+        40.0,
+        (8.0 * CELL.0 as f32 + 0.5) / scale,
+        2.0 * line / scale,
+    );
+    let field = Field {
+        id: Id::named("reply"),
+        kind: FieldKind::Lines,
+        rect: Rect::new(25.0, 35.0, text.w + 10.0, text.h + 2.0 * line / scale),
+        padding_box: Rect::new(25.0, 35.0, text.w + 10.0, text.h + 2.0 * line / scale),
+        text,
+        hint: Some("aaa bbb ccc ddd eee fff".to_owned()),
+        label: None,
+        covered: false,
+    };
+    let items = chrome::fields(&paper, std::slice::from_ref(&field), &HashMap::new(), None);
+    assert_eq!(texts(&items), ["aaa bbb ", "ccc ddd ", "eee fff"]);
+    // A box with no padding below it draws the rows of the box only.
+    let bare = Field {
+        padding_box: Rect::new(25.0, 35.0, text.w + 10.0, text.bottom() - 35.0),
+        ..field.clone()
+    };
+    let items = chrome::fields(&paper, &[bare], &HashMap::new(), None);
+    assert_eq!(texts(&items), ["aaa bbb ", "ccc ddd "]);
+    // "aaa bbbb " is a row of nine cells in a box of eight: the space at its end hangs past the box,
+    // and what is selected of it is not painted past the box into the padding.
+    let mut held = TextField::new(FieldKind::Lines);
+    held.fill(&Fill::text("aaa bbbb ccc").select(0..9));
+    let texts_by = HashMap::from([(field.id, held)]);
+    let items = chrome::fields(&paper, std::slice::from_ref(&field), &texts_by, None);
+    let cuts: Vec<Rect> = items
+        .iter()
+        .filter_map(|item| match item {
+            Paint::Quad(quad) if quad.fill == Some(Color::from(Role::Selection)) => Some(quad.clip),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(cuts.len(), 1, "{cuts:?}");
+    assert_eq!(cuts[0].x, text.x * scale);
+    assert!(
+        (cuts[0].right() - text.right() * scale).abs() < 0.01,
+        "{cuts:?}"
+    );
+}
+
+#[test]
+fn a_field_of_lines_with_no_padding_draws_the_rows_its_box_shows_whatever_its_height() {
+    let (fonts, scale) = faces();
+    let paper = paper(&fonts, scale);
+    let line = paper.line(&paper.face(false));
+    // The box is two rows and a half high and has no padding: the padding box is the box, and the
+    // third row, which the half row would show a part of, is not drawn, nor is it pressed.
+    let text = Rect::new(
+        30.0,
+        40.0,
+        (8.0 * CELL.0 as f32 + 0.5) / scale,
+        2.5 * line / scale,
+    );
+    let field = Field {
+        id: Id::named("reply"),
+        kind: FieldKind::Lines,
+        rect: text,
+        padding_box: text,
+        text,
+        hint: None,
+        label: None,
+        covered: false,
+    };
+    let mut held = TextField::new(FieldKind::Lines);
+    held.fill(&Fill::text("aaa bbb ccc ddd eee fff ggg hhh").select(0..0));
+    let texts_by = HashMap::from([(field.id, held)]);
+    let items = chrome::fields(&paper, std::slice::from_ref(&field), &texts_by, None);
+    assert_eq!(texts(&items), ["aaa bbb ", "ccc ddd "]);
+    let scaled = |rect: Rect| {
+        Rect::new(
+            rect.x * scale,
+            rect.y * scale,
+            rect.w * scale,
+            rect.h * scale,
+        )
+    };
+    let (room, clip) = (scaled(text), scaled(text));
+    assert_eq!(
+        chrome::row_pressed(&paper, room, clip, room.bottom() - 1.0, false),
+        (1, 2)
+    );
+}
+
+#[test]
+fn a_press_in_the_padding_of_a_field_of_lines_is_on_the_row_that_stands_there_and_else_on_the_box()
+{
+    let (fonts, scale) = faces();
+    let paper = paper(&fonts, scale);
+    let line = paper.line(&paper.face(false));
+    // Three rows in the box, and a padding of half a row above it and below.
+    let room = Rect::new(100.0, 100.0 + line / 2.0, 80.0, 3.0 * line);
+    let clip = Rect::new(100.0, 100.0, 80.0, 4.0 * line);
+    let at = |y: f32| chrome::row_pressed(&paper, room, clip, y, false);
+    assert_eq!(at(room.y + line * 1.5), (1, 3));
+    // In the padding above and below: on the row before the first and the row after the last.
+    assert_eq!(at(100.0 + line / 4.0), (-1, 3));
+    assert_eq!(at(room.bottom() + line / 4.0), (3, 3));
+    // A drag that rests there does not carry the rows along: it is on the first and the last shown.
+    let drag = |y: f32| chrome::row_pressed(&paper, room, clip, y, true);
+    assert_eq!(drag(100.0 + line / 4.0), (0, 3));
+    assert_eq!(drag(room.bottom() + line / 4.0), (2, 3));
+    assert_eq!(drag(room.y + line * 1.5), (1, 3));
+    // Where there is no padding there are no such rows: the first and the last the box shows.
+    let bare = Rect::new(100.0, 100.0 + line / 2.0, 80.0, 3.0 * line);
+    assert_eq!(
+        chrome::row_pressed(&paper, room, bare, 100.0, false),
+        (0, 3)
+    );
+    assert_eq!(
+        chrome::row_pressed(&paper, room, bare, room.bottom() + line / 4.0, false),
+        (2, 3)
+    );
 }
 
 #[test]

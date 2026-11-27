@@ -51,6 +51,10 @@ pub(crate) struct Row {
 pub(crate) struct Block {
     pub rows: Vec<Row>,
     pub caret: (usize, usize),
+    /// The row before the first shown and the row after the last, where there is one: a host that
+    /// has padding round its rows shows what of them stands in it.
+    pub before: Option<Row>,
+    pub after: Option<Row>,
 }
 
 /// How many cells `text` takes.
@@ -421,26 +425,35 @@ impl TextField {
 
     /// What of a field of lines is in a room `cols` cells across and `shown` rows high, as it is
     /// drawn there: the rows from the first that keeps the caret in the room, each with the
-    /// cells the selection covers in it, and the caret's row and cell among them.
+    /// cells the selection covers in it, and the caret's row and cell among them; and the row on
+    /// either side of them.
     pub(crate) fn block(&self, cols: u16, shown: usize) -> Block {
         let rows = self.rows(cols);
         self.cols.set(cols);
         self.shown.set(shown.max(1));
         let first = self.first_row(&rows, shown);
         let (from, to) = (self.anchor.min(self.head), self.anchor.max(self.head));
-        let mut block = Block::default();
-        for row in rows.iter().skip(first).take(shown.max(1)) {
+        let row_of = |row: &std::ops::Range<usize>| {
             let text = self.part(row.start, row.end);
             let (lo, hi) = (from.max(row.start), to.min(row.end));
             let selected = (lo < hi).then(|| {
                 let before = cells_of(self.part(row.start, lo));
                 before..before + cells_of(self.part(lo, hi))
             });
-            block.rows.push(Row {
+            Row {
                 text: text.to_owned(),
                 selected,
-            });
+            }
+        };
+        let mut block = Block::default();
+        for row in rows.iter().skip(first).take(shown.max(1)) {
+            block.rows.push(row_of(row));
         }
+        block.before = first
+            .checked_sub(1)
+            .and_then(|row| rows.get(row))
+            .map(row_of);
+        block.after = rows.get(first + shown.max(1)).map(row_of);
         let at = Self::row_at(&rows, self.head);
         let start = rows.get(at).map_or(0, |row| row.start);
         let cell = cells_of(self.text.get(start..self.head).unwrap_or(""));
@@ -479,21 +492,28 @@ impl TextField {
         at
     }
 
-    /// The person pressed the cell `cell` of the row `line` of a room `cols` cells across and
-    /// `shown` rows high: the caret goes to the nearest edge of a character of that row (the last row
-    /// the room shows where it is pressed below them), with the selection's other end left where it
-    /// is where `extend`.
+    /// The person pressed the cell `cell` of the row `line` (counted from the first shown, the row
+    /// before it being -1) of a room `cols` cells across and `shown` rows high: the caret goes to the
+    /// nearest edge of a character of that row, with the selection's other end left where it is where
+    /// `extend`. No further than the rows either side of those shown, which the padding shows: a
+    /// host that shows none says a row of those shown.
     pub fn place_in_rows(
         &mut self,
         cell: usize,
-        line: usize,
+        line: isize,
         cols: u16,
         shown: usize,
         extend: bool,
     ) {
         let rows = self.rows(cols);
-        let line = line.min(shown.max(1) - 1);
-        let row = (self.first_row(&rows, shown) + line).min(rows.len().saturating_sub(1));
+        let first = self.first_row(&rows, shown);
+        let last = rows.len().saturating_sub(1);
+        // The row before the first shown and the row after the last are what the padding shows.
+        let row = first
+            .checked_add_signed(line.max(-1))
+            .unwrap_or(0)
+            .min(first + shown.max(1))
+            .min(last);
         let at = self.byte_in_row(&rows, row, cell);
         self.head = at;
         if !extend {
@@ -688,9 +708,46 @@ mod tests {
         // The caret goes above the room: the room goes up with it, to as many rows as keep it in.
         field.key(Key::Up, NONE, None);
         assert_eq!(field.block(5, 2).rows[0].text, "ccc");
-        // A press below the rows is on the last of them, not on one that is not shown.
+        // A press below the rows is on the row after the last, which the padding below them shows,
+        // and on no row further down.
         field.place_in_rows(0, 9, 5, 2, false);
-        assert_eq!(field.state().selection, 12..12);
+        assert_eq!(field.state().selection, 16..16);
+    }
+
+    #[test]
+    fn the_row_before_and_the_row_after_the_rows_shown_are_given_for_the_padding_to_show() {
+        let mut field = TextField::new(FieldKind::Lines);
+        field.fill(&Fill::text("aaa\nbbb\nccc\nddd\neee").select(0..0));
+        // At the top there is no row before.
+        let block = field.block(5, 2);
+        assert_eq!(block.before, None);
+        assert_eq!(
+            block.after.as_ref().map(|row| row.text.as_str()),
+            Some("ccc")
+        );
+        // The caret in the third row: the room goes down to keep it, and rows stand either side.
+        field.fill(&Fill::text("aaa\nbbb\nccc\nddd\neee").select(9..9));
+        let block = field.block(5, 2);
+        let words: Vec<&str> = block.rows.iter().map(|row| row.text.as_str()).collect();
+        assert_eq!(words, ["bbb", "ccc"]);
+        assert_eq!(
+            block.before.as_ref().map(|row| row.text.as_str()),
+            Some("aaa")
+        );
+        assert_eq!(
+            block.after.as_ref().map(|row| row.text.as_str()),
+            Some("ddd")
+        );
+        // A press on the row after is on it, and so is one on the row before.
+        field.place_in_rows(1, 2, 5, 2, false);
+        assert_eq!(field.state().selection, 13..13);
+        field.fill(&Fill::text("aaa\nbbb\nccc\nddd\neee").select(9..9));
+        field.block(5, 2);
+        field.place_in_rows(1, -1, 5, 2, false);
+        assert_eq!(field.state().selection, 1..1);
+        // At the end there is no row after.
+        field.fill(&Fill::text("aaa\nbbb\nccc\nddd\neee"));
+        assert_eq!(field.block(5, 2).after, None);
     }
 
     #[test]

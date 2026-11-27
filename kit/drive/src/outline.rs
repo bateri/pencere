@@ -65,7 +65,7 @@ impl Placement {
 }
 
 /// A text field the host puts over a page: its name (the id of the element that is its room), its
-/// kind, where its room stands in the host's points, where its text stands in it, what it says
+/// kind, where its room, its padding box and its text stand in the host's points, what it says
 /// while it is empty — the words the page put in that room — and what it is to a screen reader.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Field {
@@ -73,7 +73,10 @@ pub struct Field {
     pub kind: FieldKind,
     /// Its room: all of it is the field's for the pointer.
     pub rect: Rect,
-    /// Where its text stands: the room less the padding of the element and its border
+    /// The room less its border ([`pencere_view::Field::padding_box`]): where a field of lines
+    /// cuts its text and scrolls it, the padding scrolling with it.
+    pub padding_box: Rect,
+    /// Where its text stands: the padding box less the padding of the element
     /// ([`pencere_view::Field::text`]). Set in the host's field font, and in a field of lines
     /// broken at its width, from its top.
     pub text: Rect,
@@ -147,6 +150,7 @@ impl Outline {
                     id: field.id,
                     kind: field.kind,
                     rect: at.to_host(field.rect),
+                    padding_box: at.to_host(field.padding_box),
                     text: at.to_host(field.text),
                     hint: field.hint,
                     label: field.label,
@@ -200,5 +204,42 @@ mod tests {
         );
         // And a point of the host's is the page's, the strip's room taken off first.
         assert_eq!(at.to_page(Point::new(20.0, 42.0)), Point::new(10.0, 5.0));
+    }
+
+    #[test]
+    fn a_field_has_its_three_boxes_in_the_hosts_points() {
+        use pencere_view::{Font, Measure, Metrics, Role, Size, div, layout};
+        // A host whose line in a field is 20.
+        struct Ruler;
+        impl Measure for Ruler {
+            fn measure(&mut self, _: &Font, text: &str) -> Metrics {
+                Metrics {
+                    width: text.len() as f32 * 7.0,
+                    height: 16.0,
+                }
+            }
+            fn field_line(&mut self, _: &Font) -> Option<f32> {
+                Some(20.0)
+            }
+        }
+        let field = div()
+            .field(Id::named("box"), FieldKind::Lines)
+            .field_rows(3)
+            .w(100.0)
+            .pt(4.0)
+            .pb(10.0)
+            .pl(3.0)
+            .pr(7.0)
+            .border(1.0, Role::Accent);
+        let laid = layout(div().child(field), Size::new(200.0, 200.0), 1.0, &mut Ruler);
+        let at = Placement {
+            inset: 32.0,
+            zoom: 2.0,
+        };
+        let fields = Outline::of(&laid, at).fields;
+        // The room is 100 across and 76 down on the page: twice as large, below the strip.
+        assert_eq!(fields[0].rect, Rect::new(0.0, 32.0, 200.0, 152.0));
+        assert_eq!(fields[0].padding_box, Rect::new(2.0, 34.0, 196.0, 148.0));
+        assert_eq!(fields[0].text, Rect::new(8.0, 42.0, 176.0, 120.0));
     }
 }

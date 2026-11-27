@@ -161,6 +161,14 @@ pub(crate) fn fields(
             field.text.w * paper.scale,
             field.text.h * paper.scale,
         );
+        // What a field of lines is cut at: the room less its border, where the rows past the box run
+        // on into the padding.
+        let padding_box = Rect::new(
+            field.padding_box.x * paper.scale,
+            field.padding_box.y * paper.scale,
+            field.padding_box.w * paper.scale,
+            field.padding_box.h * paper.scale,
+        );
         let untouched;
         let text = match texts.get(&field.id) {
             Some(text) => text,
@@ -171,7 +179,15 @@ pub(crate) fn fields(
         };
         let (hint, has) = (field.hint.as_deref(), focus == Some(field.id));
         if field.kind == FieldKind::Lines {
-            lines(paper, &mut items, text, hint, room, has, Role::Foreground);
+            lines(
+                paper,
+                &mut items,
+                text,
+                hint,
+                (room, padding_box),
+                has,
+                Role::Foreground,
+            );
         } else {
             // A line is cut at the sides of its box and the top and bottom of its room, which its
             // element made at least a line high.
@@ -206,13 +222,16 @@ pub(crate) fn shown_in(paper: &Paper<'_>, height: f32) -> usize {
 
 /// A field of lines in `room`, the box of its text: its text broken at a word where a row of cells is
 /// full, row under row from the top, each with the selection under it; `hint`, dim and broken as
-/// the text is, where there is none; and the caret, where it `has` the keyboard.
+/// the text is, where there is none; and the caret, where it `has` the keyboard. All of it is cut at
+/// `clip`, the room less the border (the padding box), and the row before the first the box shows and
+/// the row after the last stand in the padding where there is any, as rows that are scrolled through
+/// it do (the hint, which is not scrolled, runs on into it as far as it goes).
 pub(crate) fn lines(
     paper: &Paper<'_>,
     items: &mut Vec<Paint>,
     text: &TextField,
     hint: Option<&str>,
-    room: Rect,
+    (room, clip): (Rect, Rect),
     has: bool,
     ink: Role,
 ) {
@@ -224,8 +243,28 @@ pub(crate) fn lines(
     let shown = shown_in(paper, room.h);
     let block = text.block(cols, shown);
     #[allow(clippy::cast_precision_loss)]
-    let top = |row: usize| room.y + row as f32 * line;
-    for (index, row) in block.rows.iter().enumerate() {
+    let top = |row: isize| room.y + row as f32 * line;
+    // The rows beside are drawn only where the padding is there for them.
+    #[allow(clippy::cast_possible_wrap)]
+    let after = block.rows.len() as isize;
+    let (above, below) = padding_for_rows(room, clip);
+    // What is selected is cut at the sides of the box: the space a row was broken at hangs past them.
+    let sides = Rect::new(room.x, clip.y, room.w, clip.h);
+    let before = block.before.as_ref().filter(|_| above);
+    let beyond = block.after.as_ref().filter(|_| below);
+    #[allow(clippy::cast_possible_wrap)]
+    let stood = before
+        .map(|row| (-1, row))
+        .into_iter()
+        .chain(
+            block
+                .rows
+                .iter()
+                .enumerate()
+                .map(|(i, row)| (i as isize, row)),
+        )
+        .chain(beyond.map(|row| (after, row)));
+    for (index, row) in stood {
         if let Some(selected) = &row.selected {
             #[allow(clippy::cast_precision_loss)]
             let rect = Rect::new(
@@ -234,33 +273,76 @@ pub(crate) fn lines(
                 (selected.end - selected.start) as f32 * paper.cell.0,
                 line,
             );
-            items.push(paper.quad(rect, Role::Selection, room));
+            items.push(paper.quad(rect, Role::Selection, sides));
         }
         if !text.text().is_empty() && !row.text.is_empty() {
-            items.push(paper.text((room.x, top(index)), &row.text, font, ink, room));
+            items.push(paper.text((room.x, top(index)), &row.text, font, ink, clip));
         }
     }
     if let (true, Some(hint)) = (text.text().is_empty(), hint) {
-        for (index, span) in rows_of(hint, cols).into_iter().take(shown).enumerate() {
+        let rows = shown + usize::from(below);
+        for (index, span) in rows_of(hint, cols).into_iter().take(rows).enumerate() {
             let words = &hint[span];
             if !words.is_empty() {
-                items.push(paper.text((room.x, top(index)), words, font, Role::Dim, room));
+                #[allow(clippy::cast_possible_wrap)]
+                let at = top(index as isize);
+                items.push(paper.text((room.x, at), words, font, Role::Dim, clip));
             }
         }
     }
     if has {
         let width = paper.scale.ceil().max(1.0);
-        #[allow(clippy::cast_precision_loss)]
+        #[allow(clippy::cast_precision_loss, clippy::cast_possible_wrap)]
         let rect = Rect::new(
             room.x + block.caret.1 as f32 * paper.cell.0,
-            top(block.caret.0),
+            top(block.caret.0 as isize),
             width,
             line,
         );
-        // After the last cell of a full row the caret is at the box's edge: it is drawn there.
-        let reach = Rect::new(room.x, room.y, room.w + width, room.h);
+        // After the last cell of a full row the caret is at the box's edge: it is drawn there, and
+        // that is in the padding where there is any.
+        let reach = Rect::new(
+            clip.x,
+            clip.y,
+            clip.w.max(room.right() + width - clip.x),
+            clip.h,
+        );
         items.push(paper.quad(rect, Role::Cursor, reach));
     }
+}
+
+/// The row of a field of lines the pointer `y` (pixels) is on, counted from the first its box `room`
+/// (pixels) shows, and how many rows the box shows. The padding box (`clip`, pixels) shows the row
+/// before the first and the row after the last where there is padding ([`lines`]), and a press there
+/// is on that row; where there is none, the press is on the first or the last the box shows. So is a
+/// `drag`: the pointer that rests in the padding does not carry the rows along under it.
+pub(crate) fn row_pressed(
+    paper: &Paper<'_>,
+    room: Rect,
+    clip: Rect,
+    y: f32,
+    drag: bool,
+) -> (isize, usize) {
+    let line = paper.line(&paper.face(false));
+    let shown = shown_in(paper, room.h);
+    let (above, below) = padding_for_rows(room, clip);
+    let (above, below) = (above && !drag, below && !drag);
+    #[allow(clippy::cast_possible_wrap)]
+    let last = shown as isize - 1;
+    #[allow(clippy::cast_possible_truncation)]
+    let row = ((y - room.y) / line).floor() as isize;
+    let row = row.max(if above { -1 } else { 0 });
+    (row.min(if below { last + 1 } else { last }), shown)
+}
+
+/// Whether the padding box `clip` has padding above the box of the text `room` and below it, for the
+/// rows beside the rows of the box to stand in (more than a hair of it: the boxes are made of pixels
+/// that were rounded). A box with no padding has none, and shows what its rows are, however high it
+/// is; with some, the row after the last stands from where the last row ends, in what is left of the
+/// box and in the padding.
+fn padding_for_rows(room: Rect, clip: Rect) -> (bool, bool) {
+    const HAIR: f32 = 1.0 / 64.0;
+    (clip.y + HAIR < room.y, clip.bottom() - HAIR > room.bottom())
 }
 
 /// One line of a field in `room`, the box of its text, whole cells across from its left edge, and cut at

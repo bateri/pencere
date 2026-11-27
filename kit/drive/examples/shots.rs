@@ -254,9 +254,18 @@ fn with_fields(page: &Headless<Calls>, fonts: &Fonts) -> DrawList {
             field.text.h * SCALE,
         );
         // One line is cut at the sides of its box and the top and bottom of its room, which is at
-        // least a line high; lines at their box.
+        // least a line high; lines at the padding box, which the rows past their box run on into.
         let (top, clip) = if field.kind == FieldKind::Lines {
-            (room.y, room)
+            let padding_box = field.padding_box;
+            (
+                room.y,
+                Rect::new(
+                    padding_box.x * SCALE,
+                    padding_box.y * SCALE,
+                    padding_box.w * SCALE,
+                    padding_box.h * SCALE,
+                ),
+            )
         } else {
             (
                 room.y + (room.h - line) / 2.0,

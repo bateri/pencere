@@ -1338,12 +1338,12 @@ impl Live<'_> {
 
     /// The caret of the field `id` goes to the edge of a character the pointer is nearest to.
     fn place_caret(&mut self, id: Id, mouse: &Mouse, extend: bool) {
-        let Some((room, kind)) = self
+        let Some((room, padding_box, kind)) = self
             .page
             .fields()
             .iter()
             .find(|field| field.id == id)
-            .map(|field| (field.text, field.kind))
+            .map(|field| (field.text, field.padding_box, field.kind))
         else {
             return;
         };
@@ -1368,9 +1368,21 @@ impl Live<'_> {
                 window: Rect::new(0.0, 0.0, 0.0, 0.0),
                 foot: 0.0,
             };
-            let line = paper.line(&paper.face(false));
-            let row = ((at.y - room.y) * scale / line).floor().max(0.0) as usize;
-            (row, chrome::shown_in(&paper, room.h * scale))
+            let scaled = |rect: Rect| {
+                Rect::new(
+                    rect.x * scale,
+                    rect.y * scale,
+                    rect.w * scale,
+                    rect.h * scale,
+                )
+            };
+            chrome::row_pressed(
+                &paper,
+                scaled(room),
+                scaled(padding_box),
+                at.y * scale,
+                extend,
+            )
         });
         if let Some(field) = self.fields.get_mut(&id) {
             match rows {

@@ -432,6 +432,81 @@ fn a_field_of_rows_is_as_tall_as_the_lines_the_host_says_and_its_padding_and_bor
 }
 
 #[test]
+fn a_field_has_its_room_the_room_less_its_border_and_the_text_less_its_padding_too() {
+    // Three lines of 20, 4 above and 10 below, 3 left and 7 right, and a border of 1 around: the room
+    // is 100 across and 76 down, and the three boxes of it are all different.
+    let field = lines_field(3)
+        .pt(4.0)
+        .pb(10.0)
+        .pl(3.0)
+        .pr(7.0)
+        .border(1.0, Role::Accent);
+    let laid = layout(
+        div().child(field),
+        Size::new(200.0, 200.0),
+        1.0,
+        &mut Lined(20.0),
+    );
+    let field = &laid.fields()[0];
+    assert_eq!(field.rect, Rect::new(0.0, 0.0, 100.0, 76.0));
+    // What a field of lines cuts its text at and scrolls it in: the room, the border taken off.
+    assert_eq!(field.padding_box, Rect::new(1.0, 1.0, 98.0, 74.0));
+    assert_eq!(field.text, Rect::new(4.0, 5.0, 88.0, 60.0));
+    // At twice the scale the boxes are in points all the same.
+    let field = lines_field(3)
+        .pt(4.0)
+        .pb(10.0)
+        .pl(3.0)
+        .pr(7.0)
+        .border(1.0, Role::Accent);
+    let laid = layout(
+        div().child(field),
+        Size::new(200.0, 200.0),
+        2.0,
+        &mut Lined(40.0),
+    );
+    let field = &laid.fields()[0];
+    assert_eq!(field.rect, Rect::new(0.0, 0.0, 100.0, 76.0));
+    assert_eq!(field.padding_box, Rect::new(1.0, 1.0, 98.0, 74.0));
+    assert_eq!(field.text, Rect::new(4.0, 5.0, 88.0, 60.0));
+    // Without a border the room is the box it is cut at.
+    let laid = layout(
+        div().child(lines_field(1).py(4.0)),
+        Size::new(200.0, 200.0),
+        1.0,
+        &mut Lined(20.0),
+    );
+    assert_eq!(laid.fields()[0].padding_box, laid.fields()[0].rect);
+}
+
+#[test]
+fn the_boxes_of_a_field_stay_inside_one_another_where_its_border_and_padding_are_more_than_it_is() {
+    // The padding of 5 and 9 at the sides makes the room 14 across, and a border of 10 round it is
+    // more than it has: the boxes are empty, and still inside the room and inside one another.
+    let field = lines_field(1)
+        .w(6.0)
+        .pl(5.0)
+        .pr(9.0)
+        .border(10.0, Role::Accent);
+    let laid = layout(
+        div().child(field),
+        Size::new(200.0, 200.0),
+        1.0,
+        &mut Lined(20.0),
+    );
+    let field = &laid.fields()[0];
+    let inside = |inner: Rect, outer: Rect| {
+        inner.x >= outer.x
+            && inner.y >= outer.y
+            && inner.right() <= outer.right()
+            && inner.bottom() <= outer.bottom()
+    };
+    assert!(inside(field.padding_box, field.rect), "{field:?}");
+    assert!(inside(field.text, field.padding_box), "{field:?}");
+    assert_eq!((field.padding_box.w, field.text.w), (0.0, 0.0));
+}
+
+#[test]
 fn a_field_of_rows_says_the_height_and_a_least_and_a_most_still_hold() {
     let at = |field: crate::Element| {
         let laid = layout(

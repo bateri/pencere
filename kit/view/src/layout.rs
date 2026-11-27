@@ -2015,9 +2015,9 @@ impl Laid {
     }
 
     /// The text fields the host puts over the page ([`crate::Element::field`]), in the order they
-    /// are written: each named, of its kind, where its room stands and where its text stands
-    /// (points), what it says while it is empty, and what it is to a screen reader. An element that says it is a field and has no
-    /// name, or is hidden, is not one.
+    /// are written: each named, of its kind, where its room, its padding box and its text stand
+    /// (points), what it says while it is empty, and what it is to a screen reader. An element that
+    /// says it is a field and has no name, or is hidden, is not one.
     pub fn fields(&self) -> Vec<Field> {
         let s = self.scale;
         self.nodes
@@ -2028,6 +2028,7 @@ impl Laid {
                 let (Some(id), Some(kind)) = (node.meta.id, node.meta.field) else {
                     return None;
                 };
+                let (padding_box, text) = field_boxes(node);
                 Some(Field {
                     id,
                     kind,
@@ -2037,17 +2038,8 @@ impl Laid {
                         node.rect.w / s,
                         node.rect.h / s,
                     ),
-                    text: {
-                        // The padding and the border are the room between the box and its text.
-                        let [left, top, right, bottom] = node.pad;
-                        let border = node.border.map_or(0.0, |border| border.width);
-                        Rect::new(
-                            (node.rect.x + left + border) / s,
-                            (node.rect.y + top + border) / s,
-                            (node.rect.w - left - right - 2.0 * border).max(0.0) / s,
-                            (node.rect.h - top - bottom - 2.0 * border).max(0.0) / s,
-                        )
-                    },
+                    padding_box: scaled(padding_box, s),
+                    text: scaled(text, s),
                     hint: self.hint_of(index).map(str::to_owned),
                     label: node.meta.label.clone(),
                     covered: !self.covering(index).is_empty(),
@@ -2919,6 +2911,43 @@ enum Apart {
     All,
 }
 
+/// The boxes of a text field inside its room, pixels: the padding box (the room less the border,
+/// where a field of lines cuts its text and scrolls it) and the box of the text (the padding box
+/// less the padding). The one place that says where a field's border and padding are in it; each
+/// box is inside the one before, and empty where what is taken off it is more than there is.
+fn field_boxes(node: &Node) -> (Rect, Rect) {
+    let border = node.border.map_or(0.0, |border| border.width);
+    let padding_box = less(node.rect, [border; 4]);
+    (padding_box, less(padding_box, node.pad))
+}
+
+/// `rect` less `[left, above, right, below]`, and no more of it than there is. (`max` and `min`, not
+/// `clamp`: this is asked of every field on every frame, and `clamp` panics where a bound is not a
+/// number.)
+fn less(rect: Rect, [left, above, right, below]: [f32; 4]) -> Rect {
+    let (w, h) = (rect.w.max(0.0), rect.h.max(0.0));
+    let left = left.max(0.0).min(w);
+    let right = right.max(0.0).min(w - left);
+    let above = above.max(0.0).min(h);
+    let below = below.max(0.0).min(h - above);
+    Rect::new(
+        rect.x + left,
+        rect.y + above,
+        w - left - right,
+        h - above - below,
+    )
+}
+
+/// `rect` in points, from pixels at `scale`.
+fn scaled(rect: Rect, scale: f32) -> Rect {
+    Rect::new(
+        rect.x / scale,
+        rect.y / scale,
+        rect.w / scale,
+        rect.h / scale,
+    )
+}
+
 /// Whether the flag at `index` is set (one that is not there is not).
 fn on(flags: &[bool], index: usize) -> bool {
     flags.get(index).copied().unwrap_or(false)
@@ -3126,8 +3155,11 @@ pub struct Field {
     pub kind: FieldKind,
     /// Where its room stands, points: all of it is the field's for the pointer.
     pub rect: Rect,
-    /// Where its text stands, points: the room less the padding of the element and its border. A
-    /// field of lines keeps its text in this box, from its top, and breaks its lines at its width.
+    /// The room less its border, points: the box a field of lines cuts its text at and scrolls it
+    /// in. The padding is inside it, and scrolls with the text.
+    pub padding_box: Rect,
+    /// Where its text stands, points: the padding box less the padding of the element. A field of
+    /// lines starts its text at the top of this box and breaks its lines at its width.
     pub text: Rect,
     /// What it says while it is empty: the first text inside its room.
     pub hint: Option<String>,
