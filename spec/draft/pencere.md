@@ -2468,7 +2468,7 @@ machine the program runs on that the host lets drive its panes reaches the brows
 machine's panes as it reaches their screens, and a program that says another program's name opens
 that program's profile. The session a person signs in to in a browser is open to that machine, and
 where the machine is the home a copy of it lies there, in the account the host connected as: a
-process of that account can read the files. A host lets the person choose, for each machine, to keep
+process of that account can read the files. The working copy on a computer that shows the program is open the same way: a process of the person's account on that computer can read its files. A host lets the person choose, for each machine, to keep
 no profiles there; the profiles of that machine then stay on the computer they were made on, and a
 copy that was at the home is removed.
 
