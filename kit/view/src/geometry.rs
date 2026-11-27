@@ -124,6 +124,22 @@ impl Clip {
         }
     }
 
+    /// This clip, of what was in a box that cut at `was`, carried by (`dx`, `dy`) into the box as it cuts
+    /// at `now`: cut at both rectangles, with `now`'s corners where this clip had `was`'s (the box's
+    /// own, which may be rounded otherwise now) and its own where a box inside it rounds them.
+    #[must_use]
+    pub fn carried_into(self, was: Self, now: Self, dx: f32, dy: f32) -> Self {
+        let moved = self.translate(dx, dy);
+        Self {
+            rect: moved.rect.intersect(now.rect),
+            round: if self.round == was.round {
+                now.round
+            } else {
+                moved.round
+            },
+        }
+    }
+
     /// What a box that clips at `inside` (its padding box) lets be drawn, in a clip that is this: the
     /// rectangle cut at `inside`, and the corners that `radii` say where one is rounded (a square one
     /// leaves the corners of the box around it).

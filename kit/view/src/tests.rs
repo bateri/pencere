@@ -2340,6 +2340,59 @@ fn a_press_in_a_corner_that_is_cut_is_not_a_press_in_what_is_there() {
     assert_eq!(at(1.0, 59.0), None);
 }
 
+/// What is hovered, picked up and dropped on follows the corners that are cut as a press does: where
+/// nothing is drawn nothing answers.
+#[test]
+fn what_is_hovered_picked_up_and_dropped_on_is_not_in_a_corner_that_is_cut() {
+    let root = div().child(
+        div().size(100.0, 60.0).rounded(20.0).clip().child(
+            div()
+                .id(Id::new(8))
+                .carry(crate::Carry::text("card"))
+                .drop_target(Id::new(8))
+                .size(100.0, 60.0),
+        ),
+    );
+    let laid = layout(root, Size::new(200.0, 200.0), 1.0, &mut Fixed);
+    let at = |x: f32, y: f32| Point::new(x, y);
+    assert_eq!(laid.ids_at(at(50.0, 30.0)), vec![Id::new(8)]);
+    assert!(laid.carry_at(at(50.0, 30.0)).is_some());
+    assert_eq!(laid.drop_target(at(50.0, 30.0)), Some(Id::new(8)));
+    assert_eq!(
+        laid.ids_at(at(10.0, 10.0)),
+        vec![Id::new(8)],
+        "inside the curve"
+    );
+    assert!(laid.ids_at(at(1.0, 1.0)).is_empty(), "the corner is cut");
+    assert!(laid.carry_at(at(1.0, 1.0)).is_none());
+    assert_eq!(laid.drop_target(at(1.0, 1.0)), None);
+    assert!(laid.ids_at(at(99.0, 59.0)).is_empty());
+}
+
+/// What a clip becomes when what was in a box that cut at its corners is carried into the box as it
+/// cuts now.
+#[test]
+fn a_clip_carried_into_a_box_takes_the_corners_the_box_has_now() {
+    let square = |x: f32, y: f32, w: f32, h: f32| Clip::new(Rect::new(x, y, w, h));
+    let rounded = |x: f32, y: f32, w: f32, h: f32, radius: f32| {
+        square(x, y, w, h).within(Rect::new(x, y, w, h), [radius; 4])
+    };
+    let was = rounded(0.0, 0.0, 100.0, 60.0, 20.0);
+    let now = rounded(0.0, 0.0, 100.0, 80.0, 10.0);
+    // Held by the box as it was: the box as it is now cuts it, at its rectangle and its corners.
+    let carried = was.carried_into(was, now, 0.0, 0.0);
+    assert_eq!(carried.rect, was.rect.intersect(now.rect), "cut at both");
+    assert_eq!(carried.round, now.round);
+    // A box inside it that rounds its own corners keeps them, moved with the thing.
+    let inner = rounded(10.0, 10.0, 30.0, 30.0, 5.0);
+    let carried = inner.carried_into(was, now, 4.0, 2.0);
+    assert_eq!(carried.rect, Rect::new(14.0, 12.0, 30.0, 30.0));
+    assert_eq!(carried.round, inner.translate(4.0, 2.0).round);
+    // Where the box now is square, nothing rounds what it held.
+    let carried = was.carried_into(was, square(0.0, 0.0, 100.0, 80.0), 0.0, 0.0);
+    assert_eq!(carried.round, None);
+}
+
 #[test]
 fn a_clip_says_where_it_lets_a_point_be_with_its_corners() {
     let clip = Clip::new(Rect::new(0.0, 0.0, 40.0, 40.0))

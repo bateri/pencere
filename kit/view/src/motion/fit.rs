@@ -206,7 +206,7 @@ impl Motions {
                 slot.clip = if slot.clip == kept {
                     cut
                 } else {
-                    slot.clip.translate(dx, dy).intersect(cut.rect)
+                    slot.clip.carried_into(kept, cut, dx, dy)
                 };
                 if let Some(held) = inside.get_mut(index) {
                     *held = true;

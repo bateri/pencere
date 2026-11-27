@@ -1698,6 +1698,51 @@ fn what_went_from_a_box_that_follows_its_size_is_cut_by_it_at_rest_too() {
 }
 
 #[test]
+fn what_goes_from_a_box_with_round_corners_that_follows_its_size_is_cut_at_the_corners_it_has_now()
+{
+    let page = |open: bool| {
+        let lines: Vec<Element> = if open {
+            (0..2)
+                .map(|n| {
+                    div()
+                        .id(line(n))
+                        .h(40.0)
+                        .no_shrink()
+                        .motion(Motion::new(0.2).exit(Shift {
+                            opacity: 1.0,
+                            ..Shift::fade(0.6)
+                        }))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        div().col().children(vec![
+            div().id(HEAD).h(20.0).no_shrink(),
+            div()
+                .id(BODY)
+                .col()
+                .rounded(12.0)
+                .motion(body_motion())
+                .children(lines),
+            div().id(FOOT).h(20.0).no_shrink(),
+        ])
+    };
+    let mut motions = Motions::default();
+    lay_tall(&mut motions, page(true), 0.0);
+    // The box is on its way to its new size: what went is cut at the box's corners as they are now.
+    let laid = lay_tall(&mut motions, page(false), 1.05);
+    assert!(node_of(&laid, BODY).clips, "it is on its way");
+    let cut = node_of(&laid, BODY).cut();
+    assert!(cut.round.is_some(), "the box rounds its corners: {cut:?}");
+    let ghosts = laid.nodes.len() - 4;
+    assert!(ghosts > 0, "what went is still drawn");
+    for ghost in laid.nodes.iter().skip(4) {
+        assert_eq!(ghost.clip.round, cut.round, "{:?}", ghost.clip);
+    }
+}
+
+#[test]
 fn the_size_of_words_on_its_way_is_in_half_points_so_that_no_font_is_opened_for_each_frame() {
     let page = |size: f32| {
         div().col().child(

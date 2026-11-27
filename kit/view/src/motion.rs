@@ -1425,11 +1425,13 @@ impl Motions {
             );
             let opacity = 1.0 + (exit.opacity - 1.0) * t;
             let base = laid.nodes.len();
+            // What the box that held it cut where it went from: the ghost's first box stands in it.
+            let was = ghost.look.nodes.first().map_or(cut, |first| first.clip);
             for (at, node) in ghost.look.nodes.iter().enumerate() {
                 let mut node = node.clone();
                 node.rect.x += dx;
                 node.rect.y += dy;
-                node.clip = node.clip.translate(origin.0, origin.1).intersect(cut.rect);
+                node.clip = node.clip.carried_into(was, cut, origin.0, origin.1);
                 node.opacity *= opacity;
                 if at == 0 {
                     node.turn += exit.rotate * t;

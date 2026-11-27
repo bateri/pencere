@@ -72,7 +72,20 @@ local FIELD_TEXT = 8
 -- The padding of a row so that its words stand where those of the field above it do: the padding round the
 -- field (`around`) and the field's own take what the inset of the rows has not.
 local function aligned_pad(around, inset)
-	return around + FIELD_TEXT - inset
+	return math.max(around + FIELD_TEXT - inset, 0)
+end
+
+-- Why the `icon` of an item is none (`look.check`), or nil: the rows the library draws put it before the title.
+local function icons_check(items)
+	for index, item in ipairs(items) do
+		if type(item) == "table" and item.icon ~= nil then
+			local why = glyphs.check(item.icon)
+			if why ~= nil then
+				return "item " .. index .. ": " .. why
+			end
+		end
+	end
+	return nil
 end
 
 -- Scrolls the list `id` to show row `index`.
@@ -168,6 +181,9 @@ local List = core.component("list", {
 		end
 		if props.row ~= nil and type(props.row) ~= "function" then
 			return "a list's row is a function (item, index, look) that makes what is in the row"
+		end
+		if props.row == nil then
+			return icons_check(props.items)
 		end
 		return nil
 	end,
@@ -467,7 +483,7 @@ local Palette = core.component("palette", {
 		if type(props.label) ~= "string" then
 			return "a palette says what it is in words: palette(id, { label = \"Command palette\" })"
 		end
-		return nil
+		return icons_check(props.items)
 	end,
 	view = function(u, id, props, state)
 		local t = u.theme
@@ -725,7 +741,7 @@ local Picker = core.component("picker", {
 		if props.side ~= nil and not SIDES[props.side] then
 			return 'a picker\'s side is "above", "below", "left" or "right", not ' .. tostring(props.side)
 		end
-		return nil
+		return icons_check(props.items)
 	end,
 	view = function(u, id, props, state)
 		local t = u.theme
@@ -916,7 +932,7 @@ local Completions = core.component("completions", {
 		if type(props.items) ~= "table" then
 			return "completions are items: completions(id, { editor =, items = { { key =, title = } } })"
 		end
-		return nil
+		return icons_check(props.items)
 	end,
 	view = function(u, id, props, state)
 		local t = u.theme

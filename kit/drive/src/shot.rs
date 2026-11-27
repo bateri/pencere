@@ -1049,8 +1049,11 @@ impl Canvas<'_, '_> {
                     continue;
                 }
                 let at = row * w + column;
+                #[allow(clippy::cast_possible_wrap)]
+                let corner = round_cover(quad.clip.round, px as i64, py as i64);
                 let alpha = cover.get(at).copied().unwrap_or(0.0)
                     * (1.0 - own.get(at).copied().unwrap_or(0.0))
+                    * corner
                     * color[3];
                 if alpha <= 0.0 {
                     continue;

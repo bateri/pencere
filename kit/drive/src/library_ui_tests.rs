@@ -3380,6 +3380,32 @@ fn a_grid_row_label_that_is_not_a_function_is_refused() {
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn an_icon_of_an_item_that_is_no_icon_is_refused_by_the_components_that_draw_it() {
+    let items = "items = { { key = 'a', title = 'A', icon = 'function' } }";
+    for page in [
+        format!("u:list('l', {{ {items} }})"),
+        format!("u:completions('c', {{ editor = 'doc', {items} }})"),
+        format!("u:palette('p', {{ label = 'Commands', {items} }})"),
+        format!("u:picker('k', {{ anchor = 'doc', label = 'Pick', {items} }})"),
+    ] {
+        let why = failing(&format!("view = function(u) return {page} end\n"));
+        assert!(why.contains("there is no glyph function"), "{page}: {why}");
+        assert!(why.contains("item 1"), "{page}: {why}");
+    }
+    // A glyph's name, and the path of a file of the bundle, are icons; a row of the page's own makes
+    // what it likes of the field.
+    for icon in ["'chevron_down'", "'icons/function.svg'"] {
+        open(&format!(
+            "view = function(u) return u:list('l', {{ items = {{ {{ key = 'a', title = 'A', icon = {icon} }} }} }}) end\n"
+        ))
+        .unwrap_or_else(|why| panic!("{icon}: {why:?}"));
+    }
+    open("view = function(u) return u:list('l', { items = { { key = 'a', title = 'A', icon = 'function' } }, row = function(item) return pencere.text(item.title) end }) end\n")
+        .expect("the page's own row");
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_grid_is_read_whole_by_its_heads_edges_and_rows() -> Result<(), Error> {
     // What the label does not say (the type under the title) is read apart; the title is not.
     golden("grid", &mut open(GRID_READ)?);

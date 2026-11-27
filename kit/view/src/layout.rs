@@ -1575,6 +1575,12 @@ impl Laid {
         node.rect.intersect(node.clip.rect)
     }
 
+    /// Whether the point (`x`, `y`, pixels) is on what shows of `node`: in [`Laid::shown`] and not in
+    /// a corner the box that clips cuts off, so that what is not drawn there does not answer either.
+    fn seen_at(node: &Node, x: f32, y: f32) -> bool {
+        Self::shown(node).contains(x, y) && node.clip.round.is_none_or(|round| round.contains(x, y))
+    }
+
     fn named(&self, id: Id) -> Option<&Node> {
         self.nodes.iter().find(|node| node.meta.id == Some(id))
     }
@@ -1694,7 +1700,7 @@ impl Laid {
     /// element that is `hidden`, or whose place at `at` is cut off by a box around it.
     pub fn ids_at(&self, at: Point) -> Vec<Id> {
         let (x, y) = (at.x * self.scale, at.y * self.scale);
-        let under = |node: &Node| !node.hidden && Self::shown(node).contains(x, y);
+        let under = |node: &Node| !node.hidden && Self::seen_at(node, x, y);
         let mut held = self.nodes.iter().rposition(under);
         let mut ids = Vec::new();
         while let Some(node) = held.and_then(|index| self.nodes.get(index)) {
@@ -1712,11 +1718,7 @@ impl Laid {
     pub fn hit(&self, at: Point) -> Option<Id> {
         let (x, y) = (at.x * self.scale, at.y * self.scale);
         self.nodes.iter().rev().find_map(|node| {
-            if node.hidden
-                || node.meta.state.disabled
-                || !Self::shown(node).contains(x, y)
-                || node.clip.round.is_some_and(|round| !round.contains(x, y))
-            {
+            if node.hidden || node.meta.state.disabled || !Self::seen_at(node, x, y) {
                 return None;
             }
             if let Some(link) = self
@@ -1748,9 +1750,8 @@ impl Laid {
     /// is). One that is [`crate::Element::disabled`] or hidden does not.
     pub fn carry_at(&self, at: Point) -> Option<Carrying> {
         let (x, y) = (at.x * self.scale, at.y * self.scale);
-        let under = |node: &Node| {
-            !node.hidden && !node.meta.state.disabled && Self::shown(node).contains(x, y)
-        };
+        let under =
+            |node: &Node| !node.hidden && !node.meta.state.disabled && Self::seen_at(node, x, y);
         for node in self.nodes.iter().rev().filter(|node| under(node)) {
             // A text field, an editor and a browser take the pointer for their own (a selection is
             // dragged), whether or not they are what carries.
@@ -1793,7 +1794,7 @@ impl Laid {
                 node.meta.drop_target
                     && !node.hidden
                     && !node.meta.state.disabled
-                    && Self::shown(node).contains(x, y)
+                    && Self::seen_at(node, x, y)
             })
             .and_then(|node| node.meta.id)
     }
