@@ -3988,7 +3988,8 @@ fn middle(rect: pencere_view::Rect) -> (f32, f32) {
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
-fn the_replace_row_of_a_find_bar_stands_under_the_find_row_at_both_edges() -> Result<(), Error> {
+fn the_replace_row_of_a_find_bar_stands_under_the_find_row_and_its_buttons_start_where_the_count_does()
+-> Result<(), Error> {
     let page = open(
         r#"
 S.find = { query = "foo", replacement = "", replacing = true }
@@ -4007,14 +4008,24 @@ end
     assert_eq!(find.x, replace.x, "{find:?} {replace:?}");
     assert_eq!(find.right(), replace.right(), "{find:?} {replace:?}");
     assert!(replace.y > find.bottom());
-    // The buttons are one column too, and stand at its end: the cross and the last button end together.
-    let (close, all, one) = (
-        bounds_of(&page, "find/close"),
-        bounds_of(&page, "find/replace_all"),
+    // The replace buttons start in the column where the count and the arrows of the first row start,
+    // by the field, and not at the end of the row (a box is laid out on whole pixels: half a point).
+    let (count, one, all, close) = (
+        bounds_of(&page, "find/count"),
         bounds_of(&page, "find/replace_one"),
+        bounds_of(&page, "find/replace_all"),
+        bounds_of(&page, "find/close"),
     );
-    assert_eq!(close.right(), all.right());
-    assert!(one.right() <= all.x, "{one:?} {all:?}");
+    assert!((one.x - count.x).abs() <= 0.5, "{one:?} {count:?}");
+    assert!(
+        all.x > one.right() && all.right() < close.right(),
+        "{all:?} {close:?}"
+    );
+    assert_eq!(find.w, replace.w);
+    assert!(
+        (one.x - replace.right() - 6.0).abs() <= 0.5,
+        "{one:?} {replace:?}"
+    );
     // The toggle of the replace row is the first column: the fields start after it, with a gap.
     let toggle = bounds_of(&page, "find/replacing");
     assert!(find.x > toggle.right() && find.x - toggle.right() <= 8.0);

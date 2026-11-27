@@ -109,8 +109,9 @@ local Bar = core.component("find_bar", {
 		})
 		-- The bar's rows are one grid, so that what is in one stands over what is in the other: the toggle
 		-- of the replace row in the first column, the fields in the second (as wide as the bar lets them
-		-- be) and the buttons in the third, which are as wide as the wider row of them and stand at its
-		-- end. A compact bar has no toggle and no column for it.
+		-- be) and the buttons in the third, which start where the count and the arrows of the first row do:
+		-- the replace buttons are by the field they belong to, not at the end of the row. A compact bar has
+		-- no toggle and no column for it.
 		local compact = props.compact
 		local grid = pencere.div()
 			:grid(compact and { pencere.fr(1), "auto" } or { "auto", pencere.fr(1), "auto" })
@@ -122,7 +123,7 @@ local Bar = core.component("find_bar", {
 			return pencere.div():min_w(120):child(element)
 		end
 		local function buttons()
-			return pencere.div():row():items_center():gap(6):justify_end()
+			return pencere.div():row():items_center():gap(6)
 		end
 		if not compact then
 			grid:child(u:icon_button(u:part(id, "replacing"), {
@@ -136,7 +137,7 @@ local Bar = core.component("find_bar", {
 		grid:child(
 			buttons()
 				:child(
-					pencere.div():min_w(78):no_shrink():child(
+					pencere.div():id(u:part(id, "count")):min_w(78):no_shrink():child(
 						pencere.text(count_words(state)):role("status"):text_size(t.text.small):color(state.invalid and "error" or t.ink_dim)
 					)
 				)
