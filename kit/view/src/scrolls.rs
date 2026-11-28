@@ -798,10 +798,13 @@ impl Scrolls {
         self.wants.retain(|name, _| groups.contains_key(name));
         for (name, members) in &mut groups {
             members.sort_by_key(|id| id.number());
-            let want = self
-                .wants
-                .entry(*name)
-                .or_insert_with(|| Point::new(0.0, 0.0));
+            // A group that comes (back) on the page starts where its first box stands: its boxes
+            // kept their offsets while it was away, and the top is not where they were left.
+            let start = members
+                .iter()
+                .find_map(|id| self.boxes.get(id).map(|b| b.offset))
+                .unwrap_or_default();
+            let want = self.wants.entry(*name).or_insert(start);
             // Which ways the lead was moved, and the lead's offset in them.
             let lead = members.iter().find_map(|id| {
                 let b = self.boxes.get(id)?;

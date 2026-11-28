@@ -838,3 +838,20 @@ fn the_pull_past_an_end_is_the_persons_alone_and_the_box_that_follows_is_not_str
     assert!(held < -100.0, "the box held is pulled: {held}");
     assert_eq!(other, -100.0, "the other is at its end");
 }
+
+#[test]
+fn boxes_that_go_together_keep_their_place_when_they_leave_the_page_and_come_back() {
+    let mut scrolls = Scrolls::new();
+    scrolls.set_bars(Bars::Hidden);
+    let laid = placed(&mut scrolls, pair(10, 10, crate::LinkAxis::Y), 0.0);
+    wheel(&mut scrolls, &laid, ON_LEFT, 40.0, 0.1);
+    assert_eq!(scrolls.offset(LEFT).y, 40.0);
+    // Another page for a frame (another tab of the program), then the pair again: both stand where
+    // they were, and neither goes back to the top.
+    placed(&mut scrolls, div().size(200.0, 100.0), 0.2);
+    let back = placed(&mut scrolls, pair(10, 10, crate::LinkAxis::Y), 0.3);
+    assert_eq!(scrolls.offset(LEFT).y, 40.0);
+    assert_eq!(scrolls.offset(RIGHT).y, 40.0);
+    assert_eq!(row_of(&back, LEFT_FIRST), -40.0);
+    assert_eq!(row_of(&back, RIGHT_FIRST), -40.0);
+}
