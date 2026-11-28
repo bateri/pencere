@@ -187,6 +187,60 @@ fn a_text_field_stands_on_the_baseline_of_the_text_of_its_box_and_not_of_the_kit
     );
 }
 
+/// A host that says where the words of its field stand in the line of it: a line of 16 whatever
+/// the font, its baseline 15 down it, which is not where the kit would put it.
+struct Says;
+
+impl Measure for Says {
+    fn measure(&mut self, font: &Font, text: &str) -> Metrics {
+        Fixed.measure(font, text)
+    }
+
+    fn field_line(&mut self, _font: &Font) -> Option<f32> {
+        Some(16.0)
+    }
+
+    fn field_baseline(&mut self, _font: &Font) -> Option<f32> {
+        Some(15.0)
+    }
+}
+
+#[test]
+fn a_label_and_a_field_stand_on_one_baseline_where_the_host_says_it_is() {
+    let field = |kind: FieldKind| {
+        div()
+            .field(FIELD, kind)
+            .w(100.0)
+            .h(if kind == FieldKind::Lines { 60.0 } else { 30.0 })
+            .p(4.0)
+            .border(1.0, Role::Border)
+    };
+    for kind in [FieldKind::Line, FieldKind::Lines] {
+        let root = div()
+            .row()
+            .items_baseline()
+            .child(text("Name").text_size(11.0))
+            .child(field(kind));
+        let laid = layout(root, Size::new(400.0, 200.0), 1.0, &mut Says);
+        let boxes: Vec<Rect> = laid.rects().collect();
+        let list = laid.paint(&mut Says);
+        // The words of a field of one line stand in the middle of its text box (a line of 16 in the
+        // 20 left of the field by its border and padding) and a field of lines at the top of it: the
+        // baseline is the host's 15 below the top of the line.
+        let middle = if kind == FieldKind::Line {
+            (20.0 - 16.0) / 2.0
+        } else {
+            0.0
+        };
+        let field_baseline = boxes[2].y + 1.0 + 4.0 + middle + 15.0;
+        let label = baselines(&list)[0];
+        assert!(
+            (field_baseline - label).abs() <= HALF,
+            "{kind:?}: the field's {field_baseline}, the label's {label}"
+        );
+    }
+}
+
 #[test]
 fn a_field_of_lines_stands_its_first_line_at_the_top_of_its_text_box() {
     let root = div()

@@ -12,10 +12,10 @@ use std::collections::HashMap;
 
 use pencere_drive::Field;
 use pencere_drive::shot::Fonts;
-use pencere_view::{Color, Family, FieldKind, Font, Id, Measure, Paint, Quad, Rect, Role, Run};
+use pencere_view::{Color, FieldKind, Font, Id, Measure, Paint, Quad, Rect, Role, Run};
 
 use crate::field::{TextField, rows_of};
-use crate::pixel::COLUMN_POINTS;
+use crate::pixel::column_face;
 
 /// What the items are drawn in and on: the faces, the scale of the page, how many pixels a cell of the
 /// terminal is, and how large the window is.
@@ -32,12 +32,7 @@ pub(crate) struct Paper<'a> {
 impl Paper<'_> {
     /// The face of the terminal's family at the size one column of it is a cell across.
     pub(crate) fn face(&self, bold: bool) -> Font {
-        Font {
-            family: Family::Terminal,
-            size: COLUMN_POINTS * self.scale,
-            weight: if bold { 700 } else { 400 },
-            italic: false,
-        }
+        column_face(self.scale, bold)
     }
 
     /// How high a line of `font` is, pixels.

@@ -82,6 +82,18 @@ pub fn field_line_height(measure: &mut dyn Measure, font: &Font) -> f32 {
         .unwrap_or_else(|| measure.measure(font, "M").height)
 }
 
+/// How far below the top of its line box, pixels, the baseline of the words of a text field of the
+/// host's is, set in `font`, the line being `line` ([`field_line_height`]). What the host says
+/// ([`Measure::field_baseline`]), or where the baseline of a line it measures in that font stands
+/// in a line of `line` (the line has the room above and below the words that it is taller than
+/// them by, in halves) where it says nothing.
+pub fn field_baseline_in(measure: &mut dyn Measure, font: &Font, line: f32) -> f32 {
+    measure.field_baseline(font).unwrap_or_else(|| {
+        let sample = measure.measure(font, "M");
+        (line - sample.height) / 2.0 + sample.ascent
+    })
+}
+
 /// The rows `text` is broken into where a room is `budget` across (in the unit of `width`, which is
 /// the width of a run of text set in one line), as a field of lines breaks its text: at its line
 /// breaks, and where a word does not fit on a row at its start, so that each row is as many words as
@@ -181,6 +193,16 @@ pub trait Measure {
     /// is, and a line measured by the engine's own measure (the page's) can differ from it, by
     /// a little that adds up with every line and cuts the last.
     fn field_line(&mut self, _font: &Font) -> Option<f32> {
+        None
+    }
+
+    /// How far down from the top of that line box ([`Measure::field_line`]) the baseline of the
+    /// words of a text field of the host's stands, set in `font`, in the same unit; `None` where the
+    /// host has not said, and the engine works it out from the line and the ascent of a line it
+    /// measures in `font`. A row that stands its children on a baseline
+    /// ([`crate::Element::items_baseline`]) puts the field's words on the line of its label by this
+    /// number, so that the host that draws the field is the one that says where its words are.
+    fn field_baseline(&mut self, _font: &Font) -> Option<f32> {
         None
     }
 

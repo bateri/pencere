@@ -108,7 +108,8 @@ pub use system::{
     Drawing, KeyConvention, TerminalCaret, TerminalLook, TerminalSelection, WallTime,
 };
 pub use text::{
-    Align, EditorMetrics, Family, Font, Measure, Metrics, ZOOM_TEXT, break_rows, field_line_height,
+    Align, EditorMetrics, Family, Font, Measure, Metrics, ZOOM_TEXT, break_rows, field_baseline_in,
+    field_line_height,
 };
 pub use ui::{DRAG_START, Drag, Dropped, Ui};
 

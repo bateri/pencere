@@ -5,10 +5,11 @@
 
 use pencere_drive::shot::{Fonts, Palette, raster};
 use pencere_view::{
-    Border, Color, DrawList, Family, Font, Paint, Picture, Point, Quad, Rect, Role, Run, Shadow,
+    Border, Color, DrawList, Family, FieldKind, Font, Id, Measure, Paint, Picture, Point, Quad,
+    Rect, Role, Run, Shadow, Size, div, layout,
 };
 
-use crate::pixel::{Pixel, Written};
+use crate::pixel::{Pixel, Written, column_face};
 use crate::probe::Found;
 
 const CELL: (u32, u32) = (10, 20);
@@ -2191,5 +2192,49 @@ fn lists_scrolled_by_parts_of_pixels_with_the_ground_and_the_bar_moving_are_the_
     assert!(
         narrow * 2 < across,
         "{narrow} pixels drawn of {across} across the picture"
+    );
+}
+
+#[test]
+fn a_text_field_is_a_line_of_cells_high_whatever_size_its_text_says() {
+    let pixel = pixel(false);
+    let scale = pixel.scale();
+    // What the terminal draws a field in: its face at the size a column is a cell across.
+    let mut fonts = pixel.fonts().clone();
+    let face = fonts.measure(&column_face(scale, false), "M");
+    let mut measure = pixel.measure();
+    let big = Font {
+        family: Family::Terminal,
+        size: 13.5 * scale,
+        weight: 400,
+        italic: false,
+    };
+    assert_eq!(measure.field_line(&big), Some(face.height));
+    assert_eq!(measure.field_baseline(&big), Some(face.ascent));
+    // A field of one row in 13.5 points is a row of cells high, where the font's own line is not.
+    let field = || {
+        div()
+            .field(Id::new(1), FieldKind::Lines)
+            .field_rows(1)
+            .text_size(13.5)
+            .w(200.0)
+    };
+    let laid = layout(
+        div().child(field()),
+        Size::new(600.0, 240.0),
+        scale,
+        &mut *measure,
+    );
+    let high = laid.fields()[0].rect.h * scale;
+    assert!(
+        (high - face.height).abs() <= 0.5,
+        "the field is {high} high, a row of cells {}",
+        face.height
+    );
+    assert!(
+        (fonts.measure(&big, "M").height - face.height).abs() > 1.0,
+        "the 13.5 points line is not the cells' one: {} and {}",
+        fonts.measure(&big, "M").height,
+        face.height
     );
 }

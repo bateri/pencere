@@ -337,8 +337,23 @@ impl View {
         })
     }
 
-    /// The widgets of `row` drawn: each a ground and its words, the last at the end of its line cut
-    /// where the room ends.
+    /// How far across the page (its x) the hint at the end of `row` goes, the text starting at
+    /// `origin_x`; the least number where the row has none.
+    pub(super) fn hint_right(&self, row: &Row, origin_x: f32) -> f32 {
+        let ends = |placed: &Placed| placed.widget.side == WidgetSide::End;
+        if !row.last || !row.shaped.widgets.iter().any(ends) {
+            return f32::MIN;
+        }
+        self.widget_boxes(row)
+            .iter()
+            .filter(|found| found.placed.widget.side == WidgetSide::End)
+            .map(|found| found.rect.right() + origin_x - self.text_x())
+            .fold(f32::MIN, f32::max)
+    }
+
+    /// The widgets of `row` drawn: each a ground and its words, the last at the end of its line
+    /// thinning out where the room ends if the room's text does and cut there with an ellipsis if
+    /// it does not.
     pub(super) fn paint_widgets(
         &self,
         row: &Row,
@@ -349,6 +364,7 @@ impl View {
     ) {
         // Where the room ends, in the content (it is scrolled across by `scroll.x`).
         let room_right = self.scroll.x + self.room.w - self.pad_right();
+        let fades = !self.wrap && self.options.fade.clamp(0.0, 64.0) > 0.0;
         for found in self.widget_boxes(row) {
             let widget = &found.placed.widget;
             let group = self.group_of(widget);
@@ -396,8 +412,10 @@ impl View {
                     continue;
                 };
                 let mut text: String = part.text.chars().take(limits::WIDGET_TEXT).collect();
-                // A widget at a line's end goes as far as the room does, and ends in "…".
-                if end && content_right > room_right {
+                // A widget at a line's end goes as far as the room does: in an editor that fades it
+                // is cut where its line is (it thins out with the text, and is cut plainly on the
+                // line of a caret at that edge), and in one that does not it ends in "…".
+                if end && content_right > room_right && !fades {
                     let each = span.w / text.chars().count().max(1) as f32;
                     let fit = ((room_right - content_x) / each.max(0.1)).floor() as usize;
                     text = text.chars().take(fit.saturating_sub(1)).collect::<String>() + "…";

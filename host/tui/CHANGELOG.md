@@ -51,4 +51,5 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
 
 ### Changed
 
+- **A text field is a row of cells high** whatever size its text says, as the terminal draws it, and its words stand on that row's baseline.
 - **A paint's clip is the rectangle of its `Clip`.** Cells have no round corners, so the corners of a cut are not drawn.

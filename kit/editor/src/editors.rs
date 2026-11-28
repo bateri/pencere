@@ -187,6 +187,10 @@ impl Measure for Measured<'_> {
         self.measure.field_line(font)
     }
 
+    fn field_baseline(&mut self, font: &Font) -> Option<f32> {
+        self.measure.field_baseline(font)
+    }
+
     fn editor(&mut self, id: Id) -> Option<EditorMetrics> {
         self.editors.metrics(id)
     }

@@ -127,7 +127,7 @@ A page that holds the modifier and moves the pointer is the host's to tell of th
 
 `"before"` stands at `from` before the character there (`name: |arg`), `"after"` at `to` after the one before it (`x|: int`), the caret between the two. Either takes room in the line (the rows, the widths, wrapping, the places the pointer is over and the selection's ends go through it). The text, the caret's movements, copying, searching and the history do not know it. A click on it puts the caret at the nearest place, and a selection that ends at it does not take it.
 
-`"end"` stands after the line's last row, `gap` points beyond the text. It takes no room and is cut at the room's edge with "…".
+`"end"` stands after the line's last row, `gap` points beyond the text. It takes no room and thins out at the room's edge as the text does ([`fade`](editor.md#the-room-and-the-gutter)); where the editor does not fade, or wraps, it is cut there with "…".
 
 A widget is drawn:
 

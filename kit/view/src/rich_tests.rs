@@ -319,3 +319,78 @@ fn line_breaks_in_a_text_of_many_looks_start_new_lines() {
         .collect();
     assert_eq!(drawn, vec![("a", 0.0), ("b", 10.0)]);
 }
+
+/// Two faces that sit differently in their lines, as a system face and the terminal's do: at size 10
+/// the terminal's is 14 tall with its baseline 12 down (2 below it), the system's 12.5 tall with its
+/// baseline 8 down (4.5 below it).
+struct Faces;
+
+impl Measure for Faces {
+    fn measure(&mut self, font: &Font, text: &str) -> Metrics {
+        let (height, ascent) = if font.family == Family::Terminal {
+            (1.4, 1.2)
+        } else {
+            (1.25, 0.8)
+        };
+        Metrics {
+            width: text.chars().count() as f32 * font.size * 0.5,
+            height: height * font.size,
+            ascent: ascent * font.size,
+        }
+    }
+}
+
+/// Where each run of words stands on, from the top of the page: its top and the ascent of its font.
+fn standing(list: &DrawList) -> Vec<f32> {
+    runs(list)
+        .iter()
+        .map(|run| {
+            let ascent = if run.font.family == Family::Terminal {
+                12.0
+            } else {
+                8.0
+            };
+            run.origin.y + ascent
+        })
+        .collect()
+}
+
+#[test]
+fn the_parts_of_a_line_that_sit_differently_in_their_lines_stand_on_one_baseline() {
+    let text = rich([span("make "), span("check").family(Family::Terminal)])
+        .family(Family::System)
+        .text_size(10.0);
+    let laid = layout(div().child(text), Size::new(200.0, 100.0), 1.0, &mut Faces);
+    let list = laid.paint(&mut Faces);
+    let on = standing(&list);
+    assert_eq!(on.len(), 2, "{on:?}");
+    assert!((on[0] - on[1]).abs() < 0.01, "{on:?}");
+    // One piece is put down by what the other reaches higher.
+    let tops: Vec<f32> = runs(&list).iter().map(|run| run.origin.y).collect();
+    assert!((tops[0] - tops[1] - 4.0).abs() < 0.01, "{tops:?}");
+}
+
+#[test]
+fn a_line_is_as_high_as_its_parts_reach_above_the_baseline_and_below_it_and_a_row_stands_on_it() {
+    let root = div()
+        .row()
+        .items_baseline()
+        .child(
+            rich([span("make "), span("check").family(Family::Terminal)])
+                .family(Family::System)
+                .text_size(10.0),
+        )
+        .child(crate::text("beside").family(Family::System).text_size(10.0));
+    let laid = layout(root, Size::new(200.0, 100.0), 1.0, &mut Faces);
+    let boxes: Vec<Rect> = laid.rects().collect();
+    // 12 above the baseline (the terminal's face) and 4.5 below it (the system's): 16.5, where the
+    // taller of the faces is 14.
+    assert!((boxes[1].h - 16.5).abs() <= 0.5, "{:?}", boxes[1]);
+    let list = laid.paint(&mut Faces);
+    let on = standing(&list);
+    assert_eq!(on.len(), 3, "{on:?}");
+    assert!(
+        on.windows(2).all(|pair| (pair[0] - pair[1]).abs() <= 0.5),
+        "{on:?}"
+    );
+}

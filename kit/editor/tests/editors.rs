@@ -3351,6 +3351,8 @@ fn the_group_says_when_a_widget_shows_by_the_modifiers_and_one_at_a_lines_end_is
                 ..pencere_view::edit::WidgetGroup::default()
             },
         )],
+        // An editor that does not fade, so that what goes past its room is cut with an ellipsis.
+        fade: 0.0,
         ..plain()
     };
     let mut host = Host::new(page_with(options));
@@ -5115,4 +5117,204 @@ fn a_caret_at_the_end_of_a_long_line_is_brought_past_the_room_the_padding_of_its
     let laid = host.laid.clone();
     select(&mut host, &laid);
     assert!(host.editors.take_scrolls().is_empty());
+}
+
+/// A page with an editor of `options` that fills it, 400 by 200, its box rounded `radius`.
+fn rounded_page(options: EditorOptions, radius: f32) -> impl Fn() -> Element {
+    move || {
+        div().child(
+            div()
+                .editor(EDITOR, options.clone())
+                .size_full()
+                .rounded(radius),
+        )
+    }
+}
+
+#[test]
+fn a_rounded_editor_cuts_its_gutter_and_the_line_of_its_caret_in_its_corners_as_it_cuts_its_text() {
+    let options = EditorOptions {
+        gutter: true,
+        current_line: LineHighlight::All,
+        ..EditorOptions::default()
+    };
+    let mut host = Host::new(rounded_page(options, 8.0));
+    host.load("ab\ncd\n");
+    host.caret_at(0);
+    let list = host.paint(true);
+    let room = Rect::new(0.0, 0.0, 400.0, 200.0);
+    let cut = |clip: pencere_view::Clip, what: &str| {
+        let round = clip
+            .round
+            .unwrap_or_else(|| panic!("{what} is cut at a square corner"));
+        assert_eq!(round.radii, [8.0; 4], "{what}");
+        assert_eq!(round.rect, room, "{what}");
+    };
+    // The ground of the gutter, from the top of the room to its bottom, and the line of the caret in
+    // it and across the text.
+    let quads: Vec<_> = list
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Paint::Quad(quad) if quad.rect.x == 0.0 && quad.rect.h >= 18.0 => Some(quad),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        quads.iter().any(|quad| quad.rect.h == 200.0),
+        "the gutter's ground: {:?}",
+        quads.iter().map(|quad| quad.rect).collect::<Vec<_>>()
+    );
+    for quad in &quads {
+        cut(quad.clip, &format!("the box at {:?}", quad.rect));
+    }
+    let band = list.items.iter().find_map(|item| match item {
+        Paint::Quad(quad) if quad.rect.h == ROW && quad.rect.x > 0.0 && quad.rect.w > 100.0 => {
+            Some(quad)
+        }
+        _ => None,
+    });
+    cut(
+        band.expect("the line of the caret across the text").clip,
+        "the line of the caret",
+    );
+    // The words are cut as the grounds are.
+    for item in &list.items {
+        if let Paint::Text(run) = item {
+            cut(run.clip, &format!("{:?}", run.text));
+        }
+    }
+}
+
+#[test]
+fn a_hint_at_the_end_of_a_line_that_goes_past_the_room_thins_out_with_the_text_and_is_cut_with_an_ellipsis_where_nothing_does()
+ {
+    let long = "x".repeat(120);
+    let hinted = |options: EditorOptions| {
+        let mut host = Host::new(page_with(options));
+        host.load("ab\n");
+        host.decorate(
+            "hints",
+            vec![Decoration::new(0, 0, hint(WidgetSide::End, &long))],
+        );
+        host
+    };
+    // The text fits and its hint does not: the room thins out at its right for both.
+    let mut host = hinted(plain());
+    let clips = text_clips(&mut host);
+    let (words, clip) = clips
+        .iter()
+        .find(|(text, _)| text.starts_with('x'))
+        .expect("the hint");
+    assert_eq!(words, &long, "all of it, not cut with an ellipsis");
+    let fade = clip.fade.expect("the hint thins out");
+    assert_eq!(fade.widths, [0.0, 0.0, 22.0, 0.0]);
+    let (_, line) = clips
+        .iter()
+        .find(|(text, _)| text == "ab")
+        .expect("the line");
+    assert_eq!(line.fade, clip.fade, "as the line's own words do");
+    // A hint that fits has nothing to thin out.
+    let mut host = Host::new(page_with(plain()));
+    host.load("ab\n");
+    host.decorate(
+        "hints",
+        vec![Decoration::new(0, 0, hint(WidgetSide::End, "short"))],
+    );
+    for (text, clip) in text_clips(&mut host) {
+        assert_eq!(clip.fade, None, "{text}");
+    }
+    // An editor that does not fade cuts it where the room ends, with an ellipsis, as it did.
+    let mut host = hinted(EditorOptions {
+        fade: 0.0,
+        ..plain()
+    });
+    let clips = text_clips(&mut host);
+    let (words, clip) = clips
+        .iter()
+        .find(|(text, _)| text.starts_with('x'))
+        .expect("the hint");
+    assert!(words.ends_with('…') && words.len() < long.len(), "{words}");
+    assert_eq!(clip.fade, None);
+}
+
+#[test]
+fn the_line_of_the_caret_does_not_thin_out_at_an_edge_the_caret_is_in_and_the_other_lines_do() {
+    let options = EditorOptions {
+        fade: 48.0,
+        scroll_margin: 0,
+        ..plain()
+    };
+    let mut host = Host::new(page_with(options));
+    let line = "m".repeat(50);
+    host.load(&format!("{line}\n{line}\n"));
+    // A caret 35 characters in: 4 + 11 * 35 = 389, in the last 48 of the room's 400.
+    host.caret_at(35);
+    let at = host
+        .quads()
+        .iter()
+        .find(|(_, role)| *role == Some(Role::Cursor))
+        .map(|(rect, _)| rect.x)
+        .expect("the caret");
+    assert!(
+        at > 400.0 - 48.0 && at < 400.0,
+        "the caret is in the soft zone: {at}"
+    );
+    let clips = text_clips(&mut host);
+    assert_eq!(clips.len(), 2, "{clips:?}");
+    // The first line is the caret's: cut at the right, not thinned; the second is.
+    assert_eq!(clips[0].1.fade, None, "the caret's line");
+    let other = clips[1].1.fade.expect("the other line thins out");
+    assert_eq!(other.widths, [0.0, 0.0, 48.0, 0.0]);
+    // The caret is where the line is cut, so a line that is not scrolled across has no edge at its
+    // left to keep: nothing else to see.
+    assert_eq!(clips[0].1.rect, clips[1].1.rect);
+    // The caret out of the zone: both lines thin out.
+    host.caret_at(5);
+    for (_, clip) in text_clips(&mut host) {
+        assert_eq!(clip.fade.map(|fade| fade.widths[2]), Some(48.0));
+    }
+}
+
+#[test]
+fn the_hint_on_the_line_of_a_caret_at_the_right_edge_is_cut_plainly_and_a_caret_out_of_the_room_keeps_nothing_clear()
+ {
+    let options = EditorOptions {
+        fade: 48.0,
+        scroll_margin: 0,
+        ..plain()
+    };
+    let long = "x".repeat(120);
+    let mut host = Host::new(page_with(options.clone()));
+    // 32 `m` end at 4 + 352 = 356, in the last 48 of the room; the hint starts past them.
+    host.load(&format!("{}\nab\n", "m".repeat(32)));
+    host.decorate(
+        "hints",
+        vec![Decoration::new(0, 0, hint(WidgetSide::End, &long))],
+    );
+    host.caret_at(32);
+    let clips = text_clips(&mut host);
+    let (words, clip) = clips
+        .iter()
+        .find(|(text, _)| text.starts_with('x'))
+        .expect("the hint");
+    // Not thinned at the edge the caret is in, and not ended in an ellipsis either: cut.
+    assert_eq!(words, &long);
+    assert_eq!(clip.fade, None);
+    // The other lines thin out for the hint that goes past the room.
+    let (_, other) = clips.iter().find(|(text, _)| text == "ab").expect("a line");
+    assert_eq!(other.fade.map(|fade| fade.widths[2]), Some(48.0));
+    // A caret that the room is scrolled away from is nobody's to keep clear: both lines thin out at
+    // the left.
+    let mut host = Host::new(page_with(options));
+    let line = "m".repeat(50);
+    host.load(&format!("{line}\n{line}\n"));
+    host.caret_at(0);
+    scroll_across(&mut host, 100.0);
+    let clips = text_clips(&mut host);
+    assert_eq!(clips.len(), 2, "{clips:?}");
+    for (text, clip) in &clips {
+        let fade = clip.fade.unwrap_or_else(|| panic!("{text}: a soft edge"));
+        assert_eq!(fade.widths[0], 48.0, "{text}");
+    }
 }

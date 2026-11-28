@@ -1141,32 +1141,56 @@ impl View {
         };
         let rows: Vec<&Row> = self.rows.iter().filter(in_view).collect();
         // Where a line runs on past the text it thins out at the edge it is cut at, instead of ending
-        // there: the right of the text, where a row of a room that does not wrap goes past it, and the
-        // left of it where the room is scrolled across. The gutter is not faded, nor is a room that
-        // wraps (it goes past nothing).
-        let words_clip = {
-            let text_room = Rect::new(room.x + gutter.w, room.y, room.w - gutter.w, room.h);
-            let soft = self.options.fade.clamp(0.0, 64.0) * self.scale;
-            let (left, right) = if !self.wrap && soft > 0.0 {
-                // A line that is a point over is as good as one that fits, as a text's is.
-                let passed = rows
-                    .iter()
-                    .any(|row| origin_x + row.end_x(row.to) > text_room.right() + 1.0);
-                (
-                    if origin_x < text_room.x - 0.5 {
-                        soft
-                    } else {
-                        0.0
-                    },
-                    if passed { soft } else { 0.0 },
-                )
-            } else {
-                (0.0, 0.0)
-            };
-            text_clip.faded(text_room, [left, 0.0, right, 0.0])
+        // there: the right of the text, where a row of a room that does not wrap goes past it (the
+        // words, or the hint at the end of the line, which is as much of the line), and the left of it
+        // where the room is scrolled across. The gutter is not faded, nor is a room that wraps (it
+        // goes past nothing).
+        let text_room = Rect::new(room.x + gutter.w, room.y, room.w - gutter.w, room.h);
+        let soft = self.options.fade.clamp(0.0, 64.0) * self.scale;
+        let (left, right) = if !self.wrap && soft > 0.0 {
+            // A line that is a point over is as good as one that fits, as a text's is.
+            let passed = rows.iter().any(|row| {
+                origin_x + row.end_x(row.to) > text_room.right() + 1.0
+                    || self.hint_right(row, origin_x) > text_room.right() + 1.0
+            });
+            (
+                if origin_x < text_room.x - 0.5 {
+                    soft
+                } else {
+                    0.0
+                },
+                if passed { soft } else { 0.0 },
+            )
+        } else {
+            (0.0, 0.0)
         };
+        let words_clip = text_clip.faded(text_room, [left, 0.0, right, 0.0]);
         let ranges = buffer.ranges();
         let main = buffer.main();
+        // The words of a row, cut as the rest of the text is, except at an edge a caret of the row is
+        // in the soft zone of: that edge cuts and does not thin out, so that what is typed there is
+        // not dimmed (a style sheet's `text-overflow` may be taken for `clip` while it is edited).
+        let words_clip_of = |row: &Row| {
+            if !focused || (left == 0.0 && right == 0.0) {
+                return words_clip;
+            }
+            let (mut at_left, mut at_right) = (left, right);
+            for range in ranges.iter().filter(|range| self.on_row(row, range.head)) {
+                let x = origin_x + row.caret_x(range.head - row.base);
+                // Only a caret that is in the room: one scrolled out of it has nothing to keep clear.
+                if (text_room.x..text_room.x + soft).contains(&x) {
+                    at_left = 0.0;
+                }
+                if x > text_room.right() - soft && x <= text_room.right() {
+                    at_right = 0.0;
+                }
+            }
+            if (at_left, at_right) == (left, right) {
+                words_clip
+            } else {
+                text_clip.faded(text_room, [at_left, 0.0, at_right, 0.0])
+            }
+        };
         let colors = &self.options.colors;
 
         // The line of the main caret: across the text, the gutter or both, as the page says.
@@ -1294,7 +1318,7 @@ impl View {
                 &line,
                 origin_x,
                 y,
-                words_clip,
+                words_clip_of(row),
                 &mut grounds,
                 slot,
                 &under,

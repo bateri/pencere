@@ -37,6 +37,79 @@ use crate::probe::Found;
 /// How wide a column of the page's mono text is, in points: the kit's size for the terminal's family.
 pub(crate) const COLUMN_POINTS: f32 = 12.5;
 
+/// The face of the terminal's family at the size one column of it is a cell across, at `scale`: what
+/// every word the host draws is set in, and so every text field.
+pub(crate) fn column_face(scale: f32, bold: bool) -> Font {
+    Font {
+        family: Family::Terminal,
+        size: COLUMN_POINTS * scale,
+        weight: if bold { 700 } else { 400 },
+        italic: false,
+    }
+}
+
+/// What measures the page of a terminal: the faces that draw it, and the line of a text field.
+///
+/// Every word the host draws in a terminal is one cell high, a field's too: it is set in the
+/// terminal's face whatever size and face its element says (`chrome::line`). So its line, in any
+/// font, is the line of that face, and its words stand on that face's baseline; the layout makes
+/// the box of a field as the host draws it.
+struct Cells {
+    fonts: Fonts,
+    /// How high a line of the terminal's face is, pixels, and how far down it its baseline is.
+    line: f32,
+    baseline: f32,
+}
+
+impl Cells {
+    fn new(mut fonts: Fonts, scale: f32) -> Self {
+        let face = fonts.measure(&column_face(scale, false), "M");
+        Self {
+            fonts,
+            line: face.height,
+            baseline: face.ascent,
+        }
+    }
+}
+
+impl Measure for Cells {
+    fn measure(&mut self, font: &Font, text: &str) -> pencere_view::Metrics {
+        self.fonts.measure(font, text)
+    }
+
+    fn image(&mut self, src: &str, page: u32) -> Option<pencere_view::Size> {
+        self.fonts.image(src, page)
+    }
+
+    fn field_line(&mut self, _font: &Font) -> Option<f32> {
+        Some(self.line)
+    }
+
+    fn field_baseline(&mut self, _font: &Font) -> Option<f32> {
+        Some(self.baseline)
+    }
+
+    fn offsets(&mut self, font: &Font, text: &str, at: &[usize]) -> Vec<f32> {
+        self.fonts.offsets(font, text, at)
+    }
+
+    fn editor(&mut self, id: pencere_view::Id) -> Option<pencere_view::EditorMetrics> {
+        self.fonts.editor(id)
+    }
+
+    fn zones(&mut self, id: pencere_view::Id) -> Vec<(pencere_view::Id, pencere_view::Rect)> {
+        self.fonts.zones(id)
+    }
+
+    fn zone_heights(&mut self, id: pencere_view::Id) -> Vec<(pencere_view::Id, f32)> {
+        self.fonts.zone_heights(id)
+    }
+
+    fn anchors(&mut self, id: pencere_view::Id) -> Vec<(pencere_view::Id, pencere_view::Rect)> {
+        self.fonts.anchors(id)
+    }
+}
+
 /// The number of the first picture this sends: the probe's questions have the ones before it.
 const FIRST: u32 = 100;
 
@@ -362,7 +435,7 @@ impl Pixel {
 
     /// What measures the page: the faces that draw it.
     pub(crate) fn measure(&self) -> Box<dyn Measure> {
-        Box::new(self.fonts.clone())
+        Box::new(Cells::new(self.fonts.clone(), self.scale))
     }
 
     /// How many pixels the window is, across and down: its cells, whole.

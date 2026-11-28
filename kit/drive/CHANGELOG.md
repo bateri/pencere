@@ -8,6 +8,7 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Changed
 
+- **A page's measure passes on `Measure::field_baseline`** of the host's, as it does the line of a field.
 - **Pictures of a page draw a text field in its element's font**, not always in the terminal face at the kit's size.
 - **`Field` has a `font`**, sized in the host's points, so that a host can set its own field in it. Code that builds a `Field` in full needs it.
 - **Pictures of a page put a browser inside its element's border and padding.**

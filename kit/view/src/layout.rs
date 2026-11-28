@@ -22,7 +22,9 @@ use crate::style::{
     Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Ring, Shadow,
     Side, Style, TextStyle, Track, Truncate, Zoom,
 };
-use crate::text::{FITS, ZOOM_TEXT, field_line_height, first_baseline, lines_top, wrap_lines};
+use crate::text::{
+    FITS, ZOOM_TEXT, field_baseline_in, field_line_height, first_baseline, lines_top, wrap_lines,
+};
 use crate::{
     Align, Clip, Color, Command, Element, Family, Font, Id, Key, Measure, Metrics, Mods, Path,
     Point, Rect, Role, Size, Span,
@@ -83,6 +85,10 @@ pub(crate) struct Rich {
     pub looks: Vec<Look>,
     /// The height of each line, pixels.
     pub line_height: f32,
+    /// How far down from the top of its line each part is drawn, pixels: a part that reaches less
+    /// above its baseline than the one that reaches most is put down by the difference, so that the
+    /// parts of a line stand on one baseline ([`rich_line`]).
+    pub drops: Vec<f32>,
     pub lines: Vec<RichLine>,
 }
 
@@ -477,24 +483,16 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
                         };
                         let lines = lay_lines(spans, looks, budget, *wrap, &mut width);
                         let widest = lines.iter().map(|line| line.width).fold(0.0, f32::max);
-                        let line_height = rich_line_height(spans, looks, &mut |font, run| {
+                        // The baseline of the line is the one all its pieces are drawn on.
+                        let RichLineBox {
+                            height: line_height,
+                            ascent,
+                            ..
+                        } = rich_line(spans, looks, &mut |font, run| {
                             *cache
                                 .entry((*font, run.to_owned()))
                                 .or_insert_with(|| measure.measure(font, run))
                         });
-                        // The baseline of the line is the one its first piece is drawn on.
-                        let ascent = lines
-                            .first()
-                            .and_then(|line| line.pieces.first())
-                            .and_then(|piece| spans.get(piece.span).zip(looks.get(piece.span)))
-                            .map_or(0.0, |(span, look)| {
-                                cache
-                                    .entry((look.font, rich_sample(span).to_owned()))
-                                    .or_insert_with(|| {
-                                        measure.measure(&look.font, rich_sample(span))
-                                    })
-                                    .ascent
-                            });
                         #[allow(clippy::cast_precision_loss)]
                         let height = line_height * lines.len() as f32;
                         foot = Some(Foot::Words {
@@ -820,17 +818,42 @@ fn caret_on_page(nodes: &[Node], (index, _, caret): &(usize, Id, Rect)) -> Optio
     Some(caret.translate(corner.x - room.scroll.0, corner.y - room.scroll.1))
 }
 
-/// The height of a line of a text of many looks: the tallest of its parts' fonts.
-fn rich_line_height(
+/// A line of a text of many looks, as a style sheet's line box has the parts that stand in it: the
+/// parts stand on one baseline (`vertical-align: baseline`), so the line reaches as far above it as
+/// the part that reaches highest and as far below it as the part that reaches lowest. What lays the
+/// line out, what tells a row its baseline and what draws the parts all read it from here.
+struct RichLineBox {
+    /// How tall the line is.
+    height: f32,
+    /// How far down from its top the baseline is.
+    ascent: f32,
+    /// How far down from the top of the line the line box of each part is put, so that its own
+    /// baseline is this one.
+    drops: Vec<f32>,
+}
+
+fn rich_line(
     spans: &[Span],
     looks: &[Look],
     metrics: &mut dyn FnMut(&Font, &str) -> Metrics,
-) -> f32 {
-    spans
+) -> RichLineBox {
+    let parts: Vec<Metrics> = spans
         .iter()
         .zip(looks)
-        .map(|(span, look)| metrics(&look.font, rich_sample(span)).height)
-        .fold(0.0, f32::max)
+        .map(|(span, look)| metrics(&look.font, rich_sample(span)))
+        .collect();
+    let ascent = parts.iter().map(|part| part.ascent).fold(0.0, f32::max);
+    let drops: Vec<f32> = parts.iter().map(|part| ascent - part.ascent).collect();
+    let height = parts
+        .iter()
+        .zip(&drops)
+        .map(|(part, drop)| drop + part.height)
+        .fold(0.0, f32::max);
+    RichLineBox {
+        height,
+        ascent,
+        drops,
+    }
 }
 
 /// The words a part of a text of many looks is measured by: its own, or an "x" where it has none.
@@ -852,7 +875,9 @@ fn lay_rich(rich: &mut Rich, width: f32, wraps_at: f32, measure: &mut dyn Measur
             .entry((*font, run.to_owned()))
             .or_insert_with(|| measure.measure(font, run))
     };
-    rich.line_height = rich_line_height(&rich.spans, &rich.looks, &mut metrics);
+    let line = rich_line(&rich.spans, &rich.looks, &mut metrics);
+    rich.line_height = line.height;
+    rich.drops = line.drops;
     let budget = if rich.base.wrap {
         wraps_at
     } else {
@@ -1335,6 +1360,7 @@ fn build(
                     spans,
                     looks,
                     line_height: 0.0,
+                    drops: Vec::new(),
                     lines: Vec::new(),
                 });
             }
@@ -1428,12 +1454,13 @@ fn build(
                 // The host draws the words of a field: where its first line stands is a line of the
                 // host's field in the text box (the room inside the border and the padding), as far as
                 // the kit can tell it (what the host says of its line, and the face the field is drawn
-                // in as the kit measures it). A field of one line has its line in the middle of the
-                // box, as the host draws it, so the baseline waits for the field's height; a field of
-                // lines starts at the top of it.
-                let sample = measure.measure(&font, "M");
+                // in as the kit measures it). A host that says where its words stand in that line
+                // (`Measure::field_baseline`) is the one that knows; where it does not, the kit works
+                // it out. A field of one line has its line in the middle of the box, as the host
+                // draws it, so the baseline waits for the field's height; a field of lines starts at
+                // the top of it.
                 let line = field_line_height(measure, &font);
-                let ascent = (line - sample.height) / 2.0 + sample.ascent;
+                let ascent = field_baseline_in(measure, &font, line);
                 let edges = edges_down(&style, scale);
                 let foot = if kind == FieldKind::Lines {
                     Foot::At(edges.0 + ascent)

@@ -326,13 +326,15 @@ impl Laid {
                 Content::None => {}
                 Content::Editor(_) => {
                     if let Some(id) = node.meta.id {
-                        let padding_box = node.padding_box();
+                        // An editor is cut at its padding box with the corners of its own box (less its
+                        // border), as a box that clips cuts what is in it: its words, the ground of its
+                        // gutter and the line of its caret all go through that cut.
                         list.items.push(Paint::Editor(EditorSlot {
                             id,
                             rect: node.rect,
-                            padding_box,
+                            padding_box: node.padding_box(),
                             content: node.content_box(),
-                            clip: node.clip.intersect(padding_box),
+                            clip: node.cut(),
                             scroll: Point::new(node.scroll.0, node.scroll.1),
                             opacity,
                             grounds: self.grounds_under(index),
@@ -497,8 +499,11 @@ fn paint_rich(list: &mut DrawList, node: &Node, rich: &Rich, grounds: &[Color]) 
         if piece.text.trim().is_empty() {
             continue;
         }
+        // The parts of a line stand on one baseline: a part that reaches less above it than the
+        // part that reaches most is put down by the difference (`layout::rich_line`).
+        let drop = rich.drops.get(piece.span).copied().unwrap_or(0.0);
         list.items.push(Paint::Text(Run {
-            origin: Point::new(rect.x, rect.y),
+            origin: Point::new(rect.x, rect.y + drop),
             text: piece.text.clone(),
             font: look.font,
             color: look.color,
