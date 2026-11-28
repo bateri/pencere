@@ -619,7 +619,8 @@ end
 -- typed makes match `decrease` goes a level out; one that is no pattern fails the page) and `folds`
 -- ("page", the page's fold decorations alone, or "indent", the editor's from the indent as well);
 -- how it looks: `line_height` (1.6
--- times the font's size), `padding` (4 points), `scroll_margin` (rows kept about the caret, 0),
+-- times the font's size), `padding` (4 points), `fade` (points a line that goes past the text thins out
+-- over at its edge, 22; 0 for none), `scroll_margin` (rows kept about the caret, 0),
 -- `numbers` ("absolute", "relative", "hidden"), `gutters` (the gutter's columns, from the left: the
 -- editor's `"marks"` (dots), `"numbers"` and `"folds"` — the three there are where it says none —
 -- and the page's own, `{ name = "breakpoints", width = 14, events = { "press", "context", "hover" },
@@ -680,6 +681,7 @@ local EDITOR_OPTIONS = {
 	folds = true,
 	line_height = true,
 	padding = true,
+	fade = true,
 	scroll_margin = true,
 	numbers = true,
 	gutters = true,
@@ -1205,6 +1207,10 @@ local HAS = {
 	-- What an editor took after the first kit, as `editor.<option>`: a zone that is as tall as `rows`
 	-- of the editor's rows (`{ zone = name, rows = 3 }`), and the row's height in `scroll_extent`.
 	["editor.zone_rows"] = true,
+	-- How far a line of an editor that does not fit thins out at the edge of its text: `fade`, points.
+	["editor.fade"] = true,
+	-- A way a text is set that came after the first kit, as `text.<option>`: `truncate("fade")`.
+	["text.truncate_fade"] = true,
 	["event.reveal"] = true, ["event.command"] = true, ["command.target"] = true,
 	["event.link_dropped"] = true,
 	-- What the library's components took after the first kit, as `ui.<component>.<option>`: the `reveal`
@@ -1945,8 +1951,17 @@ function Element:italic(...) text_style(self).italic = told(...) return self end
 function Element:underline(...) text_style(self).underline = told(...) return self end
 function Element:strike(...) text_style(self).strike = told(...) return self end
 
+-- A line that does not fit is cut where its box ends and ends in "...": `truncate()`, or
+-- `truncate(true)`; `truncate("fade")` thins it out at the end of the box instead, with no "...";
+-- `truncate(false)` takes it off. A page asks `pencere.has("text.truncate_fade")` before the fade.
 function Element:truncate(...)
-	self.style.truncate = told(...)
+	if select("#", ...) == 1 and (...) == "fade" then
+		self.style.truncate = "fade"
+	elseif select("#", ...) == 1 and type((...)) == "string" then
+		refuse('truncate takes true, false or "fade", not "' .. (...) .. '"')
+	else
+		self.style.truncate = told(...)
+	end
 	return self
 end
 

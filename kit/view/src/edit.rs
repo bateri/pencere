@@ -759,6 +759,10 @@ pub struct EditorOptions {
     pub line_height: f32,
     /// The room kept around the text, points ([`limits::PADDING`]).
     pub padding: f32,
+    /// How far in from the edge of the text a line that does not fit thins out, points: at the
+    /// right of the text where a line of a room that does not wrap runs on past it, and at its
+    /// left where the room is scrolled across ([`limits::FADE`]; 22; 0 cuts the line as it is).
+    pub fade: f32,
     /// How many rows are kept between the caret and the top or the bottom of the room when the
     /// editor scrolls to keep the caret in view (at most half the rows in view).
     pub scroll_margin: u8,
@@ -1052,6 +1056,7 @@ impl Default for EditorOptions {
             folds: Folds::Page,
             line_height: 1.6,
             padding: 4.0,
+            fade: 22.0,
             scroll_margin: 0,
             numbers: Numbers::Absolute,
             current_line: LineHighlight::Text,
@@ -1090,6 +1095,7 @@ impl EditorOptions {
         self.tab_width = self.tab_width.clamp(1, limits::TAB_WIDTH);
         self.line_height = hold(self.line_height, limits::LINE_HEIGHT, default.line_height);
         self.padding = hold(self.padding, limits::PADDING, default.padding);
+        self.fade = hold(self.fade, limits::FADE, default.fade);
         self.caret.width = hold(self.caret.width, limits::CARET_WIDTH, default.caret.width);
         self.caret.radius = hold(self.caret.radius, limits::ROUNDING, default.caret.radius);
         self.caret.glow = hold(self.caret.glow, limits::CARET_GLOW, default.caret.glow);
@@ -1691,6 +1697,8 @@ pub mod limits {
     pub const LINE_HEIGHT: std::ops::RangeInclusive<f32> = 1.0..=3.0;
     /// How much room may be kept around the text, points.
     pub const PADDING: std::ops::RangeInclusive<f32> = 0.0..=64.0;
+    /// How far in from the edge of the text a line that does not fit may thin out, points.
+    pub const FADE: std::ops::RangeInclusive<f32> = 0.0..=64.0;
     /// How wide a caret's bar, or thick its line, may be, points.
     pub const CARET_WIDTH: std::ops::RangeInclusive<f32> = 0.5..=8.0;
     /// How round a corner is, as a fraction of a row's height.

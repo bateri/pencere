@@ -2,8 +2,8 @@
 //! and what the draw list holds. The host's measuring is a fixed-width stand-in.
 
 use crate::{
-    Align, Clip, Color, DrawList, Family, FieldKind, Font, Id, Measure, Metrics, Paint, Point,
-    Rect, Rgba, Role, Round, Size, Source, Track, div, layout, spacer, spark, text,
+    Align, Clip, Color, DrawList, FadeEdge, Family, FieldKind, Font, Id, Measure, Metrics, Paint,
+    Point, Rect, Rgba, Role, Round, Size, Source, Track, div, layout, spacer, spark, text,
 };
 
 /// Every character is `0.5 × size` wide and the line `1.25 × size` tall: round numbers.
@@ -212,6 +212,48 @@ fn a_line_that_may_be_cut_ends_in_an_ellipsis_where_it_does_not_fit() {
     let run = runs(&list)[0];
     assert_eq!(run.text, "abcdefg\u{2026}");
     assert_eq!(run.clip.rect.w, 50.0, "and it stays in its box");
+}
+
+/// A line that thins out where it does not fit is whole, has no "…", starts at the start of its box
+/// whatever its align, and carries the soft edge in the clip of its words; one that fits has none.
+#[test]
+fn a_line_that_may_thin_out_is_whole_and_its_clip_fades_at_the_end_of_its_box() {
+    let root = div().row().child(
+        text("abcdefghijklmnop")
+            .truncate_fade()
+            .align(Align::Center)
+            .w(50.0),
+    );
+    let list = paint(root, 200.0, 20.0, 1.0);
+    let run = runs(&list)[0];
+    assert_eq!(
+        run.text, "abcdefghijklmnop",
+        "no ellipsis, nothing taken off"
+    );
+    assert_eq!(run.origin.x, 0.0, "the end is what is cut");
+    assert_eq!(run.clip.rect.w, 50.0, "it stays in its box");
+    let fade = run.clip.fade.expect("the soft edge");
+    assert_eq!(fade.rect, Rect::new(0.0, 0.0, 50.0, 20.0));
+    assert_eq!(
+        fade.widths,
+        [0.0, 0.0, 25.0, 0.0],
+        "two letters' widths of its size"
+    );
+    // A box narrower than the fade is faded all across; a line that fits is not faded at all.
+    let root = div()
+        .row()
+        .child(text("abcdefghijklmnop").truncate_fade().w(10.0))
+        .child(text("abc").truncate_fade().w(50.0));
+    let list = paint(root, 200.0, 20.0, 1.0);
+    let both = runs(&list);
+    assert_eq!(both[0].clip.fade.map(|fade| fade.widths[2]), Some(10.0));
+    assert_eq!(both[1].text, "abc");
+    assert_eq!(both[1].clip.fade, None);
+    // The ellipsis is still what `truncate` does.
+    let root = div()
+        .row()
+        .child(text("abcdefghijklmnop").truncate().w(50.0));
+    assert_eq!(runs(&paint(root, 200.0, 20.0, 1.0))[0].clip.fade, None);
 }
 
 #[test]
@@ -2184,6 +2226,7 @@ fn a_rounded_box_that_clips_cuts_at_its_padding_box_with_the_inner_radius() {
                 rect: inner,
                 radii: [8.0; 4]
             }),
+            fade: None,
         }
     );
     // The same at twice the scale: the border and the radius are pixels of that scale.
@@ -2406,6 +2449,66 @@ fn a_clip_says_where_it_lets_a_point_be_with_its_corners() {
     assert_eq!(
         Clip::new(Rect::new(1.0, 2.0, 3.0, 4.0)),
         Rect::new(1.0, 2.0, 3.0, 4.0)
+    );
+}
+
+/// A soft edge is the innermost box's, is carried and moved with what it is of, and does not make the
+/// clip let less of the pointer through.
+#[test]
+fn a_clip_with_a_soft_edge_keeps_the_innermost_one_and_moves_with_its_box() {
+    let text = Rect::new(20.0, 0.0, 100.0, 20.0);
+    let clip = Clip::new(Rect::new(0.0, 0.0, 200.0, 20.0));
+    let faded = clip.faded(text, [0.0, 0.0, 22.0, 0.0]);
+    assert_eq!(
+        faded.fade,
+        Some(FadeEdge {
+            rect: text,
+            widths: [0.0, 0.0, 22.0, 0.0]
+        })
+    );
+    assert_ne!(faded, clip, "it is not the clip it was cut from");
+    assert_ne!(faded, clip.rect, "and it is no plain rectangle");
+    // Nothing to fade leaves what was there; cutting it further leaves its box where it was.
+    assert_eq!(faded.faded(text, [0.0; 4]), faded);
+    assert_eq!(
+        faded.intersect(Rect::new(0.0, 0.0, 50.0, 10.0)).fade,
+        faded.fade
+    );
+    let inner = faded.faded(Rect::new(0.0, 0.0, 30.0, 20.0), [5.0, 0.0, 0.0, 0.0]);
+    assert_eq!(
+        inner.fade.map(|fade| fade.widths),
+        Some([5.0, 0.0, 0.0, 0.0])
+    );
+    // Moved with the thing it is of, and carried into the box as it is now cut: the box's own is
+    // the box's now, and one a box inside it put on stays.
+    let moved = faded.translate(3.0, 4.0);
+    assert_eq!(
+        moved.fade.map(|fade| fade.rect),
+        Some(text.translate(3.0, 4.0))
+    );
+    let now = clip.faded(text, [0.0, 0.0, 10.0, 0.0]);
+    assert_eq!(faded.carried_into(faded, now, 0.0, 0.0).fade, now.fade);
+    assert_eq!(
+        inner.carried_into(faded, now, 1.0, 0.0).fade,
+        inner.translate(1.0, 0.0).fade
+    );
+    // What is around does not take the pointer's place away.
+    assert!(faded.contains(115.0, 10.0));
+    // The cover: nothing at the edge, all of it a width in, the two edges multiplied in a corner.
+    let fade = faded.fade.expect("a fade");
+    assert_eq!(fade.cover(120.0, 10.0), 0.0);
+    assert_eq!(fade.cover(109.0, 10.0), 0.5);
+    assert_eq!(fade.cover(98.0, 10.0), 1.0);
+    assert_eq!(fade.cover(40.0, 10.0), 1.0, "no edge fades at the left");
+    let corner = FadeEdge {
+        rect: Rect::new(0.0, 0.0, 100.0, 100.0),
+        widths: [10.0, 10.0, 0.0, 0.0],
+    };
+    assert_eq!(corner.cover(5.0, 5.0), 0.25);
+    assert_eq!(
+        faded.cover(109.0, 10.0),
+        0.5,
+        "the clip says what its edge lets be"
     );
 }
 

@@ -60,6 +60,25 @@ pub enum Direction {
     Column,
 }
 
+/// What becomes of a line of text that does not fit its box (`truncate`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Truncate {
+    /// It runs past its box.
+    #[default]
+    No,
+    /// It is cut where the box ends and ends in "…".
+    Ellipsis,
+    /// It is cut at the box's end where it thins out, with no "…" ([`crate::FadeEdge`]).
+    Fade,
+}
+
+impl Truncate {
+    /// Whether a line that does not fit is cut, whichever way.
+    pub fn cuts(self) -> bool {
+        self != Self::No
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Items {
     Start,
@@ -263,6 +282,6 @@ pub struct Style {
     /// it is). Of no other element.
     pub scale: Option<f32>,
     pub text: TextStyle,
-    /// A line that does not fit ends in "…" and gives its room away first.
-    pub truncate: bool,
+    /// A line that does not fit is cut, ends in "…" or thins out, and gives its room away first.
+    pub truncate: Truncate,
 }

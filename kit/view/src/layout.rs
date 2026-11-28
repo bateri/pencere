@@ -20,7 +20,7 @@ use crate::paint::Quad;
 use crate::rich::{Look, RichLine, cut_line, lay_lines};
 use crate::style::{
     Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Shadow, Side,
-    Style, TextStyle, Track, Zoom,
+    Style, TextStyle, Track, Truncate, Zoom,
 };
 use crate::text::{FITS, ZOOM_TEXT, field_line_height, wrap_lines};
 use crate::{
@@ -51,7 +51,7 @@ pub(crate) struct TextLine {
     pub font: Font,
     pub color: Color,
     pub align: Align,
-    pub truncate: bool,
+    pub truncate: Truncate,
     pub wrap: bool,
     pub underline: bool,
     pub strike: bool,
@@ -765,7 +765,7 @@ fn lay_rich(rich: &mut Rich, width: f32, wraps_at: f32, measure: &mut dyn Measur
         rich.base.wrap,
         &mut |font, run| metrics(font, run).width,
     );
-    if rich.base.truncate && !rich.base.wrap {
+    if rich.base.truncate == Truncate::Ellipsis && !rich.base.wrap {
         for line in &mut lines {
             if line.width > width + 1.0 {
                 *line = cut_line(line, &rich.looks, width, measure);
@@ -1335,7 +1335,7 @@ fn convert(style: &Style, scale: f32, is_text: bool) -> TStyle {
     };
     // A line that may be cut gives its room away down to nothing, as a style sheet's
     // `min-width: 0` on an ellipsis would.
-    if is_text && style.truncate && style.min_width == Length::Auto {
+    if is_text && style.truncate.cuts() && style.min_width == Length::Auto {
         min_size.width = LengthPercentageAuto::length(0.0);
     }
     let overflow = match style.overflow {

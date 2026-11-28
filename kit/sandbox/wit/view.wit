@@ -383,8 +383,17 @@ interface types {
         /// usual 1 where absent.
         scale: option<f32>,
         text: text-style,
-        /// A line that does not fit ends in "..." and gives its room away first.
-        truncate: bool,
+        /// What becomes of a line that does not fit; it gives its room away first.
+        truncate: text-truncate,
+    }
+
+    enum text-truncate {
+        /// It runs past its box.
+        none,
+        /// It is cut where the box ends and ends in "...".
+        ellipsis,
+        /// It is cut where the box ends, where it thins out, with no "...".
+        fade,
     }
 
     /// A small line chart.
@@ -938,6 +947,10 @@ interface types {
         line-height: option<f32>,
         /// The room kept around the text, points (0 to 64; 4 when none).
         padding: option<f32>,
+        /// How far in from the edge of the text a line that does not fit thins out, points (0 to
+        /// 64; 22 when none; 0 cuts it as it is): at the right of the text where a line of a room
+        /// that does not wrap goes past it, and at the left where the room is scrolled across.
+        fade: option<f32>,
         /// How many rows are kept between the caret and the top or the bottom of the room when
         /// the editor scrolls to the caret (at most half the rows in view; none when none).
         scroll-margin: option<u8>,

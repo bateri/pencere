@@ -2449,7 +2449,7 @@ fn a_flag_is_on_when_called_with_nothing_and_what_it_is_told_otherwise() {
         on,
         "hidden"
     );
-    assert_eq!(forms(5).map(|n| n.style.truncate), on, "truncate");
+    assert_eq!(forms(5).map(|n| n.style.truncate.cuts()), on, "truncate");
     assert_eq!(forms(6).map(|n| n.style.wrap), on, "wrap");
     assert_eq!(forms(7).map(|n| n.style.absolute), on, "absolute");
     assert_eq!(forms(8).map(|n| n.style.overlay), on, "overlay");

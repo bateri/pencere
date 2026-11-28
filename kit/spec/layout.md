@@ -29,6 +29,8 @@ A box that says `clip()` or `scroll()` cuts what is inside it at its padding box
 
 The cut is a rectangle and, of the innermost box that clips and has rounded corners, their shape (`Clip`): a box that clips and is square cuts the rectangle and leaves the corners of the rounded one around it, and where two rounded boxes clip, the outer cuts as a rectangle does and the inner has its corners. A box that is cut is cut by every box that clips around it, and an overlay is cut by none of them.
 
+The cut may be **soft** at some of its edges (`Clip::fade`): a box that fades (an editor's text where a line goes past it, a text that is cut with `truncate("fade")`) says its rectangle and how far in from each of its sides the fade goes. What is drawn through the clip is there in full that far in from an edge that fades, less towards the edge, and not there at it, in a straight line between; where two edges fade, at a corner, the two are multiplied. As with the corners, only the innermost box that fades fades what is inside it, and a box that is cut further (by a box inside it) leaves the soft edge where it was. A soft edge does not take the pointer's place away: what thins out can still be pressed.
+
 A box that is `absolute` stands against its parent's padding box, as in a style sheet (its `inset` is from the border in), an `overlay` against the page, and a box that is anchored beside the border box of its element.
 
 ### Where the kit leaves the style sheet

@@ -83,7 +83,7 @@ pub use element::{
 pub use fades::{FADE_SECONDS, Fades};
 pub use field::{FieldState, Fill};
 pub use figure::{Blend, Brush, Cap, Join, Matrix, Path, Segment, Stop, Stroke, path};
-pub use geometry::{Clip, Point, Rect, Round, Size};
+pub use geometry::{Clip, FadeEdge, Point, Rect, Round, Size};
 pub use id::Id;
 pub use input::{
     Button, Cursor, Event, FileEntry, FileSource, GesturePhase, Input, Key, Keyboard, Menu,
@@ -102,7 +102,7 @@ pub use scrolls::{Bars, Phase, ScrollTo, Scrolls, Wheeled};
 pub use spring::spring_step;
 pub use style::{
     Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Shadow, Side,
-    Track, Zoom,
+    Track, Truncate, Zoom,
 };
 pub use system::{
     Drawing, KeyConvention, TerminalCaret, TerminalLook, TerminalSelection, WallTime,

@@ -543,6 +543,7 @@ fn how_an_editor_looks_is_the_pages_to_say_and_what_it_leaves_out_is_the_theme()
                 return pencere.div():size_full():child(pencere.editor("vim", {
                     line_height = 1.8,
                     padding = 9,
+                    fade = 30,
                     scroll_margin = 3,
                     numbers = "relative",
                     current_line = "all",
@@ -569,6 +570,7 @@ fn how_an_editor_looks_is_the_pages_to_say_and_what_it_leaves_out_is_the_theme()
         EditorOptions {
             line_height: 1.8,
             padding: 9.0,
+            fade: 30.0,
             scroll_margin: 3,
             numbers: Numbers::Relative,
             current_line: LineHighlight::All,
@@ -3626,5 +3628,81 @@ fn a_script_asks_for_the_row_and_the_link_and_is_refused_a_zone_of_both_rows_and
         "#,
     );
     assert!(why.contains("\"y\", \"x\" or \"both\""), "{why}");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_script_thins_a_line_out_in_an_editor_and_in_a_text_and_asks_the_kit_for_both()
+-> Result<(), Error> {
+    let page = open(
+        r#"
+        local long = string.rep("m", 400)
+        return {
+            render = function()
+                return pencere.div():size_full()
+                    :child(pencere.text("link " .. tostring(pencere.has("editor.fade")) .. " " ..
+                        tostring(pencere.has("text.truncate_fade"))))
+                    :child(pencere.text(long):id("thin"):truncate("fade"):w(120))
+                    :child(pencere.text(long):id("ellipsis"):truncate():w(120))
+                    :child(pencere.editor("code", { fade = 40 }):w(300):h(120))
+            end,
+            handle = function(event)
+                if event.type == "editor_ready" then
+                    return { redraw = true, editor = { code = { load = long .. "\n" } } }
+                end
+            end,
+        }
+        "#,
+    )?;
+    assert!(
+        page.tree_words().join(" ").contains("link true true"),
+        "{:?}",
+        page.tree_words()
+    );
+    let runs: Vec<_> = page
+        .list()
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Paint::Text(run) => Some((run.text.clone(), run.clip)),
+            _ => None,
+        })
+        .collect();
+    // The text that thins out is whole, with no ellipsis, and its clip fades at its end; the one that
+    // is cut with an ellipsis is shorter and has no soft edge.
+    let thin = runs
+        .iter()
+        .find(|(text, _)| text.starts_with("mmm") && text.len() == 400)
+        .expect("the whole line");
+    assert_eq!(thin.1.fade.map(|fade| fade.widths[2] > 0.0), Some(true));
+    assert!(
+        runs.iter()
+            .any(|(text, clip)| text.ends_with('\u{2026}') && clip.fade.is_none()),
+        "the ellipsis one"
+    );
+    // The editor's own: the page said 40, in points.
+    let editor = runs
+        .iter()
+        .find(|(text, clip)| {
+            text.starts_with("mmm") && text.len() == 400 && clip.fade != thin.1.fade
+        })
+        .expect("the editor's line");
+    assert_eq!(
+        editor.1.fade.map(|fade| fade.widths),
+        Some([0.0, 0.0, 40.0, 0.0])
+    );
+    // A word that is no way to cut a line is the script's error.
+    let why = failing(
+        r#"
+        return { render = function()
+            return pencere.div():child(pencere.text("a"):truncate("sideways"))
+        end }
+        "#,
+    );
+    assert!(
+        why.contains("truncate takes true, false or \"fade\""),
+        "{why}"
+    );
     Ok(())
 }

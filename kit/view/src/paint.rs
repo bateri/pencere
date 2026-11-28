@@ -5,7 +5,7 @@
 
 use crate::element::Fit;
 use crate::layout::{Content, Laid, Node, Placed, Rich, TextLine, rich_boxes};
-use crate::style::{Border, Gradient, Shadow};
+use crate::style::{Border, Gradient, Shadow, Truncate};
 use crate::text::wrap_lines;
 use crate::{Align, Clip, Color, Font, Id, Measure, Path, Point, Rect, Size};
 
@@ -369,10 +369,20 @@ impl Laid {
 /// its words, in the look of its part, read against that ground and then `grounds`.
 fn paint_rich(list: &mut DrawList, node: &Node, rich: &Rich, grounds: &[Color]) {
     let opacity = node.opacity;
-    let clip = if rich.base.truncate {
-        node.clip.intersect(node.rect)
-    } else {
-        node.clip
+    let clip = match rich.base.truncate {
+        Truncate::No => node.clip,
+        Truncate::Ellipsis => node.clip.intersect(node.rect),
+        Truncate::Fade => {
+            // The lines that run past the room thin out at its end, where they are cut.
+            let room = node.content_box();
+            let past = rich.lines.iter().any(|line| line.width > room.w + 1.0);
+            let cut = node.clip.intersect(node.rect);
+            if past && !rich.base.wrap {
+                cut.faded(room, [0.0, 0.0, text_fade(&rich.base.font, room.w), 0.0])
+            } else {
+                cut
+            }
+        }
     };
     for (rect, piece) in rich_boxes(node, rich) {
         let Some(look) = rich.looks.get(piece.span) else {
@@ -543,7 +553,7 @@ fn place_text(node: &Node, line: &TextLine, measure: &mut dyn Measure) -> Vec<Ru
                 (text, width)
             })
             .collect()
-    } else if line.truncate && whole.width > box_width + 1.0 {
+    } else if line.truncate == Truncate::Ellipsis && whole.width > box_width + 1.0 {
         match cut(&line.text, &line.font, box_width, measure) {
             Some(cut) => vec![cut],
             None => return Vec::new(),
@@ -557,9 +567,18 @@ fn place_text(node: &Node, line: &TextLine, measure: &mut dyn Measure) -> Vec<Ru
     // start at the top, so that the first is the one seen.
     let middle = (room.h - total) / 2.0;
     let top = room.y + if line.wrap { middle.max(0.0) } else { middle };
+    // A line that thins out where its box ends starts at the start of it, whatever its align: it is
+    // its end that is cut.
+    let fading = line.truncate == Truncate::Fade && !line.wrap && whole.width > box_width + 1.0;
+    let align = if fading { Align::Start } else { line.align };
     // A line that may be cut stays in its box; the rest is the boxes around it.
-    let clip = if line.truncate {
-        node.clip.intersect(node.rect)
+    let clip = if line.truncate.cuts() {
+        let clip = node.clip.intersect(node.rect);
+        if fading {
+            clip.faded(room, [0.0, 0.0, text_fade(&line.font, box_width), 0.0])
+        } else {
+            clip
+        }
     } else {
         node.clip
     };
@@ -568,7 +587,7 @@ fn place_text(node: &Node, line: &TextLine, measure: &mut dyn Measure) -> Vec<Ru
         .enumerate()
         .filter(|(_, (text, _))| !text.is_empty())
         .map(|(index, (text, width))| {
-            let x = match line.align {
+            let x = match align {
                 Align::Start => room.x,
                 Align::Center => room.x + (box_width - width) / 2.0,
                 Align::End => room.right() - width,
@@ -588,6 +607,12 @@ fn place_text(node: &Node, line: &TextLine, measure: &mut dyn Measure) -> Vec<Ru
             }
         })
         .collect()
+}
+
+/// How far from the end of its box a line of text that thins out is there in full: two of its
+/// letters' widths of its size, and no more than the box is wide.
+fn text_fade(font: &Font, room: f32) -> f32 {
+    (font.size * 2.0).min(room.max(0.0))
 }
 
 /// The longest start of `text` that fits `budget` pixels with a "…" after it; `None` when not

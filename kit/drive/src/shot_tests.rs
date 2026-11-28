@@ -231,6 +231,95 @@ fn a_rounded_box_cut_by_its_clip_is_cut_straight_and_keeps_its_own_corners() {
     assert_eq!(at(20, 25), ground, "nothing past the clip");
 }
 
+/// What a clip with a soft edge lets be drawn thins out towards the edge: a box, and the words of a
+/// line, whole a width in from the edge, less and less after it, and none at the edge.
+#[test]
+fn what_is_drawn_through_a_clip_with_a_soft_edge_thins_out_towards_the_edge() {
+    let cut = Rect::new(0.0, 0.0, 100.0, 40.0);
+    let clip = pencere_view::Clip::new(cut).faded(cut, [0.0, 0.0, 40.0, 0.0]);
+    let list = DrawList {
+        items: vec![
+            Paint::Quad(Quad {
+                rect: Rect::new(0.0, 0.0, 100.0, 20.0),
+                radii: [0.0; 4],
+                fill: Some(Role::Accent.solid()),
+                gradient: None,
+                border: None,
+                shadow: None,
+                clip,
+            }),
+            Paint::Quad(Quad {
+                rect: Rect::new(0.0, 20.0, 100.0, 20.0),
+                radii: [0.0; 4],
+                fill: Some(Role::Accent.solid()),
+                gradient: None,
+                border: None,
+                shadow: None,
+                clip: cut.into(),
+            }),
+        ],
+    };
+    let drawn = png(&list, (120, 40), &Fonts::none(), None, Palette::Dark).expect("a picture");
+    let pixmap = Pixmap::decode_png(&drawn).expect("a PNG");
+    let red = |x: u32, y: u32| i32::from(pixmap.pixel(x, y).map_or(0, |pixel| pixel.red()));
+    let (ground, accent) = (red(110, 10), red(10, 30));
+    assert_ne!(ground, accent, "the colours are told apart");
+    // The box without the soft edge is whole to the edge, the one with it is whole a width in and
+    // thins out after that, from the whole of it to none of it, and never grows back.
+    assert_eq!(red(99, 30), accent);
+    assert_eq!(red(10, 10), accent);
+    assert_eq!(red(59, 10), accent, "40 in from the edge, the whole");
+    let across: Vec<i32> = (60..100).map(|x| (red(x, 10) - ground).abs()).collect();
+    assert!(
+        across.windows(2).all(|pair| pair[0] >= pair[1]),
+        "{across:?}"
+    );
+    let whole = (accent - ground).abs();
+    assert!(
+        across[20] > whole / 4 && across[20] < whole * 3 / 4,
+        "{across:?}"
+    );
+    assert!(
+        across[39] <= whole / 20,
+        "next to nothing at the edge: {across:?}"
+    );
+    assert_eq!(red(105, 10), ground, "and the clip's own edge holds");
+    // The words of a line, through the same edge, are less there than a width in.
+    let words = |clip: pencere_view::Clip| DrawList {
+        items: vec![run(
+            Point::new(0.0, 4.0),
+            "WWWWWWWWWWWW",
+            Role::Accent,
+            false,
+            cut,
+        )]
+        .into_iter()
+        .map(|item| match item {
+            Paint::Text(run) => Paint::Text(Run { clip, ..run }),
+            other => other,
+        })
+        .collect(),
+    };
+    let ink = |list: &DrawList, from: u32, to: u32| -> i32 {
+        let drawn = png(list, (120, 40), &Fonts::none(), None, Palette::Dark).expect("a picture");
+        let pixmap = Pixmap::decode_png(&drawn).expect("a PNG");
+        (from..to)
+            .flat_map(|x| (0..40).map(move |y| (x, y)))
+            .map(|(x, y)| {
+                (i32::from(pixmap.pixel(x, y).map_or(0, |pixel| pixel.red())) - ground).abs()
+            })
+            .sum()
+    };
+    let hard = words(cut.into());
+    let soft = words(clip);
+    assert_eq!(ink(&soft, 0, 60), ink(&hard, 0, 60), "whole a width in");
+    assert!(ink(&hard, 80, 100) > 0, "the line reaches the edge");
+    assert!(
+        ink(&soft, 80, 100) < ink(&hard, 80, 100) / 2,
+        "and thins out there"
+    );
+}
+
 #[test]
 fn a_picture_of_no_pixels_is_not_one_and_a_file_that_is_no_font_is_said_to_be_none() {
     assert_eq!(

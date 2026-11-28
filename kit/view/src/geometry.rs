@@ -95,6 +95,19 @@ impl Point {
 pub struct Clip {
     pub rect: Rect,
     pub round: Option<Round>,
+    /// A soft edge: what is drawn thins out towards the edges it names, instead of ending at them.
+    pub fade: Option<FadeEdge>,
+}
+
+/// A soft edge of a clip: the box that fades and how far in from each of its edges the fade goes,
+/// left, top, right, bottom (a width of nothing leaves the edge as it is). What is drawn is fully
+/// there at that distance from the edge and not there at the edge, in a straight line between; where
+/// two edges fade, at a corner, the two are multiplied. The box is what the fade is of, and not the
+/// rectangle of the clip, which the clip may cut shorter.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FadeEdge {
+    pub rect: Rect,
+    pub widths: [f32; 4],
 }
 
 /// The shape of a rounded clip: the box that is cut (the padding box of the one that clips) and the
@@ -107,9 +120,26 @@ pub struct Round {
 }
 
 impl Clip {
-    /// A rectangle's clip: square.
+    /// A rectangle's clip: square, and as hard at its edges as it is.
     pub const fn new(rect: Rect) -> Self {
-        Self { rect, round: None }
+        Self {
+            rect,
+            round: None,
+            fade: None,
+        }
+    }
+
+    /// The same clip with a soft edge: of the innermost box that fades only, as the corners are of
+    /// the innermost box that rounds them. Widths of nothing leave the clip as it was.
+    #[must_use]
+    pub fn faded(self, rect: Rect, widths: [f32; 4]) -> Self {
+        if !widths.iter().any(|width| *width > 0.0) {
+            return self;
+        }
+        Self {
+            fade: Some(FadeEdge { rect, widths }),
+            ..self
+        }
     }
 
     /// A clip that cuts nothing.
@@ -120,7 +150,7 @@ impl Clip {
     pub fn intersect(self, rect: Rect) -> Self {
         Self {
             rect: self.rect.intersect(rect),
-            round: self.round,
+            ..self
         }
     }
 
@@ -136,6 +166,11 @@ impl Clip {
                 now.round
             } else {
                 moved.round
+            },
+            fade: if self.fade == was.fade {
+                now.fade
+            } else {
+                moved.fade
             },
         }
     }
@@ -154,7 +189,11 @@ impl Clip {
         } else {
             self.round
         };
-        Self { rect, round }
+        Self {
+            rect,
+            round,
+            fade: self.fade,
+        }
     }
 
     /// The same clip moved.
@@ -166,12 +205,24 @@ impl Clip {
                 rect: round.rect.translate(dx, dy),
                 radii: round.radii,
             }),
+            fade: self.fade.map(|fade| FadeEdge {
+                rect: fade.rect.translate(dx, dy),
+                widths: fade.widths,
+            }),
         }
     }
 
-    /// Whether the point is where drawing is let: in the rectangle and inside the corners.
+    /// Whether the point is where drawing is let: in the rectangle and inside the corners. A soft
+    /// edge does not take the pointer's place away: what thins out is still there.
     pub fn contains(self, x: f32, y: f32) -> bool {
         self.rect.contains(x, y) && self.round.is_none_or(|round| round.contains(x, y))
+    }
+
+    /// How much of what is drawn at the point shows through the corners and the soft edge, `0.0..=1.0`,
+    /// for a host that draws a pixel at a time (the rectangle is its own cut).
+    pub fn cover(self, x: f32, y: f32) -> f32 {
+        self.round.map_or(1.0, |round| round.cover(x, y))
+            * self.fade.map_or(1.0, |fade| fade.cover(x, y))
     }
 }
 
@@ -181,10 +232,29 @@ impl From<Rect> for Clip {
     }
 }
 
-/// A clip with square corners is its rectangle.
+/// A clip with square corners and a hard edge is its rectangle.
 impl PartialEq<Rect> for Clip {
     fn eq(&self, other: &Rect) -> bool {
-        self.round.is_none() && self.rect == *other
+        self.round.is_none() && self.fade.is_none() && self.rect == *other
+    }
+}
+
+impl FadeEdge {
+    /// How much of what is drawn at the point stays: all of it a width in from every edge that fades,
+    /// none at the edge, and the product of the edges where two fade.
+    pub fn cover(self, x: f32, y: f32) -> f32 {
+        let [left, top, right, bottom] = self.widths;
+        let edge = |far: f32, width: f32| {
+            if width > 0.0 {
+                (far / width).clamp(0.0, 1.0)
+            } else {
+                1.0
+            }
+        };
+        edge(x - self.rect.x, left)
+            * edge(y - self.rect.y, top)
+            * edge(self.rect.right() - x, right)
+            * edge(self.rect.bottom() - y, bottom)
     }
 }
 

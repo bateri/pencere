@@ -387,7 +387,9 @@ fn quad_slides(new: &Quad, old: &Quad, here: i64, there: i64) -> bool {
 
 /// Whether a box is drawn whole, with no mask of its clip (as the drawing does it).
 fn whole(quad: &Quad) -> bool {
-    intersect(quad.rect, quad.clip.rect) == Some(quad.rect) && quad.clip.round.is_none()
+    intersect(quad.rect, quad.clip.rect) == Some(quad.rect)
+        && quad.clip.round.is_none()
+        && quad.clip.fade.is_none()
 }
 
 /// The items that reach the rows, as a window moved down them: for a row, which are standing

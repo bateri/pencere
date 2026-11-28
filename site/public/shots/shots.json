@@ -137,6 +137,11 @@
   "elements/editor": {
     "diagnostics": [],
     "height": 220.0,
+    "width": 540.0
+  },
+  "elements/editor-fade": {
+    "diagnostics": [],
+    "height": 160.0,
     "width": 520.0
   },
   "elements/image": {
@@ -163,6 +168,11 @@
     "diagnostics": [],
     "height": 195.0,
     "width": 380.0
+  },
+  "elements/text-fade": {
+    "diagnostics": [],
+    "height": 109.5,
+    "width": 420.0
   },
   "kit/counter": {
     "diagnostics": [],

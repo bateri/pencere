@@ -21,7 +21,7 @@ local options = table.clone(language.config)
 options.read_only = true
 
 return page(function()
-	return pencere.editor("code", options):w(480):h(196)
+	return pencere.editor("code", options):w(500):h(196)
 end, {
 	on_event = function(event)
 		syntax:handle(event)

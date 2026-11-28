@@ -4863,3 +4863,128 @@ fn editors_that_scroll_together_are_at_one_offset_in_the_frame_one_of_them_moves
     host.frame();
     assert_eq!(host.offsets(), (80.0, 80.0));
 }
+
+// --- A line that goes past the text thins out ----------------------------------------------------
+
+/// The clips the editor's text is drawn through, one for each line of text drawn.
+fn text_clips(host: &mut Host) -> Vec<(String, pencere_view::Clip)> {
+    host.paint(true)
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Paint::Text(run) if !run.text.trim().is_empty() => Some((run.text.clone(), run.clip)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn scroll_across(host: &mut Host, x: f32) {
+    host.scrolls.ask(pencere_view::ScrollTo {
+        id: EDITOR,
+        x: Some(x),
+        y: None,
+        animate: false,
+        zoom: None,
+        at: None,
+    });
+    host.settle();
+}
+
+#[test]
+fn a_line_that_goes_past_the_text_thins_out_at_its_right_and_one_that_fits_does_not() {
+    // 400 across, no gutter: 50 `m` are 550 wide, past the room.
+    let mut host = Host::new(page_with(plain()));
+    host.load(&format!("ab\n{}\n", "m".repeat(50)));
+    let clips = text_clips(&mut host);
+    assert!(clips.len() >= 2, "{clips:?}");
+    for (text, clip) in &clips {
+        let fade = clip.fade.unwrap_or_else(|| panic!("{text}: the soft edge"));
+        assert_eq!(fade.widths, [0.0, 0.0, 22.0, 0.0], "{text}");
+        assert_eq!(fade.rect, Rect::new(0.0, 0.0, 400.0, 200.0), "{text}");
+    }
+    // Only lines that fit: nothing to thin out.
+    let mut host = Host::new(page_with(plain()));
+    host.load("ab\nmmmm\n");
+    for (text, clip) in text_clips(&mut host) {
+        assert_eq!(clip.fade, None, "{text}");
+    }
+}
+
+#[test]
+fn a_room_scrolled_across_thins_out_at_the_left_of_its_text_and_not_at_its_gutter() {
+    let options = EditorOptions {
+        gutter: true,
+        ..EditorOptions::default()
+    };
+    let mut host = Host::new(page_with(options));
+    host.load(&format!("ab\n{}\n", "m".repeat(50)));
+    let gutter = host
+        .paint(true)
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Paint::Text(run) if run.text == "1" => Some(run.clip),
+            _ => None,
+        })
+        .expect("a number in the gutter");
+    assert_eq!(gutter.fade, None, "the gutter is not faded");
+    // Not yet scrolled: only the right fades.
+    let clips = text_clips(&mut host);
+    let (_, clip) = clips.iter().find(|(text, _)| text == "ab").expect("a line");
+    let fade = clip.fade.expect("a soft edge at the right");
+    assert_eq!(fade.widths[0], 0.0);
+    assert_eq!(fade.widths[2], 22.0);
+    let start = fade.rect.x;
+    assert!(start > 0.0, "the text starts past the gutter: {start}");
+    scroll_across(&mut host, 60.0);
+    let clips = text_clips(&mut host);
+    let (_, clip) = clips.iter().find(|(text, _)| text == "ab").expect("a line");
+    let fade = clip.fade.expect("a soft edge");
+    assert_eq!(fade.widths[0], 22.0, "and now the left");
+    assert_eq!(
+        fade.rect.x, start,
+        "from where the text begins, past the gutter"
+    );
+}
+
+#[test]
+fn what_the_fade_of_an_editor_is_the_page_says_and_a_room_that_wraps_has_none() {
+    let long = format!("{}\n", "m".repeat(50));
+    // 48 points, wider than the default.
+    let mut host = Host::new(page_with(EditorOptions {
+        fade: 48.0,
+        ..plain()
+    }));
+    host.load(&long);
+    let widths = text_clips(&mut host)[0].1.fade.map(|fade| fade.widths);
+    assert_eq!(widths, Some([0.0, 0.0, 48.0, 0.0]));
+    // None at all: the line is cut where it is.
+    let mut host = Host::new(page_with(EditorOptions {
+        fade: 0.0,
+        ..plain()
+    }));
+    host.load(&long);
+    assert_eq!(text_clips(&mut host)[0].1.fade, None);
+    // A room that wraps goes past nothing.
+    let mut host = Host::new(page_with(EditorOptions {
+        wrap: true,
+        ..plain()
+    }));
+    host.load(&long);
+    for (text, clip) in text_clips(&mut host) {
+        assert_eq!(clip.fade, None, "{text}");
+    }
+    // Past what an editor takes, the default.
+    let held = EditorOptions {
+        fade: 900.0,
+        ..EditorOptions::default()
+    }
+    .held();
+    assert_eq!(held.fade, 64.0);
+    let held = EditorOptions {
+        fade: f32::NAN,
+        ..EditorOptions::default()
+    }
+    .held();
+    assert_eq!(held.fade, 22.0);
+}

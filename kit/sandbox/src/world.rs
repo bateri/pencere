@@ -26,8 +26,8 @@ use pencere_view::{
     Extent, Family, FileSource, Fill, GesturePhase, Gradient, Id, Input, Join, Key, KeyConvention,
     Keyboard, Laid, LinkAxis, MOST_KEYS, Matrix, Menu, MenuEntry, Mix, Mods, Motion, PROFILE_CHARS,
     Panel, Path, Payload, Phase, Point, Rect, Reply, Rgba, Role, ScrollLink, ScrollTo, Segment,
-    Shadow, Shift, Shortcut, Side, Size, Sort, Source, Span, State, Stop, Stroke, Tip, Track, Zoom,
-    profile_allowed,
+    Shadow, Shift, Shortcut, Side, Size, Sort, Source, Span, State, Stop, Stroke, Tip, Track,
+    Truncate, Zoom, profile_allowed,
 };
 use pencere_wire::bundle::{LUA_MEDIA_TYPE, is_path};
 use pencere_wire::json::unescaped_len;
@@ -1419,7 +1419,11 @@ fn style_out(
             .filter(|scale| scale.is_finite())
             .map(|scale| scale.max(0.0)),
         text: text_style_out(&style.text),
-        truncate: style.truncate,
+        truncate: match style.truncate {
+            wit::TextTruncate::None => Truncate::No,
+            wit::TextTruncate::Ellipsis => Truncate::Ellipsis,
+            wit::TextTruncate::Fade => Truncate::Fade,
+        },
     })
 }
 
@@ -2518,6 +2522,7 @@ fn editor_options_out(
         },
         line_height: options.line_height.unwrap_or(default.line_height),
         padding: options.padding.unwrap_or(default.padding),
+        fade: options.fade.unwrap_or(default.fade),
         scroll_margin: options.scroll_margin.unwrap_or(default.scroll_margin),
         numbers: match options.numbers {
             wit::LineNumbers::Absolute => Numbers::Absolute,
@@ -3528,7 +3533,7 @@ mod tests {
                 color: None,
                 align: None,
             },
-            truncate: false,
+            truncate: wit::TextTruncate::None,
         }
     }
 

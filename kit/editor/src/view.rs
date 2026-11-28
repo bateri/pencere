@@ -1110,6 +1110,31 @@ impl View {
             y + self.row > room.y && y < room.bottom()
         };
         let rows: Vec<&Row> = self.rows.iter().filter(in_view).collect();
+        // Where a line runs on past the text it thins out at the edge it is cut at, instead of ending
+        // there: the right of the text, where a row of a room that does not wrap goes past it, and the
+        // left of it where the room is scrolled across. The gutter is not faded, nor is a room that
+        // wraps (it goes past nothing).
+        let words_clip = {
+            let text_room = Rect::new(room.x + gutter.w, room.y, room.w - gutter.w, room.h);
+            let soft = self.options.fade.clamp(0.0, 64.0) * self.scale;
+            let (left, right) = if !self.wrap && soft > 0.0 {
+                // A line that is a point over is as good as one that fits, as a text's is.
+                let passed = rows
+                    .iter()
+                    .any(|row| origin_x + row.end_x(row.to) > text_room.right() + 1.0);
+                (
+                    if origin_x < text_room.x - 0.5 {
+                        soft
+                    } else {
+                        0.0
+                    },
+                    if passed { soft } else { 0.0 },
+                )
+            } else {
+                (0.0, 0.0)
+            };
+            text_clip.faded(text_room, [left, 0.0, right, 0.0])
+        };
         let ranges = buffer.ranges();
         let main = buffer.main();
         let colors = &self.options.colors;
@@ -1239,7 +1264,7 @@ impl View {
                 &line,
                 origin_x,
                 y,
-                text_clip,
+                words_clip,
                 &mut grounds,
                 slot,
                 &under,

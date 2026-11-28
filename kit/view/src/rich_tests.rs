@@ -121,6 +121,32 @@ fn a_text_of_many_looks_that_does_not_wrap_is_one_line_cut_to_fit_where_it_may_b
 }
 
 #[test]
+fn a_text_of_many_looks_that_may_thin_out_is_whole_and_its_parts_fade_at_the_end_of_the_box() {
+    // The same 50 pixels: the whole text is drawn, with no "…", cut at the box where it fades over
+    // two of its letters' widths (20); one that fits has no soft edge.
+    let laid = lay(
+        div().child(div().w(50.0).child(paragraph().truncate_fade())),
+        200.0,
+        200.0,
+    );
+    let list = laid.paint(&mut Fixed);
+    let words: String = runs(&list).iter().map(|run| run.text.as_str()).collect();
+    assert_eq!(words, "one two, three four five");
+    for run in runs(&list) {
+        let fade = run.clip.fade.expect("the soft edge");
+        assert_eq!(fade.widths, [0.0, 0.0, 20.0, 0.0]);
+        assert_eq!(fade.rect.w, 50.0, "of the box it was cut at");
+    }
+    let laid = lay(
+        div().child(div().w(300.0).child(paragraph().truncate_fade())),
+        400.0,
+        200.0,
+    );
+    let list = laid.paint(&mut Fixed);
+    assert!(runs(&list).iter().all(|run| run.clip.fade.is_none()));
+}
+
+#[test]
 fn a_link_answers_the_pointer_by_its_name_and_is_read_as_a_link() {
     let laid = lay(
         div().child(div().w(80.0).child(paragraph().wrap())),

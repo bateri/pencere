@@ -13,7 +13,7 @@
 //! measured for.
 
 use pencere_sandbox::{Images, draw_figure};
-use pencere_view::{Clip, Color, DrawList, Paint, Rect, Role, Round, Source};
+use pencere_view::{Clip, Color, DrawList, Paint, Rect, Role, Source};
 use tiny_skia::{
     FillRule, Mask, Paint as Ink, PathBuilder, Pixmap, PixmapMut, PixmapPaint, PixmapRef, Stroke,
     Transform,
@@ -306,11 +306,14 @@ impl Tools {
     }
 }
 
-/// How much of the pixel at (`px`, `py`) the round corners of a clip let be drawn: all of it where there
-/// are none.
-fn round_cover(round: Option<Round>, px: i64, py: i64) -> f32 {
+/// How much of the pixel at (`px`, `py`) the round corners and the soft edge of a clip let be drawn:
+/// all of it where there are none.
+fn clip_cover(clip: Clip, px: i64, py: i64) -> f32 {
+    if clip.round.is_none() && clip.fade.is_none() {
+        return 1.0;
+    }
     #[allow(clippy::cast_precision_loss)]
-    round.map_or(1.0, |round| round.cover(px as f32 + 0.5, py as f32 + 0.5))
+    clip.cover(px as f32 + 0.5, py as f32 + 0.5)
 }
 
 /// A mask of its own, of `clip`, for a picture of `size`: for a drawing that cuts it further.
@@ -343,6 +346,42 @@ fn fill_clip(mask: &mut Mask, clip: Clip, rect: tiny_skia::Rect) {
             false,
             Transform::identity(),
         ),
+    }
+    if let Some(fade) = clip.fade {
+        thin_out(mask, fade, clip.rect);
+    }
+}
+
+/// What a soft edge leaves of a mask that was written for its clip's rectangle `rect`: each pixel
+/// of it kept as much as the fade says.
+fn thin_out(mask: &mut Mask, fade: pencere_view::FadeEdge, rect: Rect) {
+    let (w, h) = (mask.width() as usize, mask.height() as usize);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let (x0, y0, x1, y1) = (
+        ((rect.x.floor() - 1.0).max(0.0) as usize).min(w),
+        ((rect.y.floor() - 1.0).max(0.0) as usize).min(h),
+        ((rect.right().ceil() + 1.0).max(0.0) as usize).min(w),
+        ((rect.bottom().ceil() + 1.0).max(0.0) as usize).min(h),
+    );
+    let data = mask.data_mut();
+    for row in y0..y1 {
+        #[allow(clippy::cast_precision_loss)]
+        let y = row as f32 + 0.5;
+        let Some(cells) = data.get_mut(row * w + x0..row * w + x1) else {
+            continue;
+        };
+        for (column, cell) in cells.iter_mut().enumerate() {
+            if *cell == 0 {
+                continue;
+            }
+            #[allow(clippy::cast_precision_loss)]
+            let x = (x0 + column) as f32 + 0.5;
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let kept = (f32::from(*cell) * fade.cover(x, y))
+                .round()
+                .clamp(0.0, 255.0) as u8;
+            *cell = kept;
+        }
     }
 }
 
@@ -922,7 +961,7 @@ impl Canvas<'_, '_> {
             .or(quad.gradient.map(pencere_view::Gradient::middle));
         // The box's own corners, cut where its clip cuts it: a box a scrolled list half hides
         // keeps its corners where they are and is cut straight at the edge.
-        let whole = shown == quad.rect && quad.clip.round.is_none();
+        let whole = shown == quad.rect && quad.clip.round.is_none() && quad.clip.fade.is_none();
         let size = (self.pixmap.width(), self.pixmap.height());
         if let (Some(fill), Some(path)) = (fill, rounded(quad.rect, quad.radii)) {
             let mask = if whole {
@@ -1050,7 +1089,7 @@ impl Canvas<'_, '_> {
                 }
                 let at = row * w + column;
                 #[allow(clippy::cast_possible_wrap)]
-                let corner = round_cover(quad.clip.round, px as i64, py as i64);
+                let corner = clip_cover(quad.clip, px as i64, py as i64);
                 let alpha = cover.get(at).copied().unwrap_or(0.0)
                     * (1.0 - own.get(at).copied().unwrap_or(0.0))
                     * corner
@@ -1160,7 +1199,7 @@ impl Canvas<'_, '_> {
 
     /// A colour glyph's own pixels (straight RGBA) at `at`, `opacity` of them showing, cut at `clip`.
     fn blit_colour(&mut self, glyph: &fonts::Glyph, at: (f32, f32), opacity: f32, clip: Clip) {
-        let (round, clip) = (clip.round, clip.rect);
+        let (soft, clip) = (clip, clip.rect);
         #[allow(clippy::cast_possible_truncation)]
         let (x, y) = (at.0.round() as i64 - self.left, at.1.round() as i64);
         let (w, h) = (
@@ -1184,7 +1223,7 @@ impl Canvas<'_, '_> {
                 let &[red, green, blue, alpha] = pixel else {
                     continue;
                 };
-                let alpha = f32::from(alpha) / 255.0 * opacity * round_cover(round, px, py);
+                let alpha = f32::from(alpha) / 255.0 * opacity * clip_cover(soft, px, py);
                 if alpha <= 0.0 {
                     continue;
                 }
@@ -1221,7 +1260,7 @@ impl Canvas<'_, '_> {
             paint.anti_alias = false;
             // Where the clip has round corners the fill goes through its mask.
             let size = (self.pixmap.width(), self.pixmap.height());
-            let mask = if clip.round.is_some() {
+            let mask = if clip.round.is_some() || clip.fade.is_some() {
                 self.tools.masked(size, clip)
             } else {
                 None
@@ -1233,7 +1272,7 @@ impl Canvas<'_, '_> {
 
     /// A glyph's coverage (one byte a pixel, `width` wide) at `at`, in `color`, cut at `clip`.
     fn blit(&mut self, coverage: &[u8], width: usize, at: (f32, f32), color: [f32; 4], clip: Clip) {
-        let (round, clip) = (clip.round, clip.rect);
+        let (soft, clip) = (clip, clip.rect);
         #[allow(clippy::cast_possible_truncation)]
         let (x, y) = (at.0.round() as i64 - self.left, at.1.round() as i64);
         let (w, h) = (
@@ -1259,7 +1298,7 @@ impl Canvas<'_, '_> {
                 }
                 let alpha = f32::from(*value) / 255.0
                     * color.get(3).copied().unwrap_or(1.0)
-                    * round_cover(round, px, py);
+                    * clip_cover(soft, px, py);
                 let Ok(at) = usize::try_from((py * w + px) * 4) else {
                     continue;
                 };
@@ -1365,7 +1404,7 @@ impl Canvas<'_, '_> {
             size,
             Clip {
                 rect: shown,
-                round: clip.round,
+                ..clip
             },
         );
         let paint = PixmapPaint {

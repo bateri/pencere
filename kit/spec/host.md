@@ -200,6 +200,10 @@ A host says the time of day as its system does, with the person's offset from UT
 
 A host says how its system makes and writes shortcuts (`system.keyboard`, `Program::keyboard`: `mac`, `windows` or `linux`).
 
+### A soft edge
+
+A host draws what a clip with a soft edge lets through ([`Clip`](layout.md#the-box-of-an-element)) at less than the whole of it towards the edge: a box, a picture, a line of words and a glyph, each by the share of it that the fade leaves at that pixel (`Clip::cover`). A host that cannot (the character cells of a terminal) cuts at the rectangle, as it does at a rounded corner.
+
 ### A turned picture
 
 A host draws a picture turned where its draw list says (`Picture::turn`, degrees clockwise about the middle of its rectangle, cut at its rectangle turned with it): what spins (a canvas that spins is turned before it reaches the host, and draws as any other).

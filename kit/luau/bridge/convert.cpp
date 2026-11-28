@@ -652,7 +652,18 @@ void read_style(lua_State* L, int s, pencere_view_types_style_t& out, Arenas& ar
         if (align >= 0) out.text.align = {true, (uint8_t)align};
     }
     lua_pop(L, 1);
-    out.truncate = flag(L, s, "truncate");
+    // false or nothing: no; "fade": it thins out at the end of its box; anything else that is so: "...".
+    static_assert(PENCERE_VIEW_TYPES_TEXT_TRUNCATE_NONE == 0 && PENCERE_VIEW_TYPES_TEXT_TRUNCATE_ELLIPSIS == 1 &&
+                      PENCERE_VIEW_TYPES_TEXT_TRUNCATE_FADE == 2,
+                  "text-truncate is none, ellipsis, fade");
+    get(L, s, "truncate");
+    if (lua_type(L, -1) == LUA_TSTRING && strcmp(lua_tostring(L, -1), "fade") == 0) {
+        out.truncate = PENCERE_VIEW_TYPES_TEXT_TRUNCATE_FADE;
+    } else {
+        out.truncate = lua_toboolean(L, -1) != 0 ? PENCERE_VIEW_TYPES_TEXT_TRUNCATE_ELLIPSIS
+                                                 : PENCERE_VIEW_TYPES_TEXT_TRUNCATE_NONE;
+    }
+    lua_pop(L, 1);
 }
 
 // --- The tree --------------------------------------------------------------------------------
@@ -1427,7 +1438,7 @@ static_assert(PENCERE_VIEW_TYPES_EDITOR_MATCHES_NONE == 0 && PENCERE_VIEW_TYPES_
 
 // `meta.editor`: { wrap =, tab_width =, hard_tabs =, gutter =, read_only =, input = "editor" | "page",
 // hint = "words", comment = "--" | { line =, block = }, pairs = "()[]{}", indent = { increase =,
-// decrease = }, folds = "page" | "indent", line_height =, padding =, scroll_margin =,
+// decrease = }, folds = "page" | "indent", line_height =, padding =, fade =, scroll_margin =,
 // numbers = "absolute" | "relative" | "hidden", current_line = "text" | "gutter" | "all",
 // whitespace = "none" | "boundary" | "selection" | "trailing" | "all", indent_guides =,
 // matches = "none" | "selection" | "word" (true is "selection"),
@@ -1461,6 +1472,7 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
     out.folds = (uint8_t)word(L, t, "folds", kFolds, 2, 0);
     out.line_height = optional_number(L, t, "line_height");
     out.padding = optional_number(L, t, "padding");
+    out.fade = optional_number(L, t, "fade");
     view_option_f32_t margin = optional_number(L, t, "scroll_margin");
     if (margin.is_some) {
         out.scroll_margin.is_some = true;

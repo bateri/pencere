@@ -12,7 +12,7 @@ use crate::BrowserOptions;
 use crate::edit::EditorOptions;
 use crate::style::{
     Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Shadow, Side,
-    Style, Track,
+    Style, Track, Truncate,
 };
 use crate::{AccessibleRole, Align, Color, Command, Family, Id, Motion, Path, Span, Tip};
 
@@ -1199,7 +1199,14 @@ impl Element {
     /// A line of text that does not fit ends in "…" and is the first to give its room away.
     #[must_use]
     pub fn truncate(self) -> Self {
-        self.set(|s| s.truncate = true)
+        self.set(|s| s.truncate = Truncate::Ellipsis)
+    }
+
+    /// A line of text that does not fit is cut at the end of its box, where it thins out
+    /// ([`crate::FadeEdge`]) in place of the "…", and is the first to give its room away.
+    #[must_use]
+    pub fn truncate_fade(self) -> Self {
+        self.set(|s| s.truncate = Truncate::Fade)
     }
 
     /// The page of the file an image shows, from 1: a PDF has as many as it says, and the first is
