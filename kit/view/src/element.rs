@@ -749,6 +749,15 @@ impl Element {
         self.set(|s| s.items = Some(Items::Stretch))
     }
 
+    /// The children of a row stand on one baseline: the first line of words of each is on the same
+    /// line, whatever size its words are (a style sheet's `align-items: baseline`). A child with no
+    /// words in it (a picture, an empty box) has its bottom edge there, and in a column the children
+    /// are aligned to the start of the cross axis.
+    #[must_use]
+    pub fn items_baseline(self) -> Self {
+        self.set(|s| s.items = Some(Items::Baseline))
+    }
+
     /// The children start at the start of the main axis (the default).
     #[must_use]
     pub fn justify_start(self) -> Self {

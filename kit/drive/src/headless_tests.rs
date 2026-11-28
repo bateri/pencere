@@ -841,6 +841,7 @@ fn a_field_of_rows_is_as_tall_as_the_line_the_host_says_for_its_fields() -> Resu
             Metrics {
                 width,
                 height: 16.0,
+                ascent: 12.0,
             }
         }
 
@@ -875,6 +876,7 @@ fn a_field_of_rows_at_a_zoom_is_as_tall_as_the_line_of_the_hosts_face_at_that_si
             Metrics {
                 width,
                 height: if font.size > 20.0 { 31.0 } else { 16.0 },
+                ascent: if font.size > 20.0 { 24.0 } else { 12.0 },
             }
         }
     }

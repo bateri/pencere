@@ -33,6 +33,12 @@ The cut may be **soft** at some of its edges (`Clip::fade`): a box that fades (a
 
 A box that is `absolute` stands against its parent's padding box, as in a style sheet (its `inset` is from the border in), an `overlay` against the page, and a box that is anchored beside the border box of its element.
 
+### Standing on a baseline
+
+A row that says `items_baseline()` stands its children on one baseline, as `align-items: baseline` does in a style sheet: the first line of words of each child (a text, a text of many looks, a box that has them in it, a host's text field) is on the same line, whatever size its words are, and the row is as tall as its children reach above that line and below it. A child that has no words (a picture, an empty box) has its bottom edge on the line. In a column `items_baseline()` puts the children at the start of the cross axis, as it does in a style sheet. `pencere.has("element.items_baseline")` names it.
+
+The baseline of a line of words is `ascent` below the top of its line box (`Metrics::ascent`, [Host](host.md#the-baseline-of-words)), and the line stands in the middle of its box, or at the top of it where the lines do not all fit in a text that wraps: the layout is told the baseline from the place the words are drawn from, so that they stand on the line the row aligned. A text of many looks has the baseline of the piece it begins with. A box is laid out in whole pixels, so words that are not as tall as the pixels they stand in are at most half a pixel from the line of their row. The baseline of a host's text field is the first line of its text in the face the kit measures the field in ([Text fields](host.md#text-fields)): where the host draws the field in another face, a row of a label and a field may be a few points off.
+
 ### Where the kit leaves the style sheet
 
 | A style sheet                                                                   | The kit                                                                                                                                                                                                               | On purpose                                                           |

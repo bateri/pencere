@@ -116,6 +116,8 @@ pub use ui::{DRAG_START, Drag, Dropped, Ui};
 #[cfg(test)]
 mod bands_tests;
 #[cfg(test)]
+mod baseline_tests;
+#[cfg(test)]
 mod browser_tests;
 #[cfg(test)]
 mod carry_tests;

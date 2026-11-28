@@ -127,6 +127,7 @@ impl pencere_view::Measure for Mute {
         pencere_view::Metrics {
             width: 0.0,
             height: 0.0,
+            ascent: 0.0,
         }
     }
 }

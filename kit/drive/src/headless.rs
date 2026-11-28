@@ -108,6 +108,7 @@ impl Measure for Fixed {
         Metrics {
             width: characters * self.advance,
             height: self.line,
+            ascent: self.line * 0.8,
         }
     }
 }

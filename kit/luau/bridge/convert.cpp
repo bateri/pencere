@@ -207,7 +207,7 @@ int word(lua_State* L, int t, const char* name, const char* const* words, int co
 
 const char* const kDisplay[] = {"flex", "grid", "none"};
 const char* const kDirection[] = {"row", "column"};
-const char* const kItems[] = {"start", "center", "end", "stretch"};
+const char* const kItems[] = {"start", "center", "end", "stretch", "baseline"};
 const char* const kJustify[] = {"start", "center", "end", "between"};
 const char* const kOverflow[] = {"visible", "hidden", "scroll"};
 const char* const kFamily[] = {"system", "terminal"};
@@ -224,7 +224,8 @@ static_assert(PENCERE_VIEW_TYPES_DISPLAY_FLEX == 0 && PENCERE_VIEW_TYPES_DISPLAY
 static_assert(PENCERE_VIEW_TYPES_DIRECTION_ROW == 0 && PENCERE_VIEW_TYPES_DIRECTION_COLUMN == 1,
               "kDirection is the order of direction");
 static_assert(PENCERE_VIEW_TYPES_ITEMS_START == 0 && PENCERE_VIEW_TYPES_ITEMS_CENTER == 1 &&
-                  PENCERE_VIEW_TYPES_ITEMS_END == 2 && PENCERE_VIEW_TYPES_ITEMS_STRETCH == 3,
+                  PENCERE_VIEW_TYPES_ITEMS_END == 2 && PENCERE_VIEW_TYPES_ITEMS_STRETCH == 3 &&
+                  PENCERE_VIEW_TYPES_ITEMS_BASELINE == 4,
               "kItems is the order of items");
 static_assert(PENCERE_VIEW_TYPES_JUSTIFY_START == 0 && PENCERE_VIEW_TYPES_JUSTIFY_CENTER == 1 &&
                   PENCERE_VIEW_TYPES_JUSTIFY_END == 2 && PENCERE_VIEW_TYPES_JUSTIFY_BETWEEN == 3,
@@ -569,7 +570,7 @@ void read_style(lua_State* L, int s, pencere_view_types_style_t& out, Arenas& ar
     out.gap_y = number(L, s, "gap_y", 0.0f);
     out.grow = number(L, s, "grow", 0.0f);
     out.shrink = optional_number(L, s, "shrink");
-    int items = word(L, s, "items", kItems, 4, -1);
+    int items = word(L, s, "items", kItems, 5, -1);
     if (items >= 0) out.items = {true, (uint8_t)items};
     int justify = word(L, s, "justify", kJustify, 4, -1);
     if (justify >= 0) out.justify = {true, (uint8_t)justify};

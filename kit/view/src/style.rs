@@ -85,6 +85,8 @@ pub enum Items {
     Center,
     End,
     Stretch,
+    /// The children of a row stand on the same baseline, that of their first line of words.
+    Baseline,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

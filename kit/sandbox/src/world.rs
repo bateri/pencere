@@ -1366,6 +1366,7 @@ fn style_out(
             wit::Items::Center => Items::Center,
             wit::Items::End => Items::End,
             wit::Items::Stretch => Items::Stretch,
+            wit::Items::Baseline => Items::Baseline,
         }),
         justify: style.justify.map(|justify| match justify {
             wit::Justify::Start => Justify::Start,

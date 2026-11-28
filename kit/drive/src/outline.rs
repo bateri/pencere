@@ -216,6 +216,7 @@ mod tests {
                 Metrics {
                     width: text.len() as f32 * 7.0,
                     height: 16.0,
+                    ascent: 12.0,
                 }
             }
             fn field_line(&mut self, _: &Font) -> Option<f32> {

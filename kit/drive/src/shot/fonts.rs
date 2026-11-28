@@ -778,10 +778,16 @@ impl Measure for Fonts {
             Some(layout) => {
                 let mut state = locked(&self.state);
                 let width = state.set_down(layout, font, text, self.scale, false).width;
-                let height = state
+                // The baseline is where the glyphs are set down below the top of the line (`line`):
+                // the number a page is aligned by is the one the picture is drawn with.
+                let (ascent, height) = state
                     .line(layout, font)
-                    .map_or(font.size * 1.25, |line| line.1);
-                Metrics { width, height }
+                    .unwrap_or((self.fixed.line * 0.8, font.size * 1.25));
+                Metrics {
+                    width,
+                    height,
+                    ascent,
+                }
             }
             None => self.fixed.measure(font, text),
         }

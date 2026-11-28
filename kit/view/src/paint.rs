@@ -6,7 +6,7 @@
 use crate::element::Fit;
 use crate::layout::{Content, Laid, Node, Placed, Rich, TextLine, rich_boxes};
 use crate::style::{Border, Gradient, Shadow, Truncate};
-use crate::text::wrap_lines;
+use crate::text::{lines_top, wrap_lines};
 use crate::{Align, Clip, Color, Font, Id, Measure, Path, Point, Rect, Size};
 
 /// A box: an optional fill, a fill that runs from one colour to another over it, a border (drawn
@@ -577,12 +577,10 @@ fn place_text(node: &Node, line: &TextLine, measure: &mut dyn Measure) -> Vec<Ru
     } else {
         vec![(line.text.clone(), whole.width)]
     };
-    #[allow(clippy::cast_precision_loss)]
-    let total = whole.height * lines.len() as f32;
     // One line stands in the middle of its box, whatever its height; lines that do not all fit
-    // start at the top, so that the first is the one seen.
-    let middle = (room.h - total) / 2.0;
-    let top = room.y + if line.wrap { middle.max(0.0) } else { middle };
+    // start at the top, so that the first is the one seen. The layout is told where the baseline of
+    // the first line is from the same place (`lines_top`).
+    let top = room.y + lines_top(room.h, whole.height, lines.len(), line.wrap);
     // A line that thins out where its box ends starts at the start of it, whatever its align: it is
     // its end that is cut.
     let fading = line.truncate == Truncate::Fade && !line.wrap && whole.width > box_width + 1.0;

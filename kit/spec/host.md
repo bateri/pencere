@@ -19,6 +19,10 @@ This repository's drive (`pencere-drive`, `kit/drive`) does it for a host, all b
 - turn its keys into the kit's;
 - and be its system's input method, pasteboard, pointer, fields, menus, browser, screen reader, clock and program.
 
+### The baseline of words
+
+A host measures a line of words (`Measure::measure`): its width, the height of its line box and `ascent`, how far down in the line box its baseline is, in the unit of `height`. The host draws a run of words with its baseline `ascent` below the origin the kit gives it, which is the top of the line box. A page that stands its rows on a baseline (`items_baseline`, [Layout](layout.md#standing-on-a-baseline)) is aligned by this number, so a host that draws its glyphs lower or higher than its `ascent` shows the rows off by as much. A host that draws no words measures nothing (`Metrics::default()`).
+
 ### Text fields
 
 A host puts one field of its own over each text field of the page (`Laid::fields`), of its kind, saying its hint while it is empty.

@@ -16,6 +16,7 @@ impl Measure for Rough {
         Metrics {
             width: text.chars().count() as f32 * font.size * 0.6,
             height: font.size * 1.3,
+            ascent: font.size,
         }
     }
 }

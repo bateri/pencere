@@ -24,6 +24,7 @@ impl Measure for Host {
         Metrics {
             width: text.chars().count() as f32 * font.size * 0.5,
             height: font.size * 1.25,
+            ascent: font.size,
         }
     }
 

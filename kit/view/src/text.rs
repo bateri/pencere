@@ -37,11 +37,34 @@ impl std::hash::Hash for Font {
 }
 
 /// What a line of text takes, in pixels: the width of the line and the height of its line
-/// box (ascent, descent and leading).
+/// box (ascent, descent and leading), and how far down in the line box its baseline is.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Metrics {
     pub width: f32,
     pub height: f32,
+    /// From the top of the line box to its baseline, in the unit of `height`: where the glyphs of
+    /// the line stand when its box is drawn. A host draws a line's text with the baseline this far
+    /// below the origin the kit gives it, so that what the page is laid out by (`items_baseline`) is
+    /// what is drawn.
+    pub ascent: f32,
+}
+
+/// How far below the top of its room the first of `lines` lines of `line` pixels each is, in a room
+/// `room` pixels tall: the lines stand in the middle of it, and lines that do not all fit start at the
+/// top where the text `wrap`s, so that the first is the one seen. What draws the lines and what the
+/// layout is told of their baseline ([`first_baseline`]) both take their place from this, so that the
+/// words stand on the baseline the layout aligned.
+pub(crate) fn lines_top(room: f32, line: f32, lines: usize, wrap: bool) -> f32 {
+    #[allow(clippy::cast_precision_loss)]
+    let total = line * lines as f32;
+    let middle = (room - total) / 2.0;
+    if wrap { middle.max(0.0) } else { middle }
+}
+
+/// How far below the top of its room the baseline of the first line is: [`lines_top`] and the
+/// line's ascent.
+pub(crate) fn first_baseline(room: f32, line: f32, ascent: f32, lines: usize, wrap: bool) -> f32 {
+    lines_top(room, line, lines, wrap) + ascent
 }
 
 /// The size of the kit's text where a page does not say one, points: the size of a text field of

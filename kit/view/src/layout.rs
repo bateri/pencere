@@ -11,7 +11,7 @@ use taffy::style::{
     MaxTrackSizingFunction, MinTrackSizingFunction, Overflow as TOverflow, Position,
     Style as TStyle,
 };
-use taffy::{NodeId, TaffyTree, compute_leaf_layout};
+use taffy::{Baselines, NodeId, TaffyTree, compute_leaf_layout};
 
 use crate::BrowserOptions;
 use crate::edit::EditorOptions;
@@ -22,7 +22,9 @@ use crate::style::{
     Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Shadow, Side,
     Style, TextStyle, Track, Truncate, Zoom,
 };
-use crate::text::{FITS, ZOOM_TEXT, field_line_height, wrap_lines};
+use crate::text::{
+    FITS, ZOOM_TEXT, field_font, field_line_height, first_baseline, lines_top, wrap_lines,
+};
 use crate::{
     Align, Clip, Color, Command, Element, Family, Font, Id, Key, Measure, Metrics, Mods, Path,
     Point, Rect, Role, Size, Span,
@@ -248,15 +250,21 @@ enum Leaf {
         /// What the box keeps for its padding across, pixels: a width that is given is the box's,
         /// and the words have what is left of it.
         inset: f32,
+        /// What it keeps above and below, pixels: the baseline is told from the room between.
+        edges: (f32, f32),
     },
     /// A text of many looks: its parts, the fonts they are in, whether it wraps, and what its box
-    /// keeps for its padding across.
+    /// keeps for its padding across, and above and below.
     Rich {
         spans: Vec<Span>,
         looks: Vec<Look>,
         wrap: bool,
         inset: f32,
+        edges: (f32, f32),
     },
+    /// A text field of the host's: how far down in its box the baseline of its first line is,
+    /// pixels, as far as the page knows it (the host draws the words).
+    Field { baseline: f32 },
     /// An image, with its size in pixels where the host knew it, and what the box keeps for its
     /// padding and border across and down: a side that is given is the box's, and the picture
     /// has what is left of it.
@@ -367,10 +375,13 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
         height: AvailableSpace::Definite(viewport.h),
     };
     let measured = tree.compute_layout_with_measure(root_id, space, |input, _node, leaf, style| {
+        // Where the words of a leaf have their first baseline, which is told once the box is as tall
+        // as it is: a line that is in the middle of its box has its baseline there.
+        let mut foot: Option<Foot> = None;
         // taffy places a leaf (its padding, border and the sizes its style gives) around the room
         // its content measures, which is all that is the engine's to say. No style of the kit's
         // is a `calc()`, so there is none to resolve.
-        compute_leaf_layout(
+        let mut out = compute_leaf_layout(
             input,
             style,
             |_, _| 0.0,
@@ -381,6 +392,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
                         font,
                         wrap: true,
                         inset,
+                        edges,
                     }) => {
                         // As wide as the box it is given less its padding, or as the room there is
                         // (none at all when the layout asks how narrow it can be: the longest word),
@@ -396,7 +408,8 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
                                 .entry((*font, run.to_owned()))
                                 .or_insert_with(|| measure.measure(font, run))
                         };
-                        let line_height = metrics(text).height;
+                        let whole = metrics(text);
+                        let line_height = whole.height;
                         let lines = wrap_lines(text, budget, &mut |run| metrics(run).width);
                         let widest = lines
                             .iter()
@@ -404,19 +417,40 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
                             .fold(0.0, f32::max);
                         #[allow(clippy::cast_precision_loss)]
                         let height = line_height * lines.len() as f32;
+                        foot = Some(Foot::Words {
+                            edges: *edges,
+                            line: line_height,
+                            ascent: whole.ascent,
+                            lines: lines.len(),
+                            wrap: true,
+                        });
                         Metrics {
                             width: widest,
                             height,
+                            ascent: whole.ascent,
                         }
                     }
-                    Some(Leaf::Text { text, font, .. }) => *cache
-                        .entry((*font, text.clone()))
-                        .or_insert_with(|| measure.measure(font, text)),
+                    Some(Leaf::Text {
+                        text, font, edges, ..
+                    }) => {
+                        let whole = *cache
+                            .entry((*font, text.clone()))
+                            .or_insert_with(|| measure.measure(font, text));
+                        foot = Some(Foot::Words {
+                            edges: *edges,
+                            line: whole.height,
+                            ascent: whole.ascent,
+                            lines: 1,
+                            wrap: false,
+                        });
+                        whole
+                    }
                     Some(Leaf::Rich {
                         spans,
                         looks,
                         wrap,
                         inset,
+                        edges,
                     }) => {
                         let budget = if *wrap {
                             let given = known.width.map(|side| (side - *inset).max(0.0));
@@ -441,12 +475,37 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
                                 .entry((*font, run.to_owned()))
                                 .or_insert_with(|| measure.measure(font, run))
                         });
+                        // The baseline of the line is the one its first piece is drawn on.
+                        let ascent = lines
+                            .first()
+                            .and_then(|line| line.pieces.first())
+                            .and_then(|piece| spans.get(piece.span).zip(looks.get(piece.span)))
+                            .map_or(0.0, |(span, look)| {
+                                cache
+                                    .entry((look.font, rich_sample(span).to_owned()))
+                                    .or_insert_with(|| {
+                                        measure.measure(&look.font, rich_sample(span))
+                                    })
+                                    .ascent
+                            });
                         #[allow(clippy::cast_precision_loss)]
                         let height = line_height * lines.len() as f32;
+                        foot = Some(Foot::Words {
+                            edges: *edges,
+                            line: line_height,
+                            ascent,
+                            lines: lines.len(),
+                            wrap: *wrap,
+                        });
                         Metrics {
                             width: widest,
                             height,
+                            ascent,
                         }
+                    }
+                    Some(Leaf::Field { baseline }) => {
+                        foot = Some(Foot::At(*baseline));
+                        Metrics::default()
                     }
                     Some(Leaf::Image { natural, inset }) => {
                         // The sides given are the box's; the room measured is the picture's, inside
@@ -465,7 +524,26 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
                     height: known.height.unwrap_or(natural.height),
                 }
             },
-        )
+        );
+        // A leaf with no words (a picture, an empty box) tells no baseline, and a row that aligns
+        // by baseline puts it on its bottom edge, as a style sheet does.
+        if let Some(foot) = foot {
+            let baseline = match foot {
+                Foot::At(baseline) => baseline,
+                Foot::Words {
+                    edges: (above, below),
+                    line,
+                    ascent,
+                    lines,
+                    wrap,
+                } => {
+                    above
+                        + first_baseline(out.size.height - above - below, line, ascent, lines, wrap)
+                }
+            };
+            out.baselines = Baselines::from_first(Some(baseline));
+        }
+        out
     });
     if measured.is_err() {
         return Laid {
@@ -742,15 +820,17 @@ fn rich_line_height(
     spans
         .iter()
         .zip(looks)
-        .map(|(span, look)| {
-            let sample = if span.text.trim().is_empty() {
-                "x"
-            } else {
-                span.text.as_str()
-            };
-            metrics(&look.font, sample).height
-        })
+        .map(|(span, look)| metrics(&look.font, rich_sample(span)).height)
         .fold(0.0, f32::max)
+}
+
+/// The words a part of a text of many looks is measured by: its own, or an "x" where it has none.
+fn rich_sample(span: &Span) -> &str {
+    if span.text.trim().is_empty() {
+        "x"
+    } else {
+        span.text.as_str()
+    }
 }
 
 /// The lines of a text of many looks in a box `width` pixels wide: as many as its words take in
@@ -1015,6 +1095,30 @@ fn inset_across(style: &Style, scale: f32) -> f32 {
     snap(left, scale) + snap(right, scale) + 2.0 * border_px(style, scale)
 }
 
+/// What the box of a text keeps above and below its words for its padding and its border, pixels.
+fn edges_down(style: &Style, scale: f32) -> (f32, f32) {
+    let [top, _, bottom, _] = style.padding;
+    let border = border_px(style, scale);
+    (snap(top, scale) + border, snap(bottom, scale) + border)
+}
+
+/// Where the first line of a leaf's words has its baseline, which the layout is told once the leaf
+/// is as tall as it is.
+#[derive(Clone, Copy)]
+enum Foot {
+    /// Words in a room: the first of `lines` lines of `line` pixels, `ascent` of it above the
+    /// baseline, in the room between `edges` (what the box keeps above and below).
+    Words {
+        edges: (f32, f32),
+        line: f32,
+        ascent: f32,
+        lines: usize,
+        wrap: bool,
+    },
+    /// A baseline the leaf knew, from the top of its box.
+    At(f32),
+}
+
 /// How many elements `root` is, itself among them.
 fn count(root: &Element) -> usize {
     let mut count = 0;
@@ -1166,6 +1270,7 @@ fn build(
                 font,
                 wrap: style.wrap,
                 inset: inset_across(&style, scale),
+                edges: edges_down(&style, scale),
             };
             if let Some(entry) = pending.get_mut(index) {
                 entry.content = Content::Text(TextLine {
@@ -1198,6 +1303,7 @@ fn build(
                 looks: looks.clone(),
                 wrap: style.wrap,
                 inset: inset_across(&style, scale),
+                edges: edges_down(&style, scale),
             };
             if let Some(entry) = pending.get_mut(index) {
                 entry.content = Content::Rich(Rich {
@@ -1290,7 +1396,19 @@ fn build(
                     .1,
                 );
             }
-            tree.new_with_children(taffy_style, &ids)
+            if ids.is_empty() && pending.get(index).is_some_and(|e| e.meta.field.is_some()) {
+                // The host draws the words of a field: where its first line stands is a line of the
+                // host's field in the room inside the box, as far as the kit can tell it (what the
+                // host says of its line, and the face the field is drawn in as the kit measures it).
+                let face = field_font(scale);
+                let sample = measure.measure(&face, "M");
+                let line = field_line_height(measure, scale);
+                let baseline =
+                    edges_down(&style, scale).0 + (line - sample.height) / 2.0 + sample.ascent;
+                tree.new_leaf_with_context(taffy_style, Leaf::Field { baseline })
+            } else {
+                tree.new_with_children(taffy_style, &ids)
+            }
         }
     };
     // Taffy cannot refuse a node it is given a valid style for; if it ever does, the
@@ -1419,6 +1537,7 @@ fn convert(style: &Style, scale: f32, is_text: bool) -> TStyle {
             Items::Center => AlignItems::CENTER,
             Items::End => AlignItems::FLEX_END,
             Items::Stretch => AlignItems::STRETCH,
+            Items::Baseline => AlignItems::BASELINE,
         }),
         justify_content: style
             .justify
@@ -3307,15 +3426,7 @@ pub struct BrowserRoom {
 /// each where its element's alignment puts it.
 pub(crate) fn rich_boxes<'a>(node: &Node, rich: &'a Rich) -> Vec<(Rect, &'a crate::rich::Piece)> {
     let room = node.content_box();
-    #[allow(clippy::cast_precision_loss)]
-    let total = rich.line_height * rich.lines.len() as f32;
-    let middle = (room.h - total) / 2.0;
-    let top = room.y
-        + if rich.base.wrap {
-            middle.max(0.0)
-        } else {
-            middle
-        };
+    let top = room.y + lines_top(room.h, rich.line_height, rich.lines.len(), rich.base.wrap);
     let mut out = Vec::new();
     for (index, line) in rich.lines.iter().enumerate() {
         // A line that thins out where its box ends starts at the start of it, whatever its align: it

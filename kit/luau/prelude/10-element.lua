@@ -1208,6 +1208,8 @@ local HAS = {
 	["layout.replaced_content_box"] = true,
 	-- Boxes that scroll together: `scroll_link(name, axis)`.
 	["element.scroll_link"] = true,
+	-- Children of a row on one baseline: `items_baseline()`.
+	["element.items_baseline"] = true,
 	-- What an editor took after the first kit, as `editor.<option>`: a zone that is as tall as `rows`
 	-- of the editor's rows (`{ zone = name, rows = 3 }`), and the row's height in `scroll_extent`.
 	["editor.zone_rows"] = true,
@@ -1647,6 +1649,10 @@ function Element:items_start() self.style.items = "start" return self end
 function Element:items_center() self.style.items = "center" return self end
 function Element:items_end() self.style.items = "end" return self end
 function Element:items_stretch() self.style.items = "stretch" return self end
+-- The children of a row stand on one baseline (a style sheet's `align-items: baseline`); a child with no
+-- words has its bottom edge there, and in a column the children are at the start. A page asks
+-- `pencere.has("element.items_baseline")` first.
+function Element:items_baseline() self.style.items = "baseline" return self end
 function Element:justify_start() self.style.justify = "start" return self end
 function Element:justify_center() self.style.justify = "center" return self end
 function Element:justify_end() self.style.justify = "end" return self end

@@ -55,6 +55,7 @@ impl Measure for Even {
         Metrics {
             width: text.chars().count() as f32 * 7.0,
             height: 16.0,
+            ascent: 12.0,
         }
     }
 }

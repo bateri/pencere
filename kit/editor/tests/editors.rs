@@ -43,6 +43,7 @@ impl Measure for Fake {
         Metrics {
             width: text.chars().map(width_of).sum(),
             height: 16.0,
+            ascent: 12.0,
         }
     }
 }

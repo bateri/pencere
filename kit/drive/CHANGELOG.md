@@ -14,6 +14,7 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Added
 
+- **A picture of a page measures `ascent` as it draws**: a line of words has its baseline where the picture sets the glyphs down below the top of the line (the face's own ascent), so that a row that stands on a baseline (`items_baseline`) is drawn on one. The headless measure (`Headless`) takes it as 0.8 of its line.
 - **A picture draws the soft edge of a clip** (`Clip::fade`): a box, a picture, a line of words and a glyph that the clip lets through thin out towards the edge as the clip says.
 - **`Headless::scroll_extent`**: how far a box that scrolls reaches and is scrolled, and for an editor how tall its row is, as of the last frame.
 - **A text field in a picture** (`Headless::shot`, the example `shots`) stands in the box of its text, inside the padding of its element, and a field of lines breaks its text and its hint at a word where that box is full and cuts them at its padding box, the room less the border.

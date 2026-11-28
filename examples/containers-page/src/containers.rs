@@ -1175,6 +1175,7 @@ mod tests {
             Metrics {
                 width: text.chars().count() as f32 * font.size * 0.55,
                 height: (font.size * 1.3).round(),
+                ascent: font.size,
             }
         }
     }
