@@ -8,7 +8,7 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Changed
 
-- **The parts of a text of many looks stand on one baseline**, as inline text does in a style sheet, and a line is as tall as its parts reach above and below it.
+- **Rich text with mixed faces sits on one baseline**, as inline text does in a style sheet, and a line is as tall as its tallest part needs.
 - **An editor is cut at its own rounded corners**: its text, its gutter and the line of its caret.
 - **A host's text field uses its element's font** (face, size and weight, inherited as with a style sheet's `font: inherit`). `Field` has a `font`, `field_font` is gone and `field_line_height` takes a font: a host measures the line of each font its fields use.
 - **Scroll bars sit inside the border**, in the padding box, as in a style sheet.
@@ -26,7 +26,7 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Added
 
-- **`Measure::field_baseline`** says where the words of a host's text field stand in its line, so that a label and a field line up on the baseline the host draws (`field_baseline_in` works it out where the host says nothing).
+- **`Measure::field_baseline`** tells where a host's text field draws its words, so that a label and its field line up; `field_baseline_in` estimates it when the host does not say.
 - **`Element::outline(width, color, offset)`**: a focus ring that takes no room, drawn over the box and what is in it and cut by the boxes around it. It is a quad with a border and no fill, so a host has nothing new to draw.
 - **`Element::items_baseline()`** lines up a row's children on the baseline of their first line of words.
 - **Clips can have a soft edge** (`Clip::fade`): what is drawn fades out towards an edge instead of stopping at it. Editors use it for long lines, and `Element::truncate_fade` for text.

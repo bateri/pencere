@@ -10,7 +10,7 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
 
 - **A long line fades out at the edge of the editor** instead of being cut off (`EditorOptions::fade`: 22 points by default, 0 turns it off). The gutter does not fade.
 - **Zones can be sized in rows** (`Zone::rows`): the gap stays that many rows tall when the zoom or the text size changes. The editor reports its row height (`EditorMetrics::row`).
-- **`Measured` passes on `Measure::field_line` and `Measure::field_baseline`** of the host's measure it wraps, so that a page's field of rows is as tall as the host's line.
+- **`Measured` passes on the host's `Measure::field_line` and `Measure::field_baseline`.**
 - `Editors::set_keyboard`: how the host's system makes its shortcuts (`KeyConvention`, a Mac's until it
   is said). For Windows and Linux ⌃ has the keys ⌘ has on a Mac that a terminal can send: ⌃A selects
   all, ⌃Z and ⌃Y undo and redo, ⌃← and ⌃→ go by words and ⌃Home and ⌃End to the document's ends (with
@@ -23,7 +23,7 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
 
 ### Changed
 
-- **A hint at the end of a line fades out with the text** where it goes past the room, instead of ending in "…" (an editor that does not fade still cuts it with "…").
+- **A hint at the end of a long line fades out with the text** instead of ending in "…".
 - **The line of the caret does not fade at an edge the caret is in**, so what is typed there stays clear.
 - **An editor respects its element's border and padding**, as a scrolling box in a style sheet does: it clips at the padding box and the padding scrolls with the text.
 - The editor's measure passes the page of an image on (`Measure::image(src, page)` of the engine).
