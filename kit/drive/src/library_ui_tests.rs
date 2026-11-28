@@ -690,6 +690,77 @@ end
     );
 }
 
+/// A text field is set in the text of its element: the box an input stands in says its size and its
+/// face, and the input says its own size (and its hint is in it).
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn an_input_is_set_in_the_text_of_its_box_and_says_its_size_where_the_page_gives_one()
+-> Result<(), Error> {
+    let page = open(
+        r#"
+view = function(u)
+    return pencere.div():col():gap(8):w(300)
+        :child(u:input("plain", { label = "Plain" }))
+        :child(pencere.div():text_size(15):weight(700):family("system")
+            :child(u:input("inside", { label = "Inside", hint = "Search" })))
+        :child(u:input("said", { label = "Said", hint = "Search", text_size = 14 }))
+        :child(u:input("lines", { kind = "lines", rows = 2, label = "Lines", text_size = 16 }))
+        :child(u:input("small", { kind = "lines", rows = 2, label = "Small" }))
+        :child(u:input("big", { label = "Big", text_size = 20 }))
+end
+"#,
+    )?;
+    let fields = &page.outline().fields;
+    let field = |name: &str| {
+        fields
+            .iter()
+            .find(|field| field.id == pencere_view::Id::named(name))
+            .unwrap_or_else(|| panic!("no field {name}"))
+    };
+    use pencere_view::Family;
+    // Where nothing says, the terminal's face at the kit's size, regular.
+    let plain = field("plain/field").font;
+    assert_eq!(
+        (plain.family, plain.size, plain.weight, plain.italic),
+        (Family::Terminal, pencere_view::ZOOM_TEXT, 400, false)
+    );
+    // The box around the input says it, and the field takes all three.
+    let inside = field("inside/field").font;
+    assert_eq!(
+        (inside.family, inside.size, inside.weight),
+        (Family::System, 15.0, 700)
+    );
+    // The input says its own size, the face stays the page's default.
+    assert_eq!(field("said/field").font.size, 14.0);
+    assert_eq!(field("said/field").font.family, Family::Terminal);
+    // A field of lines says it as well as one of a line does (how tall its rows come to is the host's
+    // line of that font).
+    assert_eq!(field("lines/field").font.size, 16.0);
+    assert_eq!(field("small/field").font.size, pencere_view::ZOOM_TEXT);
+    // A box of one line is as tall as a control, and where the text says a size it is as tall as a line of
+    // it comes to at the least, whether there is a hint in it to make it so or not.
+    assert_eq!(page.bounds("plain").map(|rect| rect.h), Some(26.0));
+    assert!(
+        page.bounds("big").is_some_and(|rect| rect.h > 26.0),
+        "{:?}",
+        page.bounds("big")
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn an_input_that_says_a_size_that_is_not_a_size_fails_the_page() {
+    let why = failing(
+        r#"
+view = function(u)
+    return u:input("q", { label = "Search", text_size = 0 })
+end
+"#,
+    );
+    assert!(why.contains("text_size is a number of points"), "{why}");
+}
+
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn segments_choose_one_and_move_with_the_arrow_keys_as_radio_buttons_do() -> Result<(), Error> {

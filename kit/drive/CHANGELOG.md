@@ -8,6 +8,8 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Changed
 
+- **A picture of a page draws a text field in the font of its element**: the face, the size and the weight the element says or inherits, with the line of that font, where it drew every field in the terminal's face at the kit's size.
+- **`Field` of the outline has a `font` field**: the font the field's words are set in (`pencere_view::Field::font`), the size in the host's points like its boxes (the page's points times the zoom), so that a host sets its own field in it. A `Field { .. }` written out in full needs it.
 - **A picture of a page frames a browser in its content box**, the room it has inside the border and the padding of its element.
 - **A picture of a page draws a border as the box it takes**: what is in a box stands inside its border and padding (a text, a sparkline, a canvas in the room that is left), and the ground of a child does not cover the border of the box it is in.
 - **The headless picture cuts at the round corners of a `Clip`**: a box, a line of words, a picture, a rule or a figure that a rounded box that clips holds is cut by the corners of its padding box, with an edge a pixel wide as a box's is, so a child's ground no longer squares off the corner of the box around it. What the picture moves by (`slide`) and the rows and columns it redraws read the rectangle of a clip, and a box with round corners is not drawn whole.

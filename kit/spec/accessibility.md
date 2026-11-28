@@ -105,7 +105,7 @@ A host asks a page to **show** something (a screen reader moved to a row that is
 - `"role.<role>"`;
 - `"element.<method>"` for each method that came after the first kit (`layer`, `fallback_name`, `mixed`, `level`, `position`, `table_size`, `cell_at`, `sorted`, `role_description`, `m`, `mx`, `my`, `h_pct`, `scroll_link`, `items_baseline`, `outline`);
 - `"text_field.<option>"` for each option of `text_field` that came after the first kit (`rows`);
-- `"layout.<behaviour>"` for a change in how boxes are laid out that the sizes of a page depend on (`"layout.border_box"`: a border takes room in a box, as [the box](layout.md#the-box-of-an-element) says; `"layout.replaced_content_box"`: the room of a browser is its content box and an editor cuts at its padding box and starts its text past the element's padding);
+- `"layout.<behaviour>"` for a change in how boxes are laid out that the sizes of a page depend on (`"layout.border_box"`: a border takes room in a box, as [the box](layout.md#the-box-of-an-element) says; `"layout.replaced_content_box"`: the room of a browser is its content box and an editor cuts at its padding box and starts its text past the element's padding; `"layout.field_font"`: a host's text field is set in the text of its element, [as the field says](elements.md#the-font-of-its-words));
 - `"editor.<option>"` for an option or an ability of the editor that came after the first kit (`zone_rows`: a zone that is `rows` rows tall, and the row's height in `scroll_extent`; `fade`: a line that goes past the text thins out at its edge);
 - `"text.<option>"` for a way a text is set that came after the first kit (`truncate_fade`: `truncate("fade")`);
 - `"event.reveal"`;

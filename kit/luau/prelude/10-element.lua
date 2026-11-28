@@ -1206,6 +1206,10 @@ local HAS = {
 	-- A browser's room is the content box of its element, and an editor cuts at its padding box and
 	-- starts its text past the element's padding, which scrolls with it.
 	["layout.replaced_content_box"] = true,
+	-- A host's field of text is set in the text of its element (its size, face and weight, or those of
+	-- the boxes around it), as a style sheet's `font: inherit` has it, and not in the terminal's face at
+	-- the kit's size whatever the page says.
+	["layout.field_font"] = true,
 	-- Boxes that scroll together: `scroll_link(name, axis)`.
 	["element.scroll_link"] = true,
 	-- Children of a row on one baseline: `items_baseline()`.
@@ -1226,8 +1230,8 @@ local HAS = {
 	-- dragged to its limit (a split's, a grid's column's).
 	["ui.list.reveal"] = true, ["ui.grid.reveal"] = true, ["ui.list.radius"] = true,
 	["ui.split.haptic"] = true, ["ui.grid.haptic"] = true,
-	-- The `rows` of an input of lines.
-	["ui.input.rows"] = true,
+	-- The `rows` of an input of lines, and the size of the text of an input.
+	["ui.input.rows"] = true, ["ui.input.text_size"] = true,
 	-- The modules of the library that a page asks for before it requires them.
 	["library.query"] = true,
 	-- What the motion of an element took after the first kit, as `element.<method>` and

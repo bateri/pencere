@@ -2290,6 +2290,12 @@ fn what_replies_ask_of_fields_not_yet_laid_is_held_in_order() {
         rect: Rect::new(0.0, 0.0, 10.0, 10.0),
         padding_box: Rect::new(0.0, 0.0, 10.0, 10.0),
         text: Rect::new(0.0, 0.0, 10.0, 10.0),
+        font: pencere_view::Font {
+            family: pencere_view::Family::Terminal,
+            size: crate::ZOOM_TEXT,
+            weight: 400,
+            italic: false,
+        },
         hint: None,
         label: None,
         covered: false,

@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use pencere_drive::Field;
 use pencere_drive::shot::{Fonts, Palette, raster};
 use pencere_view::{
-    Color, DrawList, FieldKind, Fill, Id, Key, Menu, MenuEntry, Mods, Paint, Panel, Point, Rect,
-    Role, Shortcut,
+    Color, DrawList, Family, FieldKind, Fill, Font, Id, Key, Menu, MenuEntry, Mods, Paint, Panel,
+    Point, Rect, Role, Shortcut,
 };
 
 use crate::chrome::{self, Paper};
@@ -102,6 +102,16 @@ fn fills(items: &[Paint], role: Role) -> Vec<Rect> {
         .collect()
 }
 
+/// The font of a field in a box that says nothing of its text: the terminal's face at the kit's size.
+fn terminal() -> Font {
+    Font {
+        family: Family::Terminal,
+        size: pencere_drive::ZOOM_TEXT,
+        weight: 400,
+        italic: false,
+    }
+}
+
 fn room() -> Field {
     Field {
         id: Id::named("find"),
@@ -109,6 +119,7 @@ fn room() -> Field {
         rect: Rect::new(20.0, 30.0, 150.0, 18.0),
         padding_box: Rect::new(20.0, 30.0, 150.0, 18.0),
         text: Rect::new(20.0, 30.0, 150.0, 18.0),
+        font: terminal(),
         hint: Some("Find".to_owned()),
         label: None,
         covered: false,
@@ -168,6 +179,7 @@ fn a_field_of_lines_is_broken_in_the_box_of_its_text_and_drawn_row_under_row_fro
         rect: Rect::new(20.0, 30.0, 200.0, 100.0),
         padding_box: Rect::new(20.0, 30.0, 200.0, 100.0),
         text,
+        font: terminal(),
         hint: Some("Reply to this message".to_owned()),
         label: None,
         covered: false,
@@ -225,6 +237,7 @@ fn a_field_of_lines_shows_the_rows_beside_the_ones_in_its_box_in_its_padding_and
         rect: Rect::new(20.0, 33.0, 200.0, text.bottom() + 9.0 + 1.0 - 33.0),
         padding_box: Rect::new(21.0, 34.0, 198.0, text.bottom() + 9.0 - 34.0),
         text,
+        font: terminal(),
         hint: None,
         label: None,
         covered: false,
@@ -314,6 +327,7 @@ fn what_is_selected_of_a_row_is_cut_at_the_sides_of_the_box_and_a_hint_runs_into
         rect: Rect::new(25.0, 35.0, text.w + 10.0, text.h + 2.0 * line / scale),
         padding_box: Rect::new(25.0, 35.0, text.w + 10.0, text.h + 2.0 * line / scale),
         text,
+        font: terminal(),
         hint: Some("aaa bbb ccc ddd eee fff".to_owned()),
         label: None,
         covered: false,
@@ -369,6 +383,7 @@ fn a_field_of_lines_with_no_padding_draws_the_rows_its_box_shows_whatever_its_he
         rect: text,
         padding_box: text,
         text,
+        font: terminal(),
         hint: None,
         label: None,
         covered: false,

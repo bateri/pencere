@@ -108,8 +108,7 @@ pub use system::{
     Drawing, KeyConvention, TerminalCaret, TerminalLook, TerminalSelection, WallTime,
 };
 pub use text::{
-    Align, EditorMetrics, Family, Font, Measure, Metrics, ZOOM_TEXT, break_rows, field_font,
-    field_line_height,
+    Align, EditorMetrics, Family, Font, Measure, Metrics, ZOOM_TEXT, break_rows, field_line_height,
 };
 pub use ui::{DRAG_START, Drag, Dropped, Ui};
 
@@ -125,6 +124,8 @@ mod carry_tests;
 mod commands_tests;
 #[cfg(test)]
 mod editor_tests;
+#[cfg(test)]
+mod field_font_tests;
 #[cfg(test)]
 mod figure_tests;
 #[cfg(test)]

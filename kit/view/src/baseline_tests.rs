@@ -161,6 +161,33 @@ fn a_text_field_tells_a_baseline_for_its_first_line() {
 }
 
 #[test]
+fn a_text_field_stands_on_the_baseline_of_the_text_of_its_box_and_not_of_the_kits_default() {
+    let field = || {
+        div()
+            .field(FIELD, FieldKind::Line)
+            .w(100.0)
+            .h(30.0)
+            .p(4.0)
+            .border(1.0, Role::Border)
+    };
+    // The box says 20 points: the field is set in it, a line of 25 and an ascent of 20 here.
+    let root = div()
+        .row()
+        .items_baseline()
+        .text_size(20.0)
+        .child(text("Name").text_size(11.0))
+        .child(field());
+    let boxes = rects(root.clone());
+    let list = drawn(root);
+    let field_baseline = boxes[2].y + 1.0 + 4.0 + (20.0 - 25.0) / 2.0 + 20.0;
+    assert!(
+        (field_baseline - baselines(&list)[0]).abs() <= HALF,
+        "{field_baseline} and {:?}",
+        baselines(&list)
+    );
+}
+
+#[test]
 fn a_field_of_lines_stands_its_first_line_at_the_top_of_its_text_box() {
     let root = div()
         .row()

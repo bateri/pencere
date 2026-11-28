@@ -72,7 +72,7 @@ A text that does not fit its one line runs past its box, or, with `truncate`, en
 
 ### A text in a field
 
-A text inside a `text_field` element is what the host's field says while it is empty, as in `div():text_field("filter"):child(text("Filter images"))`. The host draws it, the page does not.
+A text inside a `text_field` element is what the host's field says while it is empty, as in `div():text_field("filter"):child(text("Filter images"))`. The host draws it, in the font of the field ([the font of its words](#the-font-of-its-words)), the page does not.
 
 ## Text field
 
@@ -84,9 +84,13 @@ A **text field** is a field of the host's own. It is put over the room of the el
 - `"lines"` breaks the line at enter and scrolls;
 - `"secret"` is one line whose characters are not shown and are never copied.
 
+### The font of its words
+
+The host sets the words of a field in the text of its element, as a style sheet's `font: inherit` has a field take the text of the box it is in: the size (`text_size`), the face (`family`), the weight and the italic that the element says or that it inherits from the boxes around it, as a text inside it would have them; where none of them says, the terminal's face at the kit's text size, regular. A page that sets a field in a size puts `text_size` on the field or on a box around it (`div():text_field("search"):text_size(13.5)`), and the hint inside the field is set in the same font. The colour of the words and of what is selected are the host's own. A page that sizes a field asks `pencere.has("layout.field_font")` first ([Accessibility](accessibility.md#asking-whether-the-kit-has-what-a-page-needs)): a kit that does not have it sets every field in the terminal's face at the kit's size, whatever the page says.
+
 ### How tall it is, and where its text stands
 
-A field is as tall as its element's style says, or, for a field of lines, as many lines as the page says: `text_field(id, "lines", { rows = 3 })` (a whole number from 1 to 100; `Element::field_rows` in Rust). The host says how tall one line of its field is (`Measure::field_line`, [Host](host.md#text-fields)), and the element is that many of them, and its padding and border besides: it is as tall as the lines whatever the size of the text and the host's zoom, and the page does not work a height out. Rows take the place of the height: a page that gives an element both (`h`, `h_pct`, `h_full`, `size_full`, `size` with a height) has failed, in whichever order it says them; the least and the greatest height (`min_h`, `max_h`) still hold. Rows are for a field of lines only. A page that uses them asks `pencere.has("text_field.rows")` first ([Accessibility](accessibility.md#asking-whether-the-kit-has-what-a-page-needs)).
+A field is as tall as its element's style says, or, for a field of lines, as many lines as the page says: `text_field(id, "lines", { rows = 3 })` (a whole number from 1 to 100; `Element::field_rows` in Rust). The host says how tall one line of its field is (`Measure::field_line`, [Host](host.md#text-fields)), and the element is that many of them, and its padding and border besides: it is as tall as the lines of its font, whatever the size of the text and the host's zoom, and the page does not work a height out. Rows take the place of the height: a page that gives an element both (`h`, `h_pct`, `h_full`, `size_full`, `size` with a height) has failed, in whichever order it says them; the least and the greatest height (`min_h`, `max_h`) still hold. Rows are for a field of lines only. A page that uses them asks `pencere.has("text_field.rows")` first ([Accessibility](accessibility.md#asking-whether-the-kit-has-what-a-page-needs)).
 
 The padding of the element is the field's: the text stands in the room less the border and the padding (`Field::text`), and the whole room is the field's for the pointer, so a press in the padding is a press in the field. A field of lines starts its text at the top of that box and breaks a line that is too long at a word, as the host's own fields do; it cuts what it shows, and scrolls, at the room less the border (`Field::padding_box`), the padding scrolling with the text ([Host](host.md#text-fields)). A field of one line has its line in the middle of its text box.
 

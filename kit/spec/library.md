@@ -558,11 +558,13 @@ Paste is the host's line (`paste = editor`):
 
 ### A field of text
 
-`u:input(id, { label =, hint =, kind =, state =, tone =, lead =, trail =, select =, escape =, rows = })` is the host's field of text in a box of the theme: its ground, a border of one point (a `tone` changes its colour; the keyboard's ring is an [outline](layout.md#the-ring-around-a-box) around the box, which takes no room) and the theme's padding. The box is as tall as a control (`size.control`), border included, as [a box of the kit is](layout.md#the-box-of-an-element); a field of one line is the same size it has always been.
+`u:input(id, { label =, hint =, kind =, state =, tone =, lead =, trail =, select =, escape =, rows =, text_size = })` is the host's field of text in a box of the theme: its ground, a border of one point (a `tone` changes its colour; the keyboard's ring is an [outline](layout.md#the-ring-around-a-box) around the box, which takes no room) and the theme's padding. The box is as tall as a control (`size.control`), border included, as [a box of the kit is](layout.md#the-box-of-an-element); a field of one line is the same size it has always been.
 
 A field of `lines` with no `lead` and no `trail` is the field element itself: the ground, the border and the padding are its own, so that the host scrolls the text in the padding and the first and the last line stand a padding from the edge ([Text fields](host.md#text-fields)). With a `lead` or a `trail` the box holds them with the field inside it, as the other kinds are made, as tall as a control at the least, and the text scrolls in the field. The element that carries the input's name is a plain one around the field, as large as it is.
 
 `rows` (a field of `lines` only; a page asks `pencere.has("ui.input.rows")` first) is how many lines the field is as tall as, from 1 to 100: that many of the host's lines, the padding and the border, with no least height. A page does not give `rows` and a height.
+
+`text_size` (a page asks `pencere.has("ui.input.text_size")` first) is the size of the field's words in points, above nothing: the host sets a field in the text of its element ([the font of its words](elements.md#the-font-of-its-words)), and the input says the size on its field, so that its hint is in it too. Without it the field is in the text of the box the input stands in, which is the kit's own size where no box says another. A box of one line is as tall as a control at the least, and where `text_size` is said as tall as 1.4 times it, so that larger words are not squeezed (where the size comes from a box around the input, the hint inside it is what makes the box taller, and an input with no hint keeps the height of a control).
 
 ### A picker
 

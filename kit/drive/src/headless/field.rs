@@ -15,8 +15,7 @@ use std::ops::Range;
 
 #[cfg(feature = "shot")]
 use pencere_view::{
-    Color, Font, Id, Measure, Paint, Point, Quad, Rect, Role, Run, break_rows, field_font,
-    field_line_height,
+    Color, Font, Id, Measure, Paint, Point, Quad, Rect, Role, Run, break_rows, field_line_height,
 };
 use pencere_view::{FieldKind, FieldState, Fill, Key, Mods};
 
@@ -210,8 +209,8 @@ fn byte_at(text: &str, at: usize) -> usize {
 }
 
 /// The host's fields over a picture of the page ([`super::Headless::shot`]), as a system's are over
-/// the page: each says what it holds, in the terminal's face at the kit's text size (a secret a dot
-/// for each character), or its hint, quiet, where it holds nothing. The text stands in its box
+/// the page: each says what it holds, in the font of its element (`Field::font`; a secret a dot for
+/// each character), or its hint, quiet, where it holds nothing. The text stands in its box
 /// (`Field::text`), inside the padding of the element. One line stands in the middle of its box, with
 /// what is selected under its words and, in the field that has the keyboard, the caret where nothing
 /// is selected, and it scrolls as a field does to keep the caret in its box (and is cut at the room, so
@@ -221,23 +220,26 @@ fn byte_at(text: &str, at: usize) -> usize {
 /// the padding box (`Field::padding_box`: the room less the border). The page is
 /// laid out with the same `fonts` ([`super::Opening::measure`]), so that the line is the one its boxes
 /// were made of. A field the page covers is not drawn. `fields` are the last frame's (the host's
-/// points), `held` what they hold, `focus` the one with the keyboard, `zoom` the page's and `scale` the
-/// view's pixels to a point.
+/// points), `held` what they hold, `focus` the one with the keyboard and `scale` the view's pixels to
+/// a point.
 #[cfg(feature = "shot")]
 pub(super) fn drawn(
     fields: &[Field],
     held: &HashMap<Id, Held>,
     focus: Option<Id>,
-    zoom: f32,
     scale: f32,
     fonts: &crate::shot::Fonts,
 ) -> Vec<Paint> {
     let mut measure = fonts.clone();
-    // The field's face and line as the page was laid out with them, from the same two places.
-    let font = field_font(zoom * scale);
-    let line = field_line_height(&mut measure, zoom * scale);
     let mut items = Vec::new();
     for field in fields.iter().filter(|field| !field.covered) {
+        // The field's face and line as the page was laid out with them: the font the field says
+        // (the text of its element, in the view's pixels) and the line asked of the same font.
+        let font = Font {
+            size: field.font.size * scale,
+            ..field.font
+        };
+        let line = field_line_height(&mut measure, &font);
         // The text stands in its box, inside the padding of the element; the room is the pointer's.
         let room = Rect::new(
             field.text.x * scale,
@@ -417,6 +419,12 @@ mod tests {
                 rect: Rect::new(10.0, 20.0, 100.0, 24.0),
                 padding_box: Rect::new(10.0, 20.0, 100.0, 24.0),
                 text: Rect::new(10.0, 20.0, 100.0, 24.0),
+                font: Font {
+                    family: Family::Terminal,
+                    size: ZOOM_TEXT,
+                    weight: 400,
+                    italic: false,
+                },
                 hint: hint.map(str::to_owned),
                 label: None,
                 covered: false,
@@ -427,14 +435,21 @@ mod tests {
             HashMap::from([(NAME, Held::holding(text))])
         }
 
-        /// The field `field` holding `held`, drawn at twice its points, `focus` with the keyboard.
+        /// The field `field` holding `held`, drawn at twice its points, `focus` with the keyboard. A page
+        /// at `zoom` has its fields' fonts that many times as large in the host's points.
         fn draw(field: &Field, held: &HashMap<Id, Held>, focus: bool, zoom: f32) -> Vec<Paint> {
             let focus = focus.then_some(NAME);
+            let field = Field {
+                font: Font {
+                    size: field.font.size * zoom,
+                    ..field.font
+                },
+                ..field.clone()
+            };
             drawn(
-                std::slice::from_ref(field),
+                std::slice::from_ref(&field),
                 held,
                 focus,
-                zoom,
                 2.0,
                 &Fonts::none(),
             )
@@ -707,8 +722,32 @@ mod tests {
         }
 
         #[test]
+        fn a_field_is_drawn_in_the_font_of_its_element_at_the_views_scale() {
+            // The element says 15 points in the system's face, bold: at twice the points, 30 pixels.
+            let said = Font {
+                family: Family::System,
+                size: 15.0,
+                weight: 700,
+                italic: false,
+            };
+            let wide = Field {
+                font: said,
+                ..field(FieldKind::Line, None)
+            };
+            let items = draw(&wide, &holding("Fix it"), false, 1.0);
+            let [run] = runs(&items)[..] else {
+                panic!("one run: {items:?}")
+            };
+            let drawn_in = Font { size: 30.0, ..said };
+            assert_eq!(run.font, drawn_in);
+            // In the middle of its room by the line of that font.
+            let line = Fonts::none().measure(&drawn_in, "M").height;
+            assert_eq!(run.origin, Point::new(20.0, 40.0 + (48.0 - line) / 2.0));
+        }
+
+        #[test]
         fn a_page_with_no_field_has_nothing_drawn_over_it() {
-            assert!(drawn(&[], &HashMap::new(), None, 1.0, 2.0, &Fonts::none()).is_empty());
+            assert!(drawn(&[], &HashMap::new(), None, 2.0, &Fonts::none()).is_empty());
         }
     }
 }

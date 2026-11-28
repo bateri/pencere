@@ -2449,7 +2449,7 @@ impl<P: Peer> Headless<P> {
     /// `fonts` (the page laid out with the same, [`Opening::measure`], for its words to fill their
     /// boxes; [`crate::shot::Fonts::none`] draws each character as a box, the same on every
     /// machine), in a dark terminal's colours. The host's text fields are drawn over the page as a
-    /// system's are: what each holds in the terminal's face at the kit's text size (a secret as
+    /// system's are: what each holds in the font of its element (`Field::font`; a secret as
     /// dots), or its hint, quiet, where it holds nothing; what is selected in it, and the caret of
     /// the one that has the keyboard.
     ///
@@ -2490,7 +2490,6 @@ impl<P: Peer> Headless<P> {
             self.page.fields(),
             &self.seen.fields,
             focus,
-            self.page.placement().zoom,
             scale,
             fonts,
         ));

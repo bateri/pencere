@@ -22,9 +22,7 @@ use crate::style::{
     Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Ring, Shadow,
     Side, Style, TextStyle, Track, Truncate, Zoom,
 };
-use crate::text::{
-    FITS, ZOOM_TEXT, field_font, field_line_height, first_baseline, lines_top, wrap_lines,
-};
+use crate::text::{FITS, ZOOM_TEXT, field_line_height, first_baseline, lines_top, wrap_lines};
 use crate::{
     Align, Clip, Color, Command, Element, Family, Font, Id, Key, Measure, Metrics, Mods, Path,
     Point, Rect, Role, Size, Span,
@@ -177,6 +175,9 @@ pub(crate) struct Node {
     /// rounded to whole pixels, which is what the text was measured in. Its lines are broken there
     /// when it is drawn, so that it draws as many as its box was made tall for.
     pub wraps_at: f32,
+    /// For a text field of the host's: the font its words are set in, the text of the element
+    /// (what it says or inherits) at the layout's scale.
+    pub field_font: Option<Font>,
 }
 
 impl Node {
@@ -307,6 +308,8 @@ struct Pending {
     radii: [f32; 4],
     shadow: Option<Shadow>,
     outline: Option<Ring>,
+    /// For a text field of the host's: the font the host sets its words in (the element's text).
+    field_font: Option<Font>,
     /// It is an overlay: a child of the page's box in the layout, whatever holds it.
     overlay: bool,
     /// It is laid over the rest of the box it is in, where the page says.
@@ -677,6 +680,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             ],
             placed: entry.overlay || entry.absolute,
             wraps_at: inner_width(tree.unrounded_layout(entry.id)),
+            field_font: entry.field_font,
         });
     }
     // `nodes`, `reach` and `inside` get one entry for every element: they are the same length.
@@ -1076,6 +1080,7 @@ fn empty(page: Rect) -> Node {
         pad: [0.0; 4],
         placed: false,
         wraps_at: 0.0,
+        field_font: None,
     }
 }
 
@@ -1203,6 +1208,9 @@ fn build(
         }),
         _ => None,
     };
+    // The host draws the words of a field in the text of its element, as a style sheet's
+    // `font: inherit` has a field take what is around it: the same font a text in the box would be.
+    let field_font = meta.field.map(|_| font);
     let index = pending.len();
     let px = |points: f32| snap(points, scale);
     pending.push(Pending {
@@ -1253,6 +1261,7 @@ fn build(
                 color: o.color,
                 offset: px(o.offset),
             }),
+        field_font,
         overlay: false,
         absolute: style.absolute,
         anchor: style.anchor,
@@ -1263,7 +1272,7 @@ fn build(
         // The box is the lines, the padding and the border: the height the page gave is not used,
         // the least and the most are.
         let border = border_px(&style, scale);
-        let line = field_line_height(measure, scale);
+        let line = field_line_height(measure, &font);
         let room = px(style.padding[0]) + px(style.padding[2]) + 2.0 * border;
         // Whole pixels, upward: a box rounded down is shorter than the lines it holds, and the
         // host cuts the last.
@@ -1422,9 +1431,8 @@ fn build(
                 // in as the kit measures it). A field of one line has its line in the middle of the
                 // box, as the host draws it, so the baseline waits for the field's height; a field of
                 // lines starts at the top of it.
-                let face = field_font(scale);
-                let sample = measure.measure(&face, "M");
-                let line = field_line_height(measure, scale);
+                let sample = measure.measure(&font, "M");
+                let line = field_line_height(measure, &font);
                 let ascent = (line - sample.height) / 2.0 + sample.ascent;
                 let edges = edges_down(&style, scale);
                 let foot = if kind == FieldKind::Lines {
@@ -2300,13 +2308,16 @@ impl Laid {
             .enumerate()
             .filter(|(_, node)| !node.hidden)
             .filter_map(|(index, node)| {
-                let (Some(id), Some(kind)) = (node.meta.id, node.meta.field) else {
+                let (Some(id), Some(kind), Some(font)) =
+                    (node.meta.id, node.meta.field, node.field_font)
+                else {
                     return None;
                 };
                 let (padding_box, text) = inner_boxes(node);
                 Some(Field {
                     id,
                     kind,
+                    font,
                     rect: Rect::new(
                         node.rect.x / s,
                         node.rect.y / s,
@@ -3429,6 +3440,14 @@ pub struct Field {
     /// Its name: the id of the element that is its room.
     pub id: Id,
     pub kind: FieldKind,
+    /// The font its words are set in: the text of its element (the face, the size, the weight and
+    /// the italic it says, or the boxes around it do, as a style sheet's `font: inherit` has a field
+    /// take them), where nothing says, the terminal's face at [`crate::ZOOM_TEXT`], regular. **Its
+    /// size is in pixels**, as [`crate::Measure`]'s are (the page's points times the scale), where
+    /// `rect`, `padding_box` and `text` are in points: it is the font the layout asks the host
+    /// [`crate::Measure::field_line`] of, and a host that sets the field in points takes
+    /// `font.size / scale` of it (the drive's `Field` does so, in the host's points).
+    pub font: Font,
     /// Where its room stands, points: all of it is the field's for the pointer.
     pub rect: Rect,
     /// The room less its border, points: the box a field of lines cuts its text at and scrolls it

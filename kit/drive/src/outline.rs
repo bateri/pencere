@@ -2,7 +2,9 @@
 //! fields it puts over it, what a screen reader says of it, its tooltips and its commands.
 
 use crate::browsers::Browser;
-use pencere_view::{Accessible, AccessibleRole, Command, FieldKind, Id, Laid, Point, Rect, State};
+use pencere_view::{
+    Accessible, AccessibleRole, Command, FieldKind, Font, Id, Laid, Point, Rect, State,
+};
 
 /// Where a page stands in the host's view: below the host's own `inset` points (a strip of its
 /// own over the page, which the page never draws into), and `zoom` of the host's points to one of
@@ -27,7 +29,8 @@ impl Default for Placement {
 }
 
 /// The size of the kit's text where a page does not say one (12.5 points, `pencere-view`'s): a
-/// host whose text is this size draws a page at its own size, and its text fields are set in it.
+/// host whose text is this size draws a page at its own size (a text field of its own is set in
+/// the text of its element, which is this size where nothing says another).
 pub use pencere_view::ZOOM_TEXT;
 
 /// The least and the most a page is drawn at, against its own size: a terminal set in a tiny or a
@@ -77,9 +80,13 @@ pub struct Field {
     /// cuts its text and scrolls it, the padding scrolling with it.
     pub padding_box: Rect,
     /// Where its text stands: the padding box less the padding of the element
-    /// ([`pencere_view::Field::text`]). Set in the host's field font, and in a field of lines
-    /// broken at its width, from its top.
+    /// ([`pencere_view::Field::text`]). Set in `font`, and in a field of lines broken at its width,
+    /// from its top.
     pub text: Rect,
+    /// The font its text is set in: the text of its element ([`pencere_view::Field::font`]), the
+    /// size in the host's points like the boxes (the page's points times the zoom) and not in the
+    /// layout's pixels.
+    pub font: Font,
     pub hint: Option<String>,
     pub label: Option<String>,
     /// Something the page draws lies over it (a popover, a dialog): the host does not show it.
@@ -152,6 +159,10 @@ impl Outline {
                     rect: at.to_host(field.rect),
                     padding_box: at.to_host(field.padding_box),
                     text: at.to_host(field.text),
+                    font: Font {
+                        size: field.font.size / laid.scale() * at.zoom,
+                        ..field.font
+                    },
                     hint: field.hint,
                     label: field.label,
                     covered: field.covered,
@@ -242,5 +253,56 @@ mod tests {
         assert_eq!(fields[0].rect, Rect::new(0.0, 32.0, 200.0, 152.0));
         assert_eq!(fields[0].padding_box, Rect::new(2.0, 34.0, 196.0, 148.0));
         assert_eq!(fields[0].text, Rect::new(8.0, 42.0, 176.0, 120.0));
+    }
+
+    #[test]
+    fn the_font_of_a_field_is_the_text_of_its_element_in_the_hosts_points() {
+        use pencere_view::{Family, Font, Measure, Metrics, Size, div, layout};
+        struct Ruler;
+        impl Measure for Ruler {
+            fn measure(&mut self, font: &Font, text: &str) -> Metrics {
+                Metrics {
+                    width: text.len() as f32 * font.size * 0.5,
+                    height: font.size * 1.25,
+                    ascent: font.size,
+                }
+            }
+        }
+        let field = div()
+            .field(Id::named("box"), FieldKind::Line)
+            .w(100.0)
+            .h(30.0);
+        // 15 points in the system's face, bold, on a screen of two pixels to a point with the page
+        // drawn half as large again: the layout's font is 15 × 2 × 1.5 pixels, the host's is 22.5 points
+        // (the page's points times the zoom), its boxes' unit.
+        let root = div()
+            .text_size(15.0)
+            .weight(700)
+            .family(Family::System)
+            .child(field);
+        let laid = layout(root, Size::new(200.0, 200.0), 3.0, &mut Ruler);
+        let at = Placement {
+            inset: 0.0,
+            zoom: 1.5,
+        };
+        let font = Outline::of(&laid, at).fields[0].font;
+        assert_eq!(
+            font,
+            Font {
+                family: Family::System,
+                size: 22.5,
+                weight: 700,
+                italic: false,
+            }
+        );
+        // And in a box that says nothing, the kit's own size times the zoom.
+        let plain = div().child(
+            div()
+                .field(Id::named("box"), FieldKind::Line)
+                .w(100.0)
+                .h(30.0),
+        );
+        let laid = layout(plain, Size::new(200.0, 200.0), 3.0, &mut Ruler);
+        assert_eq!(Outline::of(&laid, at).fields[0].font.size, 12.5 * 1.5);
     }
 }

@@ -1425,6 +1425,8 @@ return {{
             .. " nofieldrows=" .. tostring(pencere.has("text_field.nope"))
             .. " borderbox=" .. tostring(pencere.has("layout.border_box"))
             .. " inputrows=" .. tostring(pencere.has("ui.input.rows"))
+            .. " fieldfont=" .. tostring(pencere.has("layout.field_font"))
+            .. " inputsize=" .. tostring(pencere.has("ui.input.text_size"))
             .. " splithaptic=" .. tostring(pencere.has("ui.split.haptic"))
             .. " gridhaptic=" .. tostring(pencere.has("ui.grid.haptic"))
             .. " nolayout=" .. tostring(pencere.has("layout.nope"))))
@@ -1447,7 +1449,7 @@ return {{
     );
     assert!(
         text.contains(
-            "fieldrows=true nofieldrows=false borderbox=true inputrows=true splithaptic=true gridhaptic=true nolayout=false"
+            "fieldrows=true nofieldrows=false borderbox=true inputrows=true fieldfont=true inputsize=true splithaptic=true gridhaptic=true nolayout=false"
         ),
         "{text}"
     );

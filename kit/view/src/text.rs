@@ -67,30 +67,19 @@ pub(crate) fn first_baseline(room: f32, line: f32, ascent: f32, lines: usize, wr
     lines_top(room, line, lines, wrap) + ascent
 }
 
-/// The size of the kit's text where a page does not say one, points: the size of a text field of
-/// the host's too, at the page's own size (a host whose text is this large draws a page at its
-/// size).
+/// The size of the kit's text where a page does not say one, points: what a box that says nothing
+/// of its text is set in, and so a text field of the host's in it (a host whose text is this large
+/// draws a page at its size).
 pub const ZOOM_TEXT: f32 = 12.5;
 
-/// The font of a text field of the host's where a page is laid out at `scale`: the terminal's
-/// face, regular, at [`ZOOM_TEXT`] points. What [`field_line_height`] asks the host for.
-pub fn field_font(scale: f32) -> Font {
-    Font {
-        family: Family::Terminal,
-        size: ZOOM_TEXT * scale,
-        weight: 400,
-        italic: false,
-    }
-}
-
-/// How tall one line of a text field of the host's is where a page is laid out at `scale`,
-/// pixels: what the host says ([`Measure::field_line`]), or the height of a line it measures in
-/// the field's font where it says nothing.
-pub fn field_line_height(measure: &mut dyn Measure, scale: f32) -> f32 {
-    let font = field_font(scale);
+/// How tall one line of a text field of the host's is, pixels, set in `font`: the font of the
+/// field ([`crate::Field::font`], the text of its element at the layout's scale). What the host
+/// says ([`Measure::field_line`]), or the height of a line it measures in that font where it says
+/// nothing.
+pub fn field_line_height(measure: &mut dyn Measure, font: &Font) -> f32 {
     measure
-        .field_line(&font)
-        .unwrap_or_else(|| measure.measure(&font, "M").height)
+        .field_line(font)
+        .unwrap_or_else(|| measure.measure(font, "M").height)
 }
 
 /// The rows `text` is broken into where a room is `budget` across (in the unit of `width`, which is
@@ -184,8 +173,8 @@ pub trait Measure {
         None
     }
 
-    /// How tall one line of a text field of the host's is, set in `font` (the field's, which the
-    /// engine names: [`field_font`]), in the unit of [`Measure::measure`]; `None` where the host
+    /// How tall one line of a text field of the host's is, set in `font` (the field's: the text of
+    /// its element, [`crate::Field::font`]), in the unit of [`Measure::measure`]; `None` where the host
     /// has not said, and the engine takes the height of a line it measures in `font`. A page
     /// that says how many lines a field is as tall as ([`crate::Element::field_rows`]) gets a box
     /// of that many of these: the host that draws the field is the one that knows what its line

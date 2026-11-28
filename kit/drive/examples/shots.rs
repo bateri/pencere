@@ -24,9 +24,7 @@ use std::process::ExitCode;
 
 use pencere_drive::headless::{Calls, Files, Headless};
 use pencere_drive::shot::{Fonts, Palette, png};
-use pencere_view::{
-    DrawList, Family, FieldKind, Font, Measure, Paint, Point, Rect, Role, Run, break_rows,
-};
+use pencere_view::{DrawList, FieldKind, Font, Measure, Paint, Point, Rect, Role, Run, break_rows};
 use tiny_skia::{IntRect, Pixmap};
 
 /// Pixels to a point.
@@ -221,22 +219,20 @@ fn picture(root: &Path, entry: &str, fonts: &Fonts) -> Result<Shot, String> {
 }
 
 /// The last frame's draw list with the host's fields drawn over it: what each holds, or what it
-/// says while it is empty, in the size of the page's words (a picture of a page reads as one: the
-/// host's own field is the kit's text size, which the pictures leave to the page's).
+/// says while it is empty, in the font of its element (`Field::font`, in points: a host sets its
+/// field in the text of the box the field stands in).
 fn with_fields(page: &Headless<Calls>, fonts: &Fonts) -> DrawList {
     let mut list = page.list().clone();
-    let font = Font {
-        family: Family::Terminal,
-        size: words_size(&list),
-        weight: 400,
-        italic: false,
-    };
     let mut measure = fonts.clone();
-    let line = measure.measure(&font, "Hg").height.max(font.size);
     for field in &page.outline().fields {
         if field.covered {
             continue;
         }
+        let font = Font {
+            size: field.font.size * SCALE,
+            ..field.font
+        };
+        let line = measure.measure(&font, "Hg").height.max(font.size);
         let held = page.field_of(field.id).filter(|text| !text.is_empty());
         let (words, role) = match (held, &field.hint) {
             (Some(text), _) if field.kind == FieldKind::Secret => {
@@ -299,20 +295,6 @@ fn with_fields(page: &Headless<Calls>, fonts: &Fonts) -> DrawList {
         }
     }
     list
-}
-
-/// The size most of the page's words are in, in pixels.
-fn words_size(list: &DrawList) -> f32 {
-    let mut sizes: Vec<f32> = list
-        .items
-        .iter()
-        .filter_map(|paint| match paint {
-            Paint::Text(run) => Some(run.font.size),
-            _ => None,
-        })
-        .collect();
-    sizes.sort_by(f32::total_cmp);
-    sizes.get(sizes.len() / 2).copied().unwrap_or(13.0 * SCALE)
 }
 
 /// `points` in pixels.

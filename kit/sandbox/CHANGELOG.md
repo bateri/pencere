@@ -15,6 +15,7 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **`pencere.has("layout.field_font")`**: a host's field of text is set in the text of its element, in the size, face and weight it says or inherits, and not in the terminal's face at the kit's size whatever the page said. **`text_size` of `u:input`** in `@pencere/ui`: the size of the input's words in points (`u:input(id, { text_size = 14 })`), its hint in it too; `pencere.has("ui.input.text_size")` names it. The interpreter is rebuilt with them.
 - **`outline(width, color, offset)` of an element** in a script: a ring around the box over it and what is inside it that takes no room (`offset` is 0 where it is not said, and less than nothing is inside the box); `pencere.has("element.outline")` names it, and `motion({ color = true })` moves its colour. The interpreter is rebuilt with it.
 - **`items_baseline()` of an element** in a script: the children of a row stand on one baseline (`align-items: baseline`); `pencere.has("element.items_baseline")` names it. The interpreter is rebuilt with it.
 - **`pencere.has("layout.replaced_content_box")`**: a browser's room is the content box of its element, and an editor cuts at its padding box and starts its text past the element's padding, which scrolls with it. The interpreter is rebuilt with it.

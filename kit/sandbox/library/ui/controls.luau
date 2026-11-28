@@ -36,7 +36,9 @@ local KINDS = { line = true, secret = true, lines = true }
 -- put in the field is selected in it, as a palette opened again has its query. `escape` makes
 -- escape in it an action of its own (`{ kind = "escape" }`), where it would close the layer it is in.
 -- `rows` (a field of "lines"; a page asks `pencere.has("ui.input.rows")`) is how many lines the field
--- is as tall as, as the host's own line is tall.
+-- is as tall as, as the host's own line is tall. `text_size` (a page asks `pencere.has("ui.input.text_size")`)
+-- is the size of its text, points: the host sets the field's words, and its hint, in the text of the box
+-- the field is in, and this says the size where the page's box does not.
 -- The field's own name is `u:name(id, "field")`; `u:focus(id)` puts the keyboard in it.
 controls.input = core.component("input", {
 	state = function()
@@ -51,6 +53,9 @@ controls.input = core.component("input", {
 		end
 		if props.rows ~= nil and props.kind ~= "lines" then
 			return 'only an input of kind "lines" has rows: input(id, { kind = "lines", rows = 3 })'
+		end
+		if props.text_size ~= nil and (type(props.text_size) ~= "number" or not (props.text_size > 0)) then
+			return "an input's text_size is a number of points above nothing: input(id, { text_size = 14 })"
 		end
 		return nil
 	end,
@@ -67,6 +72,11 @@ controls.input = core.component("input", {
 		local kind = props.kind or "line"
 		local rows = props.rows ~= nil and { rows = props.rows } or nil
 		local field = pencere.div():text_field(name, kind, rows):focusable():label(props.label):grow(1):min_w(0)
+		-- The host sets the field's words (the hint inside it too) in the text of the box the field is in:
+		-- the size is said on the field, where the page gave one.
+		if props.text_size ~= nil then
+			field:text_size(props.text_size)
+		end
 		if props.hint ~= nil then
 			field:child(pencere.text(props.hint):color(t.ink_quiet))
 		end
@@ -88,7 +98,13 @@ controls.input = core.component("input", {
 			return pencere.div():col():child(field)
 		end
 		if rows == nil then
-			field:min_h(t.size.control - 4)
+			-- As tall as a control, and for a text that says its size, as tall as a line of it comes to at the
+			-- least (a line of the host's field is about 1.3 of the size; the host puts its line in the middle).
+			local least = t.size.control - 4
+			if props.text_size ~= nil then
+				least = math.max(least, math.ceil(props.text_size * 1.4))
+			end
+			field:min_h(least)
 		end
 		local box = pencere.div()
 			:row()
