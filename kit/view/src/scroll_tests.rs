@@ -505,3 +505,246 @@ fn a_bar_answers_the_pointer_only_where_nothing_is_drawn_over_it() {
     // Below the card the bar is the bar.
     assert!(scrolls.press(Point::new(196.0, 96.0), 1.0));
 }
+
+// --- Boxes that go together -------------------------------------------------------------------------
+
+const LEFT: Id = Id::new(10);
+const RIGHT: Id = Id::new(11);
+const LEFT_FIRST: Id = Id::new(201);
+const RIGHT_FIRST: Id = Id::new(301);
+
+/// Two lists side by side, 100 points wide and 100 high, linked down under the name `together`: the
+/// left of `left` rows and the right of `right` rows of 20 points, so that they scroll `20 * rows - 100`.
+/// The right is painted after the left.
+fn pair(left: u64, right: u64, axis: crate::LinkAxis) -> Element {
+    let list = |id: Id, first: Id, rows: u64, wide: f32| {
+        div()
+            .id(id)
+            .col()
+            .size(100.0, 100.0)
+            .no_shrink()
+            .scroll()
+            .scroll_link(Id::named("together"), axis)
+            .child(div().id(first).w(wide).h(20.0).no_shrink())
+            .children((1..rows).map(|_| div().w(wide).h(20.0).no_shrink()))
+    };
+    div()
+        .row()
+        .size(200.0, 100.0)
+        .child(list(LEFT, LEFT_FIRST, left, 100.0))
+        .child(list(RIGHT, RIGHT_FIRST, right, 100.0))
+}
+
+fn wheel(scrolls: &mut Scrolls, laid: &Laid, at: Point, dy: f32, now: f64) {
+    scrolls.wheel(laid, at, 0.0, dy, Phase::Wheel, now);
+}
+
+const ON_LEFT: Point = Point::new(50.0, 50.0);
+const ON_RIGHT: Point = Point::new(150.0, 50.0);
+
+#[test]
+fn boxes_that_go_together_are_at_one_offset_in_the_frame_one_of_them_moves() {
+    let mut scrolls = Scrolls::new();
+    scrolls.set_bars(Bars::Hidden);
+    let laid = placed(&mut scrolls, pair(10, 10, crate::LinkAxis::Y), 0.0);
+    // The wheel over the box that is painted second: the first is where it is, and the page is told
+    // of both before the page is placed again.
+    wheel(&mut scrolls, &laid, ON_RIGHT, 30.0, 0.1);
+    assert_eq!(scrolls.offset(LEFT).y, 30.0);
+    assert_eq!(scrolls.offset(RIGHT).y, 30.0);
+    assert_eq!(
+        scrolls.take_moved(),
+        vec![
+            Scrolled {
+                id: LEFT,
+                offset: Point::new(0.0, 30.0),
+                zoom: 1.0
+            },
+            Scrolled {
+                id: RIGHT,
+                offset: Point::new(0.0, 30.0),
+                zoom: 1.0
+            },
+        ]
+    );
+    // Laid out and placed again, they are drawn at the same place.
+    let again = placed(&mut scrolls, pair(10, 10, crate::LinkAxis::Y), 0.2);
+    assert_eq!(row_of(&again, LEFT_FIRST), -30.0);
+    assert_eq!(row_of(&again, RIGHT_FIRST), -30.0);
+    // The same on the page already laid out, painted from what is placed.
+    let mut moved = placed(&mut scrolls, pair(10, 10, crate::LinkAxis::Y), 0.3);
+    wheel(&mut scrolls, &moved, ON_LEFT, 20.0, 0.4);
+    scrolls.place(&mut moved, 0.4, false);
+    assert_eq!(row_of(&moved, LEFT_FIRST), -50.0);
+    assert_eq!(row_of(&moved, RIGHT_FIRST), -50.0);
+}
+
+fn row_of(laid: &Laid, id: Id) -> f32 {
+    laid.bounds(id).map_or(f32::NAN, |r| r.y)
+}
+
+#[test]
+fn each_box_stops_at_its_own_end_and_the_one_that_was_moved_is_kept_to_go_back_to() {
+    let mut scrolls = Scrolls::new();
+    scrolls.set_bars(Bars::Hidden);
+    // The left scrolls 100, the right 20.
+    let laid = placed(&mut scrolls, pair(10, 6, crate::LinkAxis::Y), 0.0);
+    wheel(&mut scrolls, &laid, ON_LEFT, 50.0, 0.1);
+    assert_eq!(
+        (scrolls.offset(LEFT).y, scrolls.offset(RIGHT).y),
+        (50.0, 20.0)
+    );
+    wheel(&mut scrolls, &laid, ON_LEFT, 60.0, 0.2);
+    assert_eq!(
+        (scrolls.offset(LEFT).y, scrolls.offset(RIGHT).y),
+        (100.0, 20.0)
+    );
+    // Back: the longer goes on to where the shorter is, and when it is within the shorter's reach
+    // they are level again.
+    wheel(&mut scrolls, &laid, ON_LEFT, -70.0, 0.3);
+    assert_eq!(
+        (scrolls.offset(LEFT).y, scrolls.offset(RIGHT).y),
+        (30.0, 20.0)
+    );
+    wheel(&mut scrolls, &laid, ON_LEFT, -20.0, 0.4);
+    assert_eq!(
+        (scrolls.offset(LEFT).y, scrolls.offset(RIGHT).y),
+        (10.0, 10.0)
+    );
+    // The shorter, at its end, taken back by the person's turn over it: the longer follows.
+    wheel(&mut scrolls, &laid, ON_LEFT, 30.0, 0.5);
+    assert_eq!(
+        (scrolls.offset(LEFT).y, scrolls.offset(RIGHT).y),
+        (40.0, 20.0)
+    );
+    wheel(&mut scrolls, &laid, ON_RIGHT, -5.0, 0.6);
+    assert_eq!(
+        (scrolls.offset(LEFT).y, scrolls.offset(RIGHT).y),
+        (15.0, 15.0)
+    );
+    // A turn forward over a box at its end moves none.
+    wheel(&mut scrolls, &laid, ON_RIGHT, 50.0, 0.7);
+    assert_eq!(
+        (scrolls.offset(LEFT).y, scrolls.offset(RIGHT).y),
+        (20.0, 20.0)
+    );
+    wheel(&mut scrolls, &laid, ON_RIGHT, 50.0, 0.8);
+    assert_eq!(
+        (scrolls.offset(LEFT).y, scrolls.offset(RIGHT).y),
+        (20.0, 20.0)
+    );
+}
+
+#[test]
+fn a_box_that_can_reach_further_when_the_page_changes_goes_on_to_where_the_group_is() {
+    let mut scrolls = Scrolls::new();
+    scrolls.set_bars(Bars::Hidden);
+    let laid = placed(&mut scrolls, pair(10, 6, crate::LinkAxis::Y), 0.0);
+    wheel(&mut scrolls, &laid, ON_LEFT, 80.0, 0.1);
+    assert_eq!(scrolls.offset(RIGHT).y, 20.0);
+    // The right one grows to be as long as the left: it is where the left is.
+    placed(&mut scrolls, pair(10, 10, crate::LinkAxis::Y), 0.2);
+    assert_eq!(
+        (scrolls.offset(LEFT).y, scrolls.offset(RIGHT).y),
+        (80.0, 80.0)
+    );
+}
+
+#[test]
+fn an_ask_of_the_page_for_one_box_scrolls_the_group_and_a_glide_takes_them_together() {
+    let mut scrolls = Scrolls::new();
+    scrolls.set_bars(Bars::Hidden);
+    let mut laid = placed(&mut scrolls, pair(10, 10, crate::LinkAxis::Y), 0.0);
+    scrolls.ask(ask(RIGHT, 40.0, false));
+    scrolls.place(&mut laid, 0.1, false);
+    assert_eq!(
+        (scrolls.offset(LEFT).y, scrolls.offset(RIGHT).y),
+        (40.0, 40.0)
+    );
+    assert_eq!(row_of(&laid, LEFT_FIRST), -40.0);
+    assert_eq!(row_of(&laid, RIGHT_FIRST), -40.0);
+    scrolls.ask(ask(LEFT, 90.0, true));
+    scrolls.place(&mut laid, 1.0, false);
+    scrolls.place(&mut laid, 1.1, false);
+    let on_the_way = scrolls.offset(LEFT).y;
+    assert!(on_the_way > 40.0 && on_the_way < 90.0, "{on_the_way}");
+    assert_eq!(scrolls.offset(RIGHT).y, on_the_way);
+    assert_eq!(row_of(&laid, RIGHT_FIRST), row_of(&laid, LEFT_FIRST));
+    scrolls.place(&mut laid, 2.0, false);
+    assert_eq!(
+        (scrolls.offset(LEFT).y, scrolls.offset(RIGHT).y),
+        (90.0, 90.0)
+    );
+}
+
+#[test]
+fn a_link_goes_the_way_it_says_and_a_box_with_no_link_goes_alone() {
+    let wide = |axis: crate::LinkAxis| {
+        let page = move || {
+            div()
+                .row()
+                .size(200.0, 100.0)
+                .child(
+                    div()
+                        .id(LEFT)
+                        .size(100.0, 100.0)
+                        .no_shrink()
+                        .scroll()
+                        .scroll_link(Id::named("together"), axis)
+                        .child(div().size(300.0, 300.0).no_shrink()),
+                )
+                .child(
+                    div()
+                        .id(RIGHT)
+                        .size(100.0, 100.0)
+                        .no_shrink()
+                        .scroll()
+                        .scroll_link(Id::named("together"), axis)
+                        .child(div().size(300.0, 300.0).no_shrink()),
+                )
+                .child(
+                    div()
+                        .id(COVER)
+                        .size(10.0, 10.0)
+                        .no_shrink()
+                        .scroll()
+                        .child(div().size(300.0, 300.0).no_shrink()),
+                )
+        };
+        let mut scrolls = Scrolls::new();
+        scrolls.set_bars(Bars::Hidden);
+        let laid = placed(&mut scrolls, page(), 0.0);
+        scrolls.wheel(&laid, ON_LEFT, 30.0, 40.0, Phase::Wheel, 0.1);
+        (
+            scrolls.offset(LEFT),
+            scrolls.offset(RIGHT),
+            scrolls.offset(COVER),
+        )
+    };
+    let down = wide(crate::LinkAxis::Y);
+    assert_eq!(down.0, Point::new(30.0, 40.0));
+    assert_eq!(down.1, Point::new(0.0, 40.0), "down, and not across");
+    assert_eq!(down.2, Point::new(0.0, 0.0), "no link, no company");
+    let across = wide(crate::LinkAxis::X);
+    assert_eq!(across.1, Point::new(30.0, 0.0), "across, and not down");
+    let both = wide(crate::LinkAxis::Both);
+    assert_eq!(both.1, both.0);
+}
+
+#[test]
+fn the_pull_past_an_end_is_the_persons_alone_and_the_box_that_follows_is_not_stretched() {
+    let mut scrolls = Scrolls::new();
+    scrolls.set_bars(Bars::Hidden);
+    scrolls.set_elastic(true);
+    let mut laid = placed(&mut scrolls, pair(10, 10, crate::LinkAxis::Y), 0.0);
+    // At the end already, the fingers go on: the box they hold is drawn past it, the other is at its
+    // end and no further.
+    scrolls.wheel(&laid, ON_LEFT, 0.0, 0.0, Phase::Begin, 0.1);
+    scrolls.wheel(&laid, ON_LEFT, 0.0, 100.0, Phase::Move, 0.1);
+    scrolls.wheel(&laid, ON_LEFT, 0.0, 60.0, Phase::Move, 0.2);
+    scrolls.place(&mut laid, 0.2, false);
+    let held = row_of(&laid, LEFT_FIRST);
+    let other = row_of(&laid, RIGHT_FIRST);
+    assert!(held < -100.0, "the box held is pulled: {held}");
+    assert_eq!(other, -100.0, "the other is at its end");
+}

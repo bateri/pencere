@@ -39,7 +39,7 @@
   - `x`, `y`;
   - `stage`: 0, 1 or 2 (no click, a click, a deep click);
   - `pressure`: 0 to 1.
-- `scrolled`: `boxes`, the boxes the host scrolled or zoomed. Each is `{ id =, x =, y =, zoom = }`. It says how far the box is scrolled now, and how many times the size the page gave it the content is shown at. That is 1 for a box that does not zoom.
+- `scrolled`: `boxes`, the boxes the host scrolled or zoomed (the ones that go with a box that was scrolled, `scroll_link`, too). Each is `{ id =, x =, y =, zoom = }`. It says how far the box is scrolled now, and how many times the size the page gave it the content is shown at. That is 1 for a box that does not zoom.
 
 [^extra]: So a page that takes every button but the left for the one that opens a menu does not open one for these.
 

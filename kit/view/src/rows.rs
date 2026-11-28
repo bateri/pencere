@@ -775,6 +775,7 @@ mod tests {
                 view: crate::Size::new(400.0, self.view),
                 offset: Point::new(0.0, self.offset),
                 zoom: 1.0,
+                row: None,
             })
         }
         fn focus_order(&self) -> Vec<Id> {

@@ -54,6 +54,7 @@ A box that is `absolute` stands against its parent's padding box, as in a style 
   - `content` and `view` down, `content_w` and `view_w` across;
   - `max_offset` and `max_offset_x`;
   - how far it is scrolled, `offset` and `offset_x`;
+  - for an editor, `row`: how tall one of its rows is, points (nil until it is laid out, and for any other box);
 - `focus_order`, `path_of`;
 - `drag_source` and `drop_target` (the topmost element at a point that can be dragged, and that what is dragged can be put down on).
 
@@ -221,6 +222,19 @@ The page is told where its boxes went (`scrolled`, [Events](events.md#what-a-pag
 - `pencere.layout.scroll_to(id, { y =, x =, animate = })` asks the host to scroll it. A way not given stays where it is, past the end is the end, and `animate` glides there unless the person asked for less motion. It is done before the next frame is laid out.
 
 A box with no id does not scroll.
+
+### Boxes that scroll together
+
+`scroll_link(name, axis)` is an option of a box that scrolls (an editor is one). The boxes that say the same name go together, along `axis`: `"y"` (the default), `"x"` or `"both"`.
+
+- Where one of them is scrolled, the others are scrolled to the same offset **in the same frame**, whatever moved it: the wheel, the trackpad, a bar, `scroll_to` or a caret brought into view. The page is not asked, and is told where all of them went (`scrolled`).
+- Each stops at its own end. The offset of the box that was moved is kept for the group, so that a box that stopped goes on to it when it can (its content grew) and the boxes stand together again when the one that was moved comes back within the reach of the shorter.
+- A turn that moves no box (the wheel over a box at its end, forward) moves none of the others.
+- The pull past an end that the person holds is the held box's alone: the others are drawn at their ends.
+- Where more than one box was moved in a frame, the one with the lowest name leads.
+- A box with no id does not scroll and is linked to none. A page asks `pencere.has("element.scroll_link")` first.
+
+A page that keeps two views level, such as the two sides of a diff, says one `scroll_link` on both and needs no `scrolled` handler and no scroll offsets of its own: that handler answered a frame late and had to tell its own `scroll_to`'s echo from the person's.
 
 ## Zoom
 

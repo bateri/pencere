@@ -12,7 +12,7 @@ An **editor** (`pencere.editor(id, options)`) is the host's, as a text field is.
 - folding;
 - the drawing of its lines.
 
-The room scrolls as a box that scrolls does (`pencere.layout.scroll_to(id, …)` scrolls it). The box's fill and border are the page's.
+The room scrolls as a box that scrolls does (`pencere.layout.scroll_to(id, …)` scrolls it). The box's fill and border are the page's. Two editors, or an editor and a box, that say the same `scroll_link` scroll together ([Layout and scrolling](layout.md#boxes-that-scroll-together)).
 
 ### The options of an editor
 
@@ -70,7 +70,7 @@ How an editor looks is the page's to say, and what it leaves out is the editor's
 
 ### The room and the gutter
 
-- `line_height`: how tall a row is, times the font's size (1 to 3). The text is in its middle, with a point at least above and below. Default: 1.6.
+- `line_height`: how tall a row is, times the font's size (1 to 3). The text is in its middle, with a point at least above and below. Default: 1.6. How tall the row comes to, in points, is `pencere.layout.scroll_extent(id).row`: nil until the editor has been laid out, and not told again when the row changes (the zoom, the text's size or the `line_height`), so a page that needs a height in rows says it in rows (a zone's `rows`, [Marks, zones and searches](editor-marks.md#zones)) and does not work one out.
 - `padding`: the room kept around the text, points (0 to 64). Default: 4.
 - `scroll_margin`: the rows kept between the caret and the top or the bottom of the room when the editor scrolls to the caret (at most half the rows in view). Default: 0.
 - `numbers`: what the numbers of the lines count:

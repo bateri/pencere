@@ -169,7 +169,8 @@ end
 -- How far the scrolling box named `id` reaches: { content =, view = } down and { content_w =,
 -- view_w = } across, with how far each way it can be scrolled, `max_offset` and `max_offset_x`,
 -- and how far it is scrolled, `offset` and `offset_x`, as it was laid out, and `zoom`: how many
--- times the size the page gave it the content is shown at (1 for a box that does not zoom).
+-- times the size the page gave it the content is shown at (1 for a box that does not zoom). For an
+-- editor, `row`: how tall one of its rows is, points, as it is laid out now (nil until it has been).
 function layout.scroll_extent(id)
 	local extent = host.scroll_extent(id)
 	if extent then

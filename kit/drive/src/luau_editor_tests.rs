@@ -3442,3 +3442,189 @@ fn the_keys_an_editor_lists_are_those_of_the_hosts_keyboard() -> Result<(), Erro
     );
     Ok(())
 }
+
+// --- Zones that are rows, and editors that scroll together -------------------------------------------
+
+/// A side by side diff as a page writes it with the kit's help: the left editor holds a gap of two
+/// rows where the right one has two lines of its own, the two scroll together, and the page has no
+/// `scrolled` handler, no number of its own for the height of a row and nothing to tell its own
+/// `scroll_to` from the person's. A button makes the rows taller (`line_height`).
+const DIFF: &str = r#"
+local b = pencere
+local line_height = 1.6
+local function lines(prefix, count, extra_after, extra)
+	local out = {}
+	for i = 1, count do
+		out[#out + 1] = prefix .. i
+		if i == extra_after then
+			for _, more in ipairs(extra) do
+				out[#out + 1] = more
+			end
+		end
+	end
+	return table.concat(out, "\n") .. "\n"
+end
+local left = lines("l", 40)
+local right = lines("r", 40, 3, { "r3a", "r3b" })
+-- Line 4 of the left starts after "l1\nl2\nl3\n".
+local ZONE_AT = 10
+
+local function render()
+	local options = { line_height = line_height }
+	return b.div():col():size_full()
+		:child(b.div():id("bigger"):press("bigger"):w(60):h(20):child(b.text("taller")))
+		:child(b.div():row():grow(1):min_h(0)
+			:child(b.editor("left", options):scroll_link("diff"):w(300):h_full()
+				:child(b.div():id("blank"):zone("blank"):child(b.div():absolute():inset(0):bg("raised2"))))
+			:child(b.editor("right", options):scroll_link("diff"):w(300):h_full()))
+end
+
+local function handle(event)
+	if event.type == "editor_ready" then
+		return { editor = { [event.editor] = { load = event.editor == "left" and left or right } } }
+	elseif event.type == "edit" and event.editor == "left" then
+		return { editor = { left = { { decorate = "gap", version = event.version, from = 1, to = #left + 1,
+			decorations = { { from = ZONE_AT, to = ZONE_AT, zone = "blank", rows = 2 } } } } } }
+	elseif event.type == "press" and pencere.layout.hit({ x = event.x, y = event.y }) == "bigger" then
+		line_height = 2.2
+		return { redraw = true }
+	end
+	return nil
+end
+
+return { render = render, handle = handle }
+"#;
+
+/// How far down the fourth line of the left editor and the sixth of the right (`r4`, after the two
+/// lines its gap stands for) are, as the numbers of their gutters stand.
+fn diff_lines(page: &Headless) -> (f32, f32) {
+    let top = |editor: &str, line: usize| {
+        page.gutter_cell(editor, "numbers", line)
+            .expect("the line is in view")
+            .y
+    };
+    (top("left", 4), top("right", 6))
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_rows_of_a_zone_and_the_scrolling_of_two_editors_are_the_kits_and_the_page_does_neither()
+-> Result<(), Error> {
+    let mut page = open(DIFF)?;
+    assert_eq!(
+        page.zone("left", "blank").map(|gap| gap.h),
+        Some(2.0 * row_of(&page, "left")),
+        "the gap is two rows"
+    );
+    let (left, right) = diff_lines(&page);
+    assert_eq!(left, right, "the lines are level");
+
+    // The wheel over either moves both, at that frame, and the page is told of both with no handler
+    // of its own for it.
+    page.wheel("right", 0.0, 57.0)?;
+    let (a, b) = (offset_of(&page, "left"), offset_of(&page, "right"));
+    assert_eq!(a, b);
+    assert!(a > 0.0, "{a}");
+    let told: Vec<_> = page
+        .told()
+        .iter()
+        .filter_map(|event| match event {
+            Event::Scrolled(boxes) => Some(boxes.len()),
+            _ => None,
+        })
+        .collect();
+    assert!(told.contains(&2), "the page is told of both: {told:?}");
+    // `scroll_to` of one takes both.
+    page.scroll_to("left", 0.0)?;
+    assert_eq!(
+        (offset_of(&page, "left"), offset_of(&page, "right")),
+        (0.0, 0.0)
+    );
+    page.scroll_to("right", 100.0)?;
+    assert_eq!(
+        (offset_of(&page, "left"), offset_of(&page, "right")),
+        (100.0, 100.0)
+    );
+    page.scroll_to("right", 0.0)?;
+
+    // The rows grow (the page says a `line_height`): the gap is as tall as two of the new rows, and
+    // the lines are level, and the page worked out nothing.
+    let before = row_of(&page, "left");
+    page.click("bigger")?;
+    let after = row_of(&page, "left");
+    assert!(after > before, "{before} {after}");
+    assert_eq!(
+        page.zone("left", "blank").map(|gap| gap.h),
+        Some(2.0 * after)
+    );
+    let element = page.bounds("blank").expect("the element in the gap");
+    assert_eq!(element.h, 2.0 * after, "the element is as tall as the gap");
+    let (left, right) = diff_lines(&page);
+    assert_eq!(left, right, "the lines are still level");
+    Ok(())
+}
+
+fn row_of(page: &Headless, editor: &str) -> f32 {
+    page.scroll_extent(editor)
+        .and_then(|extent| extent.row)
+        .expect("the row of an editor that is laid out")
+}
+
+fn offset_of(page: &Headless, editor: &str) -> f32 {
+    page.scroll_extent(editor)
+        .map(|extent| extent.offset.y)
+        .expect("an editor that scrolls")
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_script_asks_for_the_row_and_the_link_and_is_refused_a_zone_of_both_rows_and_height()
+-> Result<(), Error> {
+    let page = open(
+        r#"
+        local seen = ""
+        return {
+            render = function()
+                return pencere.div():size_full()
+                    :child(pencere.text("link " .. tostring(pencere.has("element.scroll_link"))
+                        .. " zone_rows " .. tostring(pencere.has("editor.zone_rows"))
+                        .. " row " .. tostring(pencere.layout.scroll_extent("code") and pencere.layout.scroll_extent("code").row)))
+                    :child(pencere.editor("code"):size_full())
+            end,
+            handle = function(event)
+                if event.type == "editor_ready" then
+                    return { redraw = true, editor = { code = { load = "a\nb\n" } } }
+                end
+            end,
+        }
+        "#,
+    )?;
+    let words = page.tree_words().join(" ");
+    assert!(words.contains("link true zone_rows true"), "{words}");
+    assert!(
+        words.contains(" row ") && !words.contains("row nil"),
+        "the editor says how tall its row is once it is laid out: {words}"
+    );
+    let why = failing(
+        r#"
+        return { render = function()
+            return pencere.div():size_full():child(pencere.editor("code"):size_full())
+        end, handle = function(event)
+            if event.type == "editor_ready" then
+                return { editor = { code = { { load = "a\nb\n" }, { decorate = "z", version = 1, from = 1, to = 5,
+                    decorations = { { from = 1, to = 1, zone = "peek", height = 40, rows = 2 } } } } } }
+            end
+        end }
+        "#,
+    );
+    assert!(why.contains("rows or a height"), "{why}");
+    let why = failing(
+        r#"
+        return { render = function()
+            return pencere.div():size_full():child(pencere.editor("code"):size_full():scroll_link("d", "sideways"))
+        end }
+        "#,
+    );
+    assert!(why.contains("\"y\", \"x\" or \"both\""), "{why}");
+    Ok(())
+}

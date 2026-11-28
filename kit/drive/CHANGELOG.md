@@ -13,6 +13,7 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Added
 
+- **`Headless::scroll_extent`**: how far a box that scrolls reaches and is scrolled, and for an editor how tall its row is, as of the last frame.
 - **A text field in a picture** (`Headless::shot`, the example `shots`) stands in the box of its text, inside the padding of its element, and a field of lines breaks its text and its hint at a word where that box is full and cuts them at its padding box, the room less the border.
 - **`Field::padding_box` and `Field::text` of the outline**: where a text field's padding box (its room less the border) and its text (that less its element's padding) stand in the host's points (`rect` is the whole room, the pointer's). A `Field { .. }` written out in full needs both. The measure the drive wraps passes on the host's `Measure::field_line`.
 - **`InProcess::welcome`**: the terminal's `welcome` names the host `name` and `version` to a program served in the test's process (specification §5.2), as the first `welcome` of a terminal does.

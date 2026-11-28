@@ -213,7 +213,7 @@ int l_scroll_extent(lua_State* state) {
     pencere_view_types_extent_t extent;
     if (pencere_view_layout_scroll_extent(bridge::id_of(state, 1), &extent)) {
         // Down as `content` and `view`, across as `content_w` and `view_w`.
-        lua_createtable(state, 0, 7);
+        lua_createtable(state, 0, 8);
         lua_pushnumber(state, extent.content.h);
         lua_setfield(state, -2, "content");
         lua_pushnumber(state, extent.view.h);
@@ -230,6 +230,12 @@ int l_scroll_extent(lua_State* state) {
         // How many times the size the page gave it the content is shown at (1 where it does not zoom).
         lua_pushnumber(state, extent.zoom);
         lua_setfield(state, -2, "zoom");
+        // How tall one row of an editor's room is, points: not said for any other box, and for an
+        // editor until it is laid out.
+        if (extent.row.is_some) {
+            lua_pushnumber(state, extent.row.val);
+            lua_setfield(state, -2, "row");
+        }
     } else {
         lua_pushnil(state);
     }

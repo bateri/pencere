@@ -1893,6 +1893,14 @@ impl<P: Peer> Headless<P> {
             .ok_or_else(|| Error::NoSuch(name.to_owned()))
     }
 
+    /// How far the box named `name` scrolls and how far it is scrolled, as of the last frame; for an
+    /// editor, how tall its row is. None where there is no such box, or it does not scroll.
+    pub fn scroll_extent(&self, name: &str) -> Option<pencere_view::Extent> {
+        self.page
+            .laid()
+            .and_then(|laid| laid.scroll_extent(Id::named(name)))
+    }
+
     /// The box named `name` scrolled down to `y` points, as the wheel over it takes it there.
     ///
     /// # Errors

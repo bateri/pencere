@@ -1761,6 +1761,17 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
             nodes.ptr[at].zone.val = id_of(L, lua_gettop(L));
         }
         lua_pop(L, 1);
+        get(L, meta, "scroll_link");
+        if (lua_type(L, -1) == LUA_TTABLE) {
+            int link = lua_gettop(L);
+            get(L, link, "name");
+            nodes.ptr[at].scroll_link.is_some = true;
+            nodes.ptr[at].scroll_link.val.name = id_of(L, lua_gettop(L));
+            lua_pop(L, 1);
+            static const char* const kLinkAxes[] = {"y", "x", "both"};
+            nodes.ptr[at].scroll_link.val.axis = (uint8_t)word(L, link, "axis", kLinkAxes, 3, 0);
+        }
+        lua_pop(L, 1);
         get(L, meta, "label");
         if (lua_type(L, -1) == LUA_TSTRING) {
             size_t length = 0;
@@ -3296,6 +3307,20 @@ pencere_view_types_decoration_t decoration_at(lua_State* L, int t) {
     if (!lua_isnil(L, -1)) {
         out.mark.tag = PENCERE_VIEW_TYPES_MARK_ZONE;
         out.mark.val.zone.id = id_of(L, lua_gettop(L));
+        lua_pop(L, 1);
+        // The rows a zone is as tall as, or the height in points: one of the two.
+        get(L, t, "rows");
+        if (!lua_isnil(L, -1)) {
+            get(L, t, "height");
+            bool both = !lua_isnil(L, -1);
+            lua_pop(L, 1);
+            if (both) luaL_error(L, "a zone is as tall as its rows or its height: give it rows or a height, not both");
+            double given = lua_type(L, -1) == LUA_TNUMBER ? lua_tonumber(L, -1) : 0.0;
+            if (!(given >= 1.0 && given <= 200.0 && given == (double)(uint32_t)given)) {
+                luaL_error(L, "the rows of a zone are a whole number from 1 to 200");
+            }
+            out.mark.val.zone.rows = {true, (uint16_t)given};
+        }
         lua_pop(L, 1);
         out.mark.val.zone.height = number(L, t, "height", 0.0f);
         static const char* const kZoneSides[] = {"below", "above"};

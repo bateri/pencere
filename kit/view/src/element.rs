@@ -120,6 +120,38 @@ pub enum Sort {
     Descending,
 }
 
+/// The group a box that scrolls goes with, and the way it goes ([`Element::scroll_link`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScrollLink {
+    /// The name the boxes that go together share.
+    pub name: Id,
+    pub axis: LinkAxis,
+}
+
+/// The way boxes that are linked go together.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LinkAxis {
+    /// Down: they stand at the same offset down.
+    #[default]
+    Y,
+    /// Across.
+    X,
+    /// Both ways.
+    Both,
+}
+
+impl LinkAxis {
+    /// Whether the boxes go together down.
+    pub fn down(self) -> bool {
+        matches!(self, Self::Y | Self::Both)
+    }
+
+    /// Whether the boxes go together across.
+    pub fn across(self) -> bool {
+        matches!(self, Self::X | Self::Both)
+    }
+}
+
 /// What an element is to the pointer, the keyboard and a screen reader, apart from how it looks.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Meta {
@@ -143,6 +175,8 @@ pub struct Meta {
     /// The element is the content of the zone of this name in the editor it is a child of
     /// ([`Element::zone`]).
     pub zone: Option<Id>,
+    /// The box that scrolls goes with the others of this name ([`Element::scroll_link`]).
+    pub scroll_link: Option<ScrollLink>,
     /// How a change of the element moves instead of jumping ([`Element::motion`]).
     pub motion: Option<Motion>,
     /// What the host says of the element while the pointer rests on it ([`Element::tip`]).
@@ -1029,6 +1063,19 @@ impl Element {
     #[must_use]
     pub fn zoom(self, zoom: crate::Zoom) -> Self {
         self.set(|s| s.zoom = Some(zoom))
+    }
+
+    /// A box that scrolls ([`Element::scroll`]) that goes with the others that say the same `name`:
+    /// where one of them is scrolled (by the wheel, the trackpad, a bar, an ask of the page, a caret
+    /// brought into view) the others are scrolled to the same offset, at the same frame, along
+    /// `axis`. Each stops at its own end and the offset of the one that was moved is kept, so that they
+    /// stand together again where the one that was stopped can follow ([`crate::Scrolls`]). The
+    /// elastic pull past an end is the one the person holds alone. A box with no id does not scroll,
+    /// and so is linked to none.
+    #[must_use]
+    pub fn scroll_link(mut self, name: Id, axis: LinkAxis) -> Self {
+        self.meta.scroll_link = Some(ScrollLink { name, axis });
+        self
     }
 
     /// Scrolled `x` across and `y` down, as the host puts it before it lays the page out

@@ -76,6 +76,7 @@ A host scrolls the boxes that scroll (`Scrolls`):
 - the wheel and the trackpad move the box under the pointer, as its system does (a gesture stays with the box it started on, and where the system does so a box pulled past its end springs back);
 - its scroll bars are drawn as the system's are and can be dragged;
 - the page's `scroll_to` is done before the page is next laid out;
+- the boxes that say the same `scroll_link` go together, in the same frame (`Scrolls`);
 - and the page is told where its boxes went.
 
 A wheel no box took is the page's (`wheel`).

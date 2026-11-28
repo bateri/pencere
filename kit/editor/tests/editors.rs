@@ -3489,6 +3489,7 @@ fn a_gap_above_a_line_is_between_it_and_the_line_before_or_over_the_first_and_go
                 id: lens,
                 height: ROW,
                 side: ZoneSide::Above,
+                ..Zone::default()
             }),
         )]
     };
@@ -4565,4 +4566,300 @@ fn a_wrapped_line_scrolled_above_the_room_leaves_the_lines_below_it_drawn() {
         shown.dedup();
         assert_eq!(shown.len(), 11, "scrolled {y}: rows drawn at {shown:?}");
     }
+}
+
+// --- Zones that are rows, and editors that scroll together -----------------------------------
+
+/// The page of a zone: an editor with a zone's element that says no height.
+fn page_of_a_zone(
+    zone: Id,
+    line_height: std::rc::Rc<std::cell::Cell<f32>>,
+) -> impl Fn() -> Element {
+    move || {
+        div().child(
+            div()
+                .editor(
+                    EDITOR,
+                    EditorOptions {
+                        line_height: line_height.get(),
+                        ..EditorOptions::default()
+                    },
+                )
+                .size_full()
+                .child(div().id(zone).zone(zone).bg(Role::Red.solid())),
+        )
+    }
+}
+
+impl Host {
+    /// The editor's text drawn at a line, by what the line says: the top of it.
+    fn line_top(&mut self, line: &str) -> f32 {
+        self.texts()
+            .iter()
+            .find(|(text, _, _)| text == line)
+            .map(|(_, at, _)| at.y)
+            .unwrap_or_else(|| panic!("{line} is not drawn"))
+    }
+
+    fn row(&self) -> f32 {
+        self.laid
+            .scroll_extent(EDITOR)
+            .and_then(|extent| extent.row)
+            .expect("the editor has been laid out")
+    }
+}
+
+#[test]
+fn a_zone_of_rows_is_as_tall_as_that_many_rows_and_its_element_with_it() {
+    let zone = Id::named("peek");
+    let height = std::rc::Rc::new(std::cell::Cell::new(1.6));
+    let mut host = Host::new(page_of_a_zone(zone, height.clone()));
+    host.load("a\nb\nc");
+    assert_eq!(host.row(), ROW, "the editor says how tall its row is");
+    let before = host.editors.metrics(EDITOR).expect("laid out").content.h;
+    host.decorate(
+        "peek",
+        vec![Decoration::new(
+            2,
+            2,
+            Mark::Zone(Zone {
+                id: zone,
+                rows: Some(3),
+                ..Zone::default()
+            }),
+        )],
+    );
+    let after = host.editors.metrics(EDITOR).expect("laid out").content.h;
+    assert_eq!(after - before, 3.0 * ROW);
+    assert_eq!(
+        host.editors.zones(EDITOR),
+        vec![(zone, Rect::new(0.0, 4.0 + 2.0 * ROW, 400.0, 3.0 * ROW))]
+    );
+    // The element says no height and is as tall as the gap.
+    let bounds = host.laid.bounds(zone).expect("the element is on the page");
+    assert_eq!((bounds.y, bounds.h), (4.0 + 2.0 * ROW, 3.0 * ROW));
+    // `c` is three rows lower.
+    assert_eq!(host.line_top("c"), 4.0 + 2.0 * ROW + 3.0 * ROW + 2.0);
+
+    // A taller row (the line height the page says) makes the gap and the element taller, with the page
+    // doing nothing.
+    height.set(2.0);
+    host.frame();
+    host.settle();
+    let row = host.row();
+    assert!(row > ROW, "{row}");
+    let bounds = host.laid.bounds(zone).expect("the element is on the page");
+    assert_eq!(bounds.h, 3.0 * row);
+    assert_eq!(host.editors.zones(EDITOR)[0].1.h, 3.0 * row);
+}
+
+#[test]
+fn a_zone_of_points_stays_as_tall_as_the_page_said_when_the_row_changes() {
+    let zone = Id::named("peek");
+    let height = std::rc::Rc::new(std::cell::Cell::new(1.6));
+    let line_height = height.clone();
+    let page = move || {
+        div().child(
+            div()
+                .editor(
+                    EDITOR,
+                    EditorOptions {
+                        line_height: line_height.get(),
+                        ..EditorOptions::default()
+                    },
+                )
+                .size_full()
+                .child(div().id(zone).zone(zone).h(3.0 * ROW)),
+        )
+    };
+    let mut host = Host::new(page);
+    host.load("a\nb\nc");
+    host.decorate(
+        "peek",
+        vec![Decoration::new(
+            2,
+            2,
+            Mark::Zone(Zone {
+                id: zone,
+                height: 3.0 * ROW,
+                ..Zone::default()
+            }),
+        )],
+    );
+    height.set(2.0);
+    host.frame();
+    host.settle();
+    // What the page said in points is that many points however tall a row is now.
+    assert_eq!(host.laid.bounds(zone).expect("the element").h, 3.0 * ROW);
+    assert_eq!(host.editors.zones(EDITOR)[0].1.h, 3.0 * ROW);
+}
+
+/// Two editors side by side, as a diff has them, that scroll together: the left one has a zone of rows
+/// where the right one has the lines it is blank for.
+fn diff_page(line_height: std::rc::Rc<std::cell::Cell<f32>>) -> impl Fn() -> Element {
+    move || {
+        let options = EditorOptions {
+            line_height: line_height.get(),
+            gutter: false,
+            ..EditorOptions::default()
+        };
+        div()
+            .row()
+            .size_full()
+            .child(
+                div()
+                    .editor(EDITOR, options.clone())
+                    .scroll_link(Id::named("diff"), pencere_view::LinkAxis::Y)
+                    .w(200.0)
+                    .h_full()
+                    .child(
+                        div()
+                            .id(Id::named("blank"))
+                            .zone(Id::named("blank"))
+                            .bg(Role::Red.solid()),
+                    ),
+            )
+            .child(
+                div()
+                    .editor(OTHER, options)
+                    .scroll_link(Id::named("diff"), pencere_view::LinkAxis::Y)
+                    .w(200.0)
+                    .h_full(),
+            )
+    }
+}
+
+const OTHER: Id = Id::new(30);
+
+impl Host {
+    fn load_other(&mut self, text: &str) {
+        let laid = self.laid.clone();
+        self.editors.ask(
+            &laid,
+            OTHER,
+            EditorAsk::Load {
+                text: text.into(),
+                more: false,
+            },
+            &mut Fake,
+            self.now,
+        );
+        self.settle();
+    }
+
+    fn offsets(&self) -> (f32, f32) {
+        let at = |id| {
+            self.laid
+                .scroll_extent(id)
+                .map(|extent| extent.offset.y)
+                .expect("an editor that scrolls")
+        };
+        (at(EDITOR), at(OTHER))
+    }
+}
+
+/// Whether the fourth line of the left editor and of the right one are level, before and after the
+/// line height changes, the left holding a gap of `zone` where the right has two lines of its own.
+fn levels_before_and_after_the_row_changes(zone: Zone) -> (bool, bool) {
+    let height = std::rc::Rc::new(std::cell::Cell::new(1.6));
+    let mut host = Host::new(diff_page(height.clone()));
+    let left: String = (1..=20).map(|n| format!("l{n}\n")).collect();
+    let mut right = String::new();
+    for n in 1..=20 {
+        right.push_str(&format!("r{n}\n"));
+        if n == 3 {
+            right.push_str("r3a\nr3b\n");
+        }
+    }
+    host.load(&left);
+    host.load_other(&right);
+    // After the line 3, which starts at the sixth character.
+    host.decorate("blank", vec![Decoration::new(6, 6, Mark::Zone(zone))]);
+    let level = |host: &mut Host| {
+        let texts = host.texts();
+        let top = |name: &str| {
+            texts
+                .iter()
+                .find(|(text, _, _)| text == name)
+                .map(|(_, at, _)| at.y)
+        };
+        let (left, right) = (top("l4"), top("r4"));
+        assert!(left.is_some() && right.is_some(), "line 4 is in view");
+        left == right
+    };
+    let before = level(&mut host);
+    height.set(2.0);
+    host.frame();
+    host.settle();
+    (before, level(&mut host))
+}
+
+#[test]
+fn lines_of_two_editors_stay_level_as_the_row_changes_where_the_gap_is_said_in_rows() {
+    let zone = Zone {
+        id: Id::named("blank"),
+        rows: Some(2),
+        ..Zone::default()
+    };
+    assert_eq!(levels_before_and_after_the_row_changes(zone), (true, true));
+}
+
+#[test]
+fn a_gap_said_in_points_drifts_from_the_lines_it_stands_for_as_the_row_changes() {
+    // What a page that works the row out and says it in points has to do; it works it out again each
+    // time the row changes.
+    let zone = Zone {
+        id: Id::named("blank"),
+        height: 2.0 * ROW,
+        ..Zone::default()
+    };
+    assert_eq!(levels_before_and_after_the_row_changes(zone), (true, false));
+}
+
+#[test]
+fn editors_that_scroll_together_are_at_one_offset_in_the_frame_one_of_them_moves() {
+    let height = std::rc::Rc::new(std::cell::Cell::new(1.6));
+    let mut host = Host::new(diff_page(height));
+    let lines: String = (1..=40).map(|n| format!("line {n}\n")).collect();
+    host.load(&lines);
+    host.load_other(&lines);
+    // The wheel over the right one, which is painted after the left: both move in that frame, and
+    // the page is told of both.
+    let laid = host.laid.clone();
+    let took = host.scrolls.wheel(
+        &laid,
+        Point::new(300.0, 100.0),
+        0.0,
+        57.0,
+        pencere_view::Phase::Wheel,
+        host.now,
+    );
+    assert!(took.took);
+    let told = host.scrolls.take_moved();
+    assert_eq!(told.len(), 2, "the page is told of both: {told:?}");
+    host.frame();
+    let (left, right) = host.offsets();
+    assert_eq!(left, right);
+    assert!(left > 0.0, "{left}");
+    // An ask of the page for one takes both, and the page asks for nothing of the other.
+    host.scrolls.ask(pencere_view::ScrollTo {
+        id: EDITOR,
+        x: None,
+        y: Some(0.0),
+        animate: false,
+        zoom: None,
+        at: None,
+    });
+    host.frame();
+    assert_eq!(host.offsets(), (0.0, 0.0));
+    host.scrolls.ask(pencere_view::ScrollTo {
+        id: OTHER,
+        x: None,
+        y: Some(80.0),
+        animate: false,
+        zoom: None,
+        at: None,
+    });
+    host.frame();
+    assert_eq!(host.offsets(), (80.0, 80.0));
 }

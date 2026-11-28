@@ -83,11 +83,13 @@ The scroll bar's knob is drawn over it.
 
 A **zone** is a gap an editor keeps open after a line for the page to put something in (VS Code's zone widget, CodeMirror's block widget). It is `{ from =, to =, zone = name, height = points }` after the line the range starts on, `height` points tall exactly (at most 200 rows' worth).
 
+Or `{ from =, to =, zone = name, rows = n }`: the gap is `n` rows tall (a whole number, 1 to 200). The editor says how tall its row is and the gap is that many of them, whatever the size of the text, the zoom and the editor's `line_height` make of a row; when the row changes the gap changes with it and the page does nothing. A zone says `height` or `rows`, not both. A page that keeps lines level with another editor's (a side by side diff that holds a gap where the other side has lines) says its gaps in rows and needs no number of its own: a gap in points is the page's to work out again each time a row changes. A page that asks whether the kit has it asks `pencere.has("editor.zone_rows")` first ([Accessibility](accessibility.md#asking-whether-the-kit-has-what-a-page-needs)).
+
 The text after it goes down by it and the content grows. The numbers, the scrolling and the ruler count it (a mark of the ruler is the rows of its own lines, not the gap after).
 
 What stands in it is an element of the page, a child of the editor's element that says it is the zone's, `element:zone(name)`. The element:
 
-- is laid out as a box as wide as the room and as tall as the page says (the same as the zone's `height`), put where the gap is;
+- is laid out as a box as wide as the room and as tall as the page says (the same as the zone's `height`), or, where the zone says `rows`, as tall as the gap (what the element holds is laid out in that height, so a page makes it fill the gap with `size_full` or `absolute():inset(0)` and needs no number), put where the gap is;
 - goes up and down with the text as it scrolls (not across, with a long line: it stays where the room starts);
 - is cut by the room, answers the pointer and the keyboard as any element, and is in the outline.
 

@@ -24,9 +24,9 @@ use pencere_view::{
     AccessibleRole, Align, Anchor, Blend, Border, BrowserAsk, BrowserOptions, BrowserRefusal,
     BrowserWindows, Brush, Button, Cap, Carry, Color, Command, Cursor, Cycle, Ease, Element, Event,
     Extent, Family, FileSource, Fill, GesturePhase, Gradient, Id, Input, Join, Key, KeyConvention,
-    Keyboard, Laid, MOST_KEYS, Matrix, Menu, MenuEntry, Mix, Mods, Motion, PROFILE_CHARS, Panel,
-    Path, Payload, Phase, Point, Rect, Reply, Rgba, Role, ScrollTo, Segment, Shadow, Shift,
-    Shortcut, Side, Size, Sort, Source, Span, State, Stop, Stroke, Tip, Track, Zoom,
+    Keyboard, Laid, LinkAxis, MOST_KEYS, Matrix, Menu, MenuEntry, Mix, Mods, Motion, PROFILE_CHARS,
+    Panel, Path, Payload, Phase, Point, Rect, Reply, Rgba, Role, ScrollLink, ScrollTo, Segment,
+    Shadow, Shift, Shortcut, Side, Size, Sort, Source, Span, State, Stop, Stroke, Tip, Track, Zoom,
     profile_allowed,
 };
 use pencere_wire::bundle::{LUA_MEDIA_TYPE, is_path};
@@ -258,6 +258,7 @@ impl pencere::view::layout::Host for Host {
             view,
             offset,
             zoom,
+            row,
         } = self.laid()?.scroll_extent(Id::new(id))?;
         let size = |size: Size| wit::Size {
             w: size.w,
@@ -268,6 +269,7 @@ impl pencere::view::layout::Host for Host {
             view: size(view),
             offset: point_in(offset),
             zoom,
+            row,
         })
     }
 
@@ -1843,6 +1845,14 @@ fn node_out(node: &wit::Node, limits: &ModuleLimits, lists: &mut Lists<'_>) -> R
                 .map(|part| lists.words(part, limits.text, "a label").map(str::to_owned))
                 .transpose()?,
             zone: node.zone.map(Id::new),
+            scroll_link: node.scroll_link.map(|link| ScrollLink {
+                name: Id::new(link.name),
+                axis: match link.axis {
+                    wit::ScrollLinkAxis::Y => LinkAxis::Y,
+                    wit::ScrollLinkAxis::X => LinkAxis::X,
+                    wit::ScrollLinkAxis::Both => LinkAxis::Both,
+                },
+            }),
             motion: node.motion.map(motion_out),
             tip: node
                 .tip
@@ -2893,6 +2903,9 @@ fn mark_out(mark: &wit::Mark) -> Mark {
         wit::Mark::Zone(zone) => Mark::Zone(Zone {
             id: Id::new(zone.id),
             height: pt(zone.height).clamp(0.0, 4096.0),
+            rows: zone
+                .rows
+                .map(|rows| rows.clamp(1, pencere_view::edit::limits::ZONE_ROWS as u16)),
             side: match zone.side {
                 wit::ZoneSide::Below => ZoneSide::Below,
                 wit::ZoneSide::Above => ZoneSide::Above,
@@ -3532,6 +3545,7 @@ mod tests {
             browser: None,
             label: None,
             zone: None,
+            scroll_link: None,
             motion: None,
             tip: None,
             role: None,

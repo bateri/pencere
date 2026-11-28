@@ -195,6 +195,10 @@ impl Measure for Measured<'_> {
         self.editors.zones(id)
     }
 
+    fn zone_heights(&mut self, id: Id) -> Vec<(Id, f32)> {
+        self.editors.zone_heights(id)
+    }
+
     fn anchors(&mut self, id: Id) -> Vec<(Id, Rect)> {
         self.editors.anchors(id)
     }
@@ -238,6 +242,16 @@ impl Editors {
             .get(&id)
             .filter(|editor| editor.shown)
             .map(|editor| editor.view.zone_boxes())
+            .unwrap_or_default()
+    }
+
+    /// The gaps the editor named `id` keeps open that the page said in rows, each by its name and how
+    /// tall it is, pixels ([`Measure::zone_heights`]).
+    pub fn zone_heights(&self, id: Id) -> Vec<(Id, f32)> {
+        self.editors
+            .get(&id)
+            .filter(|editor| editor.shown)
+            .map(|editor| editor.view.zone_heights())
             .unwrap_or_default()
     }
 
@@ -764,6 +778,7 @@ impl Editors {
         let metrics = EditorMetrics {
             caret: editor.view.caret_of(&editor.buffer, main, measure),
             content: editor.view.content(),
+            row: editor.view.row_height(),
         };
         if metrics != editor.metrics {
             let anchored = laid.is_none_or(|laid| laid.anchored_to(id.caret()));

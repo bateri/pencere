@@ -16,7 +16,8 @@
 //!    are scrolled;
 //! 2. lays it out ([`crate::layout`] or [`crate::Motions::layout`]);
 //! 3. [`Scrolls::place`] on the result: the page's asks are done, a box that can no longer go as
-//!    far as it was is brought back, what is moving is moved, and the bars are put in.
+//!    far as it was is brought back, what is moving is moved, the boxes that go together are put
+//!    at one offset ([`crate::Element::scroll_link`]), and the bars are put in.
 //!
 //! When only a box moved (the wheel, a bar dragged, a box springing back), the host does step 3
 //! again on the page it already laid out: a box is moved without the page being laid out again
@@ -29,7 +30,7 @@ mod zoom;
 
 use std::collections::HashMap;
 
-use crate::element::Element;
+use crate::element::{Element, ScrollLink};
 use crate::layout::{Laid, snap};
 use crate::paint::Quad;
 use crate::style::Overflow;
@@ -151,6 +152,10 @@ struct Scroller {
     told: Point,
     /// How it is zoomed.
     zoom: zoom::Zooming,
+    /// The group it goes with, as of the last layout.
+    link: Option<ScrollLink>,
+    /// Where it was when the group was last put together: a box that is anywhere else was moved.
+    linked: Point,
 }
 
 /// A bar's knob held and moved: the box, which way, where the pointer took it and the offset then.
@@ -184,6 +189,10 @@ pub struct Scrolls {
     pinch: Option<Id>,
     /// The pinch under way began where no box zooms: it is the page's to its end.
     pinch_is_the_pages: bool,
+    /// Where each group of boxes that go together ([`crate::Element::scroll_link`]) is, by its name:
+    /// the offset of the box that was moved last. A box that cannot go so far stops at its own end,
+    /// and goes there when it can.
+    wants: HashMap<Id, Point>,
 }
 
 impl Scrolls {
@@ -274,6 +283,22 @@ impl Scrolls {
     /// `laid`) by `dx` and `dy` (positive: the content moves left and up): whether a box took it,
     /// and what of it is the page's ([`Wheeled`]).
     pub fn wheel(
+        &mut self,
+        laid: &Laid,
+        at: Point,
+        dx: f32,
+        dy: f32,
+        phase: Phase,
+        now: f64,
+    ) -> Wheeled {
+        let wheeled = self.turn(laid, at, dx, dy, phase, now);
+        // The boxes that go with the one that moved are moved now, so that the page is told of them
+        // with it.
+        self.follow(now);
+        wheeled
+    }
+
+    fn turn(
         &mut self,
         laid: &Laid,
         at: Point,
@@ -481,6 +506,12 @@ impl Scrolls {
     /// The pointer is at `at` (`None`: it left the page). While a knob is held it moves the box;
     /// otherwise it says which bar the pointer is over. Returns whether a frame is worth drawing.
     pub fn point(&mut self, at: Option<Point>, now: f64) -> bool {
+        let changed = self.pointed(at, now);
+        self.follow(now);
+        changed
+    }
+
+    fn pointed(&mut self, at: Option<Point>, now: f64) -> bool {
         if let (Some(held), Some(at)) = (self.held, at) {
             let Some(b) = self.boxes.get_mut(&held.id) else {
                 return false;
@@ -509,6 +540,12 @@ impl Scrolls {
     /// ([`Scrolls::set_track_jumps`]). Returns whether a bar took the press: one that did not is
     /// the page's.
     pub fn press(&mut self, at: Point, now: f64) -> bool {
+        let took = self.pressed_at(at, now);
+        self.follow(now);
+        took
+    }
+
+    fn pressed_at(&mut self, at: Point, now: f64) -> bool {
         if self.bars == Bars::Hidden {
             return false;
         }
@@ -620,12 +657,17 @@ impl Scrolls {
         let scale = laid.scale;
         let mut asks = std::mem::take(&mut self.asks);
         let mut placed = Vec::new();
+        // A box that is not on the page now goes with none.
+        for b in self.boxes.values_mut() {
+            b.link = None;
+        }
         for index in laid.scrollers() {
             let Some((id, extent, _)) = laid.scroller_at(index) else {
                 continue;
             };
             let b = self.boxes.entry(id).or_default();
             b.extent = Some(extent);
+            b.link = laid.scroll_link_at(index);
             let zoomer = laid.zoomer_at(index);
             b.zoom.set_rule(
                 zoomer.map(|(rule, _)| rule),
@@ -653,11 +695,6 @@ impl Scrolls {
                 b.offset.x.clamp(0.0, extent.max_offset_x()),
                 b.offset.y.clamp(0.0, extent.max_offset()),
             );
-            let to = (
-                snap(b.offset.x + b.stretch.x, scale),
-                snap(b.offset.y + b.stretch.y, scale),
-            );
-            laid.rescroll(index, to);
             placed.push((index, id));
         }
         // An ask for a box that is not on the page yet waits there: it is where the box will be.
@@ -671,6 +708,20 @@ impl Scrolls {
                 ask.x.unwrap_or(b.offset.x).max(0.0),
                 ask.y.unwrap_or(b.offset.y).max(0.0),
             );
+        }
+        // Every box has gone where it was asked and the ones that go together are put at one offset,
+        // before any is moved on the page: one that is painted before the box that led must not stand
+        // a frame behind it.
+        self.follow(now);
+        for (index, id) in &placed {
+            let Some(b) = self.boxes.get(id) else {
+                continue;
+            };
+            let to = (
+                snap(b.offset.x + b.stretch.x, scale),
+                snap(b.offset.y + b.stretch.y, scale),
+            );
+            laid.rescroll(*index, to);
         }
         // The bars, once every box is where it goes (one inside another moves with it).
         let mut bars = Vec::new();
@@ -702,6 +753,71 @@ impl Scrolls {
             }
         }
         laid.bars = bars;
+    }
+
+    /// The boxes that go together ([`crate::Element::scroll_link`]) put at one offset, each way they
+    /// go together: the one that was moved since they were last put together leads (where more than
+    /// one was, the one of the lowest name), and the others stand where it does, or at their own end
+    /// where they cannot reach so far. The offset of the lead is kept for the group: a box that could
+    /// not follow goes on to it when it can, and goes back with the lead. The elastic pull past an end,
+    /// a spring and a glide are the box's the person holds or the page asked, alone.
+    fn follow(&mut self, now: f64) {
+        let mut groups: HashMap<Id, Vec<Id>> = HashMap::new();
+        for (id, b) in &self.boxes {
+            if let Some(link) = b.link {
+                groups.entry(link.name).or_default().push(*id);
+            }
+        }
+        // What is kept for a group that is not on the page is not kept.
+        self.wants.retain(|name, _| groups.contains_key(name));
+        for (name, members) in &mut groups {
+            members.sort_by_key(|id| id.number());
+            let want = self
+                .wants
+                .entry(*name)
+                .or_insert_with(|| Point::new(0.0, 0.0));
+            // Which ways the lead was moved, and the lead's offset in them.
+            let lead = members.iter().find_map(|id| {
+                let b = self.boxes.get(id)?;
+                let link = b.link?;
+                let across = link.axis.across() && b.offset.x != b.linked.x;
+                let down = link.axis.down() && b.offset.y != b.linked.y;
+                (across || down).then_some((b.offset, across, down))
+            });
+            if let Some((offset, across, down)) = lead {
+                if across {
+                    want.x = offset.x;
+                }
+                if down {
+                    want.y = offset.y;
+                }
+            }
+            let want = *want;
+            for id in members.iter() {
+                let Some(b) = self.boxes.get_mut(id) else {
+                    continue;
+                };
+                let (Some(link), Some(extent)) = (b.link, b.extent) else {
+                    continue;
+                };
+                let mut to = b.offset;
+                if link.axis.across() {
+                    to.x = want.x.clamp(0.0, extent.max_offset_x());
+                }
+                if link.axis.down() {
+                    to.y = want.y.clamp(0.0, extent.max_offset());
+                }
+                if to != b.offset {
+                    b.offset = to;
+                    b.glide = None;
+                    b.spring = None;
+                    b.pull = Point::new(0.0, 0.0);
+                    b.stretch = Point::new(0.0, 0.0);
+                    b.moved_at = Some(now);
+                }
+                b.linked = b.offset;
+            }
+        }
     }
 
     /// How much of a box's bars show at `now`: all while it moves, the pointer is over them or

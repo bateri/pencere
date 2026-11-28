@@ -140,6 +140,8 @@ pub(crate) struct Node {
     pub meta: Meta,
     /// For a box that scrolls: how large its content is and how large the box is, pixels.
     pub extent: Option<(Size, Size)>,
+    /// For the room of an editor: how tall one of its rows is, pixels; 0 until it has been laid out.
+    pub row: f32,
     /// How far the box moves its children up and left, pixels.
     pub scroll: (f32, f32),
     /// For a box that scrolls and may be zoomed: what it may be zoomed to, and what its content is
@@ -569,6 +571,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             meta: entry.meta,
             extent: (entry.overflow == Overflow::Scroll)
                 .then_some((Size::new(0.0, 0.0), Size::new(rect.w, rect.h))),
+            row: 0.0,
             scroll: entry.scroll,
             zoom: entry.zoom,
             zoomed: entry.zoomed,
@@ -618,6 +621,11 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
                 ranges.push((index, name, rect));
             }
         }
+        node.row = if said.row.is_finite() && said.row > 0.0 {
+            said.row
+        } else {
+            0.0
+        };
         let (room, scroll) = (node.rect, node.scroll);
         place_zones(&mut nodes, index, &zones, room, scroll);
         let Some(node) = nodes.get_mut(index) else {
@@ -958,6 +966,7 @@ fn empty(page: Rect) -> Node {
         exiting: false,
         meta: Meta::default(),
         extent: None,
+        row: 0.0,
         scroll: (0.0, 0.0),
         zoom: None,
         zoomed: 1.0,
@@ -1062,6 +1071,17 @@ fn build(
         .field
         .filter(|kind| *kind == FieldKind::Lines)
         .and(meta.field_rows);
+    // The element in a gap the page said in rows ([`crate::edit::Zone::rows`]): the editor says how tall
+    // the gap is now.
+    let in_rows = match (meta.zone, parent.and_then(|at| pending.get(at))) {
+        (Some(zone), Some(holder)) => holder.meta.id.and_then(|editor| {
+            measure
+                .zone_heights(editor)
+                .into_iter()
+                .find_map(|(id, height)| (id == zone).then_some(height))
+        }),
+        _ => None,
+    };
     let index = pending.len();
     let px = |points: f32| snap(points, scale);
     pending.push(Pending {
@@ -1121,6 +1141,11 @@ fn build(
             f32::from(rows.clamp(MOST_FIELD_ROWS.0, MOST_FIELD_ROWS.1)) * line + room - FITS;
         taffy_style.size.height = Dimension::length(height.ceil());
         // Its rows are what it is as tall as: no parent takes a row of them away.
+        taffy_style.flex_shrink = 0.0;
+    }
+    if let Some(height) = in_rows.filter(|height| height.is_finite() && *height >= 0.0) {
+        // The gap is as tall as its rows, and so is the element in it, whatever height the page gave.
+        taffy_style.size.height = Dimension::length(height);
         taffy_style.flex_shrink = 0.0;
     }
     let id = match kind {
@@ -1892,6 +1917,7 @@ impl Laid {
             view: Size::new(view.w / s, view.h / s),
             offset: Point::new(0.0, 0.0),
             zoom: node.zoomed,
+            row: (node.row > 0.0).then_some(node.row / s),
         };
         // Where the box is pulled past an end, it is at that end.
         extent.offset = Point::new(
@@ -1932,6 +1958,11 @@ impl Laid {
             self.extent_of(node)?,
             Rect::new(shown.x / s, shown.y / s, shown.w / s, shown.h / s),
         ))
+    }
+
+    /// The group the box that scrolls at `index` goes with ([`Element::scroll_link`]).
+    pub(crate) fn scroll_link_at(&self, index: usize) -> Option<crate::element::ScrollLink> {
+        self.nodes.get(index)?.meta.scroll_link
     }
 
     /// What the box that scrolls at `index` may be zoomed to, and where the whole of it is (not
@@ -2932,6 +2963,9 @@ pub struct Extent {
     /// How many times the size the page gave it the content is at (1 for a box that does not
     /// zoom, and until it is zoomed).
     pub zoom: f32,
+    /// For the room of an editor: how tall one of its rows is, points, as it is laid out now; none
+    /// for any other box, and for an editor until it has been laid out.
+    pub row: Option<f32>,
 }
 
 impl Extent {

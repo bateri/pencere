@@ -31,6 +31,7 @@ impl Measure for Host {
         (id == EDITOR).then_some(EditorMetrics {
             caret: self.caret,
             content: self.content,
+            row: 0.0,
         })
     }
 }

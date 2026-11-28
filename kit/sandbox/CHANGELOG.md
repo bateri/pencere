@@ -14,6 +14,8 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **`scroll_link(name, axis)` of an element** in a script: boxes that scroll and say the same name scroll together, in the same frame, along `axis` (`"y"` by default, `"x"` or `"both"`); `pencere.has("element.scroll_link")` names it. The interpreter is rebuilt with it.
+- **`rows` of a zone** in a script: `{ from =, to =, zone = "peek", rows = 3 }` is a gap three rows tall, whatever a row comes to (`pencere.has("editor.zone_rows")`); with `height` it is an error. The element of the zone is as tall as the gap. **`row` of `pencere.layout.scroll_extent(editor)`**: how tall one of the editor's rows is, points. The interpreter is rebuilt with them.
 - **The edge of a `split` and of a `grid`'s column ticks when the pointer takes it to its limit.** The reply carries `haptic = "tick"` once as the size reaches `min` or `max` (the narrowest or the widest of a column), not while it is held there and not for the arrow keys, and again if the pointer leaves the limit and comes back. The option `haptic` of both names another pattern or is `false` for none (`pencere.has("ui.split.haptic")`, `"ui.grid.haptic"`).
 - **`rows` of `u:input`** in `@pencere/ui`: an input of kind `"lines"` is as tall as that many lines of the host's field, its padding and its border (`u:input(id, { kind = "lines", rows = 3 })`); `pencere.has("ui.input.rows")` names it. The interpreter is rebuilt with it.
 - **`pencere.has("layout.border_box")`**: a border takes room in a box, inside its `w` and `h`, as the padding does. The interpreter is rebuilt with it.

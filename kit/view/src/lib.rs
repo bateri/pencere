@@ -77,8 +77,8 @@ pub use browser::{
 pub use color::{Color, Mix, Rgba, Role, Source};
 pub use command::{Command, Shortcut};
 pub use element::{
-    Carry, Element, FieldKind, Fit, Image, Payload, Sort, State, canvas, div, image, rich, spacer,
-    spark, text,
+    Carry, Element, FieldKind, Fit, Image, LinkAxis, Payload, ScrollLink, Sort, State, canvas, div,
+    image, rich, spacer, spark, text,
 };
 pub use fades::{FADE_SECONDS, Fades};
 pub use field::{FieldState, Fill};

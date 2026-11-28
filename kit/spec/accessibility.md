@@ -103,9 +103,10 @@ A host asks a page to **show** something (a screen reader moved to a row that is
 `pencere.has(name)` says whether the kit has a thing, by a name that never changes:
 
 - `"role.<role>"`;
-- `"element.<method>"` for each method that came after the first kit (`layer`, `fallback_name`, `mixed`, `level`, `position`, `table_size`, `cell_at`, `sorted`, `role_description`, `m`, `mx`, `my`, `h_pct`);
+- `"element.<method>"` for each method that came after the first kit (`layer`, `fallback_name`, `mixed`, `level`, `position`, `table_size`, `cell_at`, `sorted`, `role_description`, `m`, `mx`, `my`, `h_pct`, `scroll_link`);
 - `"text_field.<option>"` for each option of `text_field` that came after the first kit (`rows`);
 - `"layout.<behaviour>"` for a change in how boxes are laid out that the sizes of a page depend on (`"layout.border_box"`: a border takes room in a box, as [the box](layout.md#the-box-of-an-element) says);
+- `"editor.<option>"` for an option or an ability of the editor that came after the first kit (`zone_rows`: a zone that is `rows` rows tall, and the row's height in `scroll_extent`);
 - `"event.reveal"`;
 - `"event.command"` (a command done on an element);
 - `"command.target"`;

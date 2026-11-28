@@ -209,6 +209,13 @@ pub trait Measure {
         Vec::new()
     }
 
+    /// How tall the gaps the page said in rows ([`crate::edit::Zone::rows`]) of the editor named
+    /// `id` are now, each by the zone's name, pixels: the height of the element of the page that is the
+    /// zone's, in the place of the one it says. A host with no editors answers none.
+    fn zone_heights(&mut self, _id: Id) -> Vec<(Id, f32)> {
+        Vec::new()
+    }
+
     /// The ranges of the editor named `id` that the page named ([`crate::edit::Mark::Anchor`]): each
     /// by its [`Id::anchor`] and its box in the content (pixels, as the caret's: from the top-left
     /// corner of the content as it is when nothing is scrolled). A host with no editors answers
@@ -226,6 +233,8 @@ pub struct EditorMetrics {
     pub caret: Option<Rect>,
     /// How large the content is: what the room scrolls over.
     pub content: Size,
+    /// How tall one of its rows is, as it is laid out now; none until it has been (0).
+    pub row: f32,
 }
 
 /// How much wider than its room a line may come out and still fit, pixels: what adding up the

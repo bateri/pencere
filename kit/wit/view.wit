@@ -71,6 +71,9 @@ interface types {
         /// How many times the size the page gave it the content is at (1 for a box that does not
         /// zoom, and until it is zoomed).
         zoom: f32,
+        /// How tall one row of an editor's room is, points, as it is laid out now; none for any other
+        /// box, and for an editor until it has been laid out.
+        row: option<f32>,
     }
 
     /// What a scrolling box lets be done to the size of what it holds: the person pinches it to
@@ -1201,6 +1204,22 @@ interface types {
         keys: option<slice>,
     }
 
+    /// The group a box that scrolls goes with, and the way it goes with it.
+    record scroll-link {
+        /// The name the boxes that go together share.
+        name: id,
+        axis: scroll-link-axis,
+    }
+
+    enum scroll-link-axis {
+        /// They stand at the same offset down.
+        y,
+        /// Across.
+        x,
+        /// Both ways.
+        both,
+    }
+
     /// What a drag out of the view takes with it: a payload, and an address that goes with it for
     /// the applications that take one. Each is a part of the frame's `text`. The payload is one
     /// line (no line break, no control character: a tab, an escape and the like are among them),
@@ -1245,6 +1264,9 @@ interface types {
         label: option<slice>,
         /// The element is the content of the zone of this name of the editor it is a child of.
         zone: option<id>,
+        /// A box that scrolls goes with the others of this name: where one is scrolled the others are
+        /// scrolled to the same offset, at the same frame, each stopping at its own end.
+        scroll-link: option<scroll-link>,
         motion: option<motion>,
         tip: option<tip>,
         /// What it is to a screen reader, where its look says it.
@@ -2256,11 +2278,17 @@ interface types {
         right,
     }
 
-    /// A gap an editor keeps open for the page, `height` points taken up in whole rows. The page's
-    /// element that says it is the zone's (`node.zone`) and is a child of the editor's is put there.
+    /// A gap an editor keeps open for the page, `height` points taken up in whole rows, or `rows`
+    /// rows. The page's element that says it is the zone's (`node.zone`) and is a child of the
+    /// editor's is put there.
     record zone {
         id: id,
+        /// Points. Not used where `rows` is.
         height: f32,
+        /// How many rows tall (1 to 200), in the place of `height`: the editor says how tall its row
+        /// is, and the gap is that many of them whatever the size of the text, the zoom and the line
+        /// height. The element in it is as tall as the gap.
+        rows: option<u16>,
         /// After the line's rows, or before them (a code lens).
         side: zone-side,
     }

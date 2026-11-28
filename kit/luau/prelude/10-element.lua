@@ -1200,6 +1200,11 @@ local HAS = {
 	-- The box a page's lengths are those of: a border takes room in every box, inside the `w` and the
 	-- `h` the page gives (a style sheet's `border-box`), and what the box holds stands inside it.
 	["layout.border_box"] = true,
+	-- Boxes that scroll together: `scroll_link(name, axis)`.
+	["element.scroll_link"] = true,
+	-- What an editor took after the first kit, as `editor.<option>`: a zone that is as tall as `rows`
+	-- of the editor's rows (`{ zone = name, rows = 3 }`), and the row's height in `scroll_extent`.
+	["editor.zone_rows"] = true,
 	["event.reveal"] = true, ["event.command"] = true, ["command.target"] = true,
 	["event.link_dropped"] = true,
 	-- What the library's components took after the first kit, as `ui.<component>.<option>`: the `reveal`
@@ -1815,6 +1820,28 @@ function Element:scroll(...)
 	elseif style.overflow == "scroll" then
 		style.overflow = nil
 	end
+	return self
+end
+
+-- A box that scrolls (`:scroll()`) that goes with the others that say the same `name` (a string or a
+-- whole number): where one of them is scrolled, by the wheel, the trackpad, a bar, `scroll_to` or a
+-- caret brought into view, the others are scrolled to the same offset at the same frame, and the page
+-- is told of all of them (`scrolled`). `axis` is "y" (down, the default), "x" or "both". Each stops at
+-- its own end and the offset of the one that was moved is kept, so that they stand together again where
+-- the shorter can follow; a pull past an end is the one the person holds alone. A box with no id does
+-- not scroll and is linked to none. A page asks `pencere.has("element.scroll_link")` first. An editor
+-- is a box that scrolls: two editors that say the same name go together.
+function Element:scroll_link(name, axis)
+	if type(name) ~= "string" and type(name) ~= "number" then
+		refuse("scroll_link takes the name the boxes that go together share, a string or a whole number, not " .. type(name))
+	end
+	if axis == nil then
+		axis = "y"
+	end
+	if axis ~= "y" and axis ~= "x" and axis ~= "both" then
+		refuse('scroll_link goes "y", "x" or "both", not ' .. tostring(axis))
+	end
+	self.meta.scroll_link = { name = name, axis = axis }
 	return self
 end
 

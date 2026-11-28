@@ -8,6 +8,7 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
 
 ### Added
 
+- **A zone in rows**: `Zone::rows` makes the gap `rows` rows tall, as tall as the editor's row is now: when the row changes (the zoom, the text's size, `line_height`) the gap changes with it and the host lays the page out again, where the element of the zone is made as tall as the gap (`Measure::zone_heights`). `Editors::zone_heights`, `View::row_height`. The editor tells the host how tall its row is (`EditorMetrics::row`).
 - **`Measured` passes on `Measure::field_line`** of the host's measure it wraps, so that a page's field of rows is as tall as the host's line.
 - `Editors::set_keyboard`: how the host's system makes its shortcuts (`KeyConvention`, a Mac's until it
   is said). For Windows and Linux ⌃ has the keys ⌘ has on a Mac that a terminal can send: ⌃A selects

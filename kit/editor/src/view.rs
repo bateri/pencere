@@ -289,8 +289,9 @@ pub(crate) struct View {
     /// What `tops` was counted for.
     counted: Option<Counted>,
     /// The gaps kept open for the page, in order of their lines: the line each is after, how tall
-    /// it is (pixels, as the page said) and its name.
-    zones: Vec<(usize, f32, Id)>,
+    /// it is (pixels: as the page said, or as many rows as it said), its name, and whether the page
+    /// said it in rows.
+    zones: Vec<(usize, f32, Id, bool)>,
     /// How many rows of gaps are after each line that has any (a line folded away has none).
     zone_rows: HashMap<usize, usize>,
     /// How much higher than `index * row` the rows of each line are drawn (pixels, from the top of
@@ -562,13 +563,19 @@ impl View {
                 .find(|(first, last)| line >= *first && line <= *last)
                 .copied()
         };
-        let mut zones: Vec<(usize, f32, Id)> = if self.row > 0.0 {
+        let mut zones: Vec<(usize, f32, Id, bool)> = if self.row > 0.0 {
             buffer
                 .zones()
                 .into_iter()
                 .filter_map(|(line, zone)| {
                     let most = limits::ZONE_ROWS as f32 * self.row;
-                    let height = (zone.height.max(0.0) * self.scale).min(most);
+                    // The rows the page said are as tall as the editor's rows are now, whatever the
+                    // text's size, the zoom and the line height make of them.
+                    let height = match zone.rows {
+                        Some(rows) => f32::from(rows) * self.row,
+                        None => zone.height.max(0.0) * self.scale,
+                    }
+                    .min(most);
                     let attach = match zone.side {
                         ZoneSide::Below => line,
                         ZoneSide::Above => {
@@ -585,21 +592,21 @@ impl View {
                             before.unwrap_or(HEAD)
                         }
                     };
-                    Some((attach, height, zone.id))
+                    Some((attach, height, zone.id, zone.rows.is_some()))
                 })
                 .collect()
         } else {
             Vec::new()
         };
         // Those of a line are in the order of their lines, below before above.
-        zones.sort_by_key(|(attach, _, _)| *attach);
+        zones.sort_by_key(|(attach, _, _, _)| *attach);
         let key = (
             buffer.version(),
             hidden.clone(),
             self.text_width().round() as u32,
             zones
                 .iter()
-                .map(|(line, height, id)| (*line, height.to_bits(), *id))
+                .map(|(line, height, id, _)| (*line, height.to_bits(), *id))
                 .collect::<Vec<_>>(),
         );
         if self.counted.as_ref() == Some(&key) {
@@ -611,7 +618,7 @@ impl View {
         // A line's gaps are as tall as the page said, one after the other; they take the rows that
         // hold them, and what is left of the last is taken back below.
         let mut heights: HashMap<usize, f32> = HashMap::new();
-        for (line, height, _) in &zones {
+        for (line, height, _, _) in &zones {
             *heights.entry(*line).or_default() += height;
         }
         let mut shown_gaps = HashMap::new();
@@ -678,7 +685,7 @@ impl View {
     pub fn zone_boxes(&self) -> Vec<(Id, Rect)> {
         let mut out = Vec::new();
         let mut last: Option<(usize, f32)> = None;
-        for (line, height, id) in &self.zones {
+        for (line, height, id, _) in &self.zones {
             if *line == HEAD {
                 let used = match last {
                     Some((at, used)) if at == HEAD => used,
@@ -705,6 +712,21 @@ impl View {
             last = Some((*line, used + height));
         }
         out
+    }
+
+    /// The gaps the page said in rows, each by its name and how tall it is, pixels
+    /// ([`Measure::zone_heights`]).
+    pub fn zone_heights(&self) -> Vec<(Id, f32)> {
+        self.zones
+            .iter()
+            .filter(|(_, _, _, rows)| *rows)
+            .map(|(_, height, id, _)| (*id, *height))
+            .collect()
+    }
+
+    /// How tall one row is, pixels; 0 until the room has been set.
+    pub fn row_height(&self) -> f32 {
+        self.row
     }
 
     /// How many rows there are.

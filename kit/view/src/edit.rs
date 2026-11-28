@@ -396,15 +396,19 @@ pub enum RulerLane {
 }
 
 /// A gap the editor keeps open after a line, for the page to draw in (VS Code's zone widget,
-/// CodeMirror's block widget): `height` points, taken up in whole rows. It is where the text goes
-/// on after the line, so what the page puts in it scrolls with the text; an element of the page that
-/// is a child of the editor's element and says it is the zone's (`Element::zone`) is put there. The
-/// decoration's range says the line: the one its first character is on. It is carried over the
-/// changes as any decoration is.
+/// CodeMirror's block widget): `height` points, taken up in whole rows, or `rows` rows. It is where
+/// the text goes on after the line, so what the page puts in it scrolls with the text; an element of
+/// the page that is a child of the editor's element and says it is the zone's (`Element::zone`) is put
+/// there. The decoration's range says the line: the one its first character is on. It is carried over
+/// the changes as any decoration is.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Zone {
     pub id: Id,
     pub height: f32,
+    /// How many rows tall the gap is, in the place of `height` (1 to [`limits::ZONE_ROWS`]): the
+    /// editor says how tall its row is, and the gap is that many of them whatever the size of the
+    /// text, the zoom or the `line_height`; the page's element in it is as tall as the gap.
+    pub rows: Option<u16>,
     /// Whether the gap is after the line or before it (a code lens: the lines above a function).
     pub side: ZoneSide,
 }
