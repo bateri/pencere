@@ -8,17 +8,17 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Changed
 
-- **A picture of a page draws a text field in the font of its element**: the face, the size and the weight the element says or inherits, with the line of that font, where it drew every field in the terminal's face at the kit's size.
-- **`Field` of the outline has a `font` field**: the font the field's words are set in (`pencere_view::Field::font`), the size in the host's points like its boxes (the page's points times the zoom), so that a host sets its own field in it. A `Field { .. }` written out in full needs it.
-- **A picture of a page frames a browser in its content box**, the room it has inside the border and the padding of its element.
+- **Pictures of a page draw a text field in its element's font**, not always in the terminal face at the kit's size.
+- **`Field` has a `font`**, sized in the host's points, so that a host can set its own field in it. Code that builds a `Field` in full needs it.
+- **Pictures of a page put a browser inside its element's border and padding.**
 - **A picture of a page draws a border as the box it takes**: what is in a box stands inside its border and padding (a text, a sparkline, a canvas in the room that is left), and the ground of a child does not cover the border of the box it is in.
 - **The headless picture cuts at the round corners of a `Clip`**: a box, a line of words, a picture, a rule or a figure that a rounded box that clips holds is cut by the corners of its padding box, with an edge a pixel wide as a box's is, so a child's ground no longer squares off the corner of the box around it. What the picture moves by (`slide`) and the rows and columns it redraws read the rectangle of a clip, and a box with round corners is not drawn whole.
 
 ### Added
 
-- **A picture of a page measures `ascent` as it draws**: a line of words has its baseline where the picture sets the glyphs down below the top of the line (the face's own ascent), so that a row that stands on a baseline (`items_baseline`) is drawn on one. The headless measure (`Headless`) takes it as 0.8 of its line.
-- **A picture draws the soft edge of a clip** (`Clip::fade`): a box, a picture, a line of words and a glyph that the clip lets through thin out towards the edge as the clip says.
-- **`Headless::scroll_extent`**: how far a box that scrolls reaches and is scrolled, and for an editor how tall its row is, as of the last frame.
+- **Pictures of a page line up a row's words on one baseline** (`items_baseline`). The headless measure reports an `ascent`.
+- **Pictures of a page draw the soft edge of a clip** (`Clip::fade`).
+- **`Headless::scroll_extent`** tells how far a box scrolls and, for an editor, how tall a row is.
 - **A text field in a picture** (`Headless::shot`, the example `shots`) stands in the box of its text, inside the padding of its element, and a field of lines breaks its text and its hint at a word where that box is full and cuts them at its padding box, the room less the border.
 - **`Field::padding_box` and `Field::text` of the outline**: where a text field's padding box (its room less the border) and its text (that less its element's padding) stand in the host's points (`rect` is the whole room, the pointer's). A `Field { .. }` written out in full needs both. The measure the drive wraps passes on the host's `Measure::field_line`.
 - **`InProcess::welcome`**: the terminal's `welcome` names the host `name` and `version` to a program served in the test's process (specification §5.2), as the first `welcome` of a terminal does.

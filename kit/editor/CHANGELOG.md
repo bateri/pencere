@@ -8,8 +8,8 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
 
 ### Added
 
-- **A line that goes past the text thins out at its edge** (`EditorOptions::fade`, 22 points; 0 for none): the words of a room that does not wrap are drawn through a clip with a soft edge at the right of the text where a line goes past it, and at its left where the room is scrolled across. The gutter, the carets and the grounds are not faded.
-- **A zone in rows**: `Zone::rows` makes the gap `rows` rows tall, as tall as the editor's row is now: when the row changes (the zoom, the text's size, `line_height`) the gap changes with it and the host lays the page out again, where the element of the zone is made as tall as the gap (`Measure::zone_heights`). `Editors::zone_heights`, `View::row_height`. The editor tells the host how tall its row is (`EditorMetrics::row`).
+- **A long line fades out at the edge of the editor** instead of being cut off (`EditorOptions::fade`: 22 points by default, 0 turns it off). The gutter does not fade.
+- **Zones can be sized in rows** (`Zone::rows`): the gap stays that many rows tall when the zoom or the text size changes. The editor reports its row height (`EditorMetrics::row`).
 - **`Measured` passes on `Measure::field_line`** of the host's measure it wraps, so that a page's field of rows is as tall as the host's line.
 - `Editors::set_keyboard`: how the host's system makes its shortcuts (`KeyConvention`, a Mac's until it
   is said). For Windows and Linux ⌃ has the keys ⌘ has on a Mac that a terminal can send: ⌃A selects
@@ -23,7 +23,7 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
 
 ### Changed
 
-- **An editor in an element with a border and a padding** draws and cuts in the padding box and starts its text at the content box (its own `padding` after that): the element's padding scrolls with the text and a line that wraps wraps inside the content box. The reveal of the caret and of a row counts the padding above and below. `View::pad_top`, `pad_bottom`, `pad_left` and `pad_right` say how much room there is before the text on each side.
+- **An editor respects its element's border and padding**, as a scrolling box in a style sheet does: it clips at the padding box and the padding scrolls with the text.
 - The editor's measure passes the page of an image on (`Measure::image(src, page)` of the engine).
 
 - A key typed in a long document no longer looks up every line of it to find the longest, nor, where
