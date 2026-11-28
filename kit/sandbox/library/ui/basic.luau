@@ -82,22 +82,20 @@ basic.button = core.component("button", {
 			:justify_center()
 			:gap(t.size.gap)
 			:h(t.size.control)
-			-- The ring is a border, and a border takes room in the box: a point of the padding is the ring's,
-			-- so that the button is as wide as its words and its padding make it, whether it is ringed or not.
-			:px(t.size.pad - 1)
+			:px(t.size.pad)
 			:no_shrink()
 			:rounded(t.radius.control)
 			:bg(ground)
-			:border(1, u:focus_visible(id) and t.ring or t.clear)
 			:color(ink)
 			:motion({ seconds = t.motion, color = true })
+		look.ring(button, t, u:focus_visible(id))
 		local label = props.label or props.title
 		button:label(tostring(label))
 		if props.icon ~= nil then
 			-- What is seen of a glyph starts inside its box: the padding on its side is less by that, so
 			-- that the button has as much of it on the left as it has on the right.
 			if props.title ~= nil then
-				button:pl(math.max(t.size.pad - 1 - look.bearing(props.icon, t.size.icon), 0))
+				button:pl(math.max(t.size.pad - look.bearing(props.icon, t.size.icon), 0))
 			end
 			button:child(look.icon(props.icon, t.size.icon, ink))
 		end
@@ -161,10 +159,10 @@ basic.icon_button = core.component("icon_button", {
 			:justify_center()
 			:rounded(t.radius.control)
 			:bg(ground)
-			:border(1, u:focus_visible(id) and t.ring or t.clear)
 			:motion({ seconds = t.motion, color = true })
 			:label(props.label)
 			:child(look.icon(props.icon, math.min(t.size.icon, side - 6), ink))
+		look.ring(button, t, u:focus_visible(id))
 		if props.on ~= nil then
 			button:role("switch"):checked(props.on == true)
 		else
@@ -229,13 +227,15 @@ basic.toggle = core.component("toggle", {
 			:justify_center()
 			:h(t.size.control - 4)
 			:min_w(t.size.control - 2)
-			:px(3)
+			:px(4)
 			:no_shrink()
 			:rounded(t.radius.chip + 1)
 			:bg(ground)
-			:border(1, u:focus_visible(id) and t.ring or t.clear)
 			:color(ink)
 			:motion({ seconds = t.motion, color = true })
+		-- Inside the toggle: it is a chip that stands in a field (the find bar's), where a ring outside it
+		-- is taller than the field.
+		look.ring(toggle, t, u:focus_visible(id), true)
 		if props.icon ~= nil then
 			toggle:child(look.icon(props.icon, t.size.icon - 2, ink))
 		else

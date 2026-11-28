@@ -618,6 +618,17 @@ void read_style(lua_State* L, int s, pencere_view_types_style_t& out, Arenas& ar
         lua_pop(L, 1);
     }
     lua_pop(L, 1);
+    get(L, s, "outline");
+    if (lua_type(L, -1) == LUA_TTABLE) {
+        int outline = lua_gettop(L);
+        out.outline.is_some = true;
+        out.outline.val.width = number(L, outline, "width", 0.0f);
+        out.outline.val.offset = number(L, outline, "offset", 0.0f);
+        lua_rawgetfield(L, outline, "color");
+        out.outline.val.color = color_at(L, lua_gettop(L));
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
     // A box that scrolls and lets the person zoom it: { min =, max =, smart =, wheel = }.
     get(L, s, "zoom");
     if (lua_type(L, -1) == LUA_TTABLE) {

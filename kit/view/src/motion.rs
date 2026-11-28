@@ -37,7 +37,7 @@ pub struct Motion {
     /// With [`Ease::Spring`]: how much it bounces, `0.0..=0.9`. 0 comes to rest with no overshoot;
     /// more swings past where it goes and back, the longer the more.
     pub bounce: f32,
-    /// The colours of its fill, its border, its shadow and its words follow a change.
+    /// The colours of its fill, its border, its shadow, its outline and its words follow a change.
     pub color: bool,
     /// Its opacity follows a change.
     pub opacity: bool,
@@ -498,7 +498,8 @@ const FILL: usize = 0;
 const EDGE_COLOR: usize = 1;
 const SHADOW_COLOR: usize = 2;
 const WORDS: usize = 3;
-const COLORS: usize = 4;
+const OUTLINE_COLOR: usize = 4;
+const COLORS: usize = 5;
 
 /// Where each of the numbers that follow a change is in [`Values::numbers`].
 const OPACITY: usize = 0;
@@ -553,6 +554,7 @@ impl Values {
         if motion.color {
             values.colors[FILL] = style.fill;
             values.colors[WORDS] = style.text.color;
+            values.colors[OUTLINE_COLOR] = style.outline.map(|outline| outline.color);
         }
         if motion.color || motion.border {
             values.colors[EDGE_COLOR] = style.border.map(|border| border.color);
@@ -701,6 +703,11 @@ impl Values {
             self.colors[EDGE_COLOR],
         ) {
             border.color = color;
+        }
+        if let (true, Some(outline), Some(color)) =
+            (motion.color, &mut node.outline, self.colors[OUTLINE_COLOR])
+        {
+            outline.color = color;
         }
         if motion.shadow {
             node.shadow = self.colors[SHADOW_COLOR].map(|color| {

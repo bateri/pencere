@@ -134,6 +134,11 @@
     "height": 205.0,
     "width": 420.0
   },
+  "elements/div-outline": {
+    "diagnostics": [],
+    "height": 112.0,
+    "width": 420.0
+  },
   "elements/div-scroll-link": {
     "diagnostics": [],
     "height": 160.0,

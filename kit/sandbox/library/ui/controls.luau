@@ -62,7 +62,8 @@ controls.input = core.component("input", {
 		end
 		u:field_text(name, state.value, props.select)
 		local ringed = u:keyboard() == name
-		local edge = ringed and t.ring or props.tone and theme.tone(t, props.tone) or t.line
+		-- What the border says is the tone of the field; the keyboard's ring is a ring around the box.
+		local edge = props.tone and theme.tone(t, props.tone) or t.line
 		local kind = props.kind or "line"
 		local rows = props.rows ~= nil and { rows = props.rows } or nil
 		local field = pencere.div():text_field(name, kind, rows):focusable():label(props.label):grow(1):min_w(0)
@@ -76,17 +77,15 @@ controls.input = core.component("input", {
 			if rows == nil then
 				field:min_h(t.size.control)
 			end
-			return pencere.div()
-				:col()
-				:child(
-					field
-						:px(7)
-						:py(4)
-						:rounded(t.radius.control)
-						:bg(t.field)
-						:border(1, edge)
-						:motion({ seconds = t.motion, color = true })
-				)
+			field
+				:px(7)
+				:py(4)
+				:rounded(t.radius.control)
+				:bg(t.field)
+				:border(1, edge)
+				:motion({ seconds = t.motion, color = true })
+			look.ring(field, t, ringed)
+			return pencere.div():col():child(field)
 		end
 		if rows == nil then
 			field:min_h(t.size.control - 4)
@@ -108,6 +107,7 @@ controls.input = core.component("input", {
 		for _, element in props.trail or {} do
 			box:child(element)
 		end
+		look.ring(box, t, ringed)
 		return box
 	end,
 	text = function(_, _, _, state, _, _, event)
@@ -169,12 +169,14 @@ controls.segments = core.component("segments", {
 				:justify_center()
 				:gap(4)
 				:h(t.size.control - 6)
-				:px(9)
+				:px(10)
 				:rounded(t.radius.control)
 				:bg(on and t.chip or over and t.hover or nil)
 				:color(on and t.ink or t.ink_dim)
-				:border(1, u:focus_visible(part) and t.ring or t.clear)
 				:motion({ seconds = t.motion, color = true })
+			-- Inside the segment: the track holds it with two points around it, and what it is in is as
+			-- large as its segments are.
+			look.ring(segment, t, u:focus_visible(part), true)
 			if item.key == chosen then
 				segment:focusable()
 			end
@@ -285,12 +287,13 @@ controls.tabs = core.component("tabs", {
 				:items_center()
 				:gap(6)
 				:h_full()
-				:px(9)
+				:px(10)
 				:no_shrink()
 				:bg(on and t.chip or over and t.hover or nil)
 				:color(ink)
-				:border(1, u:focus_visible(part) and t.ring or t.clear)
 				:motion({ seconds = t.motion, color = true })
+			-- Inside the tab: the strip that holds it scrolls, and cuts what is outside.
+			look.ring(tab, t, u:focus_visible(part), true)
 			if on then
 				tab:focusable()
 			end
@@ -301,7 +304,7 @@ controls.tabs = core.component("tabs", {
 				tab:carry(item.carry)
 			end
 			if dragging and dragging.target == part then
-				tab:border(1, t.ring)
+				tab:outline(1, t.ring, -1)
 			end
 			if item.icon ~= nil then
 				tab:child(look.icon(item.icon, t.size.icon - 1, ink))

@@ -11,7 +11,7 @@ A **motion** says how a change of an element moves instead of jumping.[^transiti
 
 ## What follows a change
 
-A motion says which of an element's things follow a change: `color` and `opacity`, and size and place in the next section. Five more follow a change when they are said.
+A motion says which of an element's things follow a change: `color` (the colours of its fill, its words, its border, its shadow and its outline) and `opacity`, and size and place in the next section. Five more follow a change when they are said.
 
 ### Size and place
 

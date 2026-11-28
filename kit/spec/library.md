@@ -558,7 +558,7 @@ Paste is the host's line (`paste = editor`):
 
 ### A field of text
 
-`u:input(id, { label =, hint =, kind =, state =, tone =, lead =, trail =, select =, escape =, rows = })` is the host's field of text in a box of the theme: its ground, a border of one point (the keyboard's ring and a `tone` change its colour, not what it takes) and the theme's padding. The box is as tall as a control (`size.control`), border included, as [a box of the kit is](layout.md#the-box-of-an-element); a field of one line is the same size it has always been.
+`u:input(id, { label =, hint =, kind =, state =, tone =, lead =, trail =, select =, escape =, rows = })` is the host's field of text in a box of the theme: its ground, a border of one point (a `tone` changes its colour; the keyboard's ring is an [outline](layout.md#the-ring-around-a-box) around the box, which takes no room) and the theme's padding. The box is as tall as a control (`size.control`), border included, as [a box of the kit is](layout.md#the-box-of-an-element); a field of one line is the same size it has always been.
 
 A field of `lines` with no `lead` and no `trail` is the field element itself: the ground, the border and the padding are its own, so that the host scrolls the text in the padding and the first and the last line stand a padding from the edge ([Text fields](host.md#text-fields)). With a `lead` or a `trail` the box holds them with the field inside it, as the other kinds are made, as tall as a control at the least, and the text scrolls in the field. The element that carries the input's name is a plain one around the field, as large as it is.
 

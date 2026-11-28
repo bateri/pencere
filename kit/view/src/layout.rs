@@ -19,8 +19,8 @@ use crate::element::{Carry, FieldKind, Fit, Kind, Meta, Spark, State};
 use crate::paint::Quad;
 use crate::rich::{Look, RichLine, cut_line, lay_lines};
 use crate::style::{
-    Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Shadow, Side,
-    Style, TextStyle, Track, Truncate, Zoom,
+    Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Ring, Shadow,
+    Side, Style, TextStyle, Track, Truncate, Zoom,
 };
 use crate::text::{
     FITS, ZOOM_TEXT, field_font, field_line_height, first_baseline, lines_top, wrap_lines,
@@ -127,6 +127,8 @@ pub(crate) struct Node {
     pub border: Option<Border>,
     pub radii: [f32; 4],
     pub shadow: Option<Shadow>,
+    /// The ring over it, in pixels: it takes no room and is drawn after what is inside the box.
+    pub outline: Option<Ring>,
     /// How much of what it draws shows: its own opacity times those of the boxes that hold it.
     pub opacity: f32,
     /// The element that holds this one (its place in the paint order): for an overlay, the one it
@@ -262,9 +264,10 @@ enum Leaf {
         inset: f32,
         edges: (f32, f32),
     },
-    /// A text field of the host's: how far down in its box the baseline of its first line is,
-    /// pixels, as far as the page knows it (the host draws the words).
-    Field { baseline: f32 },
+    /// A text field of the host's: where the baseline of its first line is, as far as the page knows
+    /// it (the host draws the words): in the middle of the text box for a field of one line, and at
+    /// the top of it for a field of lines.
+    Field { foot: Foot },
     /// An image, with its size in pixels where the host knew it, and what the box keeps for its
     /// padding and border across and down: a side that is given is the box's, and the picture
     /// has what is left of it.
@@ -303,6 +306,7 @@ struct Pending {
     border: Option<Border>,
     radii: [f32; 4],
     shadow: Option<Shadow>,
+    outline: Option<Ring>,
     /// It is an overlay: a child of the page's box in the layout, whatever holds it.
     overlay: bool,
     /// It is laid over the rest of the box it is in, where the page says.
@@ -503,8 +507,8 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
                             ascent,
                         }
                     }
-                    Some(Leaf::Field { baseline }) => {
-                        foot = Some(Foot::At(*baseline));
+                    Some(Leaf::Field { foot: of }) => {
+                        foot = Some(*of);
                         Metrics::default()
                     }
                     Some(Leaf::Image { natural, inset }) => {
@@ -647,6 +651,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             border: entry.border,
             radii: entry.radii,
             shadow: entry.shadow,
+            outline: entry.outline,
             opacity: entry.opacity * held_opacity,
             parent: entry.parent,
             slot: entry.slot,
@@ -1051,6 +1056,7 @@ fn empty(page: Rect) -> Node {
         border: None,
         radii: [0.0; 4],
         shadow: None,
+        outline: None,
         opacity: 1.0,
         parent: None,
         slot: 0,
@@ -1238,6 +1244,15 @@ fn build(
             blur: px(s.blur),
             color: s.color,
         }),
+        // A ring that is no width, or whose offset is no number, is none.
+        outline: style
+            .outline
+            .filter(|o| o.width > 0.0 && o.width.is_finite() && o.offset.is_finite())
+            .map(|o| Ring {
+                width: (o.width * scale).round().max(1.0),
+                color: o.color,
+                offset: px(o.offset),
+            }),
         overlay: false,
         absolute: style.absolute,
         anchor: style.anchor,
@@ -1396,16 +1411,34 @@ fn build(
                     .1,
                 );
             }
-            if ids.is_empty() && pending.get(index).is_some_and(|e| e.meta.field.is_some()) {
+            if let Some(kind) = pending
+                .get(index)
+                .and_then(|e| e.meta.field)
+                .filter(|_| ids.is_empty())
+            {
                 // The host draws the words of a field: where its first line stands is a line of the
-                // host's field in the room inside the box, as far as the kit can tell it (what the
-                // host says of its line, and the face the field is drawn in as the kit measures it).
+                // host's field in the text box (the room inside the border and the padding), as far as
+                // the kit can tell it (what the host says of its line, and the face the field is drawn
+                // in as the kit measures it). A field of one line has its line in the middle of the
+                // box, as the host draws it, so the baseline waits for the field's height; a field of
+                // lines starts at the top of it.
                 let face = field_font(scale);
                 let sample = measure.measure(&face, "M");
                 let line = field_line_height(measure, scale);
-                let baseline =
-                    edges_down(&style, scale).0 + (line - sample.height) / 2.0 + sample.ascent;
-                tree.new_leaf_with_context(taffy_style, Leaf::Field { baseline })
+                let ascent = (line - sample.height) / 2.0 + sample.ascent;
+                let edges = edges_down(&style, scale);
+                let foot = if kind == FieldKind::Lines {
+                    Foot::At(edges.0 + ascent)
+                } else {
+                    Foot::Words {
+                        edges,
+                        line,
+                        ascent,
+                        lines: 1,
+                        wrap: false,
+                    }
+                };
+                tree.new_leaf_with_context(taffy_style, Leaf::Field { foot })
             } else {
                 tree.new_with_children(taffy_style, &ids)
             }
@@ -2215,6 +2248,35 @@ impl Laid {
             end += 1;
         }
         end
+    }
+
+    /// As [`Laid::subtree_end`], but an overlay written inside the box is left out: it is drawn after
+    /// everything, and what is drawn over the box goes under it.
+    pub(crate) fn flow_end(&self, index: usize) -> usize {
+        let mut end = index + 1;
+        while self.nodes.get(end).is_some_and(|node| !node.overlay) && self.is_inside(end, index) {
+            end += 1;
+        }
+        end
+    }
+
+    /// The place in the paint order where what is drawn over the box at `index` and what follows it
+    /// (a ring) ends: at the end of the layer the box is in, which is the overlay that holds it (the
+    /// innermost) or the page, and at the end of the box around it that cuts what is inside it (it
+    /// clips or scrolls) where there is one nearer, as the ring is cut there and the bars of a box
+    /// that scrolls are drawn over what it holds. Overlays written inside the box are left out.
+    pub(crate) fn layer_end(&self, index: usize) -> usize {
+        let mut at = Some(index);
+        let mut layer = 0;
+        while let Some(here) = at {
+            let node = self.nodes.get(here);
+            if node.is_some_and(|node| node.overlay || (here != index && node.clips)) {
+                layer = here;
+                break;
+            }
+            at = node.and_then(|node| node.parent);
+        }
+        self.flow_end(layer)
     }
 
     /// The elements the keyboard can be on, in the order they are written (one that is

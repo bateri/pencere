@@ -60,7 +60,11 @@ local function defaults(density)
 
 		-- The ring of what has the keyboard, drawn when the keyboard brought it there.
 		ring = alpha("accent", 0.8),
-		-- Nothing: the ring's place where there is no ring.
+		-- How thick it is, and how far it stands from what it rings (points): it is an outline, which
+		-- takes no room. Inside a box that cuts what is outside it, it is drawn inside (`look.ring`).
+		ring_width = 2,
+		ring_gap = 1,
+		-- Nothing: the colour a ring that is not drawn has, so that it fades in and out.
 		clear = alpha("background", 0),
 		-- The shadow a card casts.
 		elevation = { dx = 0, dy = 18, blur = 48, color = alpha("shadow", 0.5) },

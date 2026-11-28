@@ -276,6 +276,15 @@ interface types {
         color: color,
     }
 
+    /// A ring around the box, drawn over the box and what is inside it: `width` thick, its inner
+    /// edge `offset` from the box's edge (less than nothing: inside it). It takes no room and answers
+    /// no press; the boxes around the box cut it, and the box does not.
+    record outline {
+        width: f32,
+        color: color,
+        offset: f32,
+    }
+
     /// A fill that runs from `start` to `end` along a line at `angle` degrees, as a style sheet's
     /// `linear-gradient`: `180` from the top down, `90` from the left to the right. It is drawn
     /// over the box's `fill`, and a line of text on it is read against its colour half way along.
@@ -374,6 +383,7 @@ interface types {
         border: option<border>,
         radii: corners,
         shadow: option<shadow>,
+        outline: option<outline>,
         /// How much of the element shows, `0.0..=1.0`, with everything inside it: each thing it
         /// draws is that much fainter (where the things inside overlap, they show through each
         /// other). A panel that fades in, a part that is not to be used now.
@@ -1172,7 +1182,7 @@ interface types {
         ease: ease,
         /// For a spring: how much it bounces, `0.0..=0.9`.
         bounce: f32,
-        /// The colours of its fill, border, shadow and words follow a change.
+        /// The colours of its fill, border, shadow, outline and words follow a change.
         color: bool,
         /// Its opacity follows a change.
         opacity: bool,

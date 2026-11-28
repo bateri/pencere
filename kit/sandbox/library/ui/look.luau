@@ -124,6 +124,16 @@ function look.glyph(name, size, color)
 	return pencere.canvas(GLYPHS[name](s, math.max(1.5 * s, 1.2), color)):size(size, size):no_shrink()
 end
 
+-- The ring of what has the keyboard, over `element`: drawn where `shown` (the keyboard brought it
+-- there), and a clear one where it is not, so that it comes and goes with the element's `motion`. An
+-- outline takes no room, so what it rings is as large with it as without. It stands off the element by
+-- the theme's gap, or `inside` it where the box around the element cuts what is outside it (a strip
+-- that scrolls, the track of a choice): its outer edge is then the element's edge.
+function look.ring(element, t, shown, inside)
+	local offset = inside and -t.ring_width or t.ring_gap
+	return element:outline(t.ring_width, shown and t.ring or t.clear, offset)
+end
+
 -- How many points of the left of the box of `icon` (`size` points square) are empty: what a glyph does
 -- not draw there, and none for a picture or an element, which are the page's, or on cells, where a glyph
 -- is a character.

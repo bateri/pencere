@@ -11,8 +11,8 @@
 use crate::BrowserOptions;
 use crate::edit::EditorOptions;
 use crate::style::{
-    Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Shadow, Side,
-    Style, Track, Truncate,
+    Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Ring, Shadow,
+    Side, Style, Track, Truncate,
 };
 use crate::{AccessibleRole, Align, Color, Command, Family, Id, Motion, Path, Span, Tip};
 
@@ -1137,6 +1137,27 @@ impl Element {
     #[must_use]
     pub fn rounded_corners(self, radii: [f32; 4]) -> Self {
         self.set(|s| s.radii = radii)
+    }
+
+    /// A ring `width` points thick around the box, over it and what is inside it, as a style sheet's
+    /// `outline` and `outline-offset`: its inner edge is `offset` points from the box's edge, so that
+    /// a ring of 2 at an offset of 1 stands 1 point clear of the box, and one at `-width` is inside
+    /// the box's edge. Its corners follow the box's (the inner edge has the box's radius and the
+    /// offset, and none where the box has none). It takes no room, answers no press and is cut by the
+    /// boxes around the box, not by the box itself: a ring that is outside a box that clips is cut, so
+    /// a page puts it inside. It is drawn at the end of its layer (the page, or the overlay it is
+    /// in), over the boxes that come after its box, and at the end of the box around it that clips or
+    /// scrolls where there is one, under that box's scroll bars.
+    #[must_use]
+    pub fn outline(self, width: f32, color: impl Into<Color>, offset: f32) -> Self {
+        let color = color.into();
+        self.set(|s| {
+            s.outline = Some(Ring {
+                width,
+                color,
+                offset,
+            })
+        })
     }
 
     /// A soft shadow `(dx, dy)` away from the box, blurred over `blur`; points.

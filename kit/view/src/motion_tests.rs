@@ -3,8 +3,8 @@
 
 use crate::layout::Node;
 use crate::{
-    Cycle, Ease, Element, Fit, Font, Id, Laid, Measure, Metrics, Motion, Motions, Paint, Rect,
-    Role, Shift, Size, div, image, text,
+    Color, Cycle, Ease, Element, Fit, Font, Id, Laid, Measure, Metrics, Motion, Motions, Paint,
+    Rect, Role, Shift, Size, div, image, text,
 };
 
 struct Fixed;
@@ -679,6 +679,40 @@ fn the_numbers_of_how_an_element_looks_follow_a_change_and_the_ones_that_take_ro
     let gone = lay(&mut motions, card(false), 6.0);
     assert!(gone.nodes[1].border.is_none() && gone.nodes[1].shadow.is_none());
     assert_eq!(kid(&gone), 0.0);
+}
+
+#[test]
+fn the_colour_of_a_ring_follows_a_change_as_the_colour_of_a_border_does() {
+    let page = |on: bool| {
+        let color = if on {
+            Color::from(Role::Accent)
+        } else {
+            Color::from(Role::Accent).faded(0.0)
+        };
+        div().col().child(
+            div()
+                .id(BOX)
+                .size(40.0, 20.0)
+                .outline(2.0, color, 1.0)
+                .motion(Motion::new(0.2).color()),
+        )
+    };
+    let mut motions = Motions::default();
+    lay(&mut motions, page(false), 0.0);
+    lay(&mut motions, page(true), 1.0);
+    assert!(motions.moving());
+    let halfway = lay(&mut motions, page(true), 1.05);
+    let alpha = halfway.nodes[1]
+        .outline
+        .expect("a ring on the way")
+        .color
+        .alpha;
+    assert!(alpha > 0.0 && alpha < 1.0, "{alpha}");
+    // A ring does not take room: nothing is laid out for it.
+    assert!(!motions.lays());
+    settle(&mut motions, || page(true), 1.05);
+    let rest = lay(&mut motions, page(true), 3.0);
+    assert_eq!(rest.nodes[1].outline.unwrap().color.alpha, 1.0);
 }
 
 #[test]

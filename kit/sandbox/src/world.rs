@@ -25,9 +25,9 @@ use pencere_view::{
     BrowserWindows, Brush, Button, Cap, Carry, Color, Command, Cursor, Cycle, Ease, Element, Event,
     Extent, Family, FileSource, Fill, GesturePhase, Gradient, Id, Input, Join, Key, KeyConvention,
     Keyboard, Laid, LinkAxis, MOST_KEYS, Matrix, Menu, MenuEntry, Mix, Mods, Motion, PROFILE_CHARS,
-    Panel, Path, Payload, Phase, Point, Rect, Reply, Rgba, Role, ScrollLink, ScrollTo, Segment,
-    Shadow, Shift, Shortcut, Side, Size, Sort, Source, Span, State, Stop, Stroke, Tip, Track,
-    Truncate, Zoom, profile_allowed,
+    Panel, Path, Payload, Phase, Point, Rect, Reply, Rgba, Ring, Role, ScrollLink, ScrollTo,
+    Segment, Shadow, Shift, Shortcut, Side, Size, Sort, Source, Span, State, Stop, Stroke, Tip,
+    Track, Truncate, Zoom, profile_allowed,
 };
 use pencere_wire::bundle::{LUA_MEDIA_TYPE, is_path};
 use pencere_wire::json::unescaped_len;
@@ -1408,6 +1408,11 @@ fn style_out(
             share(style.radii.bottom_left),
         ],
         shadow: style.shadow.as_ref().map(shadow_out),
+        outline: style.outline.as_ref().map(|outline| Ring {
+            width: share(outline.width),
+            color: color_out(&outline.color),
+            offset: pt(outline.offset),
+        }),
         // Not a share of an element that is not one: all of it shows.
         opacity: Some(unit(style.opacity, 1.0)).filter(|opacity| *opacity < 1.0),
         turn: if style.turn.is_finite() {
@@ -3521,6 +3526,7 @@ mod tests {
                 bottom_left: 0.0,
             },
             shadow: None,
+            outline: None,
             opacity: 1.0,
             turn: 0.0,
             scale: None,

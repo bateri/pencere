@@ -115,6 +115,15 @@ pub struct Border {
     pub color: Color,
 }
 
+/// A ring around a box, drawn over the box and what is inside it, that takes no room: `width`
+/// thick, its inner edge `offset` from the box's edge (less than nothing: inside it).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Ring {
+    pub width: f32,
+    pub color: Color,
+    pub offset: f32,
+}
+
 /// A soft shadow: the box's silhouette moved by `(dx, dy)` and blurred over `blur`, never
 /// drawn under the box itself.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -274,6 +283,8 @@ pub struct Style {
     /// Top-left, top-right, bottom-right, bottom-left; points.
     pub radii: [f32; 4],
     pub shadow: Option<Shadow>,
+    /// A ring over the box that takes no room and answers no press.
+    pub outline: Option<Ring>,
     /// How much of the element shows with everything inside it, `0.0..=1.0`: each thing it draws
     /// is that much fainter. `None` is all of it.
     pub opacity: Option<f32>,

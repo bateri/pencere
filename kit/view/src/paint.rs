@@ -194,22 +194,98 @@ const SPARK_AREA: f32 = 0.18;
 /// history leaves the left of the box empty.
 const SPARK_SLOTS: usize = 30;
 
+/// Where something drawn after a box and what is inside it goes among the rest: after the node at
+/// `end` (where the content of the box ends, or the layer it is in), farther in boxes first, and the
+/// bars of a box before its ring.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct After {
+    end: usize,
+    inner: std::cmp::Reverse<usize>,
+    ring: bool,
+}
+
+impl After {
+    fn new(end: usize, index: usize, ring: bool) -> Self {
+        Self {
+            end,
+            inner: std::cmp::Reverse(index),
+            ring,
+        }
+    }
+}
+
+/// The ring of a box that has an outline and shows: a border and nothing else, whose inner edge
+/// stands `offset` out from the box's edge, with the corners of the box taken out by as much as the
+/// ring reaches (a box with square corners has a square ring), cut by the boxes around the box.
+fn ring_of(node: &Node) -> Option<Quad> {
+    let outline = node.outline?;
+    if node.hidden || node.rect.w <= 0.0 || node.rect.h <= 0.0 || node.opacity <= 0.0 {
+        return None;
+    }
+    let color = outline.color.faded(node.opacity);
+    if color.alpha <= 0.0 {
+        return None;
+    }
+    let reach = outline.offset + outline.width;
+    let rect = Rect::new(
+        node.rect.x - reach,
+        node.rect.y - reach,
+        node.rect.w + 2.0 * reach,
+        node.rect.h + 2.0 * reach,
+    );
+    if rect.w <= 0.0 || rect.h <= 0.0 {
+        return None;
+    }
+    Some(Quad {
+        rect,
+        radii: node.radii.map(|radius| {
+            if radius > 0.0 {
+                (radius + reach).max(0.0)
+            } else {
+                0.0
+            }
+        }),
+        fill: None,
+        gradient: None,
+        border: Some(Border {
+            width: outline.width.min(rect.w / 2.0).min(rect.h / 2.0),
+            color,
+        }),
+        shadow: None,
+        clip: node.clip,
+    })
+}
+
 impl Laid {
     /// The page's draw list. `measure` is asked again for a line that has to be cut to fit.
     pub fn paint(&self, measure: &mut dyn Measure) -> DrawList {
         let mut list = DrawList::default();
-        // The bars of a box that scrolls go after what is inside it: by where that ends.
-        let mut bars: Vec<(usize, &Vec<Quad>)> = self
+        // The bars of a box that scrolls go after what is inside it: by where that ends. The ring of a
+        // box that has one goes at the end of its layer (the page, or the overlay it is in), as a style
+        // sheet's outline is drawn at the end of its stacking context, over the boxes that follow its
+        // own. Where several end together the box farther in goes first, and a box's bars before its
+        // ring.
+        let mut bars: Vec<(After, Vec<Quad>)> = self
             .bars
             .iter()
-            .map(|(index, quads)| (self.subtree_end(*index), quads))
+            .map(|(index, quads)| {
+                (
+                    After::new(self.subtree_end(*index), *index, false),
+                    quads.clone(),
+                )
+            })
             .collect();
-        bars.sort_by_key(|(end, _)| std::cmp::Reverse(*end));
+        for (index, node) in self.nodes.iter().enumerate() {
+            if let Some(ring) = ring_of(node) {
+                bars.push((After::new(self.layer_end(index), index, true), vec![ring]));
+            }
+        }
+        bars.sort_by(|(a, _), (b, _)| b.cmp(a));
         // A browser is drawn in one room: the first of its name, the one `Laid::browsers` holds.
         let mut browsers = std::collections::HashSet::new();
         for (index, node) in self.nodes.iter().enumerate() {
-            while let Some((_, quads)) = bars.pop_if(|(end, _)| *end <= index) {
-                list.items.extend(quads.iter().cloned().map(Paint::Quad));
+            while let Some((_, quads)) = bars.pop_if(|(after, _)| after.end <= index) {
+                list.items.extend(quads.into_iter().map(Paint::Quad));
             }
             if node.hidden || node.rect.w <= 0.0 || node.rect.h <= 0.0 {
                 continue;
@@ -346,7 +422,7 @@ impl Laid {
             }
         }
         while let Some((_, quads)) = bars.pop() {
-            list.items.extend(quads.iter().cloned().map(Paint::Quad));
+            list.items.extend(quads.into_iter().map(Paint::Quad));
         }
         list
     }

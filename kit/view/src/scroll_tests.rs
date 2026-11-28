@@ -419,6 +419,37 @@ fn a_box_s_bars_are_drawn_over_what_it_holds_and_under_what_covers_it() {
 }
 
 #[test]
+fn the_ring_of_a_box_in_a_box_that_scrolls_is_under_the_bars_of_that_box() {
+    let mut scrolls = Scrolls::new();
+    scrolls.set_bars(Bars::Always);
+    // The first row is ringed, inside itself: the ring is cut at the box that scrolls, and the bars
+    // of that box are drawn over everything it holds, rings too, though a box follows it.
+    let page = div()
+        .col()
+        .size_full()
+        .child(div().id(LIST).col().h(60.0).no_shrink().scroll().children(
+            rows(10).enumerate().map(|(n, row)| {
+                if n == 0 {
+                    row.outline(2.0, Role::Accent, -2.0)
+                } else {
+                    row
+                }
+            }),
+        ))
+        .child(div().h(20.0).no_shrink().bg(Role::Raised(1)));
+    let laid = placed(&mut scrolls, page, 0.0);
+    let items = laid.paint(&mut Fixed).items;
+    let ring = items
+        .iter()
+        .position(|item| matches!(item, Paint::Quad(q) if q.fill.is_none() && q.border.is_some()));
+    let knob = items.iter().position(
+        |item| matches!(item, Paint::Quad(q) if q.fill.is_some_and(|f| f.alpha > 0.3 && f.alpha < 0.5)),
+    );
+    assert!(ring.is_some() && knob.is_some(), "{items:?}");
+    assert!(ring < knob, "the ring at {ring:?}, the knob at {knob:?}");
+}
+
+#[test]
 fn a_knob_dragged_moves_the_box_and_a_click_in_its_track_goes_a_page() {
     let mut scrolls = Scrolls::new();
     scrolls.set_bars(Bars::Always);

@@ -931,7 +931,7 @@ end
 --   ease      "out" (the default: fast, then settling), "linear", "in-out" or "spring" (a spring
 --             that keeps its speed where the page changes what it goes to)
 --   bounce    for a spring, how much it swings past and back, 0 to 0.9 (0: none)
---   color     the colours of its fill, border, shadow and words follow a change
+--   color     the colours of its fill, border, shadow, outline and words follow a change
 --   opacity   its opacity follows a change
 --   size      a width or height given in points follows a change
 --   auto_size the width and the height it is laid out at follow a change, whatever the style
@@ -1210,6 +1210,8 @@ local HAS = {
 	["element.scroll_link"] = true,
 	-- Children of a row on one baseline: `items_baseline()`.
 	["element.items_baseline"] = true,
+	-- A ring over a box that takes no room: `outline(width, color, offset)`.
+	["element.outline"] = true,
 	-- What an editor took after the first kit, as `editor.<option>`: a zone that is as tall as `rows`
 	-- of the editor's rows (`{ zone = name, rows = 3 }`), and the row's height in `scroll_extent`.
 	["editor.zone_rows"] = true,
@@ -1934,6 +1936,19 @@ end
 
 function Element:shadow(dx, dy, blur, color)
 	self.style.shadow = { dx = dx, dy = dy, blur = blur, color = color }
+	return self
+end
+
+-- A ring `width` points thick around the box, over it and what is inside it, as a style sheet's
+-- `outline` and `outline-offset`: its inner edge is `offset` points from the box's edge (0 when it is
+-- not said; less than nothing is inside the box, `-width` has the ring's outer edge on the box's). It
+-- takes room nowhere and answers no press, its corners follow the box's, and the boxes around the box
+-- cut it, not the box itself. A page asks `pencere.has("element.outline")` first.
+function Element:outline(width, color, offset)
+	if type(width) ~= "number" then
+		refuse("outline takes a width in points, a colour and, if it is not at the box's edge, an offset")
+	end
+	self.style.outline = { width = width, color = color, offset = offset or 0 }
 	return self
 end
 

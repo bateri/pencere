@@ -149,8 +149,34 @@ fn a_text_field_tells_a_baseline_for_its_first_line() {
         .child(field());
     let boxes = rects(root.clone());
     let list = drawn(root);
-    // The kit measures the field in its own face (12.5 points, ascent as tall as the size here),
-    // inside the border and the padding of the field.
+    // The kit measures the field in its own face (12.5 points, a line of 15.625 and an ascent as tall
+    // as the size here); the host draws a line of one in the middle of the text box, which is the
+    // field less its border (1) and its padding (4) on each side.
+    let field_baseline = boxes[2].y + 1.0 + 4.0 + (20.0 - 15.625) / 2.0 + 12.5;
+    assert!(
+        (field_baseline - baselines(&list)[0]).abs() <= HALF,
+        "{field_baseline} and {:?}",
+        baselines(&list)
+    );
+}
+
+#[test]
+fn a_field_of_lines_stands_its_first_line_at_the_top_of_its_text_box() {
+    let root = div()
+        .row()
+        .items_baseline()
+        .child(text("Notes").text_size(11.0))
+        .child(
+            div()
+                .field(FIELD, FieldKind::Lines)
+                .w(100.0)
+                .h(60.0)
+                .p(4.0)
+                .border(1.0, Role::Border),
+        );
+    let boxes = rects(root.clone());
+    let list = drawn(root);
+    // At the top of the text box, and not in the middle of it.
     let field_baseline = boxes[2].y + 1.0 + 4.0 + 12.5;
     assert!(
         (field_baseline - baselines(&list)[0]).abs() <= HALF,

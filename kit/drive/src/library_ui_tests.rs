@@ -5,7 +5,7 @@
 //! and run (`make check-heavy`).
 
 use pencere_sandbox::Fault;
-use pencere_view::{AccessibleRole, Mods};
+use pencere_view::{AccessibleRole, Mods, Paint, Rect};
 
 use crate::audit::Flaw;
 use crate::headless::{Error, Focus, Headless};
@@ -152,11 +152,11 @@ end
     Ok(())
 }
 
-/// A control is as large as the theme says and its words and padding make it, whatever its border
-/// takes: the ring of a button is a border, which takes room in a box, and the padding is less by it.
+/// A control is as large as the theme says and its words and padding make it, ringed or not: the ring
+/// is an outline, which takes no room.
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
-fn a_control_is_as_large_as_its_theme_says_whatever_its_border_takes() -> Result<(), Error> {
+fn a_control_is_as_large_as_its_theme_says_ringed_or_not() -> Result<(), Error> {
     let mut page = open(
         r#"
 view = function(u)
@@ -181,9 +181,76 @@ end
     assert_eq!(button, (words.0 + 20.0, 26.0));
     assert_eq!(input.1, 26.0);
     assert_eq!(toggle.1, 22.0);
-    // The ring a key gives the button changes the colour of its border, not what it takes.
+    // The ring a key gives the button takes nothing.
     page.press("tab")?;
     assert_eq!(sizes(&page), (words, button, input, toggle));
+    Ok(())
+}
+
+/// Whether `inner` is inside `outer`, a hair apart.
+fn inside(inner: Rect, outer: Rect) -> bool {
+    const HAIR: f32 = 0.01;
+    inner.x >= outer.x - HAIR
+        && inner.y >= outer.y - HAIR
+        && inner.right() <= outer.right() + HAIR
+        && inner.bottom() <= outer.bottom() + HAIR
+}
+
+/// The keyboard goes through the controls of the library one by one: each is as large with its ring
+/// as without it, has one ring, and the ring is whole where the control is in a box that cuts what is
+/// outside it (the strip of tabs, the track of a choice).
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_ring_of_each_control_takes_no_room_and_is_whole_in_the_box_that_cuts_it() -> Result<(), Error>
+{
+    let mut page = open(
+        r#"
+view = function(u)
+    return pencere.div():gap(8):items_start()
+        :child(u:button("save", { title = "Save" }))
+        :child(u:input("q", { hint = "Search", label = "Search" }))
+        :child(u:toggle("t", { on = false, glyph = "Aa", label = "Match case" }))
+        :child(u:segments("seg", { items = { { key = "a", title = "Alpha" }, { key = "b", title = "Beta" } }, value = "a" }))
+        :child(u:icon_button("ib", { icon = "close", label = "Close" }))
+        :child(pencere.div():w(300):child(u:tabs("tabs", { items = { { key = "x", title = "One" }, { key = "y", title = "Two" } }, active = "x" })))
+end
+"#,
+    )?;
+    let names = ["save", "q", "t", "seg/item/a", "ib", "tabs/tab/x"];
+    let sizes = |page: &Headless| {
+        names.map(|name| {
+            let rect = page.bounds(name).unwrap_or_else(|| panic!("no {name}"));
+            (rect.w, rect.h)
+        })
+    };
+    let rest = sizes(&page);
+    // A ring is a border and nothing of a fill: the quads of the page that are one.
+    let rings = |page: &Headless| -> Vec<(Rect, Rect)> {
+        page.list()
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Paint::Quad(quad) if quad.fill.is_none() && quad.border.is_some() => {
+                    Some((quad.rect, quad.clip.rect))
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    assert!(rings(&page).is_empty(), "no ring before a key");
+    for name in names {
+        page.press("tab")?;
+        // The ring that was on the control before fades out, and this one in.
+        page.advance(0.5)?;
+        assert_eq!(sizes(&page), rest, "{name} ringed");
+        let found = rings(&page);
+        assert_eq!(found.len(), 1, "{name}: {found:?}");
+        let (ring, clip) = found[0];
+        assert!(
+            inside(ring, clip),
+            "{name}: the ring {ring:?} is cut at {clip:?}"
+        );
+    }
     Ok(())
 }
 

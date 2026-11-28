@@ -101,8 +101,8 @@ pub use rows::{Built, List, Rows};
 pub use scrolls::{Bars, Phase, ScrollTo, Scrolls, Wheeled};
 pub use spring::spring_step;
 pub use style::{
-    Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Shadow, Side,
-    Track, Truncate, Zoom,
+    Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Ring, Shadow,
+    Side, Track, Truncate, Zoom,
 };
 pub use system::{
     Drawing, KeyConvention, TerminalCaret, TerminalLook, TerminalSelection, WallTime,
@@ -139,6 +139,8 @@ mod interact_tests;
 mod margins_tests;
 #[cfg(test)]
 mod motion_tests;
+#[cfg(test)]
+mod outline_tests;
 #[cfg(test)]
 mod overlay_tests;
 #[cfg(test)]
