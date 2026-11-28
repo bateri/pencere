@@ -2090,6 +2090,15 @@ impl Laid {
         ))
     }
 
+    /// Where the bars of the box that scrolls at `index` stand, points: its padding box (the box less
+    /// its border, as a style sheet's scroll bars are in), where the boxes around it let it be seen.
+    pub(crate) fn bar_room_at(&self, index: usize) -> Option<Rect> {
+        let node = self.nodes.get(index)?;
+        let s = self.scale;
+        let room = node.padding_box().intersect(node.clip.rect);
+        Some(Rect::new(room.x / s, room.y / s, room.w / s, room.h / s))
+    }
+
     /// The group the box that scrolls at `index` goes with ([`Element::scroll_link`]).
     pub(crate) fn scroll_link_at(&self, index: usize) -> Option<crate::element::ScrollLink> {
         self.nodes.get(index)?.meta.scroll_link

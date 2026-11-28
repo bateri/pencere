@@ -24,6 +24,7 @@ impl Measure for Fixed {
 const LIST: Id = Id::new(1);
 const INNER: Id = Id::new(2);
 const COVER: Id = Id::new(3);
+const BORDERED: Id = Id::new(5);
 
 fn rows(n: u64) -> impl Iterator<Item = Element> {
     (0..n).map(|n| {
@@ -445,6 +446,37 @@ fn a_knob_dragged_moves_the_box_and_a_click_in_its_track_goes_a_page() {
     // Away from the bars a press is the page's, and so is its release.
     assert!(!scrolls.press(Point::new(100.0, 50.0), 3.0));
     assert!(!scrolls.release(3.0));
+}
+
+/// A box that scrolls with a border of 2 points, filling a page of 200 × 100: its padding box is
+/// 2 points in from every side.
+fn bordered() -> Element {
+    div()
+        .id(BORDERED)
+        .col()
+        .size_full()
+        .border(2.0, Role::Border)
+        .scroll()
+        .children(rows(10))
+}
+
+#[test]
+fn the_bars_of_a_box_with_a_border_stand_inside_it_and_are_pressed_there_and_not_on_it() {
+    let mut scrolls = Scrolls::new();
+    scrolls.set_bars(Bars::Always);
+    let laid = placed(&mut scrolls, bordered(), 0.0);
+    // The inner edge of the border is at 198 and its top edge at 2: the knob is 2 points in from
+    // them (in a style sheet the bars are in the padding box, and not over the border).
+    let knob = knobs(&laid)
+        .into_iter()
+        .find(|quad| quad.fill.is_some_and(|fill| fill.alpha > 0.2))
+        .expect("a knob");
+    assert_eq!(knob.rect.right(), 196.0);
+    assert_eq!(knob.rect.y, 4.0);
+    // A press on the border is the page's; one in the padding box, on the knob, is the bar's.
+    assert!(!scrolls.press(Point::new(199.0, 30.0), 0.0));
+    assert!(scrolls.press(Point::new(196.0, 10.0), 0.0));
+    assert!(scrolls.holding());
 }
 
 #[test]

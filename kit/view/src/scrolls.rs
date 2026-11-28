@@ -143,7 +143,8 @@ struct Scroller {
     stretch: Point,
     spring: Option<Spring>,
     glide: Option<Glide>,
-    /// From the last layout: how far it reaches, and what part of the page it shows (points).
+    /// From the last layout: how far it reaches, and where its bars stand (points): the part of its
+    /// padding box that shows.
     extent: Option<Extent>,
     rect: Rect,
     /// When it last moved: the overlay bars show for a while after.
@@ -748,7 +749,11 @@ impl Scrolls {
         let mut bars = Vec::new();
         self.covered.clear();
         for (index, id) in placed {
-            let Some((_, extent, rect)) = laid.scroller_at(index) else {
+            let Some((_, extent, _)) = laid.scroller_at(index) else {
+                continue;
+            };
+            // The bars stand in the padding box, inside the border, as a style sheet's do.
+            let Some(rect) = laid.bar_room_at(index) else {
                 continue;
             };
             let Some(clip) = laid.shown_at(index) else {
