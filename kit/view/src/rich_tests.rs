@@ -147,6 +147,36 @@ fn a_text_of_many_looks_that_may_thin_out_is_whole_and_its_parts_fade_at_the_end
 }
 
 #[test]
+fn a_text_of_many_looks_that_thins_out_starts_at_the_start_of_its_box_whatever_its_align() {
+    // The line is 120 pixels in a box of 50, centred: its end is what is cut, so it is the start of it
+    // that is in the box.
+    let laid = lay(
+        div().child(
+            div()
+                .w(50.0)
+                .child(paragraph().truncate_fade().align(crate::Align::Center)),
+        ),
+        200.0,
+        200.0,
+    );
+    let list = laid.paint(&mut Fixed);
+    let first = runs(&list).first().map(|run| run.origin.x);
+    assert_eq!(first, Some(0.0));
+    // A line that fits is where its align puts it.
+    let laid = lay(
+        div().child(
+            div()
+                .w(300.0)
+                .child(paragraph().truncate_fade().align(crate::Align::End)),
+        ),
+        400.0,
+        200.0,
+    );
+    let list = laid.paint(&mut Fixed);
+    assert!(runs(&list).first().is_some_and(|run| run.origin.x > 100.0));
+}
+
+#[test]
 fn a_link_answers_the_pointer_by_its_name_and_is_read_as_a_link() {
     let laid = lay(
         div().child(div().w(80.0).child(paragraph().wrap())),

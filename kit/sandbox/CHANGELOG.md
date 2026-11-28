@@ -14,6 +14,7 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **`pencere.has("layout.replaced_content_box")`**: a browser's room is the content box of its element, and an editor cuts at its padding box and starts its text past the element's padding, which scrolls with it. The interpreter is rebuilt with it.
 - **`fade` of an editor** in a script (points, 0 to 64; 22 where it is not said; 0 for none): how far in from the edge of the text a line that goes past it thins out; `pencere.has("editor.fade")` names it. **`truncate("fade")`** of an element: a line that does not fit thins out at the end of its box with no "…" (`truncate(false)` takes it off; `pencere.has("text.truncate_fade")`). The interface's `text-style.truncate` is an enum (`none`, `ellipsis`, `fade`) where it was a boolean. The interpreter is rebuilt with them.
 - **`scroll_link(name, axis)` of an element** in a script: boxes that scroll and say the same name scroll together, in the same frame, along `axis` (`"y"` by default, `"x"` or `"both"`); `pencere.has("element.scroll_link")` names it. The interpreter is rebuilt with it.
 - **`rows` of a zone** in a script: `{ from =, to =, zone = "peek", rows = 3 }` is a gap three rows tall, whatever a row comes to (`pencere.has("editor.zone_rows")`); with `height` it is an error. The element of the zone is as tall as the gap. **`row` of `pencere.layout.scroll_extent(editor)`**: how tall one of the editor's rows is, points. The interpreter is rebuilt with them.

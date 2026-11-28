@@ -86,6 +86,28 @@ fn the_room_is_a_browser_with_the_options_the_page_made_it_by() -> Result<(), Er
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_room_of_a_browser_in_a_box_with_a_border_and_a_padding_is_its_content_box()
+-> Result<(), Error> {
+    let page = open(&script(
+        r#"pencere.browser("web"):w(300):h(200):border(2, "border"):p(4)"#,
+    ))?;
+    let [room] = page.browsers() else {
+        panic!("one browser: {:?}", page.browsers());
+    };
+    // 6 in from the edges of its element on every side (the element grows to the page's 600 down).
+    assert_eq!((room.rect.w, room.rect.h), (288.0, 588.0));
+    let element = page
+        .bounds("web")
+        .expect("the element the browser is the room of");
+    assert_eq!(
+        (room.rect.x - element.x, room.rect.y - element.y),
+        (6.0, 6.0)
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn what_the_browser_says_reaches_the_page_and_what_the_page_asks_reaches_the_host()
 -> Result<(), Error> {
     let mut page = open(&script(r#"pencere.browser("web")"#))?;

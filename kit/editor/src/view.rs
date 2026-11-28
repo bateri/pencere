@@ -267,6 +267,9 @@ pub(crate) struct View {
     /// How wide the gutter is, and the room kept around the text, pixels.
     pub gutter: f32,
     pub pad: f32,
+    /// The room the element has in its padding box before the text on each side, pixels: left,
+    /// above, right, below. It goes before the editor's own padding and scrolls with the text.
+    pub inset: [f32; 4],
     /// What the page said of the room, held to what an editor takes: its rows, caret, gutter and
     /// colours.
     pub options: EditorOptions,
@@ -330,6 +333,7 @@ impl Default for View {
             gutter_shown: true,
             gutter: 0.0,
             pad: 4.0,
+            inset: [0.0; 4],
             options: EditorOptions::default(),
             mods: Mods::default(),
             pointer_char: None,
@@ -404,7 +408,9 @@ impl View {
         {
             self.counted = None;
         }
-        if (room.pixels.w - self.room.w).abs() > 0.5 && room.options.wrap {
+        if ((room.pixels.w - self.room.w).abs() > 0.5 || room.inset != self.inset)
+            && room.options.wrap
+        {
             self.counted = None;
         }
         self.color = room.color;
@@ -412,33 +418,54 @@ impl View {
         self.wrap = room.options.wrap;
         self.gutter_shown = room.options.gutter;
         self.room = room.pixels;
+        self.inset = room.inset;
         self.options = options;
+    }
+
+    /// The room before the first row, pixels: the editor's padding and the element's.
+    pub fn pad_top(&self) -> f32 {
+        self.pad + self.inset[1]
+    }
+
+    /// The room under the last row.
+    pub fn pad_bottom(&self) -> f32 {
+        self.pad + self.inset[3]
+    }
+
+    /// The room before the text, past the gutter.
+    pub fn pad_left(&self) -> f32 {
+        self.pad + self.inset[0]
+    }
+
+    /// The room after the longest line, and the room a row that wraps leaves at the end.
+    pub fn pad_right(&self) -> f32 {
+        self.pad + self.inset[2]
     }
 
     /// Where the text starts across the content, pixels: past the gutter.
     pub fn text_x(&self) -> f32 {
         if self.gutter_shown {
-            self.gutter + self.pad
+            self.gutter + self.pad_left()
         } else {
-            self.pad
+            self.pad_left()
         }
     }
 
     /// How wide the text of a row may be before it wraps, pixels.
     fn text_width(&self) -> f32 {
-        (self.room.w - self.text_x() - self.pad).max(self.space * 4.0)
+        (self.room.w - self.text_x() - self.pad_right()).max(self.space * 4.0)
     }
 
     /// How large the content is.
     pub fn content(&self) -> Size {
         let rows = self.tops.last().copied().unwrap_or(1).max(1);
-        let height = self.y_of(rows) + 2.0 * self.pad;
+        let height = self.y_of(rows) + self.pad_top() + self.pad_bottom();
         let width = if self.wrap {
             self.room.w
         } else {
             let widest =
                 self.widest.map_or(0, |(_, chars)| chars) as f32 * self.digit.max(self.space);
-            self.text_x() + widest.max(self.measured) + self.pad + self.space
+            self.text_x() + widest.max(self.measured) + self.pad_right() + self.space
         };
         Size::new(width, height)
     }
@@ -691,7 +718,10 @@ impl View {
                     Some((at, used)) if at == HEAD => used,
                     _ => 0.0,
                 };
-                out.push((*id, Rect::new(0.0, self.pad + used, self.room.w, *height)));
+                out.push((
+                    *id,
+                    Rect::new(0.0, self.pad_top() + used, self.room.w, *height),
+                ));
                 last = Some((HEAD, used + height));
                 continue;
             }
@@ -777,10 +807,10 @@ impl View {
         self.scroll = scroll;
         for _ in 0..2 {
             self.count(buffer);
-            let first = self.row_at(scroll.y - self.pad);
+            let first = self.row_at(scroll.y - self.pad_top());
             // The rows in the room may be more than it is tall in rows: the gaps are taken back what
             // they are not tall.
-            let last = self.row_at(scroll.y - self.pad + self.room.h) + AROUND + 1;
+            let last = self.row_at(scroll.y - self.pad_top() + self.room.h) + AROUND + 1;
             let first = first.saturating_sub(AROUND);
             let mut rows = Vec::new();
             let mut line = self.line_at_row(first);
@@ -860,7 +890,7 @@ impl View {
         let (row, into) = self.row_of(buffer, at, measure)?;
         Some(Point::new(
             self.text_x() + row.caret_x(into),
-            self.pad + self.y_of(row.index),
+            self.pad_top() + self.y_of(row.index),
         ))
     }
 
@@ -870,7 +900,7 @@ impl View {
     pub fn caret_of(&self, buffer: &Buffer, at: usize, measure: &mut dyn Measure) -> Option<Rect> {
         let (row, into) = self.row_of(buffer, at, measure)?;
         let x = self.text_x() + row.caret_x(into);
-        let top = self.pad + self.y_of(row.index);
+        let top = self.pad_top() + self.y_of(row.index);
         let drawn = self.caret_box(buffer, &row, at, x, top);
         let (y, h) = self.caret_span(top);
         Some(Rect::new(drawn.x, y, drawn.w, h))
@@ -885,10 +915,10 @@ impl View {
         point: Point,
         measure: &mut dyn Measure,
     ) -> Option<usize> {
-        if self.row <= 0.0 || point.x < self.text_x() || point.y < self.pad {
+        if self.row <= 0.0 || point.x < self.text_x() || point.y < self.pad_top() {
             return None;
         }
-        let row = self.row_at(point.y - self.pad);
+        let row = self.row_at(point.y - self.pad_top());
         if row >= self.total() {
             return None;
         }
@@ -954,9 +984,9 @@ impl View {
     ) -> Option<Rect> {
         let (first, into) = self.row_of(buffer, from, measure)?;
         let x = self.text_x() + first.x(into);
-        let top = self.pad + self.y_of(first.index);
+        let top = self.pad_top() + self.y_of(first.index);
         let (last, last_into) = self.row_of(buffer, to.max(from), measure)?;
-        let bottom = self.pad + self.y_of(last.index) + self.row;
+        let bottom = self.pad_top() + self.y_of(last.index) + self.row;
         let end = if last.index == first.index {
             self.text_x() + last.end_x(last_into)
         } else {
@@ -1005,7 +1035,7 @@ impl View {
     /// The place under `point` (pixels of the content): on the row it is on (the first or the last
     /// where it is above or below them all), the boundary nearest it across.
     pub fn place_at(&self, buffer: &Buffer, point: Point, measure: &mut dyn Measure) -> usize {
-        let row = self.row_at(point.y - self.pad);
+        let row = self.row_at(point.y - self.pad_top());
         self.place_on_row(buffer, row.min(self.total() - 1), point.x, measure)
     }
 
@@ -1045,7 +1075,7 @@ impl View {
 
     /// The lines whose rows are in view (the first and the last), scrolled as the view is.
     pub fn lines_in_view(&self) -> (usize, usize) {
-        let top = self.scroll.y - self.pad;
+        let top = self.scroll.y - self.pad_top();
         let bottom = top + self.room.h;
         let shown = |row: &&Row| {
             let y = self.y_of(row.index);
@@ -1077,7 +1107,7 @@ impl View {
     ) -> Vec<Paint> {
         let mut out = Vec::new();
         let fade = |color: Color| color.faded(slot.opacity);
-        let room = slot.rect;
+        let room = slot.padding_box;
         let gutter = Rect::new(
             room.x,
             room.y,
@@ -1092,7 +1122,7 @@ impl View {
         ));
         let gutter_clip = slot.clip.intersect(gutter);
         let origin_x = room.x + self.text_x() - slot.scroll.x;
-        let origin_y = room.y + self.pad - slot.scroll.y;
+        let origin_y = room.y + self.pad_top() - slot.scroll.y;
         let row_y = |row: &Row| origin_y + self.y_of(row.index);
         let quad = |rect: Rect, fill: Color, clip: Clip| {
             Paint::Quad(Quad {
@@ -2095,7 +2125,7 @@ impl View {
             (Some(first), Some(last)) => buffer.fold_lines(first, last),
             _ => Vec::new(),
         };
-        let origin_y = slot.rect.y + self.pad - slot.scroll.y;
+        let origin_y = slot.padding_box.y + self.pad_top() - slot.scroll.y;
         let numbers = self.cols.iter().find(|col| col.kind == Kind::Numbers);
         let folding = self.cols.iter().find(|col| col.kind == Kind::Folds);
         for row in rows.iter().filter(|row| row.from == 0) {
@@ -2187,12 +2217,12 @@ impl View {
 
     /// The bottom of line `line`'s own rows, pixels of the content.
     pub fn line_bottom(&self, line: usize) -> f32 {
-        self.pad + self.y_of(self.own_end(line))
+        self.pad_top() + self.y_of(self.own_end(line))
     }
 
     /// The top of line `line`, pixels of the content.
     pub fn line_top(&self, line: usize) -> f32 {
-        self.pad + self.y_of(self.tops.get(line).copied().unwrap_or(0))
+        self.pad_top() + self.y_of(self.tops.get(line).copied().unwrap_or(0))
     }
 
     /// The top of line `line` (pixels of the page, `origin_y` the content's top).
@@ -2310,7 +2340,7 @@ impl View {
         let (Some(first), Some(last)) = (rows.first(), rows.last()) else {
             return;
         };
-        let origin_y = slot.rect.y + self.pad - slot.scroll.y;
+        let origin_y = slot.padding_box.y + self.pad_top() - slot.scroll.y;
         let lit = self
             .options
             .colors
@@ -2548,7 +2578,7 @@ impl View {
         }
         let s = self.scale.max(0.01);
         let total = self.y_of(self.total()).max(1.0);
-        let room = slot.rect;
+        let room = slot.padding_box;
         let width = (self.options.marks.ruler * s).round().max(3.0);
         let strip = room.right() - width - 2.0 * s;
         for (_, item) in marks {
@@ -2650,7 +2680,7 @@ impl View {
         if !self.gutter_shown || x < 0.0 || x >= self.gutter {
             return None;
         }
-        let row = self.row_at(y - self.pad);
+        let row = self.row_at(y - self.pad_top());
         // Below the last row there is no line, nor in a gap kept open for the page.
         if row >= self.total() {
             return None;

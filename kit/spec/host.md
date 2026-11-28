@@ -285,7 +285,7 @@ A host times the pointer's rest over a word of an editor that hears of it on its
 
 ### The browsers a host shows
 
-A host puts a browser in each browser's room (`Laid::browsers`) where it shows browsers, and says so (`Page::set_browsers`).
+A host puts a browser in each browser's room (`Laid::browsers`: the content box of its element, the border and the padding around it) where it shows browsers, and says so (`Page::set_browsers`).
 
 The host:
 

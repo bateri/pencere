@@ -579,6 +579,32 @@ fn boxes_that_go_together_are_at_one_offset_in_the_frame_one_of_them_moves() {
     assert_eq!(row_of(&moved, RIGHT_FIRST), -50.0);
 }
 
+#[test]
+fn a_box_cut_short_does_not_take_the_others_back_with_it() {
+    let mut scrolls = Scrolls::new();
+    scrolls.set_bars(Bars::Hidden);
+    let laid = placed(&mut scrolls, pair(10, 10, crate::LinkAxis::Y), 0.0);
+    wheel(&mut scrolls, &laid, ON_LEFT, 80.0, 0.1);
+    assert_eq!(
+        (scrolls.offset(LEFT).y, scrolls.offset(RIGHT).y),
+        (80.0, 80.0)
+    );
+    // The right comes to be 60 at most: it stands at its end, the left where it was moved to.
+    let shorter = placed(&mut scrolls, pair(10, 8, crate::LinkAxis::Y), 0.2);
+    assert_eq!(
+        (scrolls.offset(LEFT).y, scrolls.offset(RIGHT).y),
+        (80.0, 60.0)
+    );
+    assert_eq!(row_of(&shorter, LEFT_FIRST), -80.0);
+    assert_eq!(row_of(&shorter, RIGHT_FIRST), -60.0);
+    // Where it is as long again the right goes on to where the group is.
+    let _ = placed(&mut scrolls, pair(10, 10, crate::LinkAxis::Y), 0.3);
+    assert_eq!(
+        (scrolls.offset(LEFT).y, scrolls.offset(RIGHT).y),
+        (80.0, 80.0)
+    );
+}
+
 fn row_of(laid: &Laid, id: Id) -> f32 {
     laid.bounds(id).map_or(f32::NAN, |r| r.y)
 }

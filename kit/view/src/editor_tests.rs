@@ -226,6 +226,69 @@ fn an_editor_scrolls_as_a_box_does_over_what_its_editor_laid_out() {
     assert_eq!(again.bounds(POPUP), Some(Rect::new(30.0, 66.0, 80.0, 50.0)));
 }
 
+/// An editor in a box with a border and a padding stands in the box's padding box, where it draws and
+/// cuts, and counts its places from the corner of it; what the box has of padding is its to put before
+/// its text, and scrolls with the text. The border is what the view has more than the content.
+#[test]
+fn an_editor_stands_in_the_padding_box_of_its_element_with_the_padding_before_its_text() {
+    let mut host = host(Some(Rect::new(30.0, 20.0, 2.0, 16.0)));
+    let mut scrolls = Scrolls::new();
+    let root = div().child(div().h(40.0)).child(
+        div()
+            .editor(EDITOR, EditorOptions::default())
+            .w(300.0)
+            .h(200.0)
+            .border(2.0, Role::Border)
+            .p(4.0),
+    );
+    let mut laid = lay(root, &mut host);
+    scrolls.place(&mut laid, 0.0, false);
+    // The border box is 300 by 200, 40 down: the padding box is 2 in from it, the content box 4 more.
+    let padding_box = Rect::new(2.0, 42.0, 296.0, 196.0);
+    let room = laid.editors().remove(0);
+    assert_eq!(room.pixels, padding_box);
+    assert_eq!(room.rect, padding_box, "points are pixels at this scale");
+    assert_eq!(room.inset, [4.0; 4]);
+    assert_eq!(room.clip, padding_box);
+    let list = laid.paint(&mut host);
+    let slot = list
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Paint::Editor(slot) => Some(slot),
+            _ => None,
+        })
+        .expect("the editor's slot");
+    assert_eq!(slot.rect, Rect::new(0.0, 40.0, 300.0, 200.0));
+    assert_eq!(slot.padding_box, padding_box);
+    assert_eq!(slot.content, Rect::new(6.0, 46.0, 288.0, 188.0));
+    assert_eq!(slot.clip, padding_box, "cut at the padding box");
+    // The content is the editor's from the corner of the padding box and the view is the border box:
+    // the editor reaches its end when what it laid out less the padding box is scrolled.
+    let extent = laid.scroll_extent(EDITOR).expect("the editor scrolls");
+    assert_eq!(extent.content, Size::new(304.0, 1004.0));
+    assert_eq!(extent.view, Size::new(300.0, 200.0));
+    assert_eq!(extent.max_offset(), 1000.0 - 196.0);
+    // Its caret is where the editor says, from the corner of the padding box, moved as it is scrolled.
+    assert_eq!(
+        laid.bounds(EDITOR.caret()),
+        Some(Rect::new(32.0, 62.0, 2.0, 16.0))
+    );
+    scrolls.ask(ScrollTo {
+        id: EDITOR,
+        x: None,
+        y: Some(10.0),
+        animate: false,
+        zoom: None,
+        at: None,
+    });
+    scrolls.place(&mut laid, 0.1, false);
+    assert_eq!(
+        laid.bounds(EDITOR.caret()),
+        Some(Rect::new(32.0, 52.0, 2.0, 16.0))
+    );
+}
+
 #[test]
 fn an_editor_scrolled_with_nothing_on_its_caret_asks_for_nothing() {
     let mut host = host(Some(Rect::new(30.0, 20.0, 2.0, 16.0)));

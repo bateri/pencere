@@ -851,8 +851,9 @@ end
 -- The element is the content of the zone `id` of the editor it is a child of: a gap the editor
 -- keeps open after a line (a decoration `{ from =, to =, zone = id, height = points }`), in whole
 -- rows. It is laid out as a box as wide as the editor, as tall as the page says (`:height(...)`, the
--- same as the zone's), and put in the gap, where it scrolls with the text; it is on the page only
--- while the editor has such a gap. `pencere.editor("code"):child(pencere.div():id("peek"):zone("peek"):height(120))`.
+-- same as the zone's) or, where the zone says `rows = n`, as tall as the gap (the editor's own row
+-- height decides it: ask `pencere.has("editor.zone_rows")`, and say `size_full()` to fill it), and put
+-- in the gap, where it scrolls with the text; it is on the page only while the editor has such a gap. `pencere.editor("code"):child(pencere.div():id("peek"):zone("peek"):height(120))`.
 function Element:zone(id)
 	if id == nil then
 		refuse("zone takes the name of the zone")
@@ -1202,6 +1203,9 @@ local HAS = {
 	-- The box a page's lengths are those of: a border takes room in every box, inside the `w` and the
 	-- `h` the page gives (a style sheet's `border-box`), and what the box holds stands inside it.
 	["layout.border_box"] = true,
+	-- A browser's room is the content box of its element, and an editor cuts at its padding box and
+	-- starts its text past the element's padding, which scrolls with it.
+	["layout.replaced_content_box"] = true,
 	-- Boxes that scroll together: `scroll_link(name, axis)`.
 	["element.scroll_link"] = true,
 	-- What an editor took after the first kit, as `editor.<option>`: a zone that is as tall as `rows`

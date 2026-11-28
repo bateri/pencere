@@ -4988,3 +4988,130 @@ fn what_the_fade_of_an_editor_is_the_page_says_and_a_room_that_wraps_has_none() 
     .held();
     assert_eq!(held.fade, 22.0);
 }
+
+// --- The room of an editor in a box with a border and a padding -----------------------------------
+
+/// An editor filling the page, 400 by 200, in an element with a border of 2 and a padding of 4, and
+/// no gutter: its padding box is 2 in from the page's edge, its content box 6.
+fn boxed_page(options: EditorOptions) -> impl Fn() -> Element {
+    move || {
+        div().child(
+            div()
+                .editor(EDITOR, options.clone())
+                .size_full()
+                .border(2.0, Role::Border)
+                .p(4.0),
+        )
+    }
+}
+
+#[test]
+fn the_text_of_an_editor_starts_past_the_border_and_the_padding_of_its_element_and_is_cut_at_its_padding_box()
+ {
+    let mut host = Host::new(boxed_page(plain()));
+    host.load(&"mmm iii\n".repeat(30));
+    // 2 of border, 4 of the element's padding and the editor's own 4 of padding: 10 across; down it is
+    // the same and the row's 2 above its line.
+    let drawn: Vec<_> = host
+        .paint(true)
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Paint::Text(run) if !run.text.trim().is_empty() => Some((run.origin, run.clip)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(drawn[0].0, Point::new(10.0, 10.0 + LEAD));
+    assert_eq!(drawn[0].1.rect, Rect::new(2.0, 2.0, 396.0, 196.0));
+    // A press 1 pixel before the end of the first `m` (11 across) is at the boundary after it: the
+    // text is where the element's box model says and not where the whole box would put it.
+    assert!(host.press(Point::new(20.0, 14.0), none(), 1));
+    assert_eq!(host.ranges(), vec![Range::caret(1)]);
+    // The element's padding goes with the text: scrolled down 10, the first line is 10 higher.
+    host.scrolls.ask(pencere_view::ScrollTo {
+        id: EDITOR,
+        x: None,
+        y: Some(10.0),
+        animate: false,
+        zoom: None,
+        at: None,
+    });
+    host.settle();
+    let scrolled = host
+        .paint(true)
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Paint::Text(run) if run.text.starts_with("mmm") => Some(run.origin),
+            _ => None,
+        })
+        .expect("the first line");
+    assert_eq!(scrolled, Point::new(10.0, 10.0 + LEAD - 10.0));
+    // Its content has the padding of the element above and below the rows, and the view the border:
+    // thirty rows and a last, empty one, 8 above and 8 below (the element's 4 and the editor's 4), and
+    // the end is where the padding box is filled.
+    let extent = host.laid.scroll_extent(EDITOR).expect("the room scrolls");
+    let rows = 31.0 * ROW;
+    assert_eq!(extent.content.h, 8.0 + rows + 8.0 + 4.0);
+    assert_eq!(extent.max_offset(), 8.0 + rows + 8.0 - 196.0);
+}
+
+#[test]
+fn what_the_element_has_of_padding_on_the_right_leaves_less_room_for_a_line_that_wraps() {
+    // 35 `m` are 385 across: they fit the 392 a plain editor leaves between its padding, and not the
+    // 380 left in an element that has 4 and 2 of its own on each side.
+    let line = "m".repeat(35);
+    let wrapping = EditorOptions {
+        wrap: true,
+        ..plain()
+    };
+    let mut host = Host::new(page_with(wrapping.clone()));
+    host.load(&line);
+    // The rows the content is as tall as, less the room above and below them.
+    let rows = |host: &Host, around: f32| {
+        let height = host.editors.metrics(EDITOR).expect("laid out").content.h;
+        ((height - around) / ROW).round()
+    };
+    assert_eq!(rows(&host, 8.0), 1.0);
+    let mut host = Host::new(boxed_page(wrapping));
+    host.load(&line);
+    assert_eq!(rows(&host, 16.0), 2.0);
+}
+
+#[test]
+fn a_caret_at_the_end_of_a_long_line_is_brought_past_the_room_the_padding_of_its_element_keeps() {
+    // 60 of padding on every side: more than the four spaces the caret is kept from the edge.
+    let page = || div().child(div().editor(EDITOR, plain()).size_full().p(60.0));
+    let mut host = Host::new(page);
+    host.load(&"m".repeat(100));
+    host.editors.set_focus(Some(EDITOR));
+    let laid = host.laid.clone();
+    let select = |host: &mut Host, laid: &Laid| {
+        host.editors.ask(
+            laid,
+            EDITOR,
+            EditorAsk::Select {
+                version: 1,
+                ranges: vec![Range::caret(100)],
+                main: 0,
+            },
+            &mut Fake,
+            0.0,
+        );
+    };
+    select(&mut host, &laid);
+    for ask in host.editors.take_scrolls() {
+        host.scrolls.ask(ask);
+    }
+    host.settle();
+    let caret = host
+        .laid
+        .bounds(EDITOR.caret())
+        .expect("the caret is in view");
+    // The end of the room is 400 and the editor keeps 4 and the element 60 past the text.
+    assert!(caret.right() + 64.0 <= 400.0 + 0.5, "{caret:?}");
+    // Where it is, it is not asked to scroll again.
+    let laid = host.laid.clone();
+    select(&mut host, &laid);
+    assert!(host.editors.take_scrolls().is_empty());
+}

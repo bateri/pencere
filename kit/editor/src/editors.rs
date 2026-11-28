@@ -1491,21 +1491,23 @@ fn keep_in_view(
     let (top, height) = (view.scroll.y, view.room.h);
     // The caret's whole row is kept in view, not only its caret, and as many rows about it as the
     // page asks (at most half of those in view).
-    let index = ((caret.y - view.pad) / view.row).floor().max(0.0);
+    let index = ((caret.y - view.pad_top()) / view.row).floor().max(0.0);
     let (above, below) = (
-        view.pad + index * view.row,
-        view.pad + (index + 1.0) * view.row,
+        view.pad_top() + index * view.row,
+        view.pad_top() + (index + 1.0) * view.row,
     );
     let in_view = (height / view.row).floor().max(1.0);
-    let margin = f32::from(view.options.scroll_margin).min(((in_view - 1.0) / 2.0).floor())
-        * view.row
-        + view.pad;
+    let kept =
+        f32::from(view.options.scroll_margin).min(((in_view - 1.0) / 2.0).floor()) * view.row;
+    let (margin_above, margin_below) = (kept + view.pad_top(), kept + view.pad_bottom());
     let y = match align {
-        RevealAlign::Start => Some((above - view.pad).max(0.0)),
+        RevealAlign::Start => Some((above - view.pad_top()).max(0.0)),
         RevealAlign::Center => Some(((above + below - height) / 2.0).max(0.0)),
-        RevealAlign::End => Some((below + view.pad - height).max(0.0)),
-        RevealAlign::Nearest if above - margin < top => Some((above - margin).max(0.0)),
-        RevealAlign::Nearest if below + margin > top + height => Some(below + margin - height),
+        RevealAlign::End => Some((below + view.pad_bottom() - height).max(0.0)),
+        RevealAlign::Nearest if above - margin_above < top => Some((above - margin_above).max(0.0)),
+        RevealAlign::Nearest if below + margin_below > top + height => {
+            Some(below + margin_below - height)
+        }
         RevealAlign::Nearest => None,
     };
     let x = if view.wrap {
@@ -1516,8 +1518,10 @@ fn keep_in_view(
         let margin = view.space * 4.0;
         if caret.x < left {
             Some((caret.x - view.text_x() - margin).max(0.0))
-        } else if caret.right() + view.pad > right {
-            Some(caret.right() + margin - view.room.w)
+        } else if caret.right() + view.pad_right() > right {
+            // Far enough in to be past the room the end keeps (the element's padding may be more than
+            // the margin), or the same is asked at the next key.
+            Some(caret.right() + margin.max(view.pad_right()) - view.room.w)
         } else {
             None
         }

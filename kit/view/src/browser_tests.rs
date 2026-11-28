@@ -171,3 +171,43 @@ fn the_pointer_in_a_browser_is_its_own_and_not_a_drag_of_a_box_around_it() {
     let laid = lay(root);
     assert!(laid.carry_at(Point::new(10.0, 10.0)).is_none());
 }
+
+/// A browser is a replaced element: its room is the content box of its element, and the border and the
+/// padding stand around it.
+#[test]
+fn the_room_of_a_browser_is_the_content_box_of_its_element() {
+    let root = div().child(div().h(40.0)).child(
+        div()
+            .browser(BROWSER, BrowserOptions::default())
+            .size(100.0, 60.0)
+            .border(2.0, Role::Border)
+            .p(4.0),
+    );
+    let laid = lay(root);
+    let room = laid.browsers().remove(0);
+    let content = Rect::new(6.0, 46.0, 88.0, 48.0);
+    assert_eq!(room.pixels, content);
+    assert_eq!(room.rect, content);
+    assert_eq!(room.clip, content);
+    let list = laid.paint(&mut Host);
+    let slot = list
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Paint::Browser(slot) => Some(slot),
+            _ => None,
+        })
+        .expect("the browser's slot");
+    assert_eq!(slot.rect, Rect::new(0.0, 40.0, 100.0, 60.0));
+    assert_eq!(slot.padding_box, Rect::new(2.0, 42.0, 96.0, 56.0));
+    assert_eq!(slot.content, content);
+    assert_eq!(slot.clip, content);
+    // Without a border or a padding it is the box, as it was.
+    let root = div().child(
+        div()
+            .browser(BROWSER, BrowserOptions::default())
+            .size(100.0, 60.0),
+    );
+    let room = lay(root).browsers().remove(0);
+    assert_eq!(room.pixels, Rect::new(0.0, 0.0, 100.0, 60.0));
+}

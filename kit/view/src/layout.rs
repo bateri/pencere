@@ -179,7 +179,12 @@ impl Node {
     /// The room inside the border and the padding, where what the box holds (its words, its
     /// picture, what is in it) stands: empty where they are more than the box.
     pub(crate) fn content_box(&self) -> Rect {
-        less(less(self.rect, self.edge), self.pad)
+        less(self.padding_box(), self.pad)
+    }
+
+    /// The box less its border, pixels: where a box that clips cuts, and a room of an editor scrolls.
+    pub(crate) fn padding_box(&self) -> Rect {
+        less(self.rect, self.edge)
     }
 
     /// What it lets the boxes inside it draw, where it clips: its clip cut at its padding box, with the
@@ -626,21 +631,26 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
         } else {
             0.0
         };
-        let (room, scroll) = (node.rect, node.scroll);
+        // The editor stands in the padding box of its element, as a box that scrolls does: what it says
+        // of its places is from the corner of that.
+        let (room, scroll) = (node.padding_box(), node.scroll);
         place_zones(&mut nodes, index, &zones, room, scroll);
         let Some(node) = nodes.get_mut(index) else {
             continue;
         };
+        let [left, above, right, below] = node.edge;
         if let Some((content, view)) = &mut node.extent {
             let fits = |side: f32| side.is_finite() && side >= 0.0;
+            // The editor's content is from its padding box and the view is the border box: the
+            // border is what the view has more.
             *content = Size::new(
                 if fits(said.content.w) {
-                    said.content.w
+                    said.content.w + left + right
                 } else {
                     view.w
                 },
                 if fits(said.content.h) {
-                    said.content.h
+                    said.content.h + above + below
                 } else {
                     view.h
                 },
@@ -715,11 +725,12 @@ fn place_zones(
     }
 }
 
-/// Where the caret of an editor is on the page, pixels: its box in the content, moved as the room
-/// is scrolled.
+/// Where the caret of an editor is on the page, pixels: its box in the content, from the corner of the
+/// padding box of its element, moved as the room is scrolled.
 fn caret_on_page(nodes: &[Node], (index, _, caret): &(usize, Id, Rect)) -> Option<Rect> {
     let room = nodes.get(*index)?;
-    Some(caret.translate(room.rect.x - room.scroll.0, room.rect.y - room.scroll.1))
+    let corner = room.padding_box();
+    Some(caret.translate(corner.x - room.scroll.0, corner.y - room.scroll.1))
 }
 
 /// The height of a line of a text of many looks: the tallest of its parts' fonts.
@@ -819,7 +830,7 @@ fn place_beside(
             return None;
         }
         let rect = caret_on_page(nodes, found)?;
-        let seen = room.rect.intersect(room.clip.rect);
+        let seen = room.padding_box().intersect(room.clip.rect);
         Some((rect, rect.y < seen.bottom() && rect.bottom() > seen.y))
     };
     let (to, seen) = match element.or_else(caret) {
@@ -2102,7 +2113,7 @@ impl Laid {
                 let (Some(id), Some(kind)) = (node.meta.id, node.meta.field) else {
                     return None;
                 };
-                let (padding_box, text) = field_boxes(node);
+                let (padding_box, text) = inner_boxes(node);
                 Some(Field {
                     id,
                     kind,
@@ -2142,17 +2153,17 @@ impl Laid {
                 if !seen.insert(id) {
                     return None;
                 }
+                // The room is the padding box: where the editor draws and cuts, and from the corner of
+                // which it counts its places. What the element has of padding is the editor's to put
+                // before its text.
+                let (padding_box, _) = inner_boxes(node);
                 Some(EditorRoom {
                     id,
                     options: options.clone(),
-                    rect: Rect::new(
-                        node.rect.x / s,
-                        node.rect.y / s,
-                        node.rect.w / s,
-                        node.rect.h / s,
-                    ),
-                    pixels: node.rect,
-                    clip: Self::shown(node),
+                    rect: scaled(padding_box, s),
+                    pixels: padding_box,
+                    inset: node.pad,
+                    clip: padding_box.intersect(node.clip.rect),
                     hidden: node.hidden,
                     font: look.font,
                     color: look.color,
@@ -2184,17 +2195,15 @@ impl Laid {
                 if !seen.insert(id) {
                     return None;
                 }
+                // The room is the content box, as a replaced element's is: the border and the padding
+                // of its element stand around it.
+                let (_, content) = inner_boxes(node);
                 Some(BrowserRoom {
                     id,
                     options: options.clone(),
-                    rect: Rect::new(
-                        node.rect.x / s,
-                        node.rect.y / s,
-                        node.rect.w / s,
-                        node.rect.h / s,
-                    ),
-                    pixels: node.rect,
-                    clip: Self::shown(node),
+                    rect: scaled(content, s),
+                    pixels: content,
+                    clip: content.intersect(node.clip.rect),
                     hidden: node.hidden,
                     label: node.meta.label.clone(),
                 })
@@ -2988,13 +2997,14 @@ enum Apart {
     All,
 }
 
-/// The boxes of a text field inside its room, pixels: the padding box (the room less the border,
-/// where a field of lines cuts its text and scrolls it) and the box of the text (the padding box
-/// less the padding). The one place that says where a field's border and padding are in it; each
-/// box is inside the one before, and empty where what is taken off it is more than there is.
-fn field_boxes(node: &Node) -> (Rect, Rect) {
-    let padding_box = less(node.rect, node.edge);
-    (padding_box, less(padding_box, node.pad))
+/// The boxes of an element that holds a field, an editor or a browser inside its border box (the
+/// element's `rect`), pixels: the padding box (the box less the border, where a field of lines or an
+/// editor cuts and scrolls) and the content box (the padding box less the padding, where a field
+/// starts its text and a browser stands). The one place that says where the border and the padding are
+/// in the box; each box is inside the one before, and empty where what is taken off it is more than
+/// there is.
+fn inner_boxes(node: &Node) -> (Rect, Rect) {
+    (node.padding_box(), node.content_box())
 }
 
 /// `rect` less `[left, above, right, below]`, and no more of it than there is. (`max` and `min`, not
@@ -3253,10 +3263,13 @@ pub struct EditorRoom {
     /// Its name: the id of the element that is its room.
     pub id: Id,
     pub options: EditorOptions,
-    /// Where it stands, points.
+    /// Where its room stands, points: the padding box of its element, as a box that scrolls has it.
     pub rect: Rect,
     /// The same, pixels.
     pub pixels: Rect,
+    /// The room the element has inside its padding box before its text on each side, pixels: left,
+    /// above, right, below. It scrolls with the text.
+    pub inset: [f32; 4],
     /// The part of the room that shows, pixels: its box, cut by the boxes around it.
     pub clip: Rect,
     /// It, or a box that holds it, is hidden: it keeps its document and draws nothing.
@@ -3276,7 +3289,8 @@ pub struct BrowserRoom {
     /// Its name: the id of the element that is its room.
     pub id: Id,
     pub options: BrowserOptions,
-    /// Where it stands, points.
+    /// Where its room stands, points: the content box of its element, as a replaced element's room
+    /// is, the border and the padding around it.
     pub rect: Rect,
     /// The same, pixels.
     pub pixels: Rect,
@@ -3304,7 +3318,16 @@ pub(crate) fn rich_boxes<'a>(node: &Node, rich: &'a Rich) -> Vec<(Rect, &'a crat
         };
     let mut out = Vec::new();
     for (index, line) in rich.lines.iter().enumerate() {
-        let x = match rich.base.align {
+        // A line that thins out where its box ends starts at the start of it, whatever its align: it
+        // is its end that is cut (as a line of one look is, `paint::place_text`).
+        let fading =
+            rich.base.truncate == Truncate::Fade && !rich.base.wrap && line.width > room.w + 1.0;
+        let align = if fading {
+            Align::Start
+        } else {
+            rich.base.align
+        };
+        let x = match align {
             Align::Start => room.x,
             Align::Center => room.x + (room.w - line.width) / 2.0,
             Align::End => room.right() - line.width,

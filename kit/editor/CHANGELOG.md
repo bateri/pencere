@@ -23,6 +23,7 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
 
 ### Changed
 
+- **An editor in an element with a border and a padding** draws and cuts in the padding box and starts its text at the content box (its own `padding` after that): the element's padding scrolls with the text and a line that wraps wraps inside the content box. The reveal of the caret and of a row counts the padding above and below. `View::pad_top`, `pad_bottom`, `pad_left` and `pad_right` say how much room there is before the text on each side.
 - The editor's measure passes the page of an image on (`Measure::image(src, page)` of the engine).
 
 - A key typed in a long document no longer looks up every line of it to find the longest, nor, where

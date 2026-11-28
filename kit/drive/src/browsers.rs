@@ -158,7 +158,7 @@ pub(crate) fn settle(items: &mut Vec<Paint>, shown: bool, size: f32, measure: &m
 /// is: the engine draws in it, and a picture has none.
 pub fn frame(slot: &BrowserSlot) -> Paint {
     Paint::Quad(Quad {
-        rect: slot.rect,
+        rect: slot.content,
         radii: [0.0; 4],
         fill: None,
         gradient: None,
@@ -185,8 +185,8 @@ pub fn placeholder(slot: &BrowserSlot, size: f32, measure: &mut dyn Measure) -> 
         frame(slot),
         Paint::Text(Run {
             origin: Point::new(
-                slot.rect.x + (slot.rect.w - metrics.width) / 2.0,
-                slot.rect.y + (slot.rect.h - metrics.height) / 2.0,
+                slot.content.x + (slot.content.w - metrics.width) / 2.0,
+                slot.content.y + (slot.content.h - metrics.height) / 2.0,
             ),
             text: UNSUPPORTED.to_owned(),
             font,
@@ -427,6 +427,8 @@ mod tests {
         let slot = BrowserSlot {
             id: Id::new(1),
             rect: Rect::new(10.0, 20.0, 400.0, 200.0),
+            padding_box: Rect::new(10.0, 20.0, 400.0, 200.0),
+            content: Rect::new(10.0, 20.0, 400.0, 200.0),
             clip: pencere_view::Clip::new(Rect::new(10.0, 20.0, 400.0, 200.0)),
             opacity: 1.0,
         };

@@ -133,9 +133,15 @@ pub struct Figure {
 #[derive(Clone, Debug, PartialEq)]
 pub struct EditorSlot {
     pub id: Id,
-    /// The room, pixels.
+    /// The border box of its element, pixels.
     pub rect: Rect,
-    /// What of it is seen: nothing is drawn outside it.
+    /// The room less the border: where the editor draws and cuts, and from the corner of which it
+    /// counts its places (pixels).
+    pub padding_box: Rect,
+    /// The padding box less the padding of its element, pixels: where its text starts, with the
+    /// editor's own padding before it.
+    pub content: Rect,
+    /// What of the padding box is seen: nothing is drawn outside it.
     pub clip: Clip,
     /// How far the room is scrolled, across and down, pixels.
     pub scroll: Point,
@@ -151,9 +157,13 @@ pub struct EditorSlot {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BrowserSlot {
     pub id: Id,
-    /// The room, pixels.
+    /// The border box of its element, pixels.
     pub rect: Rect,
-    /// What of it is seen: nothing is drawn outside it.
+    /// The room less the border, pixels.
+    pub padding_box: Rect,
+    /// The padding box less the padding of its element, pixels: the browser's room.
+    pub content: Rect,
+    /// What of the room is seen: nothing is drawn outside it.
     pub clip: Clip,
     /// How much of what is drawn shows: the opacity of the room and the boxes that hold it.
     pub opacity: f32,
@@ -240,10 +250,13 @@ impl Laid {
                 Content::None => {}
                 Content::Editor(_) => {
                     if let Some(id) = node.meta.id {
+                        let padding_box = node.padding_box();
                         list.items.push(Paint::Editor(EditorSlot {
                             id,
                             rect: node.rect,
-                            clip: node.clip.intersect(node.rect),
+                            padding_box,
+                            content: node.content_box(),
+                            clip: node.clip.intersect(padding_box),
                             scroll: Point::new(node.scroll.0, node.scroll.1),
                             opacity,
                             grounds: self.grounds_under(index),
@@ -255,10 +268,13 @@ impl Laid {
                         && node.meta.browser.is_some()
                         && browsers.insert(id)
                     {
+                        let content = node.content_box();
                         list.items.push(Paint::Browser(BrowserSlot {
                             id,
                             rect: node.rect,
-                            clip: node.clip.intersect(node.rect),
+                            padding_box: node.padding_box(),
+                            content,
+                            clip: node.clip.intersect(content),
                             opacity,
                         }));
                     }

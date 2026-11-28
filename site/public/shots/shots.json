@@ -139,6 +139,11 @@
     "height": 220.0,
     "width": 540.0
   },
+  "elements/editor-box": {
+    "diagnostics": [],
+    "height": 260.0,
+    "width": 540.0
+  },
   "elements/editor-fade": {
     "diagnostics": [],
     "height": 160.0,

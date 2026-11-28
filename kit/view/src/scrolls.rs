@@ -668,6 +668,21 @@ impl Scrolls {
             let b = self.boxes.entry(id).or_default();
             b.extent = Some(extent);
             b.link = laid.scroll_link_at(index);
+            // A box that has become shorter is cut short where it stands, and its place in its group
+            // with it: that it was cut is not that it was moved, and does not lead the others back.
+            let reach = |at: Point| {
+                Point::new(
+                    at.x.clamp(0.0, extent.max_offset_x()),
+                    at.y.clamp(0.0, extent.max_offset()),
+                )
+            };
+            let (offset, linked) = (reach(b.offset), reach(b.linked));
+            if b.offset == b.linked {
+                b.linked = offset;
+            } else {
+                b.linked = linked;
+            }
+            b.offset = offset;
             let zoomer = laid.zoomer_at(index);
             b.zoom.set_rule(
                 zoomer.map(|(rule, _)| rule),
@@ -721,7 +736,13 @@ impl Scrolls {
                 snap(b.offset.x + b.stretch.x, scale),
                 snap(b.offset.y + b.stretch.y, scale),
             );
+            // The box a zoom is held at is where the boxes it is inside have put it by now (they come
+            // before it), and not where they were a frame ago.
+            let frame = laid.zoomer_at(*index);
             laid.rescroll(*index, to);
+            if let (Some((rule, frame)), Some(b)) = (frame, self.boxes.get_mut(id)) {
+                b.zoom.set_rule(Some(rule), frame);
+            }
         }
         // The bars, once every box is where it goes (one inside another moves with it).
         let mut bars = Vec::new();

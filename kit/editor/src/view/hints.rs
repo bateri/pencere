@@ -255,7 +255,7 @@ impl View {
         if row.shaped.widgets.is_empty() {
             return Vec::new();
         }
-        let top = self.pad + self.y_of(row.index);
+        let top = self.pad_top() + self.y_of(row.index);
         let origin = self.text_x();
         let mut out = Vec::new();
         // Each boundary's before-widgets from where the characters before it end, then the caret, then
@@ -322,7 +322,7 @@ impl View {
     /// What is under `point` (pixels of the content): a widget, and the part of it.
     pub(crate) fn widget_under(&self, point: Point) -> Option<(WidgetBox, Option<usize>)> {
         let row = self.rows.iter().find(|row| {
-            let top = self.pad + self.y_of(row.index);
+            let top = self.pad_top() + self.y_of(row.index);
             point.y >= top && point.y < top + self.row
         })?;
         self.widget_boxes(row).into_iter().find_map(|found| {
@@ -348,7 +348,7 @@ impl View {
         out: &mut Vec<Paint>,
     ) {
         // Where the room ends, in the content (it is scrolled across by `scroll.x`).
-        let room_right = self.scroll.x + self.room.w - self.pad;
+        let room_right = self.scroll.x + self.room.w - self.pad_right();
         for found in self.widget_boxes(row) {
             let widget = &found.placed.widget;
             let group = self.group_of(widget);
@@ -356,7 +356,7 @@ impl View {
             // Back from the content's pixels to the page's (the text's origin and the row's top).
             let (dx, dy) = (
                 origin_x - self.text_x(),
-                y - (self.pad + self.y_of(row.index)),
+                y - (self.pad_top() + self.y_of(row.index)),
             );
             let rect = found.rect.translate(dx, dy);
             let fade = |color: Color| color.faded(slot.opacity);
@@ -389,8 +389,10 @@ impl View {
                 };
                 let (content_x, content_right) = (span.x, span.right());
                 let span = span.translate(dx, dy);
-                let (Some(color), true) = (part.color.or(base), content_x < room_right + self.pad)
-                else {
+                let (Some(color), true) = (
+                    part.color.or(base),
+                    content_x < room_right + self.pad_right(),
+                ) else {
                     continue;
                 };
                 let mut text: String = part.text.chars().take(limits::WIDGET_TEXT).collect();

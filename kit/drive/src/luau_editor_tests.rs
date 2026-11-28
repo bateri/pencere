@@ -3706,3 +3706,38 @@ fn a_script_thins_a_line_out_in_an_editor_and_in_a_text_and_asks_the_kit_for_bot
     );
     Ok(())
 }
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn an_editor_in_a_box_with_a_border_and_a_padding_stands_in_its_padding_box_and_the_page_can_ask_for_it()
+-> Result<(), Error> {
+    let page = open(
+        r#"
+        return {
+            render = function()
+                return pencere.div():size_full()
+                    :child(pencere.text(tostring(pencere.has("layout.replaced_content_box"))))
+                    :child(pencere.editor("code"):w(300):h(150):border(2, "border"):p(4))
+            end,
+        }
+        "#,
+    )?;
+    assert_eq!(page.tree_words()[0], "true");
+    let room = page
+        .laid()
+        .expect("laid out")
+        .editors()
+        .into_iter()
+        .find(|room| room.id == Id::named("code"))
+        .expect("the editor's room");
+    let element = page.bounds("code").expect("the element");
+    // The padding box is 2 in from the element's, 4 less across than 300 (the border on both sides)
+    // and the padding of the element is the editor's to put before its text.
+    assert_eq!(
+        (room.rect.x - element.x, room.rect.y - element.y),
+        (2.0, 2.0)
+    );
+    assert_eq!((room.rect.w, room.rect.h), (296.0, 146.0));
+    assert_eq!(room.inset, [4.0; 4]);
+    Ok(())
+}

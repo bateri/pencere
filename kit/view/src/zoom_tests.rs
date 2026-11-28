@@ -488,6 +488,49 @@ fn an_ask_of_a_box_that_says_no_zoom_is_answered_where_it_is_first_laid_out() {
     assert_eq!((told[0].id, told[0].zoom), (OTHER, 1.0));
 }
 
+const OUTER: Id = Id::new(5);
+
+/// A box that may be zoomed under 60 points of a list that scrolls: the list is 100 high, the box 100
+/// with 20 rows of 20 points.
+fn under_a_list(rule: Zoom) -> Element {
+    div()
+        .id(OUTER)
+        .col()
+        .size(200.0, 100.0)
+        .scroll()
+        .child(div().h(60.0).no_shrink())
+        .child(
+            div()
+                .id(BOX)
+                .col()
+                .size(200.0, 100.0)
+                .no_shrink()
+                .scroll()
+                .zoom(rule)
+                .children((0..20).map(|n| div().h(20.0).no_shrink().press(Id::new(100 + n)))),
+        )
+}
+
+#[test]
+fn a_pinch_in_a_box_that_the_list_it_is_in_moved_since_the_page_was_laid_out_holds_where_it_is_now()
+{
+    let rule = Zoom::default();
+    let mut scrolls = Scrolls::new();
+    let mut laid = placed(&mut scrolls, under_a_list(rule), 0.0);
+    // The list is turned over its first 60 points, so that the box is 40 up, and the page is placed
+    // again without being laid out.
+    scrolls.wheel(&laid, Point::new(50.0, 30.0), 0.0, 40.0, Phase::Wheel, 0.1);
+    scrolls.place(&mut laid, 0.1, false);
+    assert!(near(laid.bounds(BOX).map_or(f32::NAN, |r| r.y), 20.0));
+    // The third row's top is under the fingers (40 into the box).
+    pinch(&mut scrolls, &laid, Point::new(50.0, 60.0), &[1.0]);
+    scrolls.magnify(&laid, Point::new(50.0, 60.0), 0.0, GesturePhase::End, 0.1);
+    scrolls.advance_zoom(0.2);
+    let laid = placed(&mut scrolls, under_a_list(rule), 0.2);
+    assert!(near(scrolls.zoom_of(BOX), 2.0));
+    assert!(near(row_y(&laid, 2), 60.0), "{}", row_y(&laid, 2));
+}
+
 /// Three rows of 20 points with a gap of 10 between them, in a box that may be zoomed.
 fn gapped(rule: Option<Zoom>) -> Element {
     let mut inner = div().id(BOX).col().size(200.0, 100.0).scroll().gap(10.0);
